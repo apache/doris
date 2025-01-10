@@ -173,26 +173,11 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-class DependencyWithStack : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    DependencyWithStack(int id, int node_id, std::string name, bool ready = false)
-            : Dependency(id, node_id, name, ready) {}
-
-    void set_ready() override {
-        _stack_set_ready = get_stack_trace();
-        Dependency::set_ready();
-    }
-
-protected:
-    std::string _stack_set_ready;
-};
-
-class CountedFinishDependency final : public DependencyWithStack {
+class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : DependencyWithStack(id, node_id, name, true) {}
+            : Dependency(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -627,7 +612,6 @@ struct HashJoinSharedState : public JoinSharedState {
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    bool probe_ignore_null = false;
 };
 
 struct PartitionedHashJoinSharedState
@@ -676,7 +660,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetDataVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetDataVariants> hash_table_variants =
+            std::make_unique<SetDataVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     // The SET operator's child might have different nullable attributes.
@@ -738,8 +723,7 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
     case ExchangeType::LOCAL_MERGE_SORT:
         return "LOCAL_MERGE_SORT";
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
@@ -773,7 +757,7 @@ public:
         }
     }
     void sub_running_sink_operators();
-    void sub_running_source_operators(LocalExchangeSourceLocalState& local_state);
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
             DCHECK(dep);

@@ -231,6 +231,7 @@ DEFINE_Int32(check_consistency_worker_count, "1");
 DEFINE_Int32(upload_worker_count, "1");
 // the count of thread to download
 DEFINE_Int32(download_worker_count, "1");
+DEFINE_Int32(num_query_ctx_map_partitions, "128");
 // the count of thread to make snapshot
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
@@ -250,6 +251,8 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
+// whether to download small files in batch
+DEFINE_mBool(enable_batch_download, "true");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -453,7 +456,7 @@ DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 DEFINE_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
-DEFINE_mInt64(total_permits_for_compaction_score, "10000");
+DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
 
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
@@ -526,7 +529,7 @@ DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
-DEFINE_Int32(webserver_num_workers, "48");
+DEFINE_Int32(webserver_num_workers, "128");
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
@@ -610,7 +613,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
-DEFINE_mString(je_dirty_pages_mem_limit_percent, "2%");
+DEFINE_mInt32(je_dirty_decay_ms, "5000");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -912,7 +915,7 @@ DEFINE_String(rpc_load_balancer, "rr");
 
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
-DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
+DEFINE_Int32(string_type_length_soft_limit_bytes, "1048576");
 
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
@@ -988,7 +991,7 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
-DEFINE_Int32(segcompaction_batch_size, "10");
+DEFINE_mInt32(segcompaction_batch_size, "10");
 
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");
@@ -1209,10 +1212,12 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
-DEFINE_mString(doris_cgroup_cpu_path, "");
+DEFINE_String(doris_cgroup_cpu_path, "");
 
 DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+
+DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
@@ -1398,6 +1403,9 @@ DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
+DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
+
+DEFINE_mInt32(compaction_num_per_round, "1");
 
 // clang-format off
 #ifdef BE_TEST

@@ -34,6 +34,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
@@ -282,8 +283,15 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         // if version or compaction stats can't match, it means that this is a retry and there are
         // compaction or other loads finished successfully on the same tablet. So the previous publish
         // is stale and we should re-calculate the delete bitmap
+
+        // we still need to update delete bitmap KVs to MS when we skip to calcalate delete bitmaps,
+        // because the pending delete bitmap KVs in MS we wrote before may have been removed and replaced by other txns
+        int64_t lock_id = txn_info.is_txn_load ? txn_info.lock_id : -1;
+        RETURN_IF_ERROR(
+                tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap, lock_id));
+
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
-                  << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
+                  << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
     } else {
         if (invisible_rowsets == nullptr) {
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
@@ -325,4 +333,5 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     return status;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

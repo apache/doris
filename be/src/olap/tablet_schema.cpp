@@ -973,10 +973,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
-    _cluster_key_idxes.clear();
+    _cluster_key_uids.clear();
     clear_column_cache_handlers();
-    for (const auto& i : schema.cluster_key_idxes()) {
-        _cluster_key_idxes.push_back(i);
+    for (const auto& i : schema.cluster_key_uids()) {
+        _cluster_key_uids.push_back(i);
     }
     for (auto& column_pb : schema.column()) {
         TabletColumnPtr column;
@@ -1064,6 +1064,21 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     _table_id = tablet_schema.table_id();
 }
 
+void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schema) {
+    *this = tablet_schema;
+    _field_path_to_index.clear();
+    _field_name_to_index.clear();
+    _field_id_to_index.clear();
+    _num_columns = 0;
+    _num_variant_columns = 0;
+    _num_null_columns = 0;
+    _num_key_columns = 0;
+    _cols.clear();
+    _vl_field_mem_size = 0;
+    // notice : do not ref columns
+    _column_cache_handlers.clear();
+}
+
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
     for (auto& col : _cols) {
         if (col->unique_id() < 0) {
@@ -1124,10 +1139,10 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sequence_col_idx = -1;
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
-    _cluster_key_idxes.clear();
+    _cluster_key_uids.clear();
     clear_column_cache_handlers();
-    for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
-        _cluster_key_idxes.push_back(i);
+    for (const auto& i : ori_tablet_schema._cluster_key_uids) {
+        _cluster_key_uids.push_back(i);
     }
     for (auto& column : index->columns) {
         if (column->is_key()) {
@@ -1235,8 +1250,8 @@ void TabletSchema::reserve_extracted_columns() {
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
-    for (const auto& i : _cluster_key_idxes) {
-        tablet_schema_pb->add_cluster_key_idxes(i);
+    for (const auto& i : _cluster_key_uids) {
+        tablet_schema_pb->add_cluster_key_uids(i);
     }
     tablet_schema_pb->set_keys_type(_keys_type);
     for (const auto& col : _cols) {

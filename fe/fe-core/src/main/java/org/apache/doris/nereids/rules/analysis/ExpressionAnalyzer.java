@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -77,12 +79,14 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -367,6 +371,26 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (unboundFunction.isHighOrder()) {
             unboundFunction = bindHighOrderFunction(unboundFunction, context);
         } else {
+            // NOTICE: some trick code here. because below functions
+            //  TIMESTAMPADD / DATEDIFF / TIMESTAMPADD / DATEADD
+            //  the first argument of them is TimeUnit, but is cannot distinguish with UnboundSlot in parser.
+            //  So, convert the UnboundSlot to a fake SlotReference with ExprId = -1 here
+            //  And, the SlotReference will be processed in DatetimeFunctionBinder
+            if (StringUtils.isEmpty(unboundFunction.getDbName())
+                    && DatetimeFunctionBinder.TIMESTAMP_SERIES_FUNCTION_NAMES.contains(
+                            unboundFunction.getName().toUpperCase())
+                    && unboundFunction.arity() == 3
+                    && unboundFunction.child(0) instanceof UnboundSlot) {
+                SlotReference slotReference = new SlotReference(new ExprId(-1),
+                        ((UnboundSlot) unboundFunction.child(0)).getName(),
+                        TinyIntType.INSTANCE, true, ImmutableList.of());
+                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+                newChildrenBuilder.add(slotReference);
+                for (int i = 1; i < unboundFunction.arity(); i++) {
+                    newChildrenBuilder.add(unboundFunction.child(i));
+                }
+                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+            }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
 
@@ -383,10 +407,28 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
             // to the corresponding objects rather than BoundFunction.
-            ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
-            if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
-                return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
-                        .accept(this, context);
+            if (ArithmeticFunctionBinder.INSTANCE.isBinaryArithmetic(unboundFunction.getName())) {
+                Expression ret = ArithmeticFunctionBinder.INSTANCE.bindBinaryArithmetic(
+                        unboundFunction.getName(), unboundFunction.children());
+                if (ret instanceof Divide) {
+                    return TypeCoercionUtils.processDivide((Divide) ret);
+                } else if (ret instanceof IntegralDivide) {
+                    return TypeCoercionUtils.processIntegralDivide((IntegralDivide) ret);
+                } else if ((ret instanceof BinaryArithmetic)) {
+                    return TypeCoercionUtils.processBinaryArithmetic((BinaryArithmetic) ret);
+                } else if (ret instanceof BitNot) {
+                    return TypeCoercionUtils.processBitNot((BitNot) ret);
+                } else {
+                    return ret;
+                }
+            }
+            if (DatetimeFunctionBinder.INSTANCE.isDatetimeFunction(unboundFunction.getName())) {
+                Expression ret = DatetimeFunctionBinder.INSTANCE.bind(unboundFunction);
+                if (ret instanceof BoundFunction) {
+                    return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
+                } else {
+                    return ret;
+                }
             }
         }
 
@@ -405,6 +447,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
+
+        if (!buildResult.second.isDeterministic() && context != null) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            statementContext.setHasNondeterministic(true);
+        }
         if (wantToParseSqlFromSqlCache) {
             StatementContext statementContext = context.cascadesContext.getStatementContext();
             if (!buildResult.second.isDeterministic()) {
@@ -468,11 +515,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
         Expression child = bitNot.child().accept(this, context);
-        // type coercion
-        if (!(child.getDataType().isIntegralType() || child.getDataType().isBooleanType())) {
-            child = new Cast(child, BigIntType.INSTANCE);
-        }
-        return bitNot.withChildren(child);
+        return TypeCoercionUtils.processBitNot((BitNot) bitNot.withChildren(child));
     }
 
     @Override
@@ -583,10 +626,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
+    // Register prepared statement placeholder id to related slot in comparison predicate.
+    // Used to replace expression in ShortCircuit plan
+    private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
+                    ExpressionRewriteContext context, Expression left, Expression right) {
+        if (ConnectContext.get() != null
+                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            // Used to replace expression in ShortCircuit plan
+            if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
+            } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
+            }
+        }
+    }
+
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
+        // Used to replace expression in ShortCircuit plan
+        registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
@@ -833,8 +895,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .map(ArrayItemReference::toSlot)
                 .collect(ImmutableList.toImmutableList());
 
-        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(boundedSlots),
-                context == null ? null : context.cascadesContext, true, false) {
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
+                boundedSlots), context == null ? null : context.cascadesContext,
+                true, true) {
             @Override
             protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
                 throw new AnalysisException("Unknown lambda slot '"

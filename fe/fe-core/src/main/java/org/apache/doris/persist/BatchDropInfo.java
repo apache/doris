@@ -86,6 +86,10 @@ public class BatchDropInfo implements Writable {
         return indexIdSet;
     }
 
+    public boolean hasIndexNameMap() {
+        return indexNameMap != null;
+    }
+
     public Map<Long, String> getIndexNameMap() {
         return indexNameMap;
     }

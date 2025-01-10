@@ -192,12 +192,34 @@ public class ExpressionUtils {
         return optionalAnd(ImmutableList.copyOf(collection));
     }
 
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Collection<Expression> expressions) {
-        return combineAsLeftDeepTree(And.class, expressions);
+        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (expression.equals(BooleanLiteral.FALSE)) {
+                return BooleanLiteral.FALSE;
+            } else if (!expression.equals(BooleanLiteral.TRUE)) {
+                distinctExpressions.add(expression);
+            }
+        }
+
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        if (exprList.isEmpty()) {
+            return BooleanLiteral.TRUE;
+        } else if (exprList.size() == 1) {
+            return exprList.get(0);
+        } else {
+            return new And(exprList);
+        }
     }
 
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Expression... expressions) {
-        return combineAsLeftDeepTree(And.class, Lists.newArrayList(expressions));
+        return and(Lists.newArrayList(expressions));
     }
 
     public static Optional<Expression> optionalOr(List<Expression> expressions) {
@@ -208,12 +230,50 @@ public class ExpressionUtils {
         }
     }
 
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Expression... expressions) {
-        return combineAsLeftDeepTree(Or.class, Lists.newArrayList(expressions));
+        return or(Lists.newArrayList(expressions));
     }
 
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Collection<Expression> expressions) {
-        return combineAsLeftDeepTree(Or.class, expressions);
+        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (expression.equals(BooleanLiteral.TRUE)) {
+                return BooleanLiteral.TRUE;
+            } else if (!expression.equals(BooleanLiteral.FALSE)) {
+                distinctExpressions.add(expression);
+            }
+        }
+
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        if (exprList.isEmpty()) {
+            return BooleanLiteral.FALSE;
+        } else if (exprList.size() == 1) {
+            return exprList.get(0);
+        } else {
+            return new Or(exprList);
+        }
+    }
+
+    public static Expression falseOrNull(Expression expression) {
+        if (expression.nullable()) {
+            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
+        } else {
+            return BooleanLiteral.FALSE;
+        }
+    }
+
+    public static Expression trueOrNull(Expression expression) {
+        if (expression.nullable()) {
+            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
+        } else {
+            return BooleanLiteral.TRUE;
+        }
     }
 
     /**
@@ -360,7 +420,7 @@ public class ExpressionUtils {
     /**
      * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
-    public static Map<Slot, Expression> generateReplaceMap(List<NamedExpression> namedExpressions) {
+    public static Map<Slot, Expression> generateReplaceMap(List<? extends NamedExpression> namedExpressions) {
         Map<Slot, Expression> replaceMap = Maps.newLinkedHashMapWithExpectedSize(namedExpressions.size());
         for (NamedExpression namedExpression : namedExpressions) {
             if (namedExpression instanceof Alias) {
@@ -403,6 +463,31 @@ public class ExpressionUtils {
         });
     }
 
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: d -> b + c, transferMap: a -> d
+     * firstly try to get mapping expression from replaceMap by a, if can not then
+     * get mapping d from transferMap by a
+     * and get mapping b + c from replaceMap by d
+     * output:
+     * b + c > 1
+     * </pre>
+     */
+    public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<? extends Expression, ? extends Expression> transferMap) {
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr != null) {
+                return replacedExpr;
+            }
+            replacedExpr = replaceMap.get(transferMap.get(e));
+            return replacedExpr == null ? e : replacedExpr;
+        });
+    }
+
     public static List<Expression> replace(List<Expression> exprs,
             Map<? extends Expression, ? extends Expression> replaceMap) {
         ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
@@ -424,7 +509,7 @@ public class ExpressionUtils {
     /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      */
-    public static List<NamedExpression> replaceNamedExpressions(List<NamedExpression> namedExpressions,
+    public static List<NamedExpression> replaceNamedExpressions(List<? extends NamedExpression> namedExpressions,
             Map<? extends Expression, ? extends Expression> replaceMap) {
         Builder<NamedExpression> replaceExprs = ImmutableList.builderWithExpectedSize(namedExpressions.size());
         for (NamedExpression namedExpression : namedExpressions) {

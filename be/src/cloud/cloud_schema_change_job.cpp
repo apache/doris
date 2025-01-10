@@ -169,6 +169,15 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
     reader_context.version = Version(0, start_resp.alter_version());
+    std::vector<uint32_t> cluster_key_idxes;
+    if (!_base_tablet_schema->cluster_key_uids().empty()) {
+        for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+            cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+        }
+        reader_context.read_orderby_key_columns = &cluster_key_idxes;
+        reader_context.is_unique = false;
+        reader_context.sequence_id_idx = -1;
+    }
 
     for (auto& split : rs_splits) {
         RETURN_IF_ERROR(split.rs_reader->init(&reader_context));
@@ -274,7 +283,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
+        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
+        bool vertical = false;
+        if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
+            // see VBaseSchemaChangeWithSorting::_external_sorting
+            vertical = true;
+        }
+        auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, vertical));
 
         RowsetMetaSharedPtr existed_rs_meta;
         auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),

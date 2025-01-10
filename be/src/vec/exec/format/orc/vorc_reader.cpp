@@ -143,7 +143,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
+                     bool enable_lazy_mat)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -156,8 +156,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
-          _dict_cols_has_converted(false),
-          _unsupported_pushdown_types(unsupported_pushdown_types) {
+          _dict_cols_has_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -460,7 +459,8 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::DOUBLE, orc::PredicateDataType::FLOAT},
         {orc::TypeKind::STRING, orc::PredicateDataType::STRING},
         {orc::TypeKind::BINARY, orc::PredicateDataType::STRING},
-        {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
+        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
+        // {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::VARCHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::DATE, orc::PredicateDataType::DATE},
         {orc::TypeKind::DECIMAL, orc::PredicateDataType::DECIMAL},
@@ -492,8 +492,9 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             [[fallthrough]];
         case orc::TypeKind::BINARY:
             [[fallthrough]];
-        case orc::TypeKind::CHAR:
-            [[fallthrough]];
+        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
+        // case orc::TypeKind::CHAR:
+        //     [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
         }
@@ -586,10 +587,22 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
         // only get the predicate_type
         return std::make_tuple(true, orc::Literal(true), predicate_type);
     }
+    // this only happens when the literals of in_predicate contains null value, like in (1, null)
+    if (literal->get_column_ptr()->is_null_at(0)) {
+        return std::make_tuple(false, orc::Literal(false), predicate_type);
+    }
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
-    switch (slot_type.type) {
+    auto primitive_type = slot_type.type;
+    auto src_type = OrcReader::convert_to_doris_type(orc_type).type;
+    // should not down predicate for string type change from other type
+    if (src_type != primitive_type && !is_string_type(src_type) && is_string_type(primitive_type)) {
+        LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << primitive_type << " to "
+                     << src_type;
+        return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
+    }
+    switch (primitive_type) {
 #define M(NAME)                                                                \
     case TYPE_##NAME: {                                                        \
         auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(       \
@@ -602,7 +615,6 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     M(INT)                          \
     M(BIGINT)                       \
     M(LARGEINT)                     \
-    M(CHAR)                         \
     M(DATE)                         \
     M(DATETIME)                     \
     M(DATEV2)                       \
@@ -666,12 +678,13 @@ bool OrcReader::_check_rest_children_can_push_down(const VExprSPtr& expr) {
         return false;
     }
 
+    bool at_least_one_child_can_push_down = false;
     for (size_t i = 1; i < expr->children().size(); ++i) {
-        if (!_check_literal_can_push_down(expr, i)) {
-            return false;
+        if (_check_literal_can_push_down(expr, i)) {
+            at_least_one_child_can_push_down = true;
         }
     }
-    return true;
+    return at_least_one_child_can_push_down;
 }
 
 // check if the expr can be pushed down to orc reader
@@ -774,12 +787,17 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
     for (size_t i = 1; i < expr->children().size(); ++i) {
         DCHECK(expr->children()[i]->is_literal());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-        DCHECK(_vliteral_to_orc_literal.contains(literal));
-        auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-        literals.emplace_back(orc_literal);
+        if (_vliteral_to_orc_literal.contains(literal)) {
+            auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+            literals.emplace_back(orc_literal);
+        }
     }
     DCHECK(!literals.empty());
-    builder->in(slot_ref->expr_name(), predicate_type, literals);
+    if (literals.size() == 1) {
+        builder->equals(slot_ref->expr_name(), predicate_type, literals[0]);
+    } else {
+        builder->in(slot_ref->expr_name(), predicate_type, literals);
+    }
 }
 
 void OrcReader::_build_is_null(const VExprSPtr& expr,
@@ -1193,8 +1211,8 @@ Status OrcReader::_fill_missing_columns(
     for (auto& kv : missing_columns) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                    (*std::move(block->get_by_name(kv.first).column)).mutate().get());
+            auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
+            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -1208,8 +1226,9 @@ Status OrcReader::_fill_missing_columns(
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                std::move(*block->get_by_position(result_column_id).column).mutate()->resize(rows);
                 auto result_column_ptr = block->get_by_position(result_column_id).column;
+                auto mutable_column = result_column_ptr->assume_mutable();
+                mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = block->get_by_name(kv.first).type;
@@ -1693,7 +1712,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         col_name);
             }
             reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
-                    ->insert_null_elements(num_values);
+                    ->insert_many_defaults(num_values);
         }
 
         for (auto read_field : read_fields) {

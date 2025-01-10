@@ -26,9 +26,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 public enum RuleType {
     // just for UT
     TEST_REWRITE(RuleTypeClass.REWRITE),
-    // binding rules
 
-    // **** make sure BINDING_UNBOUND_LOGICAL_PLAN is the lowest priority in the rewrite rules. ****
+    // collect relation rules
+    COLLECT_TABLE_FROM_CTE(RuleTypeClass.REWRITE),
+    COLLECT_TABLE_FROM_RELATION(RuleTypeClass.REWRITE),
+    COLLECT_TABLE_FROM_SINK(RuleTypeClass.REWRITE),
+    COLLECT_TABLE_FROM_OTHER(RuleTypeClass.REWRITE),
+
+    // binding rules
     BINDING_RESULT_SINK(RuleTypeClass.REWRITE),
     BINDING_INSERT_HIVE_TABLE(RuleTypeClass.REWRITE),
     BINDING_INSERT_ICEBERG_TABLE(RuleTypeClass.REWRITE),
@@ -57,6 +62,7 @@ public enum RuleType {
     BINDING_UNBOUND_TVF_RELATION_FUNCTION(RuleTypeClass.REWRITE),
     BINDING_SET_OPERATION_SLOT(RuleTypeClass.REWRITE),
     BINDING_INLINE_TABLE_SLOT(RuleTypeClass.REWRITE),
+    LOGICAL_INLINE_TABLE_TO_LOGICAL_UNION_OR_ONE_ROW_RELATION(RuleTypeClass.REWRITE),
 
     COUNT_LITERAL_REWRITE(RuleTypeClass.REWRITE),
     SUM_LITERAL_REWRITE(RuleTypeClass.REWRITE),
@@ -108,6 +114,11 @@ public enum RuleType {
     // rewrite rules
     COMPRESSED_MATERIALIZE_AGG(RuleTypeClass.REWRITE),
     COMPRESSED_MATERIALIZE_SORT(RuleTypeClass.REWRITE),
+    COMPRESSED_MATERIALIZE_REPEAT(RuleTypeClass.REWRITE),
+    PUSH_DOWN_ENCODE_SLOT(RuleTypeClass.REWRITE),
+    ADJUST_TOPN_PROJECT(RuleTypeClass.REWRITE),
+    DECOUPLE_DECODE_ENCODE_SLOT(RuleTypeClass.REWRITE),
+    SIMPLIFY_ENCODE_DECODE(RuleTypeClass.REWRITE),
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     NORMALIZE_SORT(RuleTypeClass.REWRITE),
     NORMALIZE_REPEAT(RuleTypeClass.REWRITE),
@@ -211,6 +222,7 @@ public enum RuleType {
     TRANSPOSE_LOGICAL_SEMI_JOIN_AGG_PROJECT(RuleTypeClass.REWRITE),
 
     // expression of plan rewrite
+    EXTRACT_IN_PREDICATE_FROM_OR(RuleTypeClass.REWRITE),
     REWRITE_ONE_ROW_RELATION_EXPRESSION(RuleTypeClass.REWRITE),
     REWRITE_PROJECT_EXPRESSION(RuleTypeClass.REWRITE),
     REWRITE_AGG_EXPRESSION(RuleTypeClass.REWRITE),
@@ -315,6 +327,7 @@ public enum RuleType {
     MERGE_TOP_N(RuleTypeClass.REWRITE),
     BUILD_AGG_FOR_UNION(RuleTypeClass.REWRITE),
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
+    SPLIT_MULTI_DISTINCT(RuleTypeClass.REWRITE),
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
     CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
     PRUNE_EMPTY_PARTITION(RuleTypeClass.REWRITE),
@@ -490,8 +503,7 @@ public enum RuleType {
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
 
     // sentinel, use to count rules
-    SENTINEL(RuleTypeClass.SENTINEL),
-    ;
+    SENTINEL(RuleTypeClass.SENTINEL);
 
     private final RuleTypeClass ruleTypeClass;
 

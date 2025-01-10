@@ -160,4 +160,30 @@ suite("test_ip_basic") {
     qt_sql """ select * from table_ip where col0 = 1"""
     sql """ Update table_ip set col25 = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' where col0 = 1 """
     qt_sql """ select * from table_ip where col0 = 1"""
+
+    // test ip with default value
+    sql """ DROP TABLE IF EXISTS table_ip_default """
+    sql """ CREATE TABLE IF NOT EXISTS `table_ip_default` (`col0` bigint NOT NULL, `col4` ipv6 NULL DEFAULT "::",   `col24` ipv4 NULL DEFAULT "127.0.0.1") ENGINE=OLAP UNIQUE KEY(`col0`) DISTRIBUTED BY HASH(`col0`) BUCKETS 4 PROPERTIES ("replication_allocation" = "tag.location.default: 1") """
+    sql """ insert into table_ip_default values (1, "5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b", "0.0.0.1") """
+    sql """ insert into table_ip_default(col0) values (2); """
+    qt_sql """ select * from table_ip_default order by col0"""
+    // add cases for default value to make sure in all cases, the default value is not lost.
+    // show create table
+    // desc table
+    // create table like
+    // insert into table
+    // alter new ip column with default value
+    def result = sql """ show create table table_ip_default """
+    log.info("show result : ${result}")
+    assertTrue(result.toString().containsIgnoreCase("`col4` ipv6 NULL DEFAULT \"::\""))
+    assertTrue(result.toString().containsIgnoreCase("`col24` ipv4 NULL DEFAULT \"127.0.0.1\""))
+    qt_sql """ desc table_ip_default all"""
+    sql """ DROP TABLE IF EXISTS table_ip_default_like """
+    sql """ create table table_ip_default_like like table_ip_default """
+    qt_sql """ desc table_ip_default_like all"""
+    qt_sql """ insert into table_ip_default_like select * from table_ip_default """
+    qt_sql """ select * from table_ip_default_like order by col0 """
+    qt_sql """ alter table table_ip_default_like add column col25 ipv6 NULL DEFAULT "::" """
+    qt_sql """ alter table table_ip_default_like add column col26 ipv4 NULL DEFAULT "127.0.0.1" """
+    qt_sql """ select * from table_ip_default_like order by col0 """
 }

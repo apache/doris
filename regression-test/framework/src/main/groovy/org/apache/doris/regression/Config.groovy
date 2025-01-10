@@ -1028,10 +1028,14 @@ class Config {
             excludeDirectorySet.add("fault_injection_p0/partial_update")
             excludeDirectorySet.add("fault_injection_p0/flexible")
             excludeDirectorySet.add("doc")
-            excludeDirectorySet.add("schema_change_p0/unique_ck")
+            excludeDirectorySet.add("schema_change")
+            excludeDirectorySet.add("schema_change_p0")
+            excludeDirectorySet.add("schema_change_p2")
             List<String> excludeCases = ["test_table_properties", "test_create_table"
                 , "test_default_hll", "test_default_pi", "test_default_bitmap_empty"
                 , "test_full_compaction", "test_full_compaction_by_table_id"
+                // schema change
+                , "test_alter_muti_modify_column"
                 // partial update
                 , "txn_insert", "test_update_schema_change", "test_generated_column_update", "test_nested_type_with_rowstore", "test_partial_update_generated_column", "nereids_partial_update_native_insert_stmt"
                 , "partial_update", "nereids_update_on_current_timestamp", "update_on_current_timestamp", "nereids_delete_mow_partial_update", "delete_mow_partial_update", "test_unique_table_auto_inc"

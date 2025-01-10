@@ -1312,9 +1312,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                                     ? localTbl.getCopiedIndexes() : null;
-            List<Integer> clusterKeyIndexes = null;
+            List<Integer> clusterKeyUids = null;
             if (indexMeta.getIndexId() == localTbl.getBaseIndexId() || localTbl.isShadowIndex(indexMeta.getIndexId())) {
-                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(indexMeta.getSchema());
+                clusterKeyUids = OlapTable.getClusterKeyUids(indexMeta.getSchema());
             }
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
@@ -1363,11 +1363,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
                                 baseTabletRef.tabletId, restoreReplica.getId(), jobId, restoreTablet.getId());
                     }
-                    if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                        task.setClusterKeyIndexes(clusterKeyIndexes);
-                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
+                    if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                        task.setClusterKeyUids(clusterKeyUids);
+                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",
                                 localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId(),
-                                clusterKeyIndexes);
+                                clusterKeyUids);
                     }
                     batchTask.addTask(task);
                 }

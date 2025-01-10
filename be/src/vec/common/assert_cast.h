@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <typeinfo>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "vec/common/demangle.h"
 
@@ -45,35 +46,33 @@ PURE To assert_cast(From&& from) {
                 if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
                     return ptr;
                 }
-                LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
-                                          demangle(typeid(*from).name()),
-                                          demangle(typeid(To).name()));
+                throw doris::Exception(doris::Status::FatalError("Bad cast from type:{}* to {}",
+                                                                 demangle(typeid(*from).name()),
+                                                                 demangle(typeid(To).name())));
             }
         } else {
             if (typeid(from) == typeid(To)) {
                 return static_cast<To>(from);
             }
         }
-        LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
-                                  demangle(typeid(To).name()));
-        __builtin_unreachable();
+        throw doris::Exception(doris::Status::FatalError("Bad cast from type:{} to {}",
+                                                         demangle(typeid(from).name()),
+                                                         demangle(typeid(To).name())));
     };
 
 #ifndef NDEBUG
     try {
         return perform_cast(std::forward<From>(from));
     } catch (const std::exception& e) {
-        LOG(FATAL) << "assert cast err:" << e.what();
+        throw doris::Exception(doris::Status::FatalError("assert cast err:{}", e.what()));
     }
-    __builtin_unreachable();
 #else
     if constexpr (check == TypeCheckOnRelease::ENABLE) {
         try {
             return perform_cast(std::forward<From>(from));
         } catch (const std::exception& e) {
-            LOG(FATAL) << "assert cast err:" << e.what();
+            throw doris::Exception(doris::Status::FatalError("assert cast err:{}", e.what()));
         }
-        __builtin_unreachable();
     } else {
         return static_cast<To>(from);
     }

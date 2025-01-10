@@ -25,6 +25,7 @@
 #include "vec/common/sort/topn_sorter.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -71,6 +72,11 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     _shared_state->sorter->init_profile(_profile);
 
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+    _profile->add_info_string(
+            "SortAlgorithm",
+            p._algorithm == TSortAlgorithm::HEAP_SORT
+                    ? "HEAP_SORT"
+                    : (p._algorithm == TSortAlgorithm::TOPN_SORT ? "TOPN_SORT" : "FULL_SORT"));
     return Status::OK();
 }
 
@@ -176,4 +182,5 @@ void SortSinkOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     local_state._shared_state->sorter->reset();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

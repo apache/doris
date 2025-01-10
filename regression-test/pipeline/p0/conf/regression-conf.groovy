@@ -69,7 +69,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
-    "test_stream_stub_fault_injection," +
     "test_index_compaction_failure_injection," +
     "test_full_compaction_run_status," +
     "test_topn_fault_injection," + 
@@ -81,6 +80,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
+    "plsql_p0," + // plsql is not developped any more, add by sk
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"

@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -62,6 +63,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -362,13 +365,12 @@ public class OneRangePartitionEvaluator<K>
         if (exprRanges.containsKey(inPredicate.getCompareExpr())
                 && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
             Expression compareExpr = inPredicate.getCompareExpr();
-            ColumnRange unionLiteralRange = ColumnRange.empty();
             ColumnRange compareExprRange = result.childrenResult.get(0).columnRanges.get(compareExpr);
+            RangeSet<ColumnBound> union = TreeRangeSet.create();
             for (Expression expr : inPredicate.getOptions()) {
-                unionLiteralRange = unionLiteralRange.union(
-                        compareExprRange.intersect(ColumnRange.singleton((Literal) expr)));
+                union.addAll(compareExprRange.intersect(ColumnRange.singleton((Literal) expr)).asRanges());
             }
-            result = intersectSlotRange(result, exprRanges, compareExpr, unionLiteralRange);
+            result = intersectSlotRange(result, exprRanges, compareExpr, new ColumnRange(union));
         }
         result = result.withRejectNot(false);
         return result;
@@ -807,22 +809,30 @@ public class OneRangePartitionEvaluator<K>
                 : new NonNullable(funcChild));
         partitionSlotContainsNull.put((Expression) func, withNullable.nullable());
 
-        if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
+        if (!result.childrenResult.get(childIndex).columnRanges.containsKey(funcChild)) {
             return result;
         }
-        ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
+        ColumnRange childRange = result.childrenResult.get(childIndex).columnRanges.get(funcChild);
         if (childRange.isEmptyRange() || childRange.asRanges().size() != 1
                 || (!childRange.span().hasLowerBound() && !childRange.span().hasUpperBound())) {
             return result;
         }
         Range<ColumnBound> span = childRange.span();
+        // null means positive infinity or negative infinity
         Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
         Literal upper = span.hasUpperBound() && !(span.upperEndpoint().getValue() instanceof MaxLiteral)
                 ? span.upperEndpoint().getValue() : null;
+        if (!func.isMonotonic(lower, upper)) {
+            return result;
+        }
         Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
                 expressionRewriteContext) : null;
+        if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
+            return result;
+        }
+
         if (!func.isPositive()) {
             Expression temp = lowerValue;
             lowerValue = upperValue;
@@ -842,9 +852,21 @@ public class OneRangePartitionEvaluator<K>
             if (upperValue instanceof Literal) {
                 newRange = newRange.withUpperBound((Literal) upperValue);
             }
+            if (newRange.isEmptyRange() || !newRange.span().hasLowerBound() && !newRange.span().hasUpperBound()) {
+                return result;
+            }
             context.rangeMap.put((Expression) func, newRange);
             newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
         }
+    }
+
+    // only allow literal(except NullLiteral) and null
+    private boolean checkFoldConstantValueIsValid(Expression lowerValue, Expression upperValue) {
+        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+            return false;
+        }
+        return (lowerValue == null || lowerValue instanceof Literal)
+                && (upperValue == null || upperValue instanceof Literal);
     }
 }

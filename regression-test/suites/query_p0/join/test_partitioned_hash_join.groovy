@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partitioned_hash_join", "query,p0") {
+suite("test_partitioned_hash_join", "query,p0,arrow_flight_sql") {
     sql "drop table if exists test_partitioned_hash_join_l"
     sql "drop table if exists test_partitioned_hash_join_r"
     sql """ create table test_partitioned_hash_join_l (
@@ -65,7 +65,7 @@ suite("test_partitioned_hash_join", "query,p0") {
 
     qt_partitioned_hash_join1 """
         select
-            /*+SET_VAR(disable_join_reorder=true,experimental_enable_pipeline_engine=false, parallel_fragment_exec_instance_num=1, partitioned_hash_join_rows_threshold = 1)*/
+            /*+SET_VAR(disable_join_reorder=true,experimental_enable_pipeline_engine=false)*/
             kl1
         from
             test_partitioned_hash_join_l

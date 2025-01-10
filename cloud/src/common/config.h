@@ -54,21 +54,27 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
+// Custom conf path is default the same as conf path, and configs will be append to it.
+// Otherwise, will a new custom conf file will be created.
+CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
 CONF_Int32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
+CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
+// IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
+// s3_producer_pool recycle_tablet_pool, delete single object in this pool
 CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
@@ -86,6 +92,10 @@ CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+
+// force recycler to recycle all useless object.
+// **just for TEST**
+CONF_Bool(force_immediate_recycle, "false");
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -230,4 +240,7 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_mInt64(max_num_aborted_txn, "100");
 
 CONF_Bool(enable_check_instance_id, "true");
+
+// Check if ip eq 127.0.0.1, ms/recycler exit
+CONF_Bool(enable_loopback_address_for_ms, "false");
 } // namespace doris::cloud::config

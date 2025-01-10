@@ -313,6 +313,11 @@ public class CreateTableInfo {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
+            if (columnDef.getType().isVariantType() && columnNameUpperCase.indexOf('.') != -1) {
+                throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
+            }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -377,8 +382,7 @@ public class CreateTableInfo {
                                 }
                                 break;
                             }
-                            if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                                    || catalogType.isComplexType() || catalogType.isVariantType()) {
+                            if (!catalogType.couldBeShortKey()) {
                                 break;
                             }
                             keys.add(column.getName());
@@ -535,7 +539,7 @@ public class CreateTableInfo {
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
                             + "only be set in merge-on-write unique table.");
                 }
                 // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
@@ -613,7 +617,6 @@ public class CreateTableInfo {
                     throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
                 }
                 columnDef.setIsKey(true);
-                columnDef.setAggType(AggregateType.NONE);
             }
             // TODO: support iceberg partition check
             if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
@@ -643,10 +646,12 @@ public class CreateTableInfo {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
             boolean disableInvertedIndexV1ForVariant = false;
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
-                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
-                                && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                        new HashMap<>(properties));
+                disableInvertedIndexV1ForVariant = invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                        && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -662,7 +667,7 @@ public class CreateTableInfo {
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
-                                                                disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat, disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }

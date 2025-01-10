@@ -181,7 +181,7 @@ public:
                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
 
     static Status commit_phase_update_delete_bitmap(
@@ -276,10 +276,13 @@ public:
     // Find the first consecutive empty rowsets. output->size() >= limit
     void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                                        int limit);
+                                        int64_t limit);
 
     // Return the merged schema of all rowsets
-    virtual TabletSchemaSPtr merged_tablet_schema() const { return _max_version_schema; }
+    virtual TabletSchemaSPtr merged_tablet_schema() const {
+        std::shared_lock rlock(_meta_lock);
+        return _max_version_schema;
+    }
 
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {

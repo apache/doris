@@ -18,6 +18,7 @@
 #include "olap/rowset/beta_rowset.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -41,6 +42,7 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/crc32c.h"
@@ -67,13 +69,27 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::do_load(bool /*use_cache*/) {
-    // do nothing.
-    // the segments in this rowset will be loaded by calling load_segments() explicitly.
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
+    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
+        auto segment_count = num_segments();
+        _segments_rows.resize(segment_count);
+        for (int64_t i = 0; i != segment_count; ++i) {
+            SegmentCacheHandle segment_cache_handle;
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
+                    std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
+                    &segment_cache_handle, false, false));
+            const auto& tmp_segments = segment_cache_handle.get_segments();
+            _segments_rows[i] = tmp_segments[0]->num_rows();
+        }
+        return Status::OK();
+    }));
+    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
 }
 
-Status BetaRowset::get_inverted_index_size(size_t* index_size) {
+Status BetaRowset::get_inverted_index_size(int64_t* index_size) {
     const auto& fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed, resource_id={}",
@@ -557,10 +573,6 @@ Status BetaRowset::add_to_binlog() {
     }
 
     const auto& fs = io::global_local_filesystem();
-
-    // all segments are in the same directory, so cache binlog_dir without multi times check
-    std::string binlog_dir;
-
     auto segments_num = num_segments();
     VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
                               rowset_id().to_string(), segments_num);
@@ -569,17 +581,25 @@ Status BetaRowset::add_to_binlog() {
     std::vector<string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
-            LOG(WARNING) << "will delete linked success files due to error " << status;
+            LOG(WARNING) << "will delete linked success files due to error "
+                         << status.to_string_no_stack();
             std::vector<io::Path> paths;
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete linked success file " << file << " due to error";
             }
             static_cast<void>(fs->batch_delete(paths));
-            LOG(WARNING) << "done delete linked success files due to error " << status;
+            LOG(WARNING) << "done delete linked success files due to error "
+                         << status.to_string_no_stack();
         }
     }};
 
+    // The publish_txn might fail even if the add_to_binlog success, so we need to check
+    // whether a file already exists before linking.
+    auto errno_is_file_exists = []() { return Errno::no() == EEXIST; };
+
+    // all segments are in the same directory, so cache binlog_dir without multi times check
+    std::string binlog_dir;
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = local_segment_path(_tablet_path, rowset_id().to_string(), i);
 
@@ -597,7 +617,7 @@ Status BetaRowset::add_to_binlog() {
                 (std::filesystem::path(binlog_dir) / std::filesystem::path(seg_file).filename())
                         .string();
         VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
-        if (!fs->link_file(seg_file, binlog_file).ok()) {
+        if (!fs->link_file(seg_file, binlog_file).ok() && !errno_is_file_exists()) {
             status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
                                              seg_file, binlog_file, Errno::no());
             return status;
@@ -614,7 +634,12 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (!fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
@@ -625,7 +650,12 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (!fs->link_file(index_file, binlog_index_file).ok() && !errno_is_file_exists()) {
+                    status = Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}", index_file,
+                            binlog_index_file, Errno::no());
+                    return status;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         }

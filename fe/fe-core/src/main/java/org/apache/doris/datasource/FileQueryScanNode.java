@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -94,6 +95,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected String brokerName;
 
     protected TableSnapshot tableSnapshot;
+    // Save the reference of session variable, so that we don't need to get it from connection context.
+    // connection context is a thread local variable, it is not available is running in other thread.
+    protected SessionVariable sessionVariable;
 
     /**
      * External file scan node for Query hms table
@@ -102,8 +106,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                             StatisticalType statisticalType, boolean needCheckColumnPriv) {
+            StatisticalType statisticalType, boolean needCheckColumnPriv,
+            SessionVariable sv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+        this.sessionVariable = sv;
     }
 
     @Override
@@ -112,7 +118,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
         }
         super.init(analyzer);
-        initFileSplitSize();
         doInitialize();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
@@ -314,6 +319,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
+        int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
@@ -332,9 +338,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
-            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
+            long maxWaitTime = sessionVariable.getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
-            int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
+            // Here, we must take the max of 1, because
+            // in the case of multiple BEs, `numApproximateSplits() / backendPolicy.numBackends()` may be 0,
+            // and finally numSplitsPerBE is 0, resulting in no data being queried.
+            int numSplitsPerBE = Math.max(numApproximateSplits() / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
                 SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
@@ -356,7 +365,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanBackendIds.add(backend.getId());
             }
         } else {
-            List<Split> inputSplits = getSplits();
+            List<Split> inputSplits = getSplits(numBackends);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
@@ -554,9 +563,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public int getNumInstances() {
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        if (sessionVariable.isIgnoreStorageDataDistribution()) {
+            return sessionVariable.getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
     }
@@ -604,5 +612,20 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return snapshot;
         }
         return this.tableSnapshot;
+    }
+
+    /**
+     * The real file split size is determined by:
+     * 1. If user specify the split size in session variable `file_split_size`, use user specified value.
+     * 2. Otherwise, use the max value of DEFAULT_SPLIT_SIZE and block size.
+     * @param blockSize, got from file system, eg, hdfs
+     * @return the real file split size
+     */
+    protected long getRealFileSplitSize(long blockSize) {
+        long realSplitSize = sessionVariable.getFileSplitSize();
+        if (realSplitSize <= 0) {
+            realSplitSize = Math.max(DEFAULT_SPLIT_SIZE, blockSize);
+        }
+        return realSplitSize;
     }
 }

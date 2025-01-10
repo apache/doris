@@ -290,6 +290,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
+    //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
     if (start + length > src_vec.data.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Parameters start = {}, length = {}, are out of bound in "

@@ -33,14 +33,14 @@ suite("test_show_convert_light_sc_auth","p0,auth_call") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS;"""
             exception "denied"
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS;"""
     }
 

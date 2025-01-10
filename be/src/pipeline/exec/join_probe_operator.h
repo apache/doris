@@ -20,6 +20,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinProbeOperatorX;
 template <typename SharedStateArg, typename Derived>
@@ -29,7 +30,6 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
 protected:
     template <typename LocalStateType>
@@ -40,12 +40,9 @@ protected:
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
                                bool keep_origin = true);
-    void _reset_tuple_is_null_column();
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     vectorized::Block _join_block;
-    vectorized::MutableColumnPtr _tuple_is_null_left_flag_column = nullptr;
-    vectorized::MutableColumnPtr _tuple_is_null_right_flag_column = nullptr;
 
     size_t _mark_column_id = -1;
 
@@ -123,4 +120,5 @@ protected:
     const bool _use_specific_projections;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -45,7 +45,7 @@ suite("test_ddl_colocate_group_auth","p0,auth_call") {
             );"""
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """ALTER COLOCATE GROUP ${dbName}.${colocateGroupName}
                     SET (
@@ -55,7 +55,7 @@ suite("test_ddl_colocate_group_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ALTER COLOCATE GROUP ${dbName}.${colocateGroupName}
                 SET (
                    "replication_num"="1"

@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -104,7 +105,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                    .map(n -> n.level(n.length() - 1))
                    .collect(Collectors.toList()));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list database names, error message is: " + e.getMessage());
+            throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
         }
     }
 
@@ -125,7 +126,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             });
         } catch (Exception e) {
             throw new DdlException("Failed to create database: "
-                    + stmt.getFullDbName() + " ,error message is: " + e.getMessage());
+                    + stmt.getFullDbName() + ": " + Util.getRootCauseMessage(e), e);
         }
     }
 
@@ -160,7 +161,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 return null;
             });
         } catch (Exception e) {
-            throw new DdlException("Failed to drop database: " + stmt.getDbName() + " ,error message is: ", e);
+            throw new DdlException(
+                "Failed to drop database: " + stmt.getDbName() + ", error message is:" + e.getMessage(), e);
         }
     }
 
@@ -183,7 +185,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             preExecutionAuthenticator.execute(() -> performCreateTable(stmt));
         } catch (Exception e) {
-            throw new DdlException("Failed to create table: " + stmt.getTableName() + " ,error message is:", e);
+            throw new DdlException(
+                "Failed to create table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
         }
         return false;
     }
@@ -227,7 +230,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 return null;
             });
         } catch (Exception e) {
-            throw new DdlException("Failed to drop table: " + stmt.getTableName() + " ,error message is:", e);
+            throw new DdlException(
+                "Failed to drop table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
         }
     }
 

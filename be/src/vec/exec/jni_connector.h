@@ -100,13 +100,11 @@ public:
 
         ScanPredicate(const std::string column_name) : column_name(std::move(column_name)) {}
 
-        ScanPredicate(const ScanPredicate& other) {
-            column_name = other.column_name;
-            op = other.op;
+        ScanPredicate(const ScanPredicate& other)
+                : column_name(other.column_name), op(other.op), scale(other.scale) {
             for (auto v : other.values) {
                 values.emplace_back(v);
             }
-            scale = other.scale;
         }
 
         int length() {
@@ -336,13 +334,13 @@ private:
     static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       DataTypePtr& data_type, size_t num_rows);
 
-    static Status _fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
+    static Status _fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                     std::vector<long>& meta_data);
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
-        auto& column_data = static_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
         size_t origin_size = column_data.size();
         column_data.resize(origin_size + num_rows);
         memcpy(column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
@@ -350,8 +348,8 @@ private:
     }
 
     template <typename COLUMN_TYPE>
-    static long _get_fixed_length_column_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<COLUMN_TYPE&>(*doris_column).get_data().data();
+    static long _get_fixed_length_column_address(const IColumn& doris_column) {
+        return (long)assert_cast<const COLUMN_TYPE&>(doris_column).get_data().data();
     }
 
     void _generate_predicates(

@@ -49,23 +49,28 @@ public:
     RoutineLoadTaskExecutorTest() = default;
     ~RoutineLoadTaskExecutorTest() override = default;
 
+    ExecEnv* _env = nullptr;
+
     void SetUp() override {
+        _env = ExecEnv::GetInstance();
         k_stream_load_begin_result = TLoadTxnBeginResult();
         k_stream_load_commit_result = TLoadTxnCommitResult();
         k_stream_load_rollback_result = TLoadTxnRollbackResult();
         k_stream_load_put_result = TStreamLoadPutResult();
 
-        _env.set_cluster_info(new ClusterInfo());
-        _env.set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
-        _env.set_stream_load_executor(StreamLoadExecutor::create_unique(&_env));
+        _env->set_cluster_info(new ClusterInfo());
+        _env->set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+        _env->set_stream_load_executor(StreamLoadExecutor::create_unique(_env));
 
         config::max_routine_load_thread_pool_size = 1024;
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override { delete _env.cluster_info(); }
-
-    ExecEnv _env;
+    void TearDown() override {
+        delete _env->cluster_info();
+        _env->clear_new_load_stream_mgr();
+        _env->clear_stream_load_executor();
+    }
 };
 
 TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
@@ -92,7 +97,7 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
 
     task.__set_kafka_load_info(k_info);
 
-    RoutineLoadTaskExecutor executor(&_env);
+    RoutineLoadTaskExecutor executor(_env);
     Status st;
     st = executor.init(1024 * 1024);
     EXPECT_TRUE(st.ok());

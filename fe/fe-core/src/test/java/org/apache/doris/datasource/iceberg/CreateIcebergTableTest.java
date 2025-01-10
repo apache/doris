@@ -21,6 +21,8 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -82,7 +84,7 @@ public class CreateIcebergTableTest {
         } else {
             icebergCatalog.setInitialized(true);
         }
-        IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName);
+        IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName, dbName);
         icebergCatalog.addDatabaseForTest(db);
 
         // context
@@ -200,5 +202,29 @@ public class CreateIcebergTableTest {
     public String getTableName() {
         String s = "test_tb_" + UUID.randomUUID();
         return s.replaceAll("-", "");
+    }
+
+    @Test
+    public void testDropDB() {
+        String dbName = "db_to_delete";
+        CreateDbStmt createDBStmt = new CreateDbStmt(false, new DbName("iceberg", dbName), new HashMap<>());
+        DropDbStmt dropDbStmt = new DropDbStmt(false, new DbName("iceberg", dbName), false);
+        DropDbStmt dropDbStmt2 = new DropDbStmt(false, new DbName("iceberg", "not_exists"), false);
+        try {
+            // create db success
+            ops.createDb(createDBStmt);
+            // drop db success
+            ops.dropDb(dropDbStmt);
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+
+        try {
+            ops.dropDb(dropDbStmt2);
+            Assert.fail();
+        } catch (Throwable t) {
+            Assert.assertTrue(t instanceof DdlException);
+            Assert.assertTrue(t.getMessage().contains("database doesn't exist"));
+        }
     }
 }

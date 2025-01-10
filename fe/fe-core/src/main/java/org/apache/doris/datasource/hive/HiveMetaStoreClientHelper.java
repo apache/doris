@@ -31,7 +31,6 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -40,9 +39,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -64,10 +61,10 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
-import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -805,9 +802,18 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Schema getHudiTableSchema(HMSExternalTable table) {
-        HoodieTableMetaClient metaClient = getHudiClient(table);
+        HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
         Schema hudiSchema;
+
+        // Here, the timestamp should be reloaded again.
+        // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
+        // which is saved in the `metaClient`.
+        // But the `metaClient` is obtained from cache, so the file obtained may be an old file.
+        // This file may be deleted by hudi clean task, and an error will be reported.
+        // So, we should reload timeline so that we can read the latest commit files.
+        metaClient.reloadActiveTimeline();
+
         try {
             hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
         } catch (Exception e) {
@@ -816,34 +822,21 @@ public class HiveMetaStoreClientHelper {
         return hudiSchema;
     }
 
-    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
-        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
-                action);
-    }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
-        AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        return HadoopUGI.ugiDoAs(krbConfig, action);
-    }
-
-    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
-        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-        Configuration conf = getConfiguration(table);
-        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
-        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
-                () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath)
-                        .build());
+        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        try {
+            return hadoopAuthenticator.doAs(action);
+        } catch (IOException e) {
+            LOG.warn("HiveMetaStoreClientHelper ugiDoAs failed.", e);
+            throw new RuntimeException(e);
+        }
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
+        return table.getCatalog().getConfiguration();
     }
 
     public static Optional<String> getSerdeProperty(Table table, String key) {

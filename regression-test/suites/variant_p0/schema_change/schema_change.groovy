@@ -32,7 +32,7 @@ suite("regression_test_variant_schema_change", "variant_type"){
     def useTime = 0
     def wait_for_latest_op_on_table_finish = { tableName, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
+            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tableName}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
                 sleep(3000) // wait change table state to normal
@@ -79,4 +79,34 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""
     // select from mv
     qt_sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
+
+    // not null to null
+    sql "drop table if exists t"
+    sql """
+        create table t (
+            col0 int not null,
+            col1 variant NOT NULL
+        ) UNIQUE KEY(`col0`)
+            DISTRIBUTED BY HASH(col0) BUCKETS 1 PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "false");
+    """
+
+    sql """insert into t values (1, '{"a" : 1.0}')"""
+    sql """insert into t values (2, '{"a" : 111.1111}')"""
+    sql """insert into t values (3, '{"a" : "11111"}')"""
+    sql """insert into t values (4, '{"a" : 1111111111}')"""
+    sql """insert into t values (5, '{"a" : 1111.11111}')"""
+    sql """insert into t values (6, '{"a" : "11111"}')"""
+    sql """insert into t values (7, '{"a" : 11111.11111}')"""
+    sql "alter table t modify column col1 variant;"
+    wait_for_latest_op_on_table_finish("t", timeout)
+    qt_sql "select * from t order by col0 limit 3"
+    sql """insert into t values (1, '{"a" : 1.0}')"""
+    sql """insert into t values (2, '{"a" : 111.1111}')"""
+    sql """insert into t values (3, '{"a" : "11111"}')"""
+    sql """insert into t values (4, '{"a" : 1111111111}')"""
+    sql """insert into t values (5, '{"a" : 1111.11111}')"""
+    sql """insert into t values (6, '{"a" : "11111"}')"""
+    sql """insert into t values (7, '{"a" : 11111.11111}')"""
+    trigger_and_wait_compaction("t", "cumulative")
+    qt_sql "select * from t order by col0 limit 3"
 }

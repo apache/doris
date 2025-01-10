@@ -56,24 +56,9 @@
 
 namespace doris::vectorized {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(remote_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(limited_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(group_local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
-
 ScannerScheduler::ScannerScheduler() = default;
 
-ScannerScheduler::~ScannerScheduler() {
-    if (!_is_init) {
-        return;
-    }
-
-    _deregister_metrics();
-}
+ScannerScheduler::~ScannerScheduler() = default;
 
 void ScannerScheduler::stop() {
     if (!_is_init) {
@@ -116,7 +101,6 @@ Status ScannerScheduler::init(ExecEnv* env) {
                             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
                             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
                             .build(&_limited_scan_thread_pool));
-    _register_metrics();
     _is_init = true;
     return Status::OK();
 }
@@ -141,11 +125,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
-            DorisMetrics::instance()->scanner_task_queued->increment(-1);
-            DorisMetrics::instance()->scanner_task_running->increment(1);
-            Defer metrics_defer(
-                    [&] { DorisMetrics::instance()->scanner_task_running->increment(-1); });
-
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -171,11 +150,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         auto sumbit_task = [&]() {
             SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
             auto work_func = [scanner_ref = scan_task, ctx]() {
-                DorisMetrics::instance()->scanner_task_queued->increment(-1);
-                DorisMetrics::instance()->scanner_task_running->increment(1);
-                Defer metrics_defer(
-                        [&] { DorisMetrics::instance()->scanner_task_running->increment(-1); });
-
                 auto status = [&] {
                     RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                     return Status::OK();
@@ -268,7 +242,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            size_t raw_bytes_read = 0; bool first_read = true;
+            size_t raw_bytes_read = 0; bool first_read = true; int64_t limit = scanner->limit();
             while (!eos && raw_bytes_read < raw_bytes_threshold) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
@@ -316,6 +290,17 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
+                if (limit > 0 && limit < ctx->batch_size()) {
+                    // If this scanner has limit, and less than batch size,
+                    // return immediately and no need to wait raw_bytes_threshold.
+                    // This can save time that each scanner may only return a small number of rows,
+                    // but rows are enough from all scanners.
+                    // If not break, the query like "select * from tbl where id=1 limit 10"
+                    // may scan a lot data when the "id=1"'s filter ratio is high.
+                    // If limit is larger than batch size, this rule is skipped,
+                    // to avoid user specify a large limit and causing too much small blocks.
+                    break;
+                }
             } // end for while
 
             if (UNLIKELY(!status.ok())) {
@@ -335,32 +320,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     }
     scan_task->set_eos(eos);
     ctx->push_back_scan_task(scan_task);
-}
-
-void ScannerScheduler::_register_metrics() {
-    REGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size,
-                         [this]() { return _local_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num,
-                         [this]() { return _local_scan_thread_pool->get_active_threads(); });
-    REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
-                         [this]() { return _remote_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
-                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
-    REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
-                         [this]() { return _limited_scan_thread_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
-                         [this]() { return _limited_scan_thread_pool->num_threads(); });
-}
-
-void ScannerScheduler::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(local_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
 }
 
 int ScannerScheduler::get_remote_scan_thread_num() {

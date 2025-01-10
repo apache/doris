@@ -1937,28 +1937,6 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 }
 
 template <typename T>
-bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
-                                uint8_t minute, uint8_t second, uint32_t microsecond,
-                                bool only_time_part) {
-    if (hour >= 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
-        return true;
-    }
-    if (only_time_part) {
-        return false;
-    }
-    if (year > MAX_YEAR) {
-        return true;
-    }
-    if (month == 2 && day == 29 && doris::is_leap(year)) {
-        return false;
-    }
-    if (month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
-        return true;
-    }
-    return false;
-}
-
-template <typename T>
 void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const {
     // ms
     DCHECK(date_val[6] < 1000000L);
@@ -3434,8 +3412,7 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t s
         date_v2_value_.second_ = second;
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        LOG(FATAL) << "Invalid operation 'set_time' for date!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Invalid operation 'set_time' for date!"));
     }
 }
 
@@ -3444,8 +3421,7 @@ void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
-        LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Invalid operation 'set_microsecond' for date!"));
     }
 }
 

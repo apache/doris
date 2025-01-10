@@ -272,21 +272,6 @@ PInternalService::~PInternalService() {
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
-void PInternalService::transmit_data(google::protobuf::RpcController* controller,
-                                     const PTransmitDataParams* request,
-                                     PTransmitDataResult* response,
-                                     google::protobuf::Closure* done) {}
-
-void PInternalService::transmit_data_by_http(google::protobuf::RpcController* controller,
-                                             const PEmptyRequest* request,
-                                             PTransmitDataResult* response,
-                                             google::protobuf::Closure* done) {}
-
-void PInternalService::_transmit_data(google::protobuf::RpcController* controller,
-                                      const PTransmitDataParams* request,
-                                      PTransmitDataResult* response,
-                                      google::protobuf::Closure* done, const Status& extract_st) {}
-
 void PInternalService::tablet_writer_open(google::protobuf::RpcController* controller,
                                           const PTabletWriterOpenRequest* request,
                                           PTabletWriterOpenResult* response,
@@ -631,7 +616,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         // Convert PPlanFragmentCancelReason to Status
         if (has_cancel_status) {
             // If fe set cancel status, then it is new FE now, should use cancel status.
-            actual_cancel_status = Status::create(request->cancel_status());
+            actual_cancel_status = Status::create<false>(request->cancel_status());
         } else if (has_cancel_reason) {
             // If fe not set cancel status, but set cancel reason, should convert cancel reason
             // to cancel status here.
@@ -665,15 +650,11 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
 void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   const PFetchDataRequest* request, PFetchDataResult* result,
                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, result, done]() {
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
-        _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
-    });
-    if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
-        return;
-    }
+    // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
+    // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
+    auto* cntl = static_cast<brpc::Controller*>(controller);
+    auto* ctx = new GetResultBatchCtx(cntl, result, done);
+    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
 void PInternalService::fetch_arrow_data(google::protobuf::RpcController* controller,

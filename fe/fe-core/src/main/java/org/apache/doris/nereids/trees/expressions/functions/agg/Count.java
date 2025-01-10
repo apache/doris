@@ -37,7 +37,7 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait {
+        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -119,11 +119,11 @@ public class Count extends NotNullableAggregateFunction
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         if (isStar) {
             return "count(*)";
         }
-        return super.toSql();
+        return super.computeToSql();
     }
 
     @Override
@@ -161,5 +161,11 @@ public class Count extends NotNullableAggregateFunction
     @Override
     public Expression resultForEmptyInput() {
         return new BigIntLiteral(0);
+    }
+
+    @Override
+    public AggregateFunction convertToMultiDistinct() {
+        return new MultiDistinctCount(getArgument(0),
+                getArguments().subList(1, arity()).toArray(new Expression[0]));
     }
 }

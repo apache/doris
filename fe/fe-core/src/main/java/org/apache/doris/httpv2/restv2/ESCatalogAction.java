@@ -55,12 +55,12 @@ public class ESCatalogAction extends RestBaseController {
             executeCheckPassword(request, response);
         }
 
-        try {
-            if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMasterOrException(request, response);
-            }
-        } catch (Exception e) {
-            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        if (checkForwardToMaster(request)) {
+            return forwardToMaster(request);
         }
 
         Map<String, Object> resultMap = Maps.newHashMap();

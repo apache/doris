@@ -205,6 +205,15 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+// minio external test config
+enableExternalMinioTest = false
+extMinioHost = "***.**.**.**"
+extMinioPort = 9000
+extMinioAk = "minioadmin"
+extMinioSk = "minioadmin"
+extMinioRegion = "us-east-1"
+extMinioBucket = "test-bucket"
+
 enableExternalHudiTest = false
 hudiEmrCatalog = "***********"
 
@@ -259,3 +268,11 @@ lakesoulMinioEndpoint="*******"
 metaServiceToken = "greedisgood9999"
 instanceId = "default_instance_id"
 multiClusterInstance = "default_instance_id"
+
+storageProvider = "oss"
+cbsS3Ak = "*******"
+cbsS3Sk = "*******"
+cbsS3Endpoint = "oss-cn-beijing.aliyuncs.com"
+cbsS3Bucket = "test-bucket"
+cbsS3Prefix = "test-cluster-prefix"
+

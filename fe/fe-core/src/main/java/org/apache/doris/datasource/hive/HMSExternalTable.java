@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -29,8 +30,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -41,6 +46,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -70,6 +76,7 @@ import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -164,11 +171,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      *
      * @param id Table id.
      * @param name Table name.
-     * @param dbName Database name.
-     * @param catalog HMSExternalCatalog.
+     * @param remoteName Remote table name.
+     * @param catalog HMSExternalDataSource.
+     * @param db Database.
      */
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
+    public HMSExternalTable(long id, String name, String remoteName, HMSExternalCatalog catalog,
+            HMSExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.HMS_EXTERNAL_TABLE);
     }
 
     // Will throw NotSupportedException if not supported hms table.
@@ -302,7 +311,28 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean supportInternalPartitionPruned() {
-        return getDlaType() == DLAType.HIVE;
+        return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
+        if (getDlaType() != DLAType.HUDI) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+
+        if (getPartitionColumns().isEmpty()) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        TablePartitionValues tablePartitionValues = HudiUtils.getPartitionValues(tableSnapshot, this);
+
+        Map<Long, PartitionItem> idToPartitionItem = tablePartitionValues.getIdToPartitionItem();
+        Map<Long, String> idToNameMap = tablePartitionValues.getPartitionIdToNameMap();
+
+        Map<String, PartitionItem> nameToPartitionItems = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            nameToPartitionItems.put(idToNameMap.get(entry.getKey()), entry.getValue());
+        }
+
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
     @Override
@@ -330,19 +360,24 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
-                && isSupportedTransactionalFileFormat();
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
     }
 
-    private boolean isSupportedTransactionalFileFormat() {
+    private boolean isSupportedFullAcidTransactionalFileFormat() {
         // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
         // So we need to check the input format for transactional table.
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
-    public boolean isFullAcidTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
+    public boolean isFullAcidTable() throws UserException {
+        if (dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable)) {
+            if (!isSupportedFullAcidTransactionalFileFormat()) {
+                throw new UserException("This table is full Acid Table, but no Orc Format.");
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -477,6 +512,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
+        return initSchemaAndUpdateTime();
+    }
+
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
         org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
                 .getTable(dbName, name);
@@ -501,34 +540,38 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public Optional<SchemaCacheValue> initSchema() {
         makeSureInitialized();
-        List<Column> columns;
         if (dlaType.equals(DLAType.ICEBERG)) {
-            columns = getIcebergSchema();
+            return getIcebergSchema();
         } else if (dlaType.equals(DLAType.HUDI)) {
-            columns = getHudiSchema();
+            return getHudiSchema();
         } else {
-            columns = getHiveSchema();
+            return getHiveSchema();
         }
+    }
+
+    private Optional<SchemaCacheValue> getIcebergSchema() {
+        List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
-    private List<Column> getIcebergSchema() {
-        return IcebergUtils.getSchema(catalog, dbName, name);
-    }
-
-    private List<Column> getHudiSchema() {
+    private Optional<SchemaCacheValue> getHudiSchema() {
         org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
+        List<String> colTypes = Lists.newArrayList();
         for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
             String columnName = hudiField.name().toLowerCase(Locale.ROOT);
             tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
                     true, null, true, null, "", true, null, -1, null));
+            colTypes.add(HudiUtils.convertAvroToHiveType(hudiField.schema()));
         }
-        return tmpSchema;
+        List<Column> partitionColumns = initPartitionColumns(tmpSchema);
+        HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
+        hudiSchemaCacheValue.setColTypes(colTypes);
+        return Optional.of(hudiSchemaCacheValue);
     }
 
-    private List<Column> getHiveSchema() {
+    private Optional<SchemaCacheValue> getHiveSchema() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         List<FieldSchema> schema = client.getSchema(dbName, name);
         Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
@@ -540,7 +583,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
-        return columns;
+        List<Column> partitionColumns = initPartitionColumns(columns);
+        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
     @Override
@@ -982,5 +1026,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
         Env.getCurrentEnv().getRefreshManager()
                 .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
+    }
+
+    public HoodieTableMetaClient getHudiClient() {
+        return Env.getCurrentEnv()
+            .getExtMetaCacheMgr()
+            .getMetaClientProcessor(getCatalog())
+            .getHoodieTableMetaClient(
+                getDbName(),
+                getName(),
+                getRemoteTable().getSd().getLocation(),
+                getCatalog().getConfiguration());
     }
 }

@@ -202,6 +202,7 @@ message RowsetMetaCloudPB {
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+    optional int64 compaction_level = 52 [default = 0];
 
     // cloud
     // the field is a vector, rename it
@@ -392,7 +393,7 @@ message TabletSchemaPB {
     repeated string partial_update_input_columns = 21; // deprecated
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
-    repeated int32 cluster_key_idxes = 24;
+    repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
@@ -425,7 +426,7 @@ message TabletSchemaCloudPB {
     reserved 21; // deprecated partial_update_input_columns
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
-    repeated int32 cluster_key_idxes = 24;
+    repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
