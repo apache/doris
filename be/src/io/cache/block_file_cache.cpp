@@ -30,8 +30,11 @@
 #endif
 
 #include <chrono> // IWYU pragma: keep
+#include <iomanip>
 #include <mutex>
 #include <ranges>
+#include <stdexcept>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -223,9 +226,67 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
 }
 
+/*
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
     uint128_t value;
     sip_hash128(path.data(), path.size(), reinterpret_cast<char*>(&value));
+    return UInt128Wrapper(value);
+}
+*/
+
+bool is_valid_hex(const std::string& hex) {
+    for (char c : hex) {
+        if (!std::isxdigit(c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<uint64_t> hex_to_uint64(const std::string& hex) {
+    if (hex.size() != 48) {
+        throw std::invalid_argument("Hex string must be 48 characters long");
+    }
+
+    std::vector<uint64_t> result(3);
+    for (size_t i = 0; i < 3; ++i) {
+        std::stringstream ss;
+        ss << std::hex << hex.substr(i * 16, 16);
+        ss >> result[i];
+    }
+    return result;
+}
+
+std::vector<uint64_t> process_hex_string(const std::string& hex) {
+    if (!is_valid_hex(hex)) {
+        throw std::invalid_argument("Invalid hex string");
+    }
+    return hex_to_uint64(hex);
+}
+
+UInt128Wrapper BlockFileCache::hash(const std::string& path) {
+    uint128_t value;
+
+    size_t underscore_pos = path.find('_');
+    std::string hex = path.substr(0, underscore_pos);
+    std::string remain = path.substr(underscore_pos + 1);
+
+    size_t dot_pos = remain.find('.');
+    std::string segment_num_hex = remain.substr(0, dot_pos);
+
+    try {
+        std::vector<uint64_t> data = process_hex_string(hex);
+        uint8_t segment_num = (uint8_t)std::stoi(segment_num_hex);
+
+        uint64_t high = data[0];
+        uint64_t low = (data[2] & 0xFFFFFFFFFFFFFF00) | segment_num;
+
+        value = (static_cast<uint128_t>(high) << 64) | low;
+    } catch (const std::invalid_argument& e) {
+        // Handle the error
+        LOG(WARNING) << "Invalid path: " << path << " error: " << e.what();
+    }
+
     return UInt128Wrapper(value);
 }
 

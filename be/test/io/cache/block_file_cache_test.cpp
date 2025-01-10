@@ -6814,4 +6814,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_ttl) {
     }
 }
 
+TEST_F(BlockFileCacheTest, hash) {
+    UInt128Wrapper key =
+            io::BlockFileCache::hash("02000000008446c25a44a212eaf9d46caaf29264eb3e43a5_0.dat");
+    ASSERT_EQ(key.to_string(), "02000000008446c2aaf29264eb3e4300");
+    UInt128Wrapper bad_key =
+            io::BlockFileCache::hash("0X000000008446c25a44a212eaf9d46caaf29264eb3e43a5_0.dat");
+    ASSERT_EQ(bad_key.to_string(), "00000000000000000000000000000000");
+}
+
 } // namespace doris::io
