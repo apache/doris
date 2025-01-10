@@ -26,12 +26,12 @@ services:
       - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
       - ./health-checks/health.sh:/usr/local/health.sh
       - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
-      - ./health-checks/hive-health-check.sh:/etc/health.d//hive-health-check.sh
+      - ./health-checks/hive-health-check.sh:/etc/health.d/hive-health-check.sh
       - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
     hostname: hadoop-master
     entrypoint: /usr/local/entrypoint-hive-master.sh
     healthcheck:
-      test: ["sh", "/usr/local/health.sh"]
+      test: ["CMD", "sh", "-c", "/usr/local/health.sh"]
       interval: 20s
       timeout: 60s
       retries: 120
@@ -61,7 +61,7 @@ services:
       - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
     entrypoint: /usr/local/entrypoint-hive-master-2.sh
     healthcheck:
-      test: ["sh", "/usr/local/health.sh"]
+      test: ["CMD", "sh", "-c", "/usr/local/health.sh"]
       interval: 20s
       timeout: 60s
       retries: 120
