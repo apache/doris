@@ -1540,6 +1540,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
             int64_t need_remove_size = _cur_cache_size - new_capacity;
             auto remove_blocks = [&](LRUQueue& queue) -> int64_t {
                 int64_t queue_released = 0;
+                std::vector<FileBlockCell*> to_evict;
                 for (const auto& [entry_key, entry_offset, entry_size] : queue) {
                     if (need_remove_size <= 0) return queue_released;
                     need_remove_size -= entry_size;
@@ -1550,11 +1551,12 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                         cell->file_block->set_deleting();
                         continue;
                     }
+                    to_evict.push_back(cell);
+                }
+                for (auto& cell : to_evict) {
                     FileBlockSPtr file_block = cell->file_block;
-                    if (file_block) {
-                        std::lock_guard block_lock(file_block->_mutex);
-                        remove(file_block, cache_lock, block_lock, false);
-                    }
+                    std::lock_guard block_lock(file_block->_mutex);
+                    remove(file_block, cache_lock, block_lock);
                 }
                 return queue_released;
             };
