@@ -1489,18 +1489,19 @@ class Suite implements GroovyInterceptable {
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         List<String> toCheckTaskRow = new ArrayList<>();
-        do {
+        while (timeoutTimestamp > System.currentTimeMillis() && (status != "SUCCESS")) {
             result = sql(showTasks)
             logger.info("current db is " + context.dbName + "showTasks is " + showTasks)
             if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                break;
+                Thread.sleep(1000);
+                continue;
             }
             toCheckTaskRow = result.get(0);
             status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL'))
+        }
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
@@ -1527,18 +1528,19 @@ class Suite implements GroovyInterceptable {
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         List<String> toCheckTaskRow = new ArrayList<>();
-        do {
+        while (timeoutTimestamp > System.currentTimeMillis() && (status != "SUCCESS")) {
             result = sql(showTasks)
             logger.info("current db is " + context.dbName + "showTasks result: " + result.toString())
             if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                break;
+                Thread.sleep(1000);
+                continue;
             }
             toCheckTaskRow = result.get(0)
             status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED'))
+        }
         if (status != "SUCCESS") {
             logger.info("status is not success")
             assertTrue(result.toString().contains("same table"))
@@ -1556,7 +1558,7 @@ class Suite implements GroovyInterceptable {
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         List<String> toCheckTaskRow = new ArrayList<>();
-        do {
+        while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED')) {
             result = sql(showTasks)
             logger.info("crrent db is " + dbName + "showTasks result: " + result.toString())
             // just consider current db
@@ -1567,12 +1569,13 @@ class Suite implements GroovyInterceptable {
             }
             if (toCheckTaskRow.isEmpty()) {
                 logger.info("waitingMVTaskFinishedByMvName toCheckTaskRow is empty")
-                break;
+                Thread.sleep(1000);
+                continue;
             }
             status = toCheckTaskRow.get(8)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
+        }
         if (status != "FINISHED") {
             logger.info("status is not success")
         }
