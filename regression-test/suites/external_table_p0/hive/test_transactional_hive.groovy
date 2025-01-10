@@ -114,6 +114,14 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
 
         }
     }
+    
+    def test_acid_count = {
+        qt_count_1 """ select count(*) from orc_full_acid; """ // 3 
+        qt_count_2 """ select count(*) from orc_full_acid_par; """  // 6
+        qt_count_3 """ select count(*) from orc_to_acid_compacted_tb; """ //4
+        qt_count_4 """ select count(*) from orc_acid_minor; """ //3
+        qt_count_5 """ select count(*) from orc_acid_major; """ //3
+    }
 
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -148,6 +156,10 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
             test_acid()
             test_acid_write()
 
+
+            test_acid_count()
+            
+            
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
