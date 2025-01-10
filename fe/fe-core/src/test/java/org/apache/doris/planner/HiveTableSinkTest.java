@@ -32,8 +32,8 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.junit.Assert;
 import org.junit.Test;
-import org.locationtech.jts.util.Assert;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -94,7 +94,7 @@ public class HiveTableSinkTest {
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);
             hiveTableSink.bindDataSink(Optional.empty());
 
-            Assert.equals(hiveTableSink.tDataSink.hive_table_sink.location.original_write_path, location);
+            Assert.assertEquals(hiveTableSink.tDataSink.hive_table_sink.location.original_write_path, location);
         }
     }
 
