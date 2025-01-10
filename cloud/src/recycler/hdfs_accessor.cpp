@@ -20,8 +20,6 @@
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
-#include <regex>
-
 #include "common/stopwatch.h"
 #include "recycler/util.h"
 
