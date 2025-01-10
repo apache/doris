@@ -49,7 +49,7 @@ suite('test_manager_interface_4',"p0") {
 
         futures.add( thread {
             sleep(500);
-            List<List<Object>> result = sql_return_arraymap """  show processlist  """
+            List<List<Object>> result = sql_return_maparray """  show processlist  """
             def queryid = ""
             def x = 0
             logger.info("result = ${result}")
