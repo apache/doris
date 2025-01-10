@@ -30,12 +30,11 @@ class DelayEvent
       unit.convert(delay, java.util.concurrent.TimeUnit::SECONDS)
    end
 
-   def compare_to(other)
-      d = self.get_delay(java.util.concurrent.TimeUnit::SECONDS) - other.get_delay(java.util.concurrent.TimeUnit::SECONDS)
-      if d == 0
-         0
-      end
-      d < 0 ? -1 : 1
+def compare_to(other)
+   d = self.get_delay(java.util.concurrent.TimeUnit::SECONDS) - other.get_delay(java.util.concurrent.TimeUnit::SECONDS)
+   return 0 if d == 0
+   d < 0 ? -1 : 1
+end
    end
 
    def event
