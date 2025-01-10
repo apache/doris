@@ -45,7 +45,7 @@ suite("create_nestedtypes_with_schemachange", "p0") {
             }
         }
         // desc table
-        qt_sql "DESC $testTablex"
+        qt_master_sql "DESC $testTablex"
     }
 
     // array
@@ -102,7 +102,7 @@ suite("create_nestedtypes_with_schemachange", "p0") {
             }
         }
         // desc table
-        qt_sql "DESC $testTablex"
+        qt_master_sql "DESC $testTablex"
         qt_sql_after "select * from $testTablex"
     }
 
