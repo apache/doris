@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -36,6 +37,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
     boost::regex pattern(
@@ -82,7 +84,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
         }
         auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                 inverted_index_ctx.char_filter_map);
-        reader->init(tokenize_str.data, tokenize_str.size, true);
+        reader->init(tokenize_str.data, (ColumnString::Offset)tokenize_str.size, true);
 
         std::vector<std::string> query_tokens =
                 doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
@@ -174,4 +176,5 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     }
     return Status::RuntimeError("unimplemented function {}", get_name());
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
