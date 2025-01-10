@@ -18,6 +18,7 @@
 version: "3"
 
 services:
+
   spark-iceberg:
     image: tabulario/spark-iceberg
     container_name: doris--spark-iceberg
@@ -47,6 +48,19 @@ services:
       interval: 5s
       timeout: 120s
       retries: 120
+
+  postgres:
+    image: postgis/postgis:14-3.3
+    container_name: doris--postgres
+    environment:
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_USER: root
+      POSTGRES_DB: iceberg
+    volumes:
+      - ./data/input/pgdata:/var/lib/postgresql/data
+    networks:
+      - doris--iceberg
+
   rest:
     image: tabulario/iceberg-rest
     container_name: doris--iceberg-rest
@@ -54,6 +68,8 @@ services:
       - ${REST_CATALOG_PORT}:8181
     volumes:
       - ./data:/mnt/data
+    depends_on:
+      - postgres
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
@@ -61,6 +77,9 @@ services:
       - CATALOG_WAREHOUSE=s3a://warehouse/wh/
       - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
       - CATALOG_S3_ENDPOINT=http://minio:9000
+      - CATALOG_URI=jdbc:postgresql://postgres:5432/iceberg
+      - CATALOG_JDBC_USER=root
+      - CATALOG_JDBC_PASSWORD=123456
     networks:
       - doris--iceberg
     entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh

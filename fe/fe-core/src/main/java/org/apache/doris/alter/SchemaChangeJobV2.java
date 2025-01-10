@@ -143,11 +143,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "hasRowStoreChange")
     protected boolean hasRowStoreChange = false;
 
-    @SerializedName(value = "enableUniqueKeySkipBitmap")
-    private boolean enableUniqueKeySkipBitmap = false;
-    @SerializedName(value = "hasEnableUniqueKeySkipBitmapChanged")
-    private boolean hasEnableUniqueKeySkipBitmapChanged = false;
-
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
@@ -199,12 +194,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.hasRowStoreChange = hasRowStoreChange;
         this.storeRowColumn = storeRowColumn;
         this.rowStoreColumns = rowStoreColumns;
-    }
-
-    public void setEnableUniqueKeySkipBitmapInfo(boolean enableUniqueKeySkipBitmap,
-            boolean hasEnableUniqueKeySkipBitmapChanged) {
-        this.enableUniqueKeySkipBitmap = enableUniqueKeySkipBitmap;
-        this.hasEnableUniqueKeySkipBitmapChanged = hasEnableUniqueKeySkipBitmapChanged;
     }
 
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
@@ -612,6 +601,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
         Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
+
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -632,7 +622,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
 
-                long visiableVersion = partition.getVisibleVersion();
+                long visibleVersion = partition.getVisibleVersion();
                 short expectReplicationNum = tbl.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
@@ -645,7 +635,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
                             if (!replica.isBad() && replica.getLastFailedVersion() < 0
-                                    && replica.checkVersionCatchUp(visiableVersion, false)) {
+                                    && replica.checkVersionCatchUp(visibleVersion, false)) {
                                 healthyReplicaNum++;
                             }
                         }
@@ -769,9 +759,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (hasRowStoreChange) {
             tbl.setStoreRowColumn(storeRowColumn);
             tbl.setRowStoreColumns(rowStoreColumns);
-        }
-        if (hasEnableUniqueKeySkipBitmapChanged) {
-            tbl.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
         }
 
         // set storage format of table, only set if format is v2

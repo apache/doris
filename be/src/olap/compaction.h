@@ -176,6 +176,8 @@ private:
 
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
+    void update_compaction_level();
+
     PendingRowsetGuard _pending_rs_guard;
 };
 
@@ -209,6 +211,8 @@ private:
     virtual Status modify_rowsets();
 
     int64_t get_compaction_permits();
+
+    void update_compaction_level();
 };
 
 } // namespace doris

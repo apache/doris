@@ -18,11 +18,15 @@
 suite("test_conflict_name", "p0,external,doris,meta_names_mapping") {
 
     String jdbcUrl = context.config.jdbcUrl
-    String jdbcUser = context.config.jdbcUser
-    String jdbcPassword = context.config.jdbcPassword
+    String jdbcUser = "test_conflict_name_user"
+    String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+
+    try_sql """drop user ${jdbcUser}"""
+    sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+    sql """grant all on *.*.* to ${jdbcUser}"""
 
     sql """drop database if exists internal.external_conflict_name; """
     sql """drop database if exists internal.EXTERNAL_CONFLICT_NAME; """
@@ -91,4 +95,6 @@ suite("test_conflict_name", "p0,external,doris,meta_names_mapping") {
 
     sql """drop database if exists internal.external_conflict_name; """
     sql """drop database if exists internal.EXTERNAL_CONFLICT_NAME; """
+
+    try_sql """drop user ${jdbcUser}"""
 }

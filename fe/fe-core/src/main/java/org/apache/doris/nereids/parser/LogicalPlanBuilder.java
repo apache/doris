@@ -100,6 +100,7 @@ import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
 import org.apache.doris.nereids.DorisParser.CastDataTypeContext;
 import org.apache.doris.nereids.DorisParser.CleanAllProfileContext;
+import org.apache.doris.nereids.DorisParser.CleanLabelContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -560,6 +561,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
@@ -619,6 +621,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
+import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
@@ -4322,7 +4325,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowLoadProfile(ShowLoadProfileContext ctx) {
-        return new ShowLoadProfileCommand(ctx.loadIdPath.getText());
+        String loadIdPath = "/"; // default load id path
+        if (ctx.loadIdPath != null) {
+            loadIdPath = stripQuotes(ctx.loadIdPath.getText());
+        }
+
+        long limit = 20;
+        if (ctx.limitClause() != null) {
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number, got " + String.valueOf(limit));
+            }
+        }
+        return new ShowLoadProfileCommand(loadIdPath, limit);
     }
 
     @Override
@@ -4888,6 +4903,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowCatalog(DorisParser.ShowCatalogContext ctx) {
+        return new ShowCatalogCommand(ctx.identifier().getText(), null);
+    }
+
+    @Override
+    public LogicalPlan visitShowCatalogs(DorisParser.ShowCatalogsContext ctx) {
+        String wild = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else if (ctx.wildWhere().WHERE() != null) {
+                wild = ctx.wildWhere().expression().getText();
+            }
+        }
+        return new ShowCatalogCommand(null, wild);
+    }
+
+    @Override
     public LogicalPlan visitShowStorageEngines(ShowStorageEnginesContext ctx) {
         return new ShowStorageEnginesCommand();
     }
@@ -5024,6 +5057,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCleanAllProfile(CleanAllProfileContext ctx) {
         return new CleanAllProfileCommand();
+    }
+
+    @Override
+    public Object visitCleanLabel(CleanLabelContext ctx) {
+        String label = ctx.label == null ? null : ctx.label.getText();
+        IdentifierContext database = ctx.database;
+        return new CleanLabelCommand(stripQuotes(database.getText()), label);
     }
 
     @Override
@@ -5368,8 +5408,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowQueryProfile(ShowQueryProfileContext ctx) {
-        String queryIdPath = stripQuotes(ctx.queryIdPath.getText());
-        return new ShowQueryProfileCommand(queryIdPath);
+        String queryIdPath = "/";
+        if (ctx.queryIdPath != null) {
+            queryIdPath = stripQuotes(ctx.queryIdPath.getText());
+        }
+
+        long limit = 20;
+        if (ctx.limitClause() != null) {
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number, got " + String.valueOf(limit));
+            }
+        }
+        return new ShowQueryProfileCommand(queryIdPath, limit);
     }
 
     @Override

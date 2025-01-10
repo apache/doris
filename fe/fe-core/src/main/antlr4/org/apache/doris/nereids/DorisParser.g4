@@ -257,7 +257,7 @@ supportedShowStatement
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob    
-    | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL                                   #showLoadProfile
+    | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
@@ -275,6 +275,8 @@ supportedShowStatement
     | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
+    | SHOW CATALOG name=identifier                                                  #showCatalog
+    | SHOW CATALOGS wildWhere?                                                      #showCatalogs
     | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
@@ -302,7 +304,7 @@ supportedShowStatement
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
-    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
+    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     ;
 
 supportedLoadStatement
@@ -353,8 +355,6 @@ unsupportedShowStatement
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
-    | SHOW CATALOGS wildWhere?                                                      #showCatalogs
-    | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
@@ -482,6 +482,7 @@ supportedRefreshStatement
 
 supportedCleanStatement
     : CLEAN ALL PROFILE                                                             #cleanAllProfile
+    | CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
     ;
 
 unsupportedRefreshStatement
@@ -489,8 +490,7 @@ unsupportedRefreshStatement
     ;
 
 unsupportedCleanStatement
-    : CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
-    | CLEAN QUERY STATS ((FOR database=identifier)
+    : CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;

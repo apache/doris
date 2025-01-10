@@ -1385,26 +1385,6 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        // property enable_unique_key_skip_bitmap
-        boolean enableUniqueKeySkipBitmap = false;
-        boolean hasEnableUniqueKeySkipBitmapChanged = false;
-        if (propertyMap.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
-            if (!(olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite())) {
-                throw new DdlException("Only allow to alter table property enable_unique_key_skip_bitmap"
-                        + "on unique merge-on-write table.");
-            }
-            try {
-                enableUniqueKeySkipBitmap = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(propertyMap);
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
-            if (enableUniqueKeySkipBitmap) {
-                if (olapTable.getEnableUniqueKeySkipBitmap() != enableUniqueKeySkipBitmap) {
-                    hasEnableUniqueKeySkipBitmapChanged = true;
-                }
-            }
-        }
-
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
@@ -1480,8 +1460,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
                     needAlter = true;
                 }
-            } else if (hasEnableUniqueKeySkipBitmapChanged) {
-                needAlter = true;
             }
 
             if (!needAlter) {
@@ -1599,8 +1577,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } // end for indices
 
-        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged
-                && !hasEnableUniqueKeySkipBitmapChanged) {
+        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
@@ -1614,8 +1591,6 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
         schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
-        schemaChangeJob.setEnableUniqueKeySkipBitmapInfo(enableUniqueKeySkipBitmap,
-                hasEnableUniqueKeySkipBitmapChanged);
 
         // If StorageFormat is set to TStorageFormat.V2
         // which will create tablet with preferred_rowset_type set to BETA
@@ -2039,22 +2014,6 @@ public class SchemaChangeHandler extends AlterHandler {
                             rowColumn.setUniqueId(maxColUniqueId + 1);
                             indexSchemaMap.get(olapTable.getBaseIndexId()).add(rowColumn);
                         }
-                    } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
-                        boolean value = Boolean.parseBoolean(properties
-                                .get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
-                        if (!value) {
-                            throw new DdlException("Can not alter enable_unique_key_skip_bitmap_column"
-                                    + " from true to false currently.");
-                        }
-                        if (!olapTable.hasSkipBitmapColumn()) {
-                            Column skipBitmapColumn =
-                                    ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE)
-                                            .translateToCatalogStyle();
-                            int maxColUniqueId = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId())
-                                    .getMaxColUniqueId();
-                            skipBitmapColumn.setUniqueId(maxColUniqueId + 1);
-                            indexSchemaMap.get(olapTable.getBaseIndexId()).add(skipBitmapColumn);
-                        }
                     }
                 }
 
@@ -2072,16 +2031,16 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                 } else if (alterClause instanceof AddColumnsClause) {
                     // add columns
-                    boolean clauseCanLigthSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
                             indexSchemaMap, false, colUniqueIdSupplierMap);
-                    if (!clauseCanLigthSchemaChange) {
+                    if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
-                    boolean clauseCanLigthSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
                             indexSchemaMap, newIndexes);
-                    if (!clauseCanLigthSchemaChange) {
+                    if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof ModifyColumnClause) {
@@ -2324,26 +2283,35 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     public void updateTableProperties(Database db, String tableName, Map<String, String> properties)
             throws UserException {
-        Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY));
+        final Set<String> allowedProps = new HashSet<String>() {
+            {
+                add(PropertyAnalyzer.PROPERTIES_INMEMORY);
+                add(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+                add(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED);
+                add(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+            }
+        };
+        List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
+                .collect(Collectors.toList());
+        if (!notAllowedProps.isEmpty()) {
+            throw new UserException("modifying property " + notAllowedProps + " is forbidden");
+        }
 
         Env.getCurrentEnv().getAlterInstance().checkNoForceProperty(properties);
         List<Partition> partitions = Lists.newArrayList();
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         boolean enableUniqueKeyMergeOnWrite = false;
         olapTable.readLock();
         try {
@@ -2922,6 +2890,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -2967,7 +2936,7 @@ public class SchemaChangeHandler extends AlterHandler {
         } else {
             if (!isReplay) {
                 TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(rawSql, db.getId(), olapTable.getId(),
-                        indexSchemaMap, indexes, jobId);
+                        indexSchemaMap, oldIndexSchemaMap, indexes, jobId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }
@@ -3112,17 +3081,9 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
-        boolean hasEnableUniqueKeySkipBitmapChanged = false;
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
-            if (i == 0 && !olapTable.getEnableUniqueKeySkipBitmap()) {
-                Preconditions.checkState(!currentIndexMeta.getSchema(true).stream()
-                        .anyMatch(col -> col.isSkipBitmapColumn()));
-                if (indexSchema.stream().anyMatch(col -> col.isSkipBitmapColumn())) {
-                    hasEnableUniqueKeySkipBitmapChanged = true;
-                }
-            }
             currentIndexMeta.setSchema(indexSchema);
 
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
@@ -3138,9 +3099,6 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
             currentIndexMeta.setIndexes(indexes);
-        }
-        if (hasEnableUniqueKeySkipBitmapChanged) {
-            olapTable.setEnableUniqueKeySkipBitmap(true);
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();

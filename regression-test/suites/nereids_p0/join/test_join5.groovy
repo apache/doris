@@ -119,7 +119,7 @@ suite("test_join5", "nereids_p0") {
     sql " insert into c (name, a) values ('B', 'q');"
     sql " insert into c (name, a) values ('C', null);"
     
-    sql """set parallel_fragment_exec_instance_num=8"""
+    sql """set parallel_pipeline_task_num=8"""
         
     qt_join5 """
         select c.name, ss.code, ss.b_cnt, ss.const

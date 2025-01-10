@@ -17,37 +17,51 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.util.List;
 
 /**
  * show load profile command
  */
 public class ShowLoadProfileCommand extends ShowCommand {
-    private String loadIdPath;
+    public static final ShowResultSetMetaData META_DATA_QUERY_IDS;
+
+    static {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String key : SummaryProfile.SUMMARY_CAPTIONS) {
+            if (key.equals(SummaryProfile.DISTRIBUTED_PLAN)) {
+                continue;
+            }
+            builder.addColumn(new Column(key, ScalarType.createStringType()));
+        }
+        META_DATA_QUERY_IDS = builder.build();
+    }
+
+    private long limit = 20;
 
     /**
      * constructor
      */
-    public ShowLoadProfileCommand(String path) {
+    public ShowLoadProfileCommand(String path, long limit) {
         super(PlanType.SHOW_LOAD_PROFILE_COMMAND);
-        this.loadIdPath = path;
+        this.limit = limit;
     }
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
-        int httpPort = Config.http_port;
-        String terminalMsg = String.format(
-                "try visit http://%s:%d/QueryProfile/%s, show query/load profile syntax is a deprecated feature",
-                selfHost, httpPort, this.loadIdPath);
-        throw new UserException(terminalMsg);
+        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(ProfileType.LOAD, this.limit);
+        return new ShowResultSet(META_DATA_QUERY_IDS, rows);
     }
 
     @Override

@@ -614,7 +614,7 @@ start_minio() {
     fi
 }
 
-echo "starting dockers in parrallel"
+echo "starting dockers in parallel"
 
 declare -A pids
 
@@ -703,11 +703,6 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     pids["lakesoul"]=$!
 fi
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > start_kerberos.log 2>&1 &
-    pids["kerberos"]=$!
-fi
-
 if [[ "${RUN_MINIO}" -eq 1 ]]; then
     start_minio > start_minio.log 2>&1 &
     pids["minio"]=$!
@@ -723,8 +718,24 @@ for compose in "${!pids[@]}"; do
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
         cat start_${compose}.log
+
+        echo ""
+        echo "print last 100 logs of the latest unhealthy container"
+        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+
         exit 1
     fi
 done
 
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    echo "Starting Kerberos after all other components..."
+    start_kerberos > start_kerberos.log 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Kerberos startup failed"
+        cat start_kerberos.log
+        exit 1
+    fi
+fi
+echo "docker started"
+docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"

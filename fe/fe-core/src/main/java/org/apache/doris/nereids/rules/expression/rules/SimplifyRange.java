@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -150,26 +151,28 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     private Expression getExpression(UnknownValue value) {
         List<ValueDesc> sourceValues = value.getSourceValues();
-        Expression originExpr = value.getOriginExpr();
         if (sourceValues.isEmpty()) {
-            return originExpr;
+            return value.getReference();
+        } else {
+            return getExpression(value.getExpressionRewriteContext(), sourceValues, value.isAnd());
         }
+    }
+
+    /** getExpression */
+    public Expression getExpression(ExpressionRewriteContext context,
+            List<ValueDesc> sourceValues, boolean isAnd) {
+        Preconditions.checkArgument(!sourceValues.isEmpty());
         List<Expression> sourceExprs = Lists.newArrayListWithExpectedSize(sourceValues.size());
         for (ValueDesc sourceValue : sourceValues) {
             Expression expr = getExpression(sourceValue);
-            if (value.isAnd()) {
+            if (isAnd) {
                 sourceExprs.addAll(ExpressionUtils.extractConjunction(expr));
             } else {
                 sourceExprs.addAll(ExpressionUtils.extractDisjunction(expr));
             }
         }
-        Expression result = value.isAnd() ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
-        result = FoldConstantRuleOnFE.evaluate(result, value.getExpressionRewriteContext());
-        // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
-        //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
-        if (result.equals(originExpr)) {
-            return originExpr;
-        }
+        Expression result = isAnd ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
+        result = FoldConstantRuleOnFE.evaluate(result, context);
         return result;
     }
 }
