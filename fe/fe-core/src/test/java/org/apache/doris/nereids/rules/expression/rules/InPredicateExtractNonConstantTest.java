@@ -17,24 +17,31 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
-import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.util.PlanChecker;
 
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class InPredicateExtractNonConstantTest extends ExpressionRewriteTestHelper {
+class InPredicateExtractNonConstantTest extends SqlTestBase {
     @Test
-    public void testRewrite() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                        InPredicateExtractNonConstant.INSTANCE
-                )
-        ));
+    public void testExtractNonConstant() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        String sql = "select * from T1 where id in (score, score, score + 100)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "OR[(id#0 = score#1),(id#0 = (score#1 + 100))]"
+                        )));
 
-        assertRewriteAfterTypeCoercion("TA in (3, 2, 1)", "TA in (3, 2, 1)");
-        assertRewriteAfterTypeCoercion("TA in (TB, TC, TB)", "TA = TB or TA = TC");
-        assertRewriteAfterTypeCoercion("TA in (3, 2, 1, TB, TC, TB)", "TA in (3, 2, 1) or TA = TB or TA = TC");
-        assertRewriteAfterTypeCoercion("TA in (1 + 2, 2 + 3, 3 + TB)", "TA in (1 + 2, 2 + 3) or TA = 3 + TB");
+        sql = "select * from T1 where id in (score,  score + 10, score + score, score, 10, 20, 30, 100 + 200)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "OR[id#0 IN (20, 10, 300, 30),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
+                )));
     }
 }
