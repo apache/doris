@@ -46,7 +46,7 @@ public class DLFCatalog extends HiveCompatibleCatalog {
     protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
         String dbName = tableIdentifier.namespace().level(0);
         String tableName = tableIdentifier.name();
-        return new DLFTableOperations(this.conf, this.clients, this.fileIO, this.uid, dbName, tableName);
+        return new DLFTableOperations(this.conf, this.clients, this.fileIO, this.catalogName, dbName, tableName);
     }
 
     protected FileIO initializeFileIO(Map<String, String> properties, Configuration hadoopConf) {
