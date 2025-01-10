@@ -17,7 +17,6 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
@@ -35,13 +34,13 @@ public class AzureFileSystem extends ObjFileSystem {
     private static final Logger LOG = LogManager.getLogger(AzureFileSystem.class);
 
     public AzureFileSystem(Map<String, String> properties) {
-        super(StorageType.AZURE.name(), StorageType.AZURE, new AzureObjStorage(properties));
+        super(StorageType.AZURE.name(), StorageType.S3, new AzureObjStorage(properties));
         initFsProperties();
     }
 
     @VisibleForTesting
     public AzureFileSystem(AzureObjStorage storage) {
-        super(StorageBackend.StorageType.AZURE.name(), StorageBackend.StorageType.AZURE, storage);
+        super(StorageType.AZURE.name(), StorageType.S3, storage);
         initFsProperties();
     }
 
