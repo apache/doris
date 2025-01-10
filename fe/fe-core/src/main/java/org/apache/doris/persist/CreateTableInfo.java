@@ -23,9 +23,11 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +55,7 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
 
     // for internal table
     public CreateTableInfo(String dbName, Table table) {
+        this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
         this.dbName = dbName;
         this.tblName = table.getName();
         this.table = table;
@@ -127,7 +130,11 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
 
     @Override
     public String toString() {
-        return toJson();
+        // In previous versions, ctlName and tblName is not set, so it may be null.
+        return String.format("%s.%s.%s",
+                Strings.isNullOrEmpty(ctlName) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctlName,
+                dbName,
+                Strings.isNullOrEmpty(tblName) ? table.getName() : tblName);
     }
 
     @Override

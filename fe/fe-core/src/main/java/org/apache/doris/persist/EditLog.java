@@ -234,8 +234,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_TABLE: {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
-                            .getId());
+                    LOG.info("Begin to unprotect create table. {}", info);
                     env.replayCreateTable(info);
                     if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName().equals(
                             InternalCatalog.INTERNAL_CATALOG_NAME)) {
@@ -253,11 +252,10 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
+                    LOG.info("Begin to unprotect drop table: {}", info);
                     if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(
                             InternalCatalog.INTERNAL_CATALOG_NAME)) {
                         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
-                        LOG.info("Begin to unprotect drop table. db = {} table = {}", db.getFullName(),
-                                info.getTableId());
                         env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
                         DropTableRecord record = new DropTableRecord(logId, info);
                         env.getBinlogManager().addDropTableRecord(record);
