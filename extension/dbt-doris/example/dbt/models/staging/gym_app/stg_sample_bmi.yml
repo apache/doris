@@ -1,0 +1,78 @@
+version: 2
+
+models:
+  - name: stg_sample_bmi
+    description: "Model for stg_gym_app_bmi table"
+    config:
+      enabled: true
+      engine: "OLAP"
+      # Unique key definition
+      keys:
+        - date
+        - user_id
+      # Partition info
+      partition_by:
+        - date
+      partition_type: "range"
+      # Sort info
+      sort: 1
+      sort_type: "ASC"
+      sort_by:
+        - date
+        - user_id
+      # Distribution info
+      distribution: "HASH"
+      distribution_key: "date"
+      # Cluster info
+      cluster_by:
+        - date
+        - user_id
+      # Materialized view info
+      materialized: "table"
+      # Refresh info
+      refresh: "FULL"
+      # column_types
+      column_types:
+        date: date
+        user_id: int
+        weight: double precision
+        height: double precision
+        bmi: double precision
+        weight_unit: string
+        height_unit: string
+
+    columns:
+      - name: date
+        description: "日期"
+
+      - name: user_id
+        description: "用户ID"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 1000000
+      - name: weight
+        description: "体重"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: "double precision"
+      - name: height
+        description: "身高"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: "double precision"
+      - name: bmi
+        description: "BMI"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: "double precision"
+      - name: weight_unit
+        description: "体重单位"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_in_set:
+              value_set: [ "kg", "pound" ]
+      - name: height_unit
+        description: "身高单位"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_in_set:
+              value_set: [ "cm", "inch" ]

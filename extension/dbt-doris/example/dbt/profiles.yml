@@ -1,0 +1,11 @@
+dbt_testing_example:
+  outputs:
+    dev:
+      host: "{{ env_var('DBT_DORIS_HOST') }}"
+      password: "{{ env_var('DBT_DORIS_PASSWORD') }}"
+      port: 9030
+      schema: dbt_testing_example
+      threads: 4
+      type: doris
+      username: "{{ env_var('DBT_DORIS_USERNAME') }}"
+  target: dev
