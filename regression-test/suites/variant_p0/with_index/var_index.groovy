@@ -96,7 +96,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
 
     master_multi_sql """
         set disable_inverted_index_v1_for_variant = false;
-        DROP TABLE IF EXISTS var_index";
+        DROP TABLE IF EXISTS var_index;
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
             v variant
