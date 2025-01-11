@@ -22,7 +22,7 @@ suite("test_frontend", "nonConcurrent") {
     def res2 = sql """SHOW FRONTENDS Disks"""
     assertTrue(res2.size() != 0)
 
-    if (Config.isCloudMode()) {
+    if (isCloudMode()) {
         // In the test_sql_mode_node_mgr regression case, there is already a similar and more complex case. This case is redundant. Additionally, there is a 5-minute limit for dropping FE on the cloud.
         // so ignore it in cloud
         return;
