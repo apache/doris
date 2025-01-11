@@ -1105,7 +1105,7 @@ class Suite implements GroovyInterceptable {
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
                 } else if (tag.contains("master_sql")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (String) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
