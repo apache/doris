@@ -93,6 +93,9 @@ using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
 using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
+using FunctionDatetimeLastDay_DateTime = FunctionDateOrDateTimeComputation<LastDayImpl<DataTypeDateTime>>;
+using FunctionDatetimeLastDay_Date = FunctionDateOrDateTimeComputation<LastDayImpl<DataTypeDate>>;
+
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSeconds>();
     factory.register_function<FunctionAddMinutes>();
@@ -135,8 +138,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMicroSecToDateTime>();
     factory.register_function<FunctionMilliSecToDateTime>();
     factory.register_function<FunctionSecToDateTime>();
-    factory.register_function<FunctionNextDay>();
-    factory.register_function<FunctionPreviousDay>();
+    factory.register_function<FunctionDatetimeLastDay_DateTime>();
+    factory.register_function<FunctionDatetimeLastDay_Date>();
 
     // alias
     factory.register_alias("days_add", "date_add");
