@@ -50,7 +50,7 @@ suite("test_memtable_flush_is_high_priority_for_vtablet_writerV2", "nonConcurren
         GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2._init.is_high_priority")
         def result = sql "show VARIABLES like \'enable_memtable_on_sink_node\'"
         logger.info(result.toString())
-        original_status = result[0][1]       
+        def original_status = result[0][1]       
         sql """set enable_memtable_on_sink_node = true"""
         sql """drop table if exists ${testTable}"""
         sql testTableDDL

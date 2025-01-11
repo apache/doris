@@ -62,7 +62,7 @@ suite("test_dynamic_partition_with_update", "nonConcurrent") {
     assertEquals("true",result.get(0).get(1))
 
     // check and update
-    sleep(3000)
+    sleep(20000)
 
     // check size
     result = sql "show partitions from test_dynamic_partition_with_update"
