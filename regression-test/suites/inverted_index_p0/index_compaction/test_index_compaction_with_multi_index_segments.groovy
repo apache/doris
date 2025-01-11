@@ -288,7 +288,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         assert (rowsetCount == 3 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction.call(tableName, "full")
+        trigger_and_wait_compaction(tableName, "full")
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets)
         if (isCloudMode) {
