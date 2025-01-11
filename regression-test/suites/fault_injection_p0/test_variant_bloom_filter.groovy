@@ -88,7 +88,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     // trigger compactions for all tablets in ${tableName}
-    trigger_and_wait_compaction(index_table, "full")
+    trigger_and_wait_compaction(index_table, "full", 600)
 
     for (def tablet in tablets) {
         int afterSegmentCount = 0
