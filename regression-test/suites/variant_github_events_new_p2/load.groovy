@@ -65,7 +65,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "inverted_index_storage_format"= "v2");
     """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
