@@ -644,7 +644,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 "'2002-06-30'", "'1997-06-30'", "'2000-07-28'", "'1999-06-04'",
                 "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
+                "'1999-12-31'", "'1999-12-27'",
+                "'1999-12-31'", "'1999-12-31'", "'2000-01-02'",
+                "'1999-12-31'", "'1999-12-31'", "'1999-12-31'" 
         };
         int answerIdx = 0;
 
@@ -670,7 +672,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
                 answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx]);
+
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("day")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("week")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("month")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("quarter")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("year")).toSql(), answer[answerIdx]);
     }
 
     @Test
@@ -685,7 +693,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 "'2000-01-02 05:59:59'", "'1999-12-30 17:59:59'", "'2000-01-01 00:29:59'",
                 "'1999-12-31 23:29:59'", "'2000-01-01 00:00:29'", "'1999-12-31 23:59:29'",
                 "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "'1999-12-31'", "730484", "'1999-12-31'"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "730484", "'1999-12-31'",
+                "'1999-12-31'", "'1999-12-31'", "'2000-01-02'",
+                "'1999-12-31'", "'1999-12-31'", "'1999-12-31'" 
         };
         int answerIdx = 0;
 
@@ -722,10 +732,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
                 answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toDate(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toDays(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx++]);
+        
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("day")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("week")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("month")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("quarter")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("year")).toSql(), answer[answerIdx]); 
     }
 
     @Test
@@ -738,7 +754,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 "'2000-01-30'", "'1999-12-01'", "'2029-12-31'", "'1969-12-31'",
                 "'2002-06-30'", "'1997-06-30'", "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
+                "'1999-12-31'", "'1999-12-27'",
+                "'1999-12-31'", "'1999-12-31'", "'2000-01-02'",
+                "'1999-12-31'", "'1999-12-31'", "'1999-12-31'",
+                "'2000-01-01'", "'1999-12-30'" 
         };
         int answerIdx = 0;
 
@@ -762,7 +781,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
                 answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx]);
+
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("day")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("week")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("month")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("quarter")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("year")).toSql(), answer[answerIdx++]); 
+        Assertions.assertEquals(DateTimeExtractAndTransform.nextDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.previousDay(dateLiteral).toSql(), answer[answerIdx]);
+
     }
 
     @Test
@@ -793,8 +821,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 "'1999-12-31 23:59:59.000030'", "'1999-12-31 23:59:58.999970'", "'1999-12-31 23:59:59.030000'",
                 "'1999-12-31 23:59:58.970000'",
                 "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "'1999-12-31'", "730484", "'1999-12-31'",
-                "'1999-12-31'"
+                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "730484", "'1999-12-31'",
+                "'1999-12-31'",
+                "'2000-01-01'", "'1999-12-30'", "'1999-12-31'",
+                "'1999-12-31'", "'2000-01-02'", "'1999-12-31'",
+                "'1999-12-31'", "'1999-12-31'" 
+   
         };
         int answerIdx = 0;
 
@@ -839,12 +871,20 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
                 answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toDate(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toDays(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx++]);
 
+        Assertions.assertEquals(DateTimeExtractAndTransform.nextDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.previousDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("day")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("week")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("month")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("quarter")).toSql(), answer[answerIdx++]);
+        Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral, new VarcharLiteral("year")).toSql(), answer[answerIdx]);
+   
         Assertions.assertEquals("'2021 52 2021 52'", DateTimeExtractAndTransform.dateFormat(
                 new DateTimeLiteral("2022-01-01 00:12:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
