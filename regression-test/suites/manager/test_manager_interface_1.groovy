@@ -504,6 +504,12 @@ suite('test_manager_interface_1',"p0") {
         futures.add( thread {
             sleep(1500)
 
+            result = sql """ 
+            select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
+            information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
+            """
+            logger.info("result = ${result}")
+
             result = sql_return_maparray """ 
             select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
             information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
