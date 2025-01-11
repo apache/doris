@@ -34,8 +34,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     bool has_return_type_in_signature() const override { return false; }
 
     bool is_variadic() const override { return true; }

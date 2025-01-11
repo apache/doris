@@ -47,8 +47,6 @@ public:
     // Get function name.
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     size_t get_number_of_arguments() const override { return 2; }
 
     bool has_return_type_in_signature() const override { return false; }

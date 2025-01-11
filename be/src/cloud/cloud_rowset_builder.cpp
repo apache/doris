@@ -51,8 +51,8 @@ Status CloudRowsetBuilder::init() {
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
 
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;

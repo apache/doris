@@ -7,7 +7,7 @@ CREATE TABLE `per` ( `A` bigint(20) NULL COMMENT "") ENGINE=OLAP DUPLICATE KEY(`
 
 insert into per values(65536);
 
-set parallel_fragment_exec_instance_num = 15;
+set PARALLEL_PIPELINE_TASK_NUM = 15;
 
 SELECT PERCENTILE_APPROX(A, 0.5) from per;
 

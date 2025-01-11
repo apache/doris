@@ -124,7 +124,7 @@ suite("part_partition_invalid", "p0,external") {
     order_qt_query_sql """${query_sql}"""
 
     // create partition mtmv, related partition is hive catalog
-    def mv_name = 'mv_join'
+    def mv_name = suite_name + 'mv_join'
     sql """drop materialized view if exists ${mv_name}"""
     sql """
         CREATE MATERIALIZED VIEW ${mv_name}
