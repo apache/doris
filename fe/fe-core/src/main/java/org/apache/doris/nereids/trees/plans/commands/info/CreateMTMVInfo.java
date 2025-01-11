@@ -310,16 +310,18 @@ public class CreateMTMVInfo {
                         || keyLength > FeConstants.shortkey_maxsize_bytes) {
                     if (keys.isEmpty() && type.isStringLikeType()) {
                         keys.add(column.getName());
+                        column.setIsKey(true);
                     }
                     break;
                 }
-                if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                        || catalogType.isComplexType() || type.isBitmapType() || type.isHllType()
-                        || type.isQuantileStateType() || type.isJsonType() || type.isStructType()
-                        || column.getAggType() != null || type.isVariantType()) {
+                if (column.getAggType() != null) {
+                    break;
+                }
+                if (!catalogType.couldBeShortKey()) {
                     break;
                 }
                 keys.add(column.getName());
+                column.setIsKey(true);
                 if (type.isVarcharType()) {
                     break;
                 }

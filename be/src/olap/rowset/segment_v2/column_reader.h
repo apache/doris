@@ -148,8 +148,9 @@ public:
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
 
     // Seek to the first entry in the column.
-    Status seek_to_first(OrdinalPageIndexIterator* iter);
-    Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
+    Status seek_to_first(OrdinalPageIndexIterator* iter, const ColumnIteratorOptions& iter_opts);
+    Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
+                             const ColumnIteratorOptions& iter_opts);
 
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
@@ -175,11 +176,13 @@ public:
     // - delete_condition is a delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
                                       const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges);
+                                      RowRanges* row_ranges,
+                                      const ColumnIteratorOptions& iter_opts);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
-                                          RowRanges* row_ranges);
+                                          RowRanges* row_ranges,
+                                          const ColumnIteratorOptions& iter_opts);
 
     PagePointer get_dict_page_pointer() const { return _meta_dict_page; }
 
@@ -219,13 +222,16 @@ private:
         return Status::OK();
     }
 
-    [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
+                                              const ColumnIteratorOptions& iter_opts);
+    [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
+                                             const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_inverted_index_index(
             std::shared_ptr<InvertedIndexFileReader> index_file_reader,
             const TabletIndex* index_meta);
-    [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
+                                                  const ColumnIteratorOptions& iter_opts);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container,
@@ -239,9 +245,11 @@ private:
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                const std::vector<const ColumnPredicate*>* delete_predicates,
-                               std::vector<uint32_t>* page_indexes);
+                               std::vector<uint32_t>* page_indexes,
+                               const ColumnIteratorOptions& iter_opts);
 
-    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
+    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
+                                 const ColumnIteratorOptions& iter_opts);
 
     int64_t get_metadata_size() const override;
 
@@ -759,10 +767,6 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
-
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("Not supported next_batch_of_zone_map");
-    }
 
     ordinal_t get_current_ordinal() const override {
         if (_sibling_iter) {

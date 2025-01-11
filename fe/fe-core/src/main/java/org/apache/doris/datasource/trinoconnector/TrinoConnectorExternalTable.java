@@ -71,8 +71,9 @@ import java.util.Optional;
 
 public class TrinoConnectorExternalTable extends ExternalTable {
 
-    public TrinoConnectorExternalTable(long id, String name, String dbName, TrinoConnectorExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.TRINO_CONNECTOR_EXTERNAL_TABLE);
+    public TrinoConnectorExternalTable(long id, String name, String remoteName, TrinoConnectorExternalCatalog catalog,
+            TrinoConnectorExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.TRINO_CONNECTOR_EXTERNAL_TABLE);
     }
 
     @Override
@@ -108,7 +109,8 @@ public class TrinoConnectorExternalTable extends ExternalTable {
                     qualifiedTable.asSchemaTableName(), Optional.empty(), Optional.empty()));
         }
         if (!connectorTableHandle.isPresent()) {
-            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", qualifiedTable));
+            throw new RuntimeException(String.format("Table does not exist: %s.%s.%s", trinoConnectorCatalog.getName(),
+                    dbName, name));
         }
 
         // 4. Get ColumnHandle

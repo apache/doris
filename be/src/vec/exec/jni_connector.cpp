@@ -241,7 +241,7 @@ Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, lo
     TableMetaAddress table_meta(table_address);
     long num_rows = table_meta.next_meta_as_long();
     for (size_t i : arguments) {
-        if (block->get_by_position(i).column == nullptr) {
+        if (block->get_by_position(i).column.get() == nullptr) {
             auto return_type = block->get_data_type(i);
             bool result_nullable = return_type->is_nullable();
             ColumnUInt8::MutablePtr null_col = nullptr;

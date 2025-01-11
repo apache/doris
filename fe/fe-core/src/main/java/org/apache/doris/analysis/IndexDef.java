@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -43,10 +44,10 @@ public class IndexDef {
     private boolean isBuildDeferred = false;
     private PartitionNames partitionNames;
     private List<Integer> columnUniqueIds = Lists.newArrayList();
-    private static final int MIN_NGRAM_SIZE = 1;
-    private static final int MAX_NGRAM_SIZE = 255;
-    private static final int MIN_BF_SIZE = 64;
-    private static final int MAX_BF_SIZE = 65535;
+    public static final int MIN_NGRAM_SIZE = 1;
+    public static final int MAX_NGRAM_SIZE = 255;
+    public static final int MIN_BF_SIZE = 64;
+    public static final int MAX_BF_SIZE = 65535;
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
@@ -218,7 +219,8 @@ public class IndexDef {
     }
 
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
-                boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
+            boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -251,7 +253,8 @@ public class IndexDef {
             }
 
             if (indexType == IndexType.INVERTED) {
-                InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
+                InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties,
+                        invertedIndexFileStorageFormat);
             } else if (indexType == IndexType.NGRAM_BF) {
                 if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR
                         && colType != PrimitiveType.STRING) {
@@ -270,7 +273,7 @@ public class IndexDef {
         }
     }
 
-    private void parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
+    public static void parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
             throws AnalysisException {
         String valueStr = properties.get(key);
         if (valueStr == null) {

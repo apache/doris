@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -26,10 +27,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -40,7 +43,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -246,5 +251,72 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     public void setMultiLayerProjects(List<List<NamedExpression>> multiLayers) {
         this.multiLayerProjects = multiLayers;
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression proj : getProjects()) {
+            if (proj.children().isEmpty()) {
+                continue;
+            }
+            if (proj.child(0) instanceof Uuid) {
+                builder.addUniqueSlot(proj.toSlot());
+            } else if (ExpressionUtils.isInjective(proj.child(0))) {
+                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                if (child(0).getLogicalProperties().getTrait().isUnique(inputs)) {
+                    builder.addUniqueSlot(proj.toSlot());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression proj : getProjects()) {
+            if (!(proj instanceof Alias)) {
+                continue;
+            }
+            if (proj.child(0).isConstant()) {
+                builder.addUniformSlotAndLiteral(proj.toSlot(), proj.child(0));
+            } else if (proj.child(0) instanceof Slot) {
+                Slot slot = (Slot) proj.child(0);
+                DataTrait childTrait = child(0).getLogicalProperties().getTrait();
+                if (childTrait.isUniformAndHasConstValue(slot)) {
+                    builder.addUniformSlotAndLiteral(proj.toSlot(),
+                            child(0).getLogicalProperties().getTrait().getUniformValue(slot).get());
+                } else if (childTrait.isUniform(slot)) {
+                    builder.addUniformSlot(proj.toSlot());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (expr instanceof Alias) {
+                if (aliasMap.containsKey(expr.child(0))) {
+                    builder.addEqualPair(expr.toSlot(), aliasMap.get(expr.child(0)).toSlot());
+                }
+                aliasMap.put(expr.child(0), expr);
+                if (expr.child(0).isSlot()) {
+                    builder.addEqualPair(expr.toSlot(), (Slot) expr.child(0));
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (!expr.isSlot()) {
+                builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            }
+        }
     }
 }

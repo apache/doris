@@ -38,12 +38,6 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() = default;
-
-ExecEnv::~ExecEnv() {
-    destroy();
-}
-
 #ifdef BE_TEST
 void ExecEnv::set_inverted_index_searcher_cache(
         segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache) {

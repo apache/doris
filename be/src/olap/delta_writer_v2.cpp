@@ -102,8 +102,8 @@ Status DeltaWriterV2::init() {
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_streams[0]->tablet_schema(_req.index_id));
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_streams[0]->tablet_schema(_req.index_id)));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -210,9 +210,9 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
     return Status::OK();
 }
 
-void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
-                                                 const OlapTableSchemaParam* table_schema_param,
-                                                 const TabletSchema& ori_tablet_schema) {
+Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
+                                                   const OlapTableSchemaParam* table_schema_param,
+                                                   const TabletSchema& ori_tablet_schema) {
     _tablet_schema->copy_from(ori_tablet_schema);
     // find the right index id
     int i = 0;
@@ -236,12 +236,14 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->unique_key_update_mode(),
-                               table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(),
-                               table_schema_param->nano_seconds(), table_schema_param->timezone(),
-                               table_schema_param->auto_increment_coulumn());
+    RETURN_IF_ERROR(_partial_update_info->init(
+            _req.tablet_id, _req.txn_id, *_tablet_schema,
+            table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_input_columns(),
+            table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
+            table_schema_param->nano_seconds(), table_schema_param->timezone(),
+            table_schema_param->auto_increment_coulumn()));
+    return Status::OK();
 }
 
 } // namespace doris

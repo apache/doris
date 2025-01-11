@@ -171,6 +171,16 @@ Status EngineCloneTask::_do_clone() {
         auto duration = std::chrono::milliseconds(dp->param("duration", 10 * 1000));
         std::this_thread::sleep_for(duration);
     });
+
+    DBUG_EXECUTE_IF("EngineCloneTask.failed_clone", {
+        LOG_WARNING("EngineCloneTask.failed_clone")
+                .tag("tablet_id", _clone_req.tablet_id)
+                .tag("replica_id", _clone_req.replica_id)
+                .tag("version", _clone_req.version);
+        return Status::InternalError(
+                "in debug point, EngineCloneTask.failed_clone tablet={}, replica={}, version={}",
+                _clone_req.tablet_id, _clone_req.replica_id, _clone_req.version);
+    });
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
@@ -803,8 +813,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     /// Traverse all downloaded clone files in CLONE dir.
     /// If it does not exist in local tablet dir, link the file to local tablet dir
     /// And save all linked files in linked_success_files.
-    /// if binlog exist in clone dir and md5sum equal, then skip link file
-    bool skip_link_file = false;
     for (const string& clone_file : clone_file_names) {
         if (local_file_names.find(clone_file) != local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
@@ -812,6 +820,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             continue;
         }
 
+        /// if binlog exist in clone dir and md5sum equal, then skip link file
+        bool skip_link_file = false;
         std::string to;
         if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
             if (!contain_binlog) {

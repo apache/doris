@@ -802,26 +802,25 @@ void Block::update_hash(SipHash& hash) const {
 void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-    if (count == 0) {
-        for (const auto& col : columns_to_filter) {
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+    for (const auto& col : columns_to_filter) {
+        auto& column = block->get_by_position(col).column;
+        if (column->size() == count) {
+            continue;
         }
-    } else {
-        for (const auto& col : columns_to_filter) {
-            auto& column = block->get_by_position(col).column;
-            if (column->size() != count) {
-                if (column->is_exclusive()) {
-                    const auto result_size = column->assume_mutable()->filter(filter);
-                    if (result_size != count) [[unlikely]] {
-                        throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not equal with filter_size, result_size={}, "
-                                        "filter_size={}",
-                                        result_size, count);
-                    }
-                } else {
-                    column = column->filter(filter, count);
-                }
+        if (count == 0) {
+            block->get_by_position(col).column->assume_mutable()->clear();
+            continue;
+        }
+        if (column->is_exclusive()) {
+            const auto result_size = column->assume_mutable()->filter(filter);
+            if (result_size != count) [[unlikely]] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "result_size not equal with filter_size, result_size={}, "
+                                "filter_size={}",
+                                result_size, count);
             }
+        } else {
+            column = column->filter(filter, count);
         }
     }
 }

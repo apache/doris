@@ -36,16 +36,15 @@ public:
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
                    uint32_t stale_sweep_time_s, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS,
                    uint32_t element_count_capacity = DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY,
-                   bool enable_prune = true)
+                   bool enable_prune = true, bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K)
             : CachePolicy(type, capacity, stale_sweep_time_s, enable_prune),
               _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
             _cache = std::shared_ptr<ShardedLRUCache>(
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
-                                        element_count_capacity));
+                                        element_count_capacity, is_lru_k));
         } else {
-            CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
-            _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
+            _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
@@ -54,17 +53,17 @@ public:
                    uint32_t stale_sweep_time_s, uint32_t num_shards,
                    uint32_t element_count_capacity,
                    CacheValueTimeExtractor cache_value_time_extractor,
-                   bool cache_value_check_timestamp, bool enable_prune = true)
+                   bool cache_value_check_timestamp, bool enable_prune = true,
+                   bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K)
             : CachePolicy(type, capacity, stale_sweep_time_s, enable_prune),
               _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
             _cache = std::shared_ptr<ShardedLRUCache>(
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
                                         cache_value_time_extractor, cache_value_check_timestamp,
-                                        element_count_capacity));
+                                        element_count_capacity, is_lru_k));
         } else {
-            CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
-            _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
+            _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
@@ -156,7 +155,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
-        if (_stale_sweep_time_s <= 0 || _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (_stale_sweep_time_s <= 0 || std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return;
         }
         if (exceed_prune_limit()) {
@@ -203,7 +202,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
-        if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return;
         }
         if ((force && mem_consumption() != 0) || exceed_prune_limit()) {
@@ -245,7 +244,7 @@ public:
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
         COUNTER_SET(_cost_timer, (int64_t)0);
-        if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return 0;
         }
 
