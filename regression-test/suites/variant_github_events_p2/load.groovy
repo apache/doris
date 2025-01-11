@@ -169,7 +169,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     // build inverted index at middle of loading the data
     // ADD INDEX
-    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true", "inverted_index_storage_format"= "v2") """
+    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") """
     wait_for_latest_op_on_table_finish("github_events", timeout)
 
     // 2022

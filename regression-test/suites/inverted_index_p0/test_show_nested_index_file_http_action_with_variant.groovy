@@ -64,7 +64,7 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
         def tableName = "test_show_nested_index_file_http_action_with_variant_" + format
 
         master_multi_sql """
-            DROP TABLE IF EXISTS ${tableName}";
+            DROP TABLE IF EXISTS ${tableName};
             set disable_inverted_index_v1_for_variant = false;
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 k bigint,
@@ -74,7 +74,7 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "${format}");
-            set disable_inverted_index_v1_for_variant = true 
+            set disable_inverted_index_v1_for_variant = true;
         """
         
         load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
