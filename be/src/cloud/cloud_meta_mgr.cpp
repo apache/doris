@@ -721,8 +721,11 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
 
     auto start = std::chrono::high_resolution_clock::now();
-    return retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
+    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
     auto end = std::chrono::high_resolution_clock::now();
+    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
+        return st;
+    }
 
     if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
         return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
