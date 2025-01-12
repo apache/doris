@@ -52,7 +52,7 @@ suite("test_switch_catalog_and_delete_internal", "p0,external,external_docker") 
         // 3.delete table
         sql "delete from internal.${db}.test_switch_catalog_and_delete_internal where pk < 2;"
         // 4.select table
-        qt_test "select * from internal.${db}.test_switch_catalog_and_delete_internal;"
+        qt_test "select * from internal.${db}.test_switch_catalog_and_delete_internal order by pk;"
     }
 
 }
