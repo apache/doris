@@ -106,9 +106,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
 
-    private boolean pushDownCount = false;
-    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
-
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
             boolean needCheckColumnPriv,
@@ -165,6 +162,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // use jni reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setPaimonSplit(encodeObjectToString(split));
+            fileDesc.setRowCount(split.rowCount());
         } else {
             // use native reader
             if (fileFormat.equals("orc")) {
@@ -187,7 +185,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
         fileDesc.setTblId(source.getTargetTable().getId());
         fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
-        // The hadoop conf should be same with PaimonExternalCatalog.createCatalog()#getConfiguration()
+        // The hadoop conf should be same with
+        // PaimonExternalCatalog.createCatalog()#getConfiguration()
         fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getHadoopProperties());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
@@ -197,6 +196,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             tDeletionFile.setOffset(deletionFile.offset());
             tDeletionFile.setLength(deletionFile.length());
             fileDesc.setDeletionFile(tDeletionFile);
+        } else if (paimonSplit.getRowCount().isPresent()) {
+            fileDesc.setRowCount(paimonSplit.getRowCount().get());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
@@ -267,6 +268,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     if (deletionFile != null) {
                                         splitStat.setHasDeletionVector(true);
                                         ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
+                                        // TODO: support table with deletion vector
+                                    } else {
+                                        ((PaimonSplit) dorisSplit).setRowCount(split.rowCount() / dorisSplits.size());
                                     }
                                     splits.add(dorisSplit);
                                 }
@@ -277,12 +281,20 @@ public class PaimonScanNode extends FileQueryScanNode {
                         }
                     } else {
                         createRawFileSplits(rawFiles, splits, applyCountPushdown ? Long.MAX_VALUE : 0);
+                        // TODO:
+                        if (applyCountPushdown) {
+                            for (int i = 0; i < splits.size(); i++) {
+                                ((PaimonSplit) splits.get(i)).setRowCount(rawFiles.get(i).rowCount());
+                            }
+                        }
                     }
                 } else {
                     if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
                         continue;
                     }
-                    splits.add(new PaimonSplit(split));
+                    PaimonSplit paimonSplit = new PaimonSplit(split);
+                    paimonSplit.setRowCount(split.rowCount());
+                    splits.add(paimonSplit);
                     ++paimonSplitNum;
                 }
             } else {

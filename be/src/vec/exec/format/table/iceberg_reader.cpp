@@ -102,7 +102,6 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
 }
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    // already get rows from be
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count > 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
