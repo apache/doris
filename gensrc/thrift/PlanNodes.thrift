@@ -320,6 +320,7 @@ struct TPaimonFileDesc {
     12: optional TPaimonDeletionFileDesc deletion_file;
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
+    15: optional i64 row_count
 }
 
 struct TTrinoConnectorFileDesc {
