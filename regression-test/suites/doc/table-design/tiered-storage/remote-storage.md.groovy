@@ -53,8 +53,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "s3.connection.request.timeout" = "3000",
                 "s3.connection.timeout" = "1000"
             );
-            
-            
+
             CREATE STORAGE POLICY test_policy_${suffix}
             PROPERTIES(
                 "storage_resource" = "remote_s3_${suffix}",
@@ -78,7 +77,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
 
         multi_sql """
             DROP TABLE IF EXISTS create_table_use_created_policy;
-            DROP STORAGE POLICY IF EXISTS test_policy;
+            DROP STORAGE POLICY IF EXISTS test_policy_${suffix};
             DROP RESOURCE IF EXISTS 'remote_hdfs_${suffix}';
 
             CREATE RESOURCE "remote_hdfs_${suffix}" PROPERTIES (
