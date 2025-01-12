@@ -34,6 +34,8 @@ public:
 
     Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
 
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
+
 protected:
     struct PaimonProfile {
         RuntimeProfile::Counter* num_delete_rows;
@@ -42,6 +44,9 @@ protected:
     std::vector<int64_t> _delete_rows;
     RuntimeProfile* _profile;
     PaimonProfile _paimon_profile;
+    // TODO: init this
+    RuntimeState* _state;
+    int64_t _remaining_table_level_row_count;
     virtual void set_delete_rows() = 0;
 
 private:

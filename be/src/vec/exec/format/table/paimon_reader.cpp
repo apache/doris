@@ -41,6 +41,13 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         return Status::OK();
     }
 
+    // TODO: move this to init func
+    if (table_desc.__isset.row_count) {
+        _remaining_table_level_row_count = table_desc.row_count;
+    } else {
+        _remaining_table_level_row_count = -1;
+    }
+
     // set push down agg type to NONE because we can not do count push down opt
     // if there are delete files.
     _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
@@ -98,6 +105,27 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         set_delete_rows();
     }
     return Status::OK();
+}
+
+Status PaimonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    // already get rows from be
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count > 0) {
+        auto rows = std::min(_remaining_table_level_row_count,
+                             (int64_t)_state->query_options().batch_size);
+        _remaining_table_level_row_count -= rows;
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
+            col->resize(rows);
+        }
+        block->set_columns(std::move(mutate_columns));
+        *read_rows = rows;
+        if (_remaining_table_level_row_count == 0) {
+            *eof = true;
+        }
+
+        return Status::OK();
+    }
+    return _file_format_reader->get_next_block(block, read_rows, eof);
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

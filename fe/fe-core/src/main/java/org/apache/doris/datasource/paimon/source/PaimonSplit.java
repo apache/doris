@@ -37,6 +37,7 @@ public class PaimonSplit extends FileSplit {
     private Split split;
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile;
+    private Optional<Long> optRowCount;
 
     public PaimonSplit(Split split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
@@ -90,6 +91,14 @@ public class PaimonSplit extends FileSplit {
         this.optDeletionFile = Optional.of(deletionFile);
     }
 
+    public Optional<Long> getRowCount() {
+        return optRowCount;
+    }
+
+    public void setRowCount(long rowCount) {
+        this.optRowCount = Optional.of(rowCount);
+    }
+
     public static class PaimonSplitCreator implements SplitCreator {
 
         static final PaimonSplitCreator DEFAULT = new PaimonSplitCreator();
@@ -103,7 +112,7 @@ public class PaimonSplit extends FileSplit {
                 long modificationTime,
                 String[] hosts,
                 List<String> partitionValues) {
-            PaimonSplit split =  new PaimonSplit(path, start, length, fileLength,
+            PaimonSplit split = new PaimonSplit(path, start, length, fileLength,
                     modificationTime, hosts, partitionValues);
             split.setTargetSplitSize(fileSplitSize);
             return split;
