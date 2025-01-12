@@ -36,9 +36,11 @@
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -119,6 +121,7 @@
 #endif
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
@@ -211,8 +214,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
                             config::num_buffered_reader_prefetch_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(buffered_reader_min_threads)
-                              .set_max_threads(buffered_reader_max_threads)
+                              .set_min_threads(cast_set<int>(buffered_reader_min_threads))
+                              .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
@@ -224,8 +227,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
                             config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(s3_file_upload_min_threads)
-                              .set_max_threads(s3_file_upload_max_threads)
+                              .set_min_threads(cast_set<int>(s3_file_upload_min_threads))
+                              .set_max_threads(cast_set<int>(s3_file_upload_max_threads))
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
@@ -237,8 +240,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
     static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
-                              .set_min_threads(config::min_nonblock_close_thread_num)
-                              .set_max_threads(config::max_nonblock_close_thread_num)
+                              .set_min_threads(cast_set<int>(config::min_nonblock_close_thread_num))
+                              .set_max_threads(cast_set<int>(config::max_nonblock_close_thread_num))
                               .build(&_non_block_close_thread_pool));
     static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
                               .set_min_threads(config::min_s3_file_system_thread_num)
@@ -453,10 +456,10 @@ Status ExecEnv::_init_mem_env() {
         storage_cache_limit = storage_cache_limit / 2;
     }
     int32_t index_percentage = config::index_page_cache_percentage;
-    uint32_t num_shards = config::storage_page_cache_shard_size;
+    int32 num_shards = config::storage_page_cache_shard_size;
     if ((num_shards & (num_shards - 1)) != 0) {
         int old_num_shards = num_shards;
-        num_shards = BitUtil::RoundUpToPowerOfTwo(num_shards);
+        num_shards = cast_set<int>(BitUtil::RoundUpToPowerOfTwo(num_shards));
         LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
                      << ". Rounded up to " << num_shards
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
