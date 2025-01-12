@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_query_tvf_auth", "p0,auth,external") {
+suite("test_query_tvf_auth", "p0,auth,external,external_docker") {
     String suiteName = "test_query_tvf_auth"
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
