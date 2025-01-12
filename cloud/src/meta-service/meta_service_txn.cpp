@@ -997,12 +997,10 @@ void process_mow_when_commit_txn(
             }
 
             if (pending_info.has_lock_id() && pending_info.lock_id() != lock_id) {
-                code = MetaServiceCode::PENDING_DELETE_BITMAP_WRONG;
-                msg = fmt::format(
+                LOG_WARNING(
                         "wrong lock_id in pending delete bitmap infos, expect lock_id={}, but "
                         "found {} tablet_id={} instance_id={}",
                         lock_id, pending_info.lock_id(), tablet_id, instance_id);
-                return;
             }
 
             txn->remove(pending_key);
