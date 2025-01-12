@@ -304,6 +304,7 @@ supportedShowStatement
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
+    | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     ;
 
 supportedLoadStatement
@@ -391,7 +392,6 @@ unsupportedShowStatement
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
-    | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
@@ -480,6 +480,7 @@ supportedRefreshStatement
 
 supportedCleanStatement
     : CLEAN ALL PROFILE                                                             #cleanAllProfile
+    | CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
     ;
 
 unsupportedRefreshStatement
@@ -487,8 +488,7 @@ unsupportedRefreshStatement
     ;
 
 unsupportedCleanStatement
-    : CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
-    | CLEAN QUERY STATS ((FOR database=identifier)
+    : CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;

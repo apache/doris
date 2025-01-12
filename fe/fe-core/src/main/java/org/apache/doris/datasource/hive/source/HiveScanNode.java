@@ -289,12 +289,12 @@ public class HiveScanNode extends FileQueryScanNode {
          * we don't need to split the file because for parquet/orc format, only metadata is read.
          * If we split the file, we will read metadata of a file multiple times, which is not efficient.
          *
-         * - Hive Transactional Table may need merge on read, so do not apply this optimization.
+         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
-                && hiveTransaction != null) {
+                && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {

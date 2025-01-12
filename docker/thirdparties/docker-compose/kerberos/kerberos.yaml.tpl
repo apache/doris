@@ -24,13 +24,17 @@ services:
       - ./sql:/usr/local/sql
       - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
       - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
+      - ./health-checks/health.sh:/usr/local/health.sh
       - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
+      - ./health-checks/hive-health-check.sh:/etc/health.d/hive-health-check.sh
       - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
-    restart: on-failure
     hostname: hadoop-master
     entrypoint: /usr/local/entrypoint-hive-master.sh
     healthcheck:
-      test: ./health-checks/health.sh
+      test: ["CMD", "ls", "/mnt/SUCCESS"]
+      interval: 20s
+      timeout: 60s
+      retries: 120
     ports:
       - "5806:5006"
       - "8820:8020"
@@ -46,17 +50,21 @@ services:
     image: doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized-2_96
     container_name: doris--kerberos2
     hostname: hadoop-master-2
-    restart: on-failure
     volumes:
       - ./two-kerberos-hives:/keytabs
       - ./sql:/usr/local/sql
       - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
       - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
+      - ./health-checks/health.sh:/usr/local/health.sh
       - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
+      - ./health-checks/hive-health-check-2.sh:/etc/health.d/hive-health-check-2.sh
       - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
     entrypoint: /usr/local/entrypoint-hive-master-2.sh
     healthcheck:
-      test: ./health-checks/health.sh
+      test: ["CMD", "ls", "/mnt/SUCCESS"]
+      interval: 20s
+      timeout: 60s
+      retries: 120
     ports:
       - "15806:5006"
       - "18820:8020"
