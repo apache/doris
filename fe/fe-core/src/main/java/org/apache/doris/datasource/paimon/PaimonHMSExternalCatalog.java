@@ -20,7 +20,6 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties.Type;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -38,7 +37,6 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
     public PaimonHMSExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
         super(catalogId, name, resource, props, comment);
-        catalogProperty.initialize(Type.HMS);
     }
 
     @Override

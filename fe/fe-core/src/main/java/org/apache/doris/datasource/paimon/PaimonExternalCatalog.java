@@ -24,6 +24,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.connection.PaimonConnectionProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -37,7 +38,6 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.options.Options;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -146,12 +146,9 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     protected Catalog createCatalog() {
         try {
             return hadoopAuthenticator.doAs(() -> {
-                Options options = new Options();
-                Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
-                for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
-                    options.set(kv.getKey(), kv.getValue());
-                }
-                CatalogContext context = CatalogContext.create(options, getConfiguration());
+                PaimonConnectionProperties paimonProperties = new PaimonConnectionProperties(catalogProperty);
+                CatalogContext context = CatalogContext.create(paimonProperties.getOptions(),
+                        paimonProperties.getHadoopConf());
                 return createCatalogImpl(context);
             });
         } catch (IOException e) {

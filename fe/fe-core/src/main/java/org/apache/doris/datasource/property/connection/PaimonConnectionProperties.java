@@ -16,9 +16,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.catalog;
+package org.apache.doris.datasource.property.connection;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
 import org.apache.doris.datasource.property.metastore.HMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
@@ -29,26 +30,34 @@ import org.apache.doris.datasource.property.storage.StorageProperties.Type;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
+import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.options.Options;
 
 import java.net.URI;
 import java.nio.file.Paths;
+import java.util.List;
 
-public class PaimonCatalogProperties {
+public class PaimonConnectionProperties {
 
+    @Getter
     private Options options = new Options();
+    @Getter
     private Configuration hadoopConf = new Configuration(false);
 
-    public PaimonCatalogProperties(String warehouse, MetastoreProperties metaProps, StorageProperties storeProps)
+    public PaimonConnectionProperties(CatalogProperty catalogProperty)
             throws UserException {
-        init(warehouse, metaProps, storeProps);
+        String warehouse = catalogProperty.getOrDefault("warehouse", "");
+        if (Strings.isNullOrEmpty(warehouse)) {
+            throw new UserException("Property 'warehouse' is not set.");
+        }
+        init(warehouse, catalogProperty.getMetastoreProperties(), catalogProperty.getStoragePropertiesList());
     }
 
-    private void init(String warehouse, MetastoreProperties metaProps, StorageProperties storeProps)
+    private void init(String warehouse, MetastoreProperties metaProps, List<StorageProperties> storePropsList)
             throws UserException {
         initMetastoreProperties(metaProps);
-        initFileIOProperties(warehouse, storeProps);
+        initFileIOProperties(warehouse, storePropsList);
     }
 
     private void initMetastoreProperties(MetastoreProperties metaProps)
@@ -73,7 +82,7 @@ public class PaimonCatalogProperties {
         }
     }
 
-    private void initFileIOProperties(String warehouse, StorageProperties storeProps)
+    private void initFileIOProperties(String warehouse, List<StorageProperties> storePropsList)
             throws UserException {
         String finalWarehouse = warehouse;
         // init file io properties
@@ -85,10 +94,10 @@ public class PaimonCatalogProperties {
             case "file":
                 break;
             case "oss":
-                initOSSFileIOProps(storeProps);
+                initOSSFileIOProps(storePropsList);
                 break;
             case "hdfs":
-                initHadoopFileIOProps(storeProps);
+                initHadoopFileIOProps(storePropsList);
                 break;
             case "s3":
             case "cos":
@@ -99,7 +108,7 @@ public class PaimonCatalogProperties {
                 // Use S3FileIO for all S3-like storage,
                 // replace the scheme with s3.
                 finalWarehouse = "s3://" + uri.getAuthority() + uri.getPath();
-                initS3FileIOProps(storeProps);
+                initS3FileIOProps(storePropsList);
                 break;
             default:
                 throw new UserException("Unsupported warehouse type: " + scheme);
@@ -107,30 +116,45 @@ public class PaimonCatalogProperties {
         options.set("warehouse", finalWarehouse);
     }
 
-    private void initOSSFileIOProps(StorageProperties storeProps) throws UserException {
-        if (storeProps.getType() != Type.S3) {
-            throw new UserException("The warehouse is on OSS, but the storage property is not for S3: "
-                    + storeProps.getType());
+    private void initOSSFileIOProps(List<StorageProperties> storePropsList) throws UserException {
+        S3Properties s3Props = null;
+        for (StorageProperties storeProps : storePropsList) {
+            if (storeProps.getType() == Type.S3) {
+                s3Props = (S3Properties) storeProps;
+                break;
+            }
         }
-        S3Properties s3Props = (S3Properties) storeProps;
+        if (s3Props == null) {
+            throw new UserException("The warehouse is on OSS, but the storage property is not for S3.");
+        }
         s3Props.toPaimonOSSFileIOProperties(options);
     }
 
-    private void initHadoopFileIOProps(StorageProperties storeProps) throws UserException {
-        if (storeProps.getType() != Type.HDFS) {
-            throw new UserException("The warehouse is on HDFS-like storage, but the storage property is not for HDFS: "
-                    + storeProps.getType());
+    private void initHadoopFileIOProps(List<StorageProperties> storePropsList) throws UserException {
+        HDFSProperties hdfsProps = null;
+        for (StorageProperties storeProps : storePropsList) {
+            if (storeProps.getType() == Type.HDFS) {
+                hdfsProps = (HDFSProperties) storeProps;
+                break;
+            }
         }
-        HDFSProperties hdfsProps = (HDFSProperties) storeProps;
+        if (hdfsProps == null) {
+            throw new UserException("The warehouse is on HDFS-like storage, but the storage property is not for HDFS");
+        }
         hdfsProps.toHadoopConfiguration(hadoopConf);
     }
 
-    private void initS3FileIOProps(StorageProperties storeProps) throws UserException {
-        if (storeProps.getType() != Type.S3) {
-            throw new UserException("The warehouse is on S3-like storage, but the storage property is not for S3: "
-                    + storeProps.getType());
+    private void initS3FileIOProps(List<StorageProperties> storePropsList) throws UserException {
+        S3Properties s3Props = null;
+        for (StorageProperties storeProps : storePropsList) {
+            if (storeProps.getType() == Type.S3) {
+                s3Props = (S3Properties) storeProps;
+                break;
+            }
         }
-        S3Properties s3Props = (S3Properties) storeProps;
+        if (s3Props == null) {
+            throw new UserException("The warehouse is on S3-like storage, but the storage property is not for S3");
+        }
         s3Props.toPaimonS3FileIOProperties(options);
     }
 }

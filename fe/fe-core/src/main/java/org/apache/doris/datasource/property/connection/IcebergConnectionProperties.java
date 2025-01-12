@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.catalog;
+package org.apache.doris.datasource.property.connection;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.metastore.AWSGlueProperties;
@@ -36,12 +36,12 @@ import java.net.URI;
 import java.nio.file.Paths;
 import java.util.Map;
 
-public class IcebergCatalogProperties {
+public class IcebergConnectionProperties {
 
     private Map<String, String> catalogProps = Maps.newHashMap();
     private Configuration hadoopConf = new Configuration(false);
 
-    public IcebergCatalogProperties(String warehouse, MetastoreProperties metaProps, StorageProperties storeProps)
+    public IcebergConnectionProperties(String warehouse, MetastoreProperties metaProps, StorageProperties storeProps)
             throws UserException {
         init(warehouse, metaProps, storeProps);
     }

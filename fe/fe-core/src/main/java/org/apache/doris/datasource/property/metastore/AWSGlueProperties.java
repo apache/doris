@@ -27,7 +27,7 @@ import java.util.Map;
 
 public class AWSGlueProperties extends MetastoreProperties {
 
-    @ConnectorProperty(names = {"glue.endpoint", "aws.endpoint"},
+    @ConnectorProperty(names = {"glue.endpoint", "aws.endpoint", "aws.glue.endpoint"},
             description = "The endpoint of the AWS Glue.")
     private String glueEndpoint = "";
 

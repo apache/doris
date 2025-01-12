@@ -27,10 +27,10 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
-public class CatalogProperties {
+public class ConnectionProperties {
     protected Map<String, String> origProps;
 
-    protected CatalogProperties(Map<String, String> origProps) {
+    protected ConnectionProperties(Map<String, String> origProps) {
         this.origProps = origProps;
         normalizedAndCheckProps();
     }

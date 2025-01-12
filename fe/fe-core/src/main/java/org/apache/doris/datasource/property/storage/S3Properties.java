@@ -18,33 +18,38 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.metastore.AWSGlueProperties;
+import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.paimon.options.Options;
 
+import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 
 public class S3Properties extends StorageProperties {
 
     @ConnectorProperty(names = {"s3.endpoint",
-            "oss.endpoint", "cos.endpoint", "obs.endpoint", "gcs.endpoint"},
+            "oss.endpoint", "cos.endpoint", "obs.endpoint", "gcs.endpoint", "AWS_ENDPOINT"},
             required = false,
             description = "The endpoint of S3.")
     protected String s3Endpoint = "";
 
     @ConnectorProperty(names = {"s3.region",
-            "oss.region", "cos.region", "obs.region", "gcs.region"},
+            "oss.region", "cos.region", "obs.region", "gcs.region", "AWS_REGION"},
             required = false,
             description = "The region of S3.")
     protected String s3Region = "";
 
     @ConnectorProperty(names = {"s3.access_key",
-            "oss.access_key", "cos.access_key", "obs.access_key", "gcs.access_key"},
+            "oss.access_key", "cos.access_key", "obs.access_key", "gcs.access_key", "AWS_ACCESS_KEY"},
             description = "The access key of S3.")
     protected String s3AccessKey = "";
 
     @ConnectorProperty(names = {"s3.secret_key",
-            "oss.secret_key", "cos.secret_key", "obs.secret_key", "gcs.secret_key"},
+            "oss.secret_key", "cos.secret_key", "obs.secret_key", "gcs.secret_key", "AWS_SECRET_KEY"},
             description = "The secret key of S3.")
     protected String s3SecretKey = "";
 
@@ -54,17 +59,20 @@ public class S3Properties extends StorageProperties {
             description = "Whether to use path style access.")
     protected String usePathStyle = "false";
 
-    @ConnectorProperty(names = {"s3.connection.maximum"},
+    @ConnectorProperty(names = {"s3.connection.maximum",
+            "AWS_MAX_CONNECTIONS"},
             required = false,
             description = "The maximum number of connections to S3.")
     protected String s3ConnectionMaximum = "50";
 
-    @ConnectorProperty(names = {"s3.connection.request.timeout"},
+    @ConnectorProperty(names = {"s3.connection.request.timeout",
+            "AWS_REQUEST_TIMEOUT_MS"},
             required = false,
             description = "The request timeout of S3 in milliseconds,")
     protected String s3ConnectionRequestTimeoutS = "3000";
 
-    @ConnectorProperty(names = {"s3.connection.timeout"},
+    @ConnectorProperty(names = {"s3.connection.timeout",
+            "AWS_CONNECTION_TIMEOUT_MS"},
             required = false,
             description = "The connection timeout of S3 in milliseconds,")
     protected String s3ConnectionTimeoutS = "1000";
@@ -99,6 +107,31 @@ public class S3Properties extends StorageProperties {
             // Some object storage services do not have region concept, eg: minio.
             // Use a default one.
             s3Endpoint = "us-east-1";
+        }
+    }
+
+    /**
+     * Guess if the storage properties is for this storage type.
+     * Subclass should override this method to provide the correct implementation.
+     *
+     * @return
+     */
+    public static boolean guessIsMe(Map<String, String> origProps) {
+        List<Field> fields = getIdentifyFields();
+        return StorageProperties.checkIdentifierKey(origProps, fields);
+    }
+
+    private static List<Field> getIdentifyFields() {
+        List<Field> fields = Lists.newArrayList();
+        try {
+            fields.add(S3Properties.class.getDeclaredField("s3Endpoint"));
+            fields.add(AliyunDLFProperties.class.getDeclaredField("dlfEndpoint"));
+            fields.add(AliyunDLFProperties.class.getDeclaredField("dlfRegion"));
+            fields.add(AWSGlueProperties.class.getDeclaredField("glueEndpoint"));
+            return fields;
+        } catch (NoSuchFieldException e) {
+            // should not happen
+            throw new RuntimeException("Failed to get field: " + e.getMessage(), e);
         }
     }
 
