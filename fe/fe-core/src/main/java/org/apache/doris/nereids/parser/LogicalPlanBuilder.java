@@ -188,6 +188,7 @@ import org.apache.doris.nereids.DorisParser.DropSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.DropStoragePolicyContext;
 import org.apache.doris.nereids.DorisParser.DropTableContext;
 import org.apache.doris.nereids.DorisParser.DropUserContext;
+import org.apache.doris.nereids.DorisParser.DropViewContext;
 import org.apache.doris.nereids.DorisParser.DropWorkloadGroupContext;
 import org.apache.doris.nereids.DorisParser.DropWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
@@ -648,6 +649,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -6020,6 +6022,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDropEncryptkey(DropEncryptkeyContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         return new DropEncryptkeyCommand(new EncryptKeyName(nameParts), ctx.EXISTS() != null);
+    }
+
+    @Override
+    public LogicalPlan visitDropView(DropViewContext ctx) {
+
+        String ctlName = null;
+        String dbName = null;
+        String tableName = null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        // TODO: support catalog
+        if (nameParts.size() == 1) {
+            tableName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            tableName = nameParts.get(1);
+        } else if (nameParts.size() == 3) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+            tableName = nameParts.get(2);
+        } else {
+            throw new AnalysisException("nameParts in create table should be [ctl.][db.]tbl");
+        }
+
+        return new DropViewCommand(ctlName, dbName, tableName, ctx.EXISTS() != null);
     }
 
     @Override
