@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_query_tvf","p0,auth") {
-    String suiteName = "test_jdbc_query_tvf"
+suite("test_query_tvf_auth", "p0,auth,external") {
+    String suiteName = "test_query_tvf_auth"
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -58,7 +58,7 @@ suite("test_jdbc_query_tvf","p0,auth") {
                   sql """
                      select * from query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types');
                   """
-                  exception "denied"
+                  exception "has no privilege"
             }
         }
         sql """grant select_priv on ${catalog_name}.*.* to ${dorisuser}"""
