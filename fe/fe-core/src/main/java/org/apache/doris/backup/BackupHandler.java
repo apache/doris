@@ -229,16 +229,20 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
+        alterRepositoryInternal(stmt.getName(), stmt.getProperties());
+    }
+
+    public void alterRepositoryInternal(String repoName, Map<String, String> properties) throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getName());
+            Repository repo = repoMgr.getRepo(repoName);
             if (repo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }
 
             if (repo.getRemoteFileSystem() instanceof S3FileSystem
                     || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
+                Map<String, String> oldProperties = new HashMap<>(properties);
                 Status status = repo.alterRepositoryS3Properties(oldProperties);
                 if (!status.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
@@ -278,6 +282,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             seqlock.unlock();
         }
     }
+
 
     // handle drop repository stmt
     public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
