@@ -133,6 +133,7 @@ import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.DropColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
+import org.apache.doris.nereids.DorisParser.DropExpiredStatsContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
 import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
@@ -528,6 +529,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinComman
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
@@ -5256,6 +5258,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropRepository(DropRepositoryContext ctx) {
         return new DropRepositoryCommand(stripQuotes(ctx.name.getText()));
+    }
+
+    @Override
+    public LogicalPlan visitDropExpiredStats(DropExpiredStatsContext ctx) {
+        return new DropExpiredStatsCommand();
     }
 
     @Override
