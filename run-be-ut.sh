@@ -478,9 +478,7 @@ if [[ -f "${test}" ]]; then
         echo "${cmd2}"
         eval "${cmd2}"
     else
-        echo "${test}, ${GTEST_OUTPUT_DIR} ${file_name} ${FILTER}"
-        # timeout -s INT 10 
-        perf stat -g "${test}" 3 48 10000000 50000 30  --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
     fi
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else
