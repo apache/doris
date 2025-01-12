@@ -38,7 +38,6 @@ suite ("testCountDistinctToBitmap") {
 
     sql "analyze table user_tags with sync;"
     sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
-    sql """alter table user_tags2 modify column time_col set stats ('row_count'='3');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
