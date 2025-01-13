@@ -26,6 +26,15 @@ suite("test_meta_names_mapping", "p0,external,doris,meta_names_mapping") {
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${jdbcUser}""";
+    }
+
     sql """grant all on *.*.* to ${jdbcUser}"""
 
     String validMetaNamesMapping = """

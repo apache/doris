@@ -26,6 +26,15 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${jdbcUser}""";
+    }
+
     sql """grant all on *.*.* to ${jdbcUser}"""
 
     sql """ drop database if exists internal.external_lower_select_without_refresh; """
