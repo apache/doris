@@ -18,16 +18,13 @@
 #include "paimon_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
-
 namespace doris {
 class RuntimeProfile;
-class RuntimeState;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
