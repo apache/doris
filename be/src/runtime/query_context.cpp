@@ -351,8 +351,9 @@ void QueryContext::add_fragment_profile(
 #endif
 
     std::lock_guard<std::mutex> l(_profile_mutex);
-    LOG_INFO("Query X add fragment profile, query {}, fragment {}, pipeline profile count {} ",
-             print_id(this->_query_id), fragment_id, pipeline_profiles.size());
+    VLOG_ROW << fmt::format(
+            "Query add fragment profile, query {}, fragment {}, pipeline profile count {} ",
+            print_id(this->_query_id), fragment_id, pipeline_profiles.size());
 
     _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
 
