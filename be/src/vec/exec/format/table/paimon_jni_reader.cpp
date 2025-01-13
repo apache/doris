@@ -20,9 +20,9 @@
 #include <map>
 
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
-
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;

@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/deletion_vector.h"
 
 namespace doris::vectorized {
@@ -38,8 +39,8 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_COUNTER(_profile, "NumDeleteRows", TUnit::UNIT, paimon_profile);
     _paimon_profile.delete_files_read_time =
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
-    if (range.__isset.row_count) {
-        _remaining_table_level_row_count = range.row_count;
+    if (range.table_format_params.paimon_params.__isset.row_count) {
+        _remaining_table_level_row_count = range.table_format_params.paimon_params.row_count;
     } else {
         _remaining_table_level_row_count = -1;
     }
