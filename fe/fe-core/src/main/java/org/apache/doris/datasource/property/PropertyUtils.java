@@ -28,6 +28,7 @@ public class PropertyUtils {
     public static List<Field> getConnectorProperties(Class<?> clazz) {
         List<Field> fields = Lists.newArrayList();
         for (Field field : clazz.getDeclaredFields()) {
+            field.setAccessible(true);
             if (field.isAnnotationPresent(ConnectorProperty.class)) {
                 // Get annotation of the field
                 ConnectorProperty connectorProperty = field.getAnnotation(ConnectorProperty.class);

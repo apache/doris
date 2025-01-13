@@ -74,7 +74,14 @@ public class StorageProperties extends ConnectionProperties {
             throw new RuntimeException("Unsupported native AZURE filesystem");
         }
 
-        throw new RuntimeException("Unknown storage type");
+        if (storageProperties.isEmpty()) {
+            throw new RuntimeException("Unknown storage type");
+        } else {
+            for (StorageProperties storageProperty : storageProperties) {
+                storageProperty.normalizedAndCheckProps();
+            }
+        }
+        return storageProperties;
     }
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
@@ -88,6 +95,7 @@ public class StorageProperties extends ConnectionProperties {
 
     protected static boolean checkIdentifierKey(Map<String, String> origProps, List<Field> fields) {
         for (Field field : fields) {
+            field.setAccessible(true);
             ConnectorProperty annotation = field.getAnnotation(ConnectorProperty.class);
             for (String key : annotation.names()) {
                 if (origProps.containsKey(key)) {

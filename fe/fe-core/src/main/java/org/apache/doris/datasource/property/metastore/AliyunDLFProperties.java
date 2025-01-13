@@ -21,7 +21,6 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import lombok.Getter;
 import org.apache.paimon.options.Options;
 
 import java.util.Map;
@@ -30,7 +29,7 @@ public class AliyunDLFProperties extends MetastoreProperties {
 
     @ConnectorProperty(names = {"dlf.access_key", "dlf.catalog.accessKeyId"},
             description = "The access key of the Aliyun DLF.")
-    private String dlfAccessKey = "";
+    public String dlfAccessKey = "";
 
     @ConnectorProperty(names = {"dlf.secret_key", "dlf.catalog.accessKeySecret"},
             description = "The secret key of the Aliyun DLF.")
@@ -50,6 +49,7 @@ public class AliyunDLFProperties extends MetastoreProperties {
     private String dlfUid = "";
 
     @ConnectorProperty(names = {"dlf.access.public", "dlf.catalog.accessPublic"},
+            required = false,
             description = "Enable public access to Aliyun DLF.")
     private String dlfAccessPublic = "false";
 
@@ -99,37 +99,6 @@ public class AliyunDLFProperties extends MetastoreProperties {
 
     @Override
     protected String getResourceConfigPropName() {
-        return "dlf.resouce_config";
-    }
-
-    @Getter
-    public static class OSSConfiguration {
-        private Map<String, String> conf = Maps.newHashMap();
-
-        public OSSConfiguration(AliyunDLFProperties props) {
-            conf.put("oss.region", getOssRegionFromDlfRegion(props.dlfRegion));
-            conf.put("oss.endpoint", getOssEndpointFromDlfRegion(props.dlfRegion, props.dlfAccessPublic));
-            conf.put("oss.access_key", props.dlfAccessKey);
-            conf.put("oss.secret_key", props.dlfSecretKey);
-        }
-
-        private String getOssRegionFromDlfRegion(String dlfRegion) {
-            return "oss-" + dlfRegion;
-        }
-
-        private String getOssEndpointFromDlfRegion(String dlfRegion, String dlfAccessPublic) {
-            if ("true".equalsIgnoreCase(dlfAccessPublic)) {
-                return "oss-" + dlfRegion + ".aliyuncs.com";
-            } else {
-                return "oss-" + dlfRegion + "-internal.aliyuncs.com";
-            }
-        }
-
-        private String getEndpointOrFromRegion(String endpoint, String region) {
-            if (!Strings.isNullOrEmpty(endpoint)) {
-                return endpoint;
-            }
-            return "dlf-vpc." + region + ".aliyuncs.com";
-        }
+        return "dlf.resource_config";
     }
 }

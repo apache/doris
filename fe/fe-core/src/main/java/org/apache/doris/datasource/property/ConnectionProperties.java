@@ -32,7 +32,6 @@ public class ConnectionProperties {
 
     protected ConnectionProperties(Map<String, String> origProps) {
         this.origProps = origProps;
-        normalizedAndCheckProps();
     }
 
     protected void normalizedAndCheckProps() {
@@ -65,7 +64,7 @@ public class ConnectionProperties {
     // Subclass can override this method to load properties from file.
     // The return value is the properties loaded from file, not include original properties
     protected Map<String, String> loadConfigFromFile(String resourceConfig) {
-        if (Strings.isNullOrEmpty(resourceConfig)) {
+        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
             return Maps.newHashMap();
         }
         Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(resourceConfig);

@@ -18,6 +18,10 @@
 
 package org.apache.doris.datasource.property;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
+@Retention(RetentionPolicy.RUNTIME)
 public @interface ConnectorProperty {
     String[] names() default {};
     String description() default "";

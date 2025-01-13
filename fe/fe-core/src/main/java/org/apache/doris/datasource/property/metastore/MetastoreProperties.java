@@ -52,71 +52,101 @@ public class MetastoreProperties extends ConnectionProperties {
 
         // 'type'='hms',
         // "paimon.catalog.type" = "hms",dlf, filesystem
+        Type msType = Type.UNKNOWN;
         if (origProps.containsKey(METASTORE_TYPE)) {
             String type = origProps.get(METASTORE_TYPE);
             switch (type) {
                 case "hms":
-                    return new HMSProperties(origProps);
+                    msType = Type.HMS;
                 case "glue":
-                    return new AWSGlueProperties(origProps);
+                    msType = Type.GLUE;
                 case "dlf":
-                    return new AliyunDLFProperties(origProps);
+                    msType = Type.DLF;
                 case "rest":
-                    return new IcebergRestProperties(origProps);
+                    msType = Type.ICEBERG_REST;
                 case "dataproc":
-                    return new DataProcProperties(origProps);
+                    msType = Type.DATAPROC;
                 case "filesystem":
-                    return new FileMetastoreProperties(origProps);
+                    msType = Type.FILE_SYSTEM;
                 default:
-                    throw new IllegalArgumentException("Unknown metastore type: " + type);
+                    throw new IllegalArgumentException("Unknown 'metastore.type': " + type);
             }
         } else if (origProps.containsKey("hive.metastore.type")) {
             String type = origProps.get("hive.metastore.type");
             switch (type) {
                 case "hms":
-                    return new HMSProperties(origProps);
+                    msType = Type.HMS;
                 case "glue":
-                    return new AWSGlueProperties(origProps);
+                    msType = Type.GLUE;
                 case "dlf":
-                    return new AliyunDLFProperties(origProps);
+                    msType = Type.DLF;
                 default:
-                    throw new IllegalArgumentException("Unknown metastore type: " + type);
+                    throw new IllegalArgumentException("Unknown 'hive.metastore.type': " + type);
             }
         } else if (origProps.containsKey("iceberg.catalog.type")) {
             String type = origProps.get("iceberg.catalog.type");
             switch (type) {
                 case "hms":
-                    return new HMSProperties(origProps);
+                    msType = Type.HMS;
                 case "glue":
-                    return new AWSGlueProperties(origProps);
+                    msType = Type.GLUE;
                 case "rest":
-                    return new IcebergRestProperties(origProps);
+                    msType = Type.ICEBERG_REST;
                 case "hadoop":
-                    return new FileMetastoreProperties(origProps);
+                    msType = Type.FILE_SYSTEM;
                 default:
-                    throw new IllegalArgumentException("Unknown iceberg catalog type: " + type);
+                    throw new IllegalArgumentException("Unknown 'iceberg.catalog.type': " + type);
             }
         } else if (origProps.containsKey("paimon.catalog.type")) {
             String type = origProps.get("paimon.catalog.type");
             switch (type) {
                 case "hms":
-                    return new HMSProperties(origProps);
+                    msType = Type.HMS;
                 case "dlf":
-                    return new AliyunDLFProperties(origProps);
+                    msType = Type.DLF;
                 default:
                     // default is "filesystem"
-                    return new FileMetastoreProperties(origProps);
+                    msType = Type.FILE_SYSTEM;
             }
         } else if (origProps.containsKey("type")) {
             String type = origProps.get("type");
             switch (type) {
                 case "hms":
-                    return new HMSProperties(origProps);
+                    msType = Type.HMS;
                 default:
-                    throw new IllegalArgumentException("Unknown metastore type: " + type);
+                    throw new IllegalArgumentException("Unknown metastore 'type': " + type);
             }
         }
-        throw new IllegalArgumentException("Can not find metastore type in properties");
+
+        return MetastoreProperties.create(msType, origProps);
+    }
+
+    public static MetastoreProperties create(Type type, Map<String, String> origProps) {
+        MetastoreProperties metastoreProperties;
+        switch (type) {
+            case HMS:
+                metastoreProperties = new HMSProperties(origProps);
+                break;
+            case GLUE:
+                metastoreProperties = new AWSGlueProperties(origProps);
+                break;
+            case DLF:
+                metastoreProperties = new AliyunDLFProperties(origProps);
+                break;
+            case ICEBERG_REST:
+                metastoreProperties = new IcebergRestProperties(origProps);
+                break;
+            case DATAPROC:
+                metastoreProperties = new DataProcProperties(origProps);
+                break;
+            case FILE_SYSTEM:
+                metastoreProperties = new FileMetastoreProperties(origProps);
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown metastore type: " + type);
+        }
+        metastoreProperties.normalizedAndCheckProps();
+        return metastoreProperties;
     }
 
     protected MetastoreProperties(Type type, Map<String, String> origProps) {
