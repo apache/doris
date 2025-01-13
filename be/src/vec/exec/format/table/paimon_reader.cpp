@@ -25,27 +25,30 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
-                           RuntimeProfile* profile, const TFileScanRangeParams& params)
-        : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
+                           RuntimeProfile* profile, RuntimeState* state,
+                           const TFileScanRangeParams& params, const TFileRangeDesc& range)
+        : TableFormatReader(std::move(file_format_reader)),
+          _profile(profile),
+          _state(state),
+          _params(params),
+          _range(range) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =
             ADD_CHILD_COUNTER(_profile, "NumDeleteRows", TUnit::UNIT, paimon_profile);
     _paimon_profile.delete_files_read_time =
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
+    if (range.__isset.row_count) {
+        _remaining_table_level_row_count = range.row_count;
+    } else {
+        _remaining_table_level_row_count = -1;
+    }
 }
 
 Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) {
     const auto& table_desc = range.table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
         return Status::OK();
-    }
-
-    // TODO: move this to init func
-    if (table_desc.__isset.row_count) {
-        _remaining_table_level_row_count = table_desc.row_count;
-    } else {
-        _remaining_table_level_row_count = -1;
     }
 
     // set push down agg type to NONE because we can not do count push down opt
@@ -108,7 +111,6 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
 }
 
 Status PaimonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    // already get rows from be
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count > 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
