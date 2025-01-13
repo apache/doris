@@ -6676,7 +6676,7 @@ type ::=
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
   :}
-  | KW_AGG_STATE LESSTHAN IDENT:fnName LPAREN type_def_nullable_list:list RPAREN GREATERTHAN
+  | KW_AGG_STATE LESSTHAN ident:fnName LPAREN type_def_nullable_list:list RPAREN GREATERTHAN
   {:
     RESULT = Expr.createAggStateType(fnName,
             list.stream().map(TypeDef::getType).collect(Collectors.toList()),
