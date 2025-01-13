@@ -925,7 +925,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
     public int batchSize = 4064;
 
     // 16352 + 16 + 16 = 16384
