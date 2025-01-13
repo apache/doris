@@ -16,7 +16,7 @@ package mv.external_table
 // specific language governing permissions and limitations
 // under the License.
 
-suite("part_partition_invalid", "p0,external") {
+suite("part_partition_invalid", "p0,external,external_docker") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test. then doesn't test mv rewrite")
@@ -141,7 +141,7 @@ suite("part_partition_invalid", "p0,external") {
 
     // test query rewrite by mv, should fail ,because materialized_view_rewrite_enable_contain_external_table
     // is false default
-    mv_rewrite_fail(query_sql, mv_name)
+    mv_not_part_in(query_sql, mv_name)
     sql "SET materialized_view_rewrite_enable_contain_external_table=true"
     mv_rewrite_success(query_sql, mv_name)
 
