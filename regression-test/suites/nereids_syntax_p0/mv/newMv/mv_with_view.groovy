@@ -42,6 +42,8 @@ suite ("mv_with_view") {
     sql """insert into mv_with_view select 3,-3,null,'c';"""
 
     sql "SET experimental_enable_nereids_planner=true"
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
+
     sql "SET enable_fallback_to_original_planner=false"
 
 

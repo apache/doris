@@ -45,6 +45,8 @@ suite ("aggOnAggMV11") {
     sql """insert into aggOnAggMV11 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV11 with sync;"
+    sql """alter table aggOnAggMV11 modify column time_col set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
@@ -55,7 +57,6 @@ suite ("aggOnAggMV11") {
     order_qt_select_mv "select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno order by 1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table aggOnAggMV11 modify column time_col set stats ('row_count'='4');"""
 
     mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
 
