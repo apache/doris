@@ -180,15 +180,16 @@ public abstract class ColumnType {
             if (checkType.getLength() > other.getLength()) {
                 throw new DdlException("Cannot shorten string length");
             }
-        } else {
-            throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
         }
     }
 
     // This method defines the complex type which is struct, array, map if nested char-type
     // to support the schema-change behavior of length growth.
     public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other) throws DdlException {
-        if (checkType.isStructType() && other.isStructType()) {
+        if (checkType.isStructType()) {
+            if (!other.isStructType()) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;
             if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
@@ -198,10 +199,16 @@ public abstract class ColumnType {
                 checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
                         otherStructType.getFields().get(i).getType());
             }
-        } else if (checkType.isArrayType() && other.isArrayType()) {
+        } else if (checkType.isArrayType()) {
+            if (!other.isArrayType()) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
             checkSupportSchemaChangeForComplexType(((ArrayType) checkType).getItemType(),
                     ((ArrayType) other).getItemType());
-        } else if (checkType.isMapType() && other.isMapType()) {
+        } else if (checkType.isMapType()) {
+            if (!other.isMapType()) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
             checkSupportSchemaChangeForComplexType(((MapType) checkType).getKeyType(),
                     ((MapType) other).getKeyType());
             checkSupportSchemaChangeForComplexType(((MapType) checkType).getValueType(),
