@@ -216,8 +216,9 @@ void ResultBufferMgr::cancel_thread() {
         }
 
         // cancel query
-        for (int i = 0; i < query_to_cancel.size(); ++i) {
-            cancel(query_to_cancel[i], Status::TimedOut("Query tiemout"));
+        for (const auto& id : query_to_cancel) {
+            cancel(id, Status::Cancelled("Clean up expired BufferControlBlock, queryId: {}",
+                                         print_id(id)));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 
