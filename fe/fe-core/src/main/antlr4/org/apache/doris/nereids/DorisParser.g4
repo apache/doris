@@ -64,13 +64,13 @@ statementBase
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
+    | supportedKillStatement            #supportedKillStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
-    | unsupportedKillStatement
     | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
@@ -313,6 +313,11 @@ supportedLoadStatement
 
 supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
+    ;
+
+supportedKillStatement
+    : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
+    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
     ;
 
 unsupportedOtherStatement 
@@ -893,11 +898,6 @@ unsupportedDmlStatement
 stageAndPattern
     : ATSIGN (stage=identifier | TILDE)
         (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
-    ;
-
-unsupportedKillStatement
-    : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
-    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
     ;
 
 unsupportedDescribeStatement

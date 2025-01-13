@@ -181,6 +181,7 @@ import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.KillQueryContext;
 import org.apache.doris.nereids.DorisParser.LambdaExpressionContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
@@ -543,6 +544,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -5452,6 +5455,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
+
+    @Override
+    public LogicalPlan visitKillQuery(KillQueryContext ctx) {
+        boolean isConnectionKill = false;
+        int connectionId = -1;
+        String queryId = "";
+        TerminalNode integerValue = ctx.INTEGER_VALUE();
+        if (integerValue != null) {
+            connectionId = Integer.parseInt(integerValue.getText());
+            isConnectionKill = true;
+        } else {
+            queryId = ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+        }
+        return new KillQueryCommand(isConnectionKill, connectionId, queryId);
+    }
+
+    @Override
+    public LogicalPlan visitKillConnection(DorisParser.KillConnectionContext ctx) {
+        int connectionId = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        return new KillConnectionCommand(connectionId);
     }
 }
 
