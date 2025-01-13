@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
@@ -628,6 +629,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitDropRepositoryCommand(DropRepositoryCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
+    default R visitDropExpiredStatsCommand(DropExpiredStatsCommand cmd, C context) {
         return visitCommand(cmd, context);
     }
 

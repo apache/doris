@@ -239,7 +239,7 @@ supportedDropStatement
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     | DROP REPOSITORY name=identifier                                           #dropRepository
-
+    | DROP EXPIRED STATS                                                        #dropExpiredStats
     ;
 
 supportedShowStatement
@@ -721,7 +721,6 @@ unsupportedStatsStatement
     | DROP STATS tableName=multipartIdentifier
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
-    | DROP EXPIRED STATS                                                        #dropExpiredStats
     | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
     | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
     | SHOW TABLE STATS tableName=multipartIdentifier
