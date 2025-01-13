@@ -276,6 +276,14 @@ public class ExpressionUtils {
         }
     }
 
+    public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
+        if (values.size() < 2) {
+            return or(values.stream().map(value -> new EqualTo(reference, value)).collect(Collectors.toList()));
+        } else {
+            return new InPredicate(reference, ImmutableList.copyOf(values));
+        }
+    }
+
     /**
      * Use AND/OR to combine expressions together.
      */
