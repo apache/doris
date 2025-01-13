@@ -2846,40 +2846,6 @@ int date_day_offset_dict::daynr(int year, int month, int day) const {
 }
 
 template <typename T>
-uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
-    union DateV2UInt32Union {
-        DateV2Value<T> dt;
-        uint32_t ui32;
-        ~DateV2UInt32Union() {}
-    };
-    DateV2UInt32Union conv = {.ui32 = int_val};
-    if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0)) {
-        return 0;
-    }
-    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
-
-    return int_val;
-}
-
-template <typename T>
-uint64_t DateV2Value<T>::set_datetime_uint64(uint64_t int_val) {
-    union DateTimeV2UInt64Union {
-        DateV2Value<T> dt;
-        uint64_t ui64;
-        ~DateTimeV2UInt64Union() {}
-    };
-    DateTimeV2UInt64Union conv = {.ui64 = int_val};
-    if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(), conv.dt.minute(),
-                   conv.dt.second(), conv.dt.microsecond())) {
-        return 0;
-    }
-    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(),
-                             conv.dt.minute(), conv.dt.second(), conv.dt.microsecond());
-
-    return int_val;
-}
-
-template <typename T>
 uint8_t DateV2Value<T>::week(uint8_t mode) const {
     uint16_t year = 0;
     return calc_week(this->daynr(), this->year(), this->month(), this->day(), mode, &year);
@@ -3705,26 +3671,6 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
     }
     *to++ = '\0';
     return true;
-}
-
-template <typename T>
-bool DateV2Value<T>::from_date(uint32_t value) {
-    DCHECK(!is_datetime);
-    if (value < MIN_DATE_V2 || value > MAX_DATE_V2) {
-        return false;
-    }
-
-    return set_date_uint32(value);
-}
-
-template <typename T>
-bool DateV2Value<T>::from_datetime(uint64_t value) {
-    DCHECK(is_datetime);
-    if (value < MIN_DATETIME_V2 || value > MAX_DATETIME_V2) {
-        return false;
-    }
-
-    return set_datetime_uint64(value);
 }
 
 template <typename T>
