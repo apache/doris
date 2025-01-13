@@ -24,7 +24,7 @@ suite("load"){
 
     sql """ DROP TABLE IF EXISTS $tableName """
 
-    scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
+    def scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
 
     sql new File("""${scriptDir}/ddl/${tableName}.sql""").text
 
