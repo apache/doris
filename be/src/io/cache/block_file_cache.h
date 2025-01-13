@@ -491,35 +491,35 @@ private:
     // metrics
     bvar::Status<size_t>* _cache_capacity_metrics;
     bvar::Status<size_t>* _cur_cache_size_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_element_count_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_cache_size_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_element_count_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_cache_size_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
-    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
-    std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
+    bvar::Status<size_t>* _cur_ttl_cache_size_metrics;
+    bvar::Status<size_t>* _cur_ttl_cache_lru_queue_cache_size_metrics;
+    bvar::Status<size_t>* _cur_ttl_cache_lru_queue_element_count_metrics;
+    bvar::Status<size_t>* _cur_normal_queue_element_count_metrics;
+    bvar::Status<size_t>* _cur_normal_queue_cache_size_metrics;
+    bvar::Status<size_t>* _cur_index_queue_element_count_metrics;
+    bvar::Status<size_t>* _cur_index_queue_cache_size_metrics;
+    bvar::Status<size_t>* _cur_disposable_queue_element_count_metrics;
+    bvar::Status<size_t>* _cur_disposable_queue_cache_size_metrics;
+    std::array<bvar::Adder<size_t>*, 4> _queue_evict_size_metrics;
+    bvar::Adder<size_t>* _total_evict_size_metrics;
+    bvar::Adder<size_t>* _evict_by_time_metrics_matrix[4][4];
+    bvar::Adder<size_t>* _evict_by_size_metrics_matrix[4][4];
+    bvar::Adder<size_t>* _evict_by_self_lru_metrics_matrix[4];
+    bvar::Adder<size_t>* _evict_by_try_release;
 
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_1h;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_1h;
 
-    std::shared_ptr<bvar::Adder<size_t>> _num_read_blocks;
-    std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
-    std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
+    bvar::Adder<size_t>* _num_read_blocks;
+    bvar::Adder<size_t>* _num_hit_blocks;
+    bvar::Adder<size_t>* _num_removed_blocks;
 
-    std::shared_ptr<bvar::Status<double>> _hit_ratio;
-    std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
-    std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
-    std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
+    bvar::Status<double>* _hit_ratio;
+    bvar::Status<double>* _hit_ratio_5m;
+    bvar::Status<double>* _hit_ratio_1h;
+    bvar::Status<size_t>* _disk_limit_mode_metrics;
 };
 
 } // namespace doris::io

@@ -55,6 +55,71 @@ bvar::MultiDimension<bvar::Status<size_t>> _cache_capacity_md_metrics("file_cach
                                                                       {"path"});
 bvar::MultiDimension<bvar::Status<size_t>> _cur_cache_size_md_metrics("file_cache_cache_size",
                                                                       {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_size_md_metrics(
+        "file_cache_ttl_cache_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_normal_queue_element_count_md_metrics(
+        "file_cache_normal_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_md_metrics("file_cache_ttl_cache_lru_queue_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_md_metrics("file_cache_ttl_cache_lru_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_normal_queue_cache_size_md_metrics("file_cache_normal_queue_cache_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_index_queue_element_count_md_metrics("file_cache_index_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_index_queue_cache_size_md_metrics("file_cache_index_queue_cache_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_disposable_queue_element_count_md_metrics("file_cache_disposable_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_disposable_queue_cache_size_md_metrics("file_cache_disposable_queue_cache_size", {"path"});
+std::array<bvar::MultiDimension<bvar::Adder<size_t>>, 4> _queue_evict_size_md_metrics {
+        bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_index_queue_evict_size", {"path"}),
+        bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_normal_queue_evict_size", {"path"}),
+        bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_disposable_queue_evict_size",
+                                                  {"path"}),
+        bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_ttl_cache_evict_size", {"path"})};
+bvar::MultiDimension <bvar::Adder<size_t>> _total_evict_size_md_metrics("file_cache_total_evict_size", {"path"});
+// for _evict_by_time_metrics_matrix
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_normal("file_cache_evict_by_time_disposable_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_index("file_cache_evict_by_time_disposable_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_ttl("file_cache_evict_by_time_disposable_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_disposable("file_cache_evict_by_time_normal_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_index("file_cache_evict_by_time_normal_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_ttl("file_cache_evict_by_time_normal_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_disposable("file_cache_evict_by_time_index_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_normal("file_cache_evict_by_time_index_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_ttl("file_cache_evict_by_time_index_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_disposable("file_cache_evict_by_time_ttl_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_normal("file_cache_evict_by_time_ttl_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_index(
+        "file_cache_evict_by_time_ttl_to_index", {"path"});
+// for _evict_by_size_metrics_matrix
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_normal("file_cache_evict_by_size_disposable_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_index("file_cache_evict_by_size_disposable_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_ttl("file_cache_evict_by_size_disposable_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_disposable("file_cache_evict_by_size_normal_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_index("file_cache_evict_by_size_normal_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_ttl("file_cache_evict_by_size_normal_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_disposable("file_cache_evict_by_size_index_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_normal("file_cache_evict_by_size_index_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_ttl("file_cache_evict_by_size_index_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_disposable("file_cache_evict_by_size_ttl_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_normal("file_cache_evict_by_size_ttl_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_index("file_cache_evict_by_size_ttl_to_index", {"path"});
+// for _evict_by_self_lru_metrics_matrix
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_self_lru_md_metrics_disposable(
+        "file_cache_evict_by_self_lru_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_self_lru_md_metrics_normal(
+        "file_cache_evict_by_self_lru_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_self_lru_md_metrics_index(
+        "file_cache_evict_by_self_lru_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_self_lru_md_metrics_ttl(
+        "file_cache_evict_by_self_lru_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_try_release_md(
+        "file_cache_evict_by_try_release", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _num_read_blocks_md("file_cache_num_read_blocks",
+                                                              {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _num_hit_blocks_md("file_cache_num_hit_blocks", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _num_removed_blocks_md("file_cache_num_removed_blocks",
+                                                                 {"path"});
+bvar::MultiDimension<bvar::Status<double>> _hit_ratio_md("file_cache_hit_ratio", {"path"});
+bvar::MultiDimension<bvar::Status<double>> _hit_ratio_5m_md("file_cache_hit_ratio_5m", {"path"});
+bvar::MultiDimension<bvar::Status<double>> _hit_ratio_1h_md("file_cache_hit_ratio_1h", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _disk_limit_mode_md_metrics("file_cache_disk_limit_mode", {"path"});
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -66,149 +131,116 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _cache_capacity_metrics->set_value(_capacity);
     _cur_cache_size_metrics = _cur_cache_size_md_metrics.get_stats({_cache_base_path});
     _cur_cache_size_metrics->set_value(0);
-    _cur_ttl_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_size", 0);
-    _cur_normal_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_normal_queue_element_count", 0);
-    _cur_ttl_cache_lru_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_lru_queue_size", 0);
-    _cur_ttl_cache_lru_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_lru_queue_element_count", 0);
-    _cur_normal_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_normal_queue_cache_size", 0);
-    _cur_index_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_index_queue_element_count", 0);
-    _cur_index_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_index_queue_cache_size", 0);
-    _cur_disposable_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disposable_queue_element_count", 0);
-    _cur_disposable_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disposable_queue_cache_size", 0);
+    _cur_ttl_cache_size_metrics = _cur_ttl_cache_size_md_metrics.get_stats({_cache_base_path});
+    _cur_ttl_cache_size_metrics->set_value(0);
+    _cur_normal_queue_element_count_metrics =
+            _cur_normal_queue_element_count_md_metrics.get_stats({_cache_base_path});
+    _cur_normal_queue_element_count_metrics->set_value(0);
+    _cur_ttl_cache_lru_queue_cache_size_metrics =
+            _cur_ttl_cache_lru_queue_cache_size_md_metrics.get_stats({_cache_base_path});
+    _cur_ttl_cache_lru_queue_cache_size_metrics->set_value(0);
+    _cur_ttl_cache_lru_queue_element_count_metrics =
+            _cur_ttl_cache_lru_queue_element_count_md_metrics.get_stats({_cache_base_path});
+    _cur_ttl_cache_lru_queue_element_count_metrics->set_value(0);
+    _cur_normal_queue_cache_size_metrics =
+            _cur_normal_queue_cache_size_md_metrics.get_stats({_cache_base_path});
+    _cur_normal_queue_cache_size_metrics->set_value(0);
+    _cur_index_queue_element_count_metrics =
+            _cur_index_queue_element_count_md_metrics.get_stats({_cache_base_path});
+    _cur_index_queue_element_count_metrics->set_value(0);
+    _cur_index_queue_cache_size_metrics =
+            _cur_index_queue_cache_size_md_metrics.get_stats({_cache_base_path});
+    _cur_index_queue_cache_size_metrics->set_value(0);
+    _cur_disposable_queue_element_count_metrics =
+            _cur_disposable_queue_element_count_md_metrics.get_stats({_cache_base_path});
+    _cur_disposable_queue_element_count_metrics->set_value(0);
+    _cur_disposable_queue_cache_size_metrics =
+            _cur_disposable_queue_cache_size_md_metrics.get_stats({_cache_base_path});
+    _cur_disposable_queue_cache_size_metrics->set_value(0);
 
-    _queue_evict_size_metrics[0] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_index_queue_evict_size");
-    _queue_evict_size_metrics[1] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_normal_queue_evict_size");
-    _queue_evict_size_metrics[2] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disposable_queue_evict_size");
-    _queue_evict_size_metrics[3] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
-    _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _queue_evict_size_metrics[0] = _queue_evict_size_md_metrics[0].get_stats({_cache_base_path});
+    _queue_evict_size_metrics[1] = _queue_evict_size_md_metrics[1].get_stats({_cache_base_path});
+    _queue_evict_size_metrics[2] = _queue_evict_size_md_metrics[2].get_stats({_cache_base_path});
+    _queue_evict_size_metrics[3] = _queue_evict_size_md_metrics[3].get_stats({_cache_base_path});
+    _total_evict_size_metrics = _total_evict_size_md_metrics.get_stats({_cache_base_path});
 
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_disposable_to_normal");
+            _evict_by_time_md_metrics_disposable_normal.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_disposable_to_index");
+            _evict_by_time_md_metrics_disposable_index.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_disposable_to_ttl");
+            _evict_by_time_md_metrics_disposable_ttl.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_normal_to_disposable");
+            _evict_by_time_md_metrics_normal_disposable.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_normal_to_index");
+            _evict_by_time_md_metrics_normal_index.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_normal_to_ttl");
+            _evict_by_time_md_metrics_normal_ttl.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_index_to_disposable");
+            _evict_by_time_md_metrics_index_disposable.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_index_to_normal");
+            _evict_by_time_md_metrics_index_normal.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_index_to_ttl");
+            _evict_by_time_md_metrics_index_ttl.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_ttl_to_disposable");
+            _evict_by_time_md_metrics_ttl_disposable.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_ttl_to_normal");
+            _evict_by_time_md_metrics_ttl_normal.get_stats({_cache_base_path});
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_ttl_to_index");
-
-    _evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_self_lru_disposable");
-    _evict_by_self_lru_metrics_matrix[FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_self_lru_normal");
-    _evict_by_self_lru_metrics_matrix[FileCacheType::INDEX] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_evict_by_self_lru_index");
-    _evict_by_self_lru_metrics_matrix[FileCacheType::TTL] = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_evict_by_self_lru_ttl");
+            _evict_by_time_md_metrics_ttl_index.get_stats({_cache_base_path});
 
     _evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_disposable_to_normal");
+            _evict_by_size_md_metrics_disposable_normal.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_disposable_to_index");
+            _evict_by_size_md_metrics_disposable_index.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_disposable_to_ttl");
+            _evict_by_size_md_metrics_disposable_ttl.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_normal_to_disposable");
+            _evict_by_size_md_metrics_normal_disposable.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_normal_to_index");
+            _evict_by_size_md_metrics_normal_index.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_normal_to_ttl");
+            _evict_by_size_md_metrics_normal_ttl.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_index_to_disposable");
+            _evict_by_size_md_metrics_index_disposable.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_index_to_normal");
+            _evict_by_size_md_metrics_index_normal.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_index_to_ttl");
+            _evict_by_size_md_metrics_index_ttl.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_ttl_to_disposable");
+            _evict_by_size_md_metrics_ttl_disposable.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_ttl_to_normal");
+            _evict_by_size_md_metrics_ttl_normal.get_stats({_cache_base_path});
     _evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_ttl_to_index");
+            _evict_by_size_md_metrics_ttl_index.get_stats({_cache_base_path});
 
-    _evict_by_try_release = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_evict_by_try_release");
+    _evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE] =
+            _evict_by_self_lru_md_metrics_disposable.get_stats({_cache_base_path});
+    _evict_by_self_lru_metrics_matrix[FileCacheType::NORMAL] =
+            _evict_by_self_lru_md_metrics_normal.get_stats({_cache_base_path});
+    _evict_by_self_lru_metrics_matrix[FileCacheType::INDEX] =
+            _evict_by_self_lru_md_metrics_index.get_stats({_cache_base_path});
+    _evict_by_self_lru_metrics_matrix[FileCacheType::TTL] =
+            _evict_by_self_lru_md_metrics_ttl.get_stats({_cache_base_path});
 
-    _num_read_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                             "file_cache_num_read_blocks");
-    _num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                            "file_cache_num_hit_blocks");
-    _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                                "file_cache_num_removed_blocks");
+    _evict_by_try_release = _evict_by_try_release_md.get_stats({_cache_base_path});
+    _num_read_blocks = _num_read_blocks_md.get_stats({_cache_base_path});
+    _num_hit_blocks = _num_hit_blocks_md.get_stats({_cache_base_path});
+    _num_removed_blocks = _num_removed_blocks_md.get_stats({_cache_base_path});
 
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
-            _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
+            _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks, 300);
     _num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
-            _cache_base_path.c_str(), "file_cache_num_read_blocks_5m", _num_read_blocks.get(), 300);
+            _cache_base_path.c_str(), "file_cache_num_read_blocks_5m", _num_read_blocks, 300);
     _num_hit_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
-            _cache_base_path.c_str(), "file_cache_num_hit_blocks_1h", _num_hit_blocks.get(), 3600);
+            _cache_base_path.c_str(), "file_cache_num_hit_blocks_1h", _num_hit_blocks, 3600);
     _num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
-            _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
-            3600);
+            _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks, 3600);
 
-    _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
-                                                        "file_cache_hit_ratio", 0.0);
-    _hit_ratio_5m = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
-                                                           "file_cache_hit_ratio_5m", 0.0);
-    _hit_ratio_1h = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
-                                                           "file_cache_hit_ratio_1h", 0.0);
-    _disk_limit_mode_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "file_cache_disk_limit_mode", 0);
+    _hit_ratio = _hit_ratio_md.get_stats({_cache_base_path});
+    _hit_ratio_5m = _hit_ratio_5m_md.get_stats({_cache_base_path});
+    _hit_ratio_1h = _hit_ratio_1h_md.get_stats({_cache_base_path});
+    _disk_limit_mode_metrics = _disk_limit_mode_md_metrics.get_stats({_cache_base_path});
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -242,6 +274,53 @@ BlockFileCache::~BlockFileCache() {
     }
     _cache_capacity_md_metrics.delete_stats({_cache_base_path});
     _cur_cache_size_md_metrics.delete_stats({_cache_base_path});
+    _cur_ttl_cache_size_md_metrics.delete_stats({_cache_base_path});
+    _cur_normal_queue_element_count_md_metrics.delete_stats({_cache_base_path});
+    _cur_ttl_cache_lru_queue_cache_size_md_metrics.delete_stats({_cache_base_path});
+    _cur_ttl_cache_lru_queue_element_count_md_metrics.delete_stats({_cache_base_path});
+    _cur_normal_queue_cache_size_md_metrics.delete_stats({_cache_base_path});
+    _cur_index_queue_element_count_md_metrics.delete_stats({_cache_base_path});
+    _cur_index_queue_cache_size_md_metrics.delete_stats({_cache_base_path});
+    _cur_disposable_queue_element_count_md_metrics.delete_stats({_cache_base_path});
+    _cur_disposable_queue_cache_size_md_metrics.delete_stats({_cache_base_path});
+    _queue_evict_size_md_metrics[0].delete_stats({_cache_base_path});
+    _queue_evict_size_md_metrics[1].delete_stats({_cache_base_path});
+    _queue_evict_size_md_metrics[2].delete_stats({_cache_base_path});
+    _queue_evict_size_md_metrics[3].delete_stats({_cache_base_path});
+    _total_evict_size_md_metrics.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_disposable_normal.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_disposable_index.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_disposable_ttl.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_normal_disposable.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_normal_index.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_normal_ttl.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_index_disposable.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_index_normal.delete_stats({_cache_base_path});
+    _evict_by_time_md_metrics_index_ttl.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_disposable_normal.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_disposable_index.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_disposable_ttl.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_normal_disposable.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_normal_index.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_normal_ttl.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_index_disposable.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_index_normal.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_index_ttl.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_ttl_disposable.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_ttl_normal.delete_stats({_cache_base_path});
+    _evict_by_size_md_metrics_ttl_index.delete_stats({_cache_base_path});
+    _evict_by_self_lru_md_metrics_disposable.delete_stats({_cache_base_path});
+    _evict_by_self_lru_md_metrics_normal.delete_stats({_cache_base_path});
+    _evict_by_self_lru_md_metrics_index.delete_stats({_cache_base_path});
+    _evict_by_self_lru_md_metrics_ttl.delete_stats({_cache_base_path});
+    _evict_by_try_release_md.delete_stats({_cache_base_path});
+    _num_read_blocks_md.delete_stats({_cache_base_path});
+    _num_hit_blocks_md.delete_stats({_cache_base_path});
+    _num_removed_blocks_md.delete_stats({_cache_base_path});
+    _hit_ratio_md.delete_stats({_cache_base_path});
+    _hit_ratio_5m_md.delete_stats({_cache_base_path});
+    _hit_ratio_1h_md.delete_stats({_cache_base_path});
+    _disk_limit_mode_md_metrics.delete_stats({_cache_base_path});
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
