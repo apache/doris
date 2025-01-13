@@ -59,47 +59,78 @@ bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_size_md_metrics(
         "file_cache_ttl_cache_size", {"path"});
 bvar::MultiDimension<bvar::Status<size_t>> _cur_normal_queue_element_count_md_metrics(
         "file_cache_normal_queue_element_count", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_md_metrics("file_cache_ttl_cache_lru_queue_size", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_md_metrics("file_cache_ttl_cache_lru_queue_element_count", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_normal_queue_cache_size_md_metrics("file_cache_normal_queue_cache_size", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_index_queue_element_count_md_metrics("file_cache_index_queue_element_count", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_index_queue_cache_size_md_metrics("file_cache_index_queue_cache_size", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_disposable_queue_element_count_md_metrics("file_cache_disposable_queue_element_count", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _cur_disposable_queue_cache_size_md_metrics("file_cache_disposable_queue_cache_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_md_metrics(
+        "file_cache_ttl_cache_lru_queue_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_md_metrics(
+        "file_cache_ttl_cache_lru_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_normal_queue_cache_size_md_metrics(
+        "file_cache_normal_queue_cache_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_index_queue_element_count_md_metrics(
+        "file_cache_index_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_index_queue_cache_size_md_metrics(
+        "file_cache_index_queue_cache_size", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_disposable_queue_element_count_md_metrics(
+        "file_cache_disposable_queue_element_count", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _cur_disposable_queue_cache_size_md_metrics(
+        "file_cache_disposable_queue_cache_size", {"path"});
 std::array<bvar::MultiDimension<bvar::Adder<size_t>>, 4> _queue_evict_size_md_metrics {
         bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_index_queue_evict_size", {"path"}),
         bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_normal_queue_evict_size", {"path"}),
         bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_disposable_queue_evict_size",
                                                   {"path"}),
         bvar::MultiDimension<bvar::Adder<size_t>>("file_cache_ttl_cache_evict_size", {"path"})};
-bvar::MultiDimension <bvar::Adder<size_t>> _total_evict_size_md_metrics("file_cache_total_evict_size", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _total_evict_size_md_metrics(
+        "file_cache_total_evict_size", {"path"});
 // for _evict_by_time_metrics_matrix
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_normal("file_cache_evict_by_time_disposable_to_normal", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_index("file_cache_evict_by_time_disposable_to_index", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_ttl("file_cache_evict_by_time_disposable_to_ttl", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_disposable("file_cache_evict_by_time_normal_to_disposable", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_index("file_cache_evict_by_time_normal_to_index", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_ttl("file_cache_evict_by_time_normal_to_ttl", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_disposable("file_cache_evict_by_time_index_to_disposable", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_normal("file_cache_evict_by_time_index_to_normal", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_ttl("file_cache_evict_by_time_index_to_ttl", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_disposable("file_cache_evict_by_time_ttl_to_disposable", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_normal("file_cache_evict_by_time_ttl_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_normal(
+        "file_cache_evict_by_time_disposable_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_index(
+        "file_cache_evict_by_time_disposable_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_disposable_ttl(
+        "file_cache_evict_by_time_disposable_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_disposable(
+        "file_cache_evict_by_time_normal_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_index(
+        "file_cache_evict_by_time_normal_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_normal_ttl(
+        "file_cache_evict_by_time_normal_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_disposable(
+        "file_cache_evict_by_time_index_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_normal(
+        "file_cache_evict_by_time_index_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_index_ttl(
+        "file_cache_evict_by_time_index_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_disposable(
+        "file_cache_evict_by_time_ttl_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_normal(
+        "file_cache_evict_by_time_ttl_to_normal", {"path"});
 bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_time_md_metrics_ttl_index(
         "file_cache_evict_by_time_ttl_to_index", {"path"});
 // for _evict_by_size_metrics_matrix
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_normal("file_cache_evict_by_size_disposable_to_normal", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_index("file_cache_evict_by_size_disposable_to_index", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_ttl("file_cache_evict_by_size_disposable_to_ttl", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_disposable("file_cache_evict_by_size_normal_to_disposable", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_index("file_cache_evict_by_size_normal_to_index", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_ttl("file_cache_evict_by_size_normal_to_ttl", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_disposable("file_cache_evict_by_size_index_to_disposable", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_normal("file_cache_evict_by_size_index_to_normal", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_ttl("file_cache_evict_by_size_index_to_ttl", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_disposable("file_cache_evict_by_size_ttl_to_disposable", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_normal("file_cache_evict_by_size_ttl_to_normal", {"path"});
-bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_index("file_cache_evict_by_size_ttl_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_normal(
+        "file_cache_evict_by_size_disposable_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_index(
+        "file_cache_evict_by_size_disposable_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_disposable_ttl(
+        "file_cache_evict_by_size_disposable_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_disposable(
+        "file_cache_evict_by_size_normal_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_index(
+        "file_cache_evict_by_size_normal_to_index", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_normal_ttl(
+        "file_cache_evict_by_size_normal_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_disposable(
+        "file_cache_evict_by_size_index_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_normal(
+        "file_cache_evict_by_size_index_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_index_ttl(
+        "file_cache_evict_by_size_index_to_ttl", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_disposable(
+        "file_cache_evict_by_size_ttl_to_disposable", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_normal(
+        "file_cache_evict_by_size_ttl_to_normal", {"path"});
+bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_size_md_metrics_ttl_index(
+        "file_cache_evict_by_size_ttl_to_index", {"path"});
 // for _evict_by_self_lru_metrics_matrix
 bvar::MultiDimension<bvar::Adder<size_t>> _evict_by_self_lru_md_metrics_disposable(
         "file_cache_evict_by_self_lru_disposable", {"path"});
@@ -119,7 +150,8 @@ bvar::MultiDimension<bvar::Adder<size_t>> _num_removed_blocks_md("file_cache_num
 bvar::MultiDimension<bvar::Status<double>> _hit_ratio_md("file_cache_hit_ratio", {"path"});
 bvar::MultiDimension<bvar::Status<double>> _hit_ratio_5m_md("file_cache_hit_ratio_5m", {"path"});
 bvar::MultiDimension<bvar::Status<double>> _hit_ratio_1h_md("file_cache_hit_ratio_1h", {"path"});
-bvar::MultiDimension<bvar::Status<size_t>> _disk_limit_mode_md_metrics("file_cache_disk_limit_mode", {"path"});
+bvar::MultiDimension<bvar::Status<size_t>> _disk_limit_mode_md_metrics("file_cache_disk_limit_mode",
+                                                                       {"path"});
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
