@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_set_operators", "query,p0") {
+suite("test_set_operators", "query,p0,arrow_flight_sql") {
 
     sql """
         DROP TABLE IF EXISTS t1;

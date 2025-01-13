@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_data_type_marks") {
+suite("test_data_type_marks", "arrow_flight_sql") {
     def tbName = "org"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
