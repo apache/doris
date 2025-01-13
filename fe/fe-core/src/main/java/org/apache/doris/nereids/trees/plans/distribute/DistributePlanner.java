@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.distribute;
 
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DummyWorker;
+import org.apache.doris.nereids.trees.plans.distribute.worker.LoadBalanceScanWorkerSelector;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
@@ -43,6 +45,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.ListMultimap;
@@ -74,16 +77,20 @@ public class DistributePlanner {
     public FragmentIdMapping<DistributedPlan> plan() {
         updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
         try {
+            BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager();
+            LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(workerManager);
             FragmentIdMapping<UnassignedJob> fragmentJobs
-                    = UnassignedJobBuilder.buildJobs(statementContext, idToFragments);
-            ListMultimap<PlanFragmentId, AssignedJob> instanceJobs = AssignedJobBuilder.buildJobs(fragmentJobs);
+                    = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
+            ListMultimap<PlanFragmentId, AssignedJob> instanceJobs
+                    = AssignedJobBuilder.buildJobs(fragmentJobs, workerManager);
             FragmentIdMapping<DistributedPlan> distributedPlans = buildDistributePlans(fragmentJobs, instanceJobs);
             FragmentIdMapping<DistributedPlan> linkedPlans = linkPlans(distributedPlans);
             updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
             return linkedPlans;
         } catch (Throwable t) {
             LOG.error("Failed to build distribute plans", t);
-            throw t;
+            Throwables.throwIfInstanceOf(t, RuntimeException.class);
+            throw new IllegalStateException(t.toString(), t);
         }
     }
 
