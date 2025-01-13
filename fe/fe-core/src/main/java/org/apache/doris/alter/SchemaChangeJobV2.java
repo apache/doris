@@ -583,9 +583,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     if (task.getErrorCode() != null && task.getErrorCode()
                             .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
                         maxFailedTimes = Config.schema_change_max_retry_time;
+                        LOG.warn("schema change task failed: {}, set maxFailedTimes {}", task.getErrorMsg(),
+                                maxFailedTimes);
                     }
-                    LOG.warn("schema change task failed: {}, set maxFailedTimes {}", task.getErrorMsg(),
-                            maxFailedTimes);
                 }
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
