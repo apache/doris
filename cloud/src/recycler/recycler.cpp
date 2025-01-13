@@ -2915,6 +2915,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
             continue;
         }
 
+        std::string prefix = s3_conf->prefix;
         s3_conf->prefix = stage.obj_info().prefix();
         std::shared_ptr<S3Accessor> accessor;
         int ret1 = S3Accessor::create(std::move(*s3_conf), &accessor);
@@ -2924,7 +2925,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
             continue;
         }
 
-        if (s3_conf->prefix.find("/stage/") == std::string::npos) {
+        if (prefix.find("/stage/") == std::string::npos) {
             LOG(WARNING) << "try to delete illegal prefix, which is catastrophic, " << ss.str();
             ret = -1;
             continue;
