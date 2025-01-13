@@ -706,6 +706,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String ENABLE_PARQUET_MERGE_SMALL_IO = "enable_parquet_merge_small_io";
+
+    public static final String ENABLE_ORC_MERGE_SMALL_IO = "enable_orc_merge_small_io";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1836,6 +1840,22 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableOrcFilterByMinMax = true;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_MERGE_SMALL_IO,
+            description = {"控制 parquet reader 是否启用小 IO 合并。默认为 true。",
+                    "Controls whether to merge small range io in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetMergeSmallIO = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_ORC_MERGE_SMALL_IO,
+            description = {"控制 orc reader 是否启用小 IO 合并。默认为 true。",
+                    "Controls whether to merge small range io in orc reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableOrcMergeSmallIO = true;
+
+    @VariableMgr.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
             description = {"收集外表统计信息行数时选取的采样分区数，默认-1表示全部分区",
                     "Number of sample partition for collecting external table line number, "
@@ -2889,6 +2909,22 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Setting invalid query timeout", new RuntimeException(""));
         }
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public boolean isEnableParquetMergeSmallIO() {
+        return enableParquetMergeSmallIO;
+    }
+
+    public void setEnableParquetMergeSmallIO(boolean enableParquetMergeSmallIO) {
+        this.enableParquetMergeSmallIO = enableParquetMergeSmallIO;
+    }
+
+    public boolean isEnableOrcMergeSmallIO() {
+        return enableOrcMergeSmallIO;
+    }
+
+    public void setEnableOrcMergeSmallIO(boolean enableOrcMergeSmallIO) {
+        this.enableOrcMergeSmallIO = enableOrcMergeSmallIO;
     }
 
     // This method will be called by VariableMgr.replayGlobalVariableV2
@@ -4054,6 +4090,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
+
+        tResult.setEnableParquetMergeSmallIo(enableParquetMergeSmallIO);
+        tResult.setEnableOrcMergeSmallIo(enableOrcMergeSmallIO);
 
         return tResult;
     }

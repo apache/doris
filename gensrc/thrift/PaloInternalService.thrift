@@ -364,6 +364,9 @@ struct TQueryOptions {
   145: optional bool enable_inverted_index_query_cache = true;
   146: optional bool fuzzy_disable_runtime_filter_in_be = false;
 
+  147: optional bool enable_parquet_merge_small_io = true;
+  148: optional bool enable_orc_merge_small_io = true;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
