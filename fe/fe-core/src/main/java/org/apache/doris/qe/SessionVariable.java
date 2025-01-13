@@ -1599,7 +1599,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean showUserDefaultRole = false;
 
     // Default value is -1, which means not fix replica
-    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
+    @VariableMgr.VarAttr(name = USE_FIX_REPLICA, needForward = true)
     public int useFixReplica = -1;
 
     // This is a debug feature, when we find a backend is not stable(for example network reasons)
