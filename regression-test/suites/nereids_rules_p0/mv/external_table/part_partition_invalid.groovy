@@ -151,6 +151,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     mv_rewrite_success(query_sql, mv_name)
     order_qt_after_modify_data_without_refresh_catalog """ ${query_sql}"""
 
+    // query invalid partition data, should hit mv, because not check now.
     mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-19';
         """, mv_name)
@@ -197,8 +198,8 @@ suite("part_partition_invalid", "p0,external,external_docker") {
 
     order_qt_after_add_and_without_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
-    // query valid partition data, should hit mv
-    mv_rewrite_success("""
+    // query valid partition data, should hit mv, because data not aware
+    mv_rewrite_fail("""
             ${query_sql} where o_orderdate = '2023-10-20';
         """, mv_name)
 
@@ -217,7 +218,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     order_qt_after_add_and_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
     // query valid partition data, should hit mv
-    mv_rewrite_success("""
+    mv_rewrite_fail("""
             ${query_sql} where o_orderdate = '2023-10-20';
         """, mv_name)
     order_qt_after_add_and_refresh_catalog_20 """ ${query_sql} where o_orderdate = '2023-10-20';"""
