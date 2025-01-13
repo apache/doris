@@ -103,7 +103,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, block_item.deserialize_time());
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-    _recvr->_parent->memory_used_counter()->update(-(int64_t)block_byte_size);
+    _recvr->_memory_used_counter->update(-(int64_t)block_byte_size);
     std::lock_guard<std::mutex> l(_lock);
     sub_blocks_memory_usage(block_byte_size);
     _record_debug_info();
@@ -198,7 +198,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
         _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
-    _recvr->_parent->memory_used_counter()->update(block_byte_size);
+    _recvr->_memory_used_counter->update(block_byte_size);
     add_blocks_memory_usage(block_byte_size);
     return Status::OK();
 }
@@ -237,7 +237,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         _record_debug_info();
         try_set_dep_ready_without_lock();
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
-        _recvr->_parent->memory_used_counter()->update(block_mem_size);
+        _recvr->_memory_used_counter->update(block_mem_size);
         add_blocks_memory_usage(block_mem_size);
     }
 }
@@ -308,13 +308,14 @@ void VDataStreamRecvr::SenderQueue::close() {
     _block_queue.clear();
 }
 
-VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::ExchangeLocalState* parent,
+VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
+                                   RuntimeProfile::HighWaterMarkCounter* memory_used_counter,
                                    RuntimeState* state, const RowDescriptor& row_desc,
                                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                                    int num_senders, bool is_merging, RuntimeProfile* profile)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
-          _parent(parent),
+          _memory_used_counter(memory_used_counter),
           _query_thread_context(state->query_id(), state->query_mem_tracker(),
                                 state->get_query_ctx()->workload_group()),
           _fragment_instance_id(fragment_instance_id),
