@@ -52,6 +52,7 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.nereids.DorisParser.StorageBackendContext;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -221,6 +222,32 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                            "Failed to create repository: " + st.getErrMsg());
+        }
+        if (!repo.ping()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: failed to connect to the repo");
+        }
+    }
+
+    // handle create repository in nereids stmt
+    public void createRepositoryInNereids(boolean isReadOnly, String name, StorageBackendContext storage,
+                                          StorageBackend.StorageType type, Map<String, String> properties)
+                                          throws DdlException {
+        if (!env.getBrokerMgr().containsBroker(storage.brokerName.getText())
+                && type == StorageBackend.StorageType.BROKER) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "broker does not exist: " + storage.brokerName.getText());
+        }
+
+        RemoteFileSystem fileSystem = FileSystemFactory.get(storage.brokerName.getText(), type,
+                properties);
+        long repoId = env.getNextId();
+        Repository repo = new Repository(repoId, name, isReadOnly, storage.LOCATION().getText(), fileSystem);
+
+        Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
+        if (!st.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: " + st.getErrMsg());
         }
         if (!repo.ping()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
