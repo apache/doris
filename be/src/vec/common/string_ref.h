@@ -343,7 +343,6 @@ inline size_t hash_less_than8(const char* data, size_t size) {
     return k2;
 }
 
-
 inline size_t crc32_hash(const char* pos, size_t size) {
     if (size == 0) {
         return 0;
