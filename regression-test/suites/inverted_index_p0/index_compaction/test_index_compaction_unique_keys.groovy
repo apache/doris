@@ -143,7 +143,7 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
         assert (rowsetCount == 7 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "full")
+        trigger_compaction_with_retry(tableName, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -179,7 +179,7 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
         }
 
         // trigger full compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "full")
+        trigger_compaction_with_retry(tableName, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);

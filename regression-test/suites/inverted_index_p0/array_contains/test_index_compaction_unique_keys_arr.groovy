@@ -100,7 +100,7 @@ suite("test_index_compaction_unique_keys_arr", "array_contains_inverted_index, n
         assert (rowsetCount == 7 * replicaNum)
 
         // trigger full compactions for all tablets in ${table_name}
-        trigger_and_wait_compaction(table_name, "full")
+        trigger_compaction_with_retry(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
@@ -136,7 +136,7 @@ suite("test_index_compaction_unique_keys_arr", "array_contains_inverted_index, n
         }
 
         // trigger full compactions for all tablets in ${table_name}
-        trigger_and_wait_compaction(table_name, "full")
+        trigger_compaction_with_retry(table_name, "full")
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
