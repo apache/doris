@@ -54,13 +54,21 @@ suite("test_select_column_auth","p0,auth") {
 
     sql """create view ${dbName}.${mv_name} as select * from ${dbName}.${tableName};"""
     sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
-    
-    sleep(3*1000)
-    waitForSchemaChangeDone {
-        sql """show alter table rollup where tablename='${tableName}' order by createtime desc limit 1"""
-        time 600
+
+    for (int i = 0; i < 20; ++i) {
+        def r = sql_return_maparray """show alter table rollup where TableName='${tableName}' order by createtime desc limit 1"""
+        if (r.size() > 0) {
+             if ( r[0]["State"] == "FINISHED") {
+                 break
+             } else if (r[0]["State"] == "CANCELLED") {
+                 assertTrue(1==0)
+             } else {
+                 sleep(1000)
+             }
+        }
+        sleep(1000)
     }
-    sleep(3*1000)
+    sleep(1000)
     
     createMV("""create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}""")
     sleep(5 * 1000)
