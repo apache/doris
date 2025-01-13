@@ -3561,7 +3561,7 @@ public class SessionVariable implements Serializable, Writable {
         if (!(parsedStatement instanceof LogicalPlanAdapter)) {
             return false;
         }
-        return true;
+        return connectContext.getSessionVariable().enableNereidsDistributePlanner;
     }
 
     public boolean isEnableNereidsDistributePlanner() {
