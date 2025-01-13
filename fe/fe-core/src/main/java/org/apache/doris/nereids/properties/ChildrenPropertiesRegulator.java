@@ -218,8 +218,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         boolean isEnableBucketShuffleJoin = ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin();
         if (!isEnableBucketShuffleJoin) {
             return true;
-        } else if (otherSideSpec.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
-                || !(oneSidePlan instanceof GroupPlan)) {
+        } else if (
+                (!SessionVariable.canUseNereidsDistributePlanner()
+                    && otherSideSpec.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
+                ) || !(oneSidePlan instanceof GroupPlan)) {
             return false;
         } else {
             PhysicalOlapScan candidate = findDownGradeBucketShuffleCandidate((GroupPlan) oneSidePlan);
