@@ -73,10 +73,15 @@ public:
 private:
     friend class AnalyticSinkOperatorX;
     Status _execute_impl();
+    // over(partition by k1 order by k2 range|rows unbounded preceding and unbounded following)
     bool _get_next_for_partition(int64_t batch_rows, int64_t current_block_base_pos);
+    // over(partition by k1 order by k2 range between unbounded preceding and current row)
     bool _get_next_for_unbounded_range(int64_t batch_rows, int64_t current_block_base_pos);
+    // over(partition by k1 order by k2 range between M preceding and N following)
     bool _get_next_for_range_between(int64_t batch_rows, int64_t current_block_base_pos);
+    // over(partition by k1 order by k2 rows between unbounded preceding and current row)
     bool _get_next_for_unbounded_rows(int64_t batch_rows, int64_t current_block_base_pos);
+    // over(partition by k1 order by k2 rows between M preceding and N following)
     bool _get_next_for_sliding_rows(int64_t batch_rows, int64_t current_block_base_pos);
 
     void _init_result_columns();

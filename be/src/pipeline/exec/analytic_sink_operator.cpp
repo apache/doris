@@ -175,8 +175,11 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     _destroy_agg_status();
     _agg_arena_pool = nullptr;
 
-    std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
-    _result_window_columns.swap(tmp_result_window_columns);
+    _result_window_columns.clear();
+    _agg_input_columns.clear();
+    _partition_by_columns.clear();
+    _order_by_columns.clear();
+    _range_result_columns.clear();
     return PipelineXSinkLocalState<AnalyticSharedState>::close(state, exec_status);
 }
 
@@ -337,6 +340,12 @@ Status AnalyticSinkLocalState::_execute_impl() {
 void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int64_t partition_end,
                                                    int64_t frame_start, int64_t frame_end) {
     // here is the core function, should not add timer
+    // If the end is not greater than the start, the current window should be empty.
+    _current_window_empty =
+            std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
+    if (_current_window_empty) {
+        return;
+    }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
@@ -346,11 +355,6 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
                 _agg_arena_pool.get());
-
-        // If the end is not greater than the start, the current window should be empty.
-        // _current_window_empty = false;
-        _current_window_empty =
-                std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
     }
 }
 
@@ -369,10 +373,11 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t real_deal_with_width) {
                             _fn_place_ptr + _offsets_of_aggregate_states[i],
                             &dst->get_nested_column());
                 }
-                continue;
+            } else {
+                _agg_functions[i]->insert_result_info(
+                        _fn_place_ptr + _offsets_of_aggregate_states[i],
+                        _result_window_columns[i].get());
             }
-            _agg_functions[i]->insert_result_info(_fn_place_ptr + _offsets_of_aggregate_states[i],
-                                                  _result_window_columns[i].get());
         }
     }
 }
@@ -489,7 +494,7 @@ void AnalyticSinkLocalState::_get_partition_by_end() {
     }
     //no partition_by, the all block is end
     if (_partition_by_eq_expr_ctxs.empty() || (_input_total_rows == 0)) {
-        _partition_by_pose.end = _input_total_rows; //maybe need check removed rows
+        _partition_by_pose.end = _input_total_rows - _have_removed_rows;
         _partition_by_pose.is_ended = _input_eos;
         return;
     }
