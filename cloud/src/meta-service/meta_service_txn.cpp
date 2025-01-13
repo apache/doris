@@ -997,6 +997,8 @@ void process_mow_when_commit_txn(
             }
 
             if (pending_info.has_lock_id() && pending_info.lock_id() != lock_id) {
+                TEST_SYNC_POINT_CALLBACK("commit_txn:check_pending_delete_bitmap_lock_id",
+                                         &tablet_id);
                 LOG_WARNING(
                         "wrong lock_id in pending delete bitmap infos, expect lock_id={}, but "
                         "found {} tablet_id={} instance_id={}",
