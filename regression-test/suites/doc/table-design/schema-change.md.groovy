@@ -94,7 +94,7 @@ suite("docs/table-design/schema-change.md") {
         """
 
         sql """
-            ALTER TABLE example_db.my_table DROP COLUMN col3;
+            ALTER TABLE example_db.my_table DROP COLUMN col4;
         """
         waitUntilSchemaChangeDone("my_table")
 
