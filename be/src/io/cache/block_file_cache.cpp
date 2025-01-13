@@ -1542,7 +1542,9 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                 int64_t queue_released = 0;
                 std::vector<FileBlockCell*> to_evict;
                 for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-                    if (need_remove_size <= 0) return queue_released;
+                    if (need_remove_size <= 0) {
+                        break;
+                    }
                     need_remove_size -= entry_size;
                     space_released += entry_size;
                     queue_released += entry_size;
