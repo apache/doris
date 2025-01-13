@@ -95,7 +95,7 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), delegateClazzSet, position);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), delegateClazzSet, position);
     }
 }

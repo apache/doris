@@ -145,8 +145,8 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), function, aggregateParam, child());
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), function, aggregateParam, child());
     }
 
     @Override
