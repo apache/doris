@@ -5455,6 +5455,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
 
     @Override
     public LogicalPlan visitDropDatabase(DropDatabaseContext ctx) {
