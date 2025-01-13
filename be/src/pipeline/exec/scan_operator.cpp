@@ -265,7 +265,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool is_runtime_filter_predicate = conjunct_expr_root->is_rf_wrapper();
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -289,12 +288,15 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
-                            bool is_whole_range_before_push_down =
-                                    value_range.is_whole_value_range();
+                            bool need_set_mark_runtime_filter_predicate =
+                                    value_range.is_whole_value_range() &&
+                                    conjunct_expr_root->is_rf_wrapper();
                             Defer mark_runtime_filter_flag {[&]() {
-                                value_range.mark_runtime_filter_predicate(
-                                        is_whole_range_before_push_down &&
-                                        is_runtime_filter_predicate);
+                                // rf is always appended to the end of conjuncts.
+                                // If it is not a whole range, it means that the column has other regular predicates, so it cannot be marked as rf predicate.
+                                if (need_set_mark_runtime_filter_predicate) {
+                                    value_range.mark_runtime_filter_predicate(true);
+                                }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
