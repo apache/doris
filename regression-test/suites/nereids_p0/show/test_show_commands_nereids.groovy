@@ -27,12 +27,6 @@ suite("test_show_commands_nereids") {
     checkNereidsExecute("""show whitelist;""")
     checkNereidsExecute("""show triggers;""")
     checkNereidsExecute("""show events;""")
-    test {
-        sql """show load profile "/";"""
-        exception """show query/load profile syntax is a deprecated feature"""
-    }
-    test {
-        sql """show query profile "/";"""
-        exception """show query/load profile syntax is a deprecated feature"""
-    }
+    checkNereidsExecute("""show load profile "/";""")
+    checkNereidsExecute("""show query profile "/";""")    
 }
