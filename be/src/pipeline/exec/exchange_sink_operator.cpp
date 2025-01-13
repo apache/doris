@@ -356,8 +356,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     }
 
     // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
-    if (state->get_query_ctx()->low_memory_mode() && local_state._sink_buffer != nullptr) {
-        local_state._sink_buffer->set_low_memory_mode();
+    if (state->get_query_ctx()->low_memory_mode()) {
+        set_low_memory_mode(state);
     }
 
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
@@ -398,9 +398,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block_holder->reset_block();
                     }
 
-                    if (state->get_query_ctx()->low_memory_mode()) {
-                        local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
-                    }
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;

@@ -779,7 +779,7 @@ public:
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<RuntimeProfile::Counter*> mem_counters;
     std::atomic<int64_t> mem_usage = 0;
-    size_t _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
+    std::atomic<size_t> _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
     virtual void create_dependencies(int local_exchange_id) {
@@ -906,7 +906,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
 private:
     std::vector<std::atomic_int64_t> _queues_mem_usage;
-    int64_t _each_queue_limit;
+    std::atomic_int64_t _each_queue_limit;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

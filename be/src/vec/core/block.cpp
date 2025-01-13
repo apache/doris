@@ -60,6 +60,16 @@ enum CompressionTypePB : int;
 } // namespace doris::segment_v2
 
 namespace doris::vectorized {
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks) {
+    T block;
+    while (blocks.try_dequeue(block)) {
+        // do nothing
+    }
+}
+
+template void clear_blocks<Block>(moodycamel::ConcurrentQueue<Block>&);
+template void clear_blocks<BlockUPtr>(moodycamel::ConcurrentQueue<BlockUPtr>&);
 
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {
     initialize_index_by_name();

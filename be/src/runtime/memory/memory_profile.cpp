@@ -153,8 +153,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     ExecEnv::GetInstance()->rowsets_no_cache_mem_tracker()->set_consumption(
             MetadataAdder<RowsetMeta>::get_all_rowsets_size());
     ExecEnv::GetInstance()->segments_no_cache_mem_tracker()->set_consumption(
-            MetadataAdder<segment_v2::Segment>::get_all_segments_estimate_size() -
-            SegmentLoader::instance()->cache_mem_usage());
+            MetadataAdder<segment_v2::Segment>::get_all_segments_size());
 
     // 4 refresh tracked memory counter
     std::unordered_map<MemTrackerLimiter::Type, int64_t> type_mem_sum = {
@@ -334,21 +333,16 @@ int64_t MemoryProfile::other_current_usage() {
 }
 
 std::string MemoryProfile::process_memory_detail_str() const {
-    return fmt::format("Process Memory Summary: {}\n, {}\n, {}\n, {}",
+    return fmt::format("Process Memory Summary: {}\n, {}\n, {}\n, {}\n, {}\n, {}\n",
                        GlobalMemoryArbitrator::process_mem_log_str(),
                        print_memory_overview_profile(), print_global_memory_profile(),
+                       print_metadata_memory_profile(), print_cache_memory_profile(),
                        print_top_memory_tasks_profile());
 }
 
 void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
-        LOG(WARNING) << "Process Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
-        LOG(WARNING) << "\n" << print_memory_overview_profile();
-        LOG(WARNING) << "\n" << print_global_memory_profile();
-        LOG(WARNING) << "\n" << print_metadata_memory_profile();
-        LOG(WARNING) << "\n" << print_cache_memory_profile();
-        LOG(WARNING) << "\n" << print_top_memory_tasks_profile();
         LOG(WARNING) << process_memory_detail_str();
     }
 }

@@ -92,7 +92,7 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
 Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     if (state->get_query_ctx()->low_memory_mode()) {
-        local_state._shared_state->data_queue.set_low_memory_mode();
+        set_low_memory_mode(state);
     }
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

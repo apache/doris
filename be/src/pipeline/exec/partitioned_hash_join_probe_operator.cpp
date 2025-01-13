@@ -870,7 +870,7 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
                                      static_cast<int64_t>(
                                              vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM));
         } else {
-            return vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+            return revocable_size > vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
         }
     }
     return false;

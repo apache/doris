@@ -403,6 +403,10 @@ Status PipelineTask::execute(bool* eos) {
             *eos = _pending_eos;
         } else {
             SCOPED_TIMER(_get_block_timer);
+            if (_state->get_query_ctx()->low_memory_mode()) {
+                _sink->set_low_memory_mode(_state);
+                _root->set_low_memory_mode(_state);
+            }
             DEFER_RELEASE_RESERVED();
             _get_block_counter->update(1);
             const auto reserve_size = _root->get_reserve_mem_size(_state);
