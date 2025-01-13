@@ -119,23 +119,13 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
     {
-        std::string local_location;
-        std::hash<std::string> hash_str;
-        auto* function_cache = UserFunctionCache::instance();
-        if (_conn_param.resource_name.empty()) {
-            // for jdbcExternalTable, _conn_param.resource_name == ""
-            // so, we use _conn_param.driver_path as key of jarpath
-            SCOPED_RAW_TIMER(&_jdbc_statistic._load_jar_timer);
-            RETURN_IF_ERROR(function_cache->get_jarpath(
-                    std::abs((int64_t)hash_str(_conn_param.driver_path)), _conn_param.driver_path,
-                    _conn_param.driver_checksum, &local_location));
+        std::string driver_path;
+
+        if (_conn_param.driver_path.find(":/") == std::string::npos) {
+            driver_path =  "file://" + config::jdbc_drivers_dir + "/" + _conn_param.driver_path;
         } else {
-            SCOPED_RAW_TIMER(&_jdbc_statistic._load_jar_timer);
-            RETURN_IF_ERROR(function_cache->get_jarpath(
-                    std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
-                    _conn_param.driver_checksum, &local_location));
+            driver_path = _conn_param.driver_path;
         }
-        VLOG_QUERY << "driver local path = " << local_location;
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -144,7 +134,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
-        ctor_params.__set_driver_path(local_location);
+        ctor_params.__set_driver_path(driver_path);
         if (state == nullptr) {
             ctor_params.__set_batch_size(read ? 1 : 0);
         } else {
