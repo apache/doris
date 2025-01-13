@@ -1378,11 +1378,6 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
-    if (!_wrapper->is_ignored() && !_wrapper->is_disabled() && _wrapper->is_bloomfilter() &&
-        !_wrapper->get_bloomfilter()->inited()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored/disabled, rf: {}",
-                        debug_string());
-    }
 
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {

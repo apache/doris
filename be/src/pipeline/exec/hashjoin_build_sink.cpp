@@ -216,7 +216,7 @@ Status HashJoinBuildSinkLocalState::disable_runtime_filters(RuntimeState* state)
     RETURN_IF_ERROR(_runtime_filter_slots->disable_all_filters());
 
     SCOPED_TIMER(_publish_runtime_filter_timer);
-    return _runtime_filter_slots->publish(state, !_should_build_hash_table);
+    return _runtime_filter_slots->publish(!_should_build_hash_table);
 }
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
