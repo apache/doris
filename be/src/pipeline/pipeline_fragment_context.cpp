@@ -499,8 +499,13 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
             if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
                 auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 DCHECK(pipeline_id_to_profile[pip_idx]);
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
-                        local_params, request.fragment.output_sink, _query_ctx.get()));
+                std::vector<TScanRangeParams> scan_ranges;
+                scan_ranges = find_with_default(local_params.per_node_scan_ranges,
+                                                _pipelines[pip_idx]->operators().front()->node_id(),
+                                                scan_ranges);
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                        task->prepare(scan_ranges, local_params.sender_id,
+                                      request.fragment.output_sink, _query_ctx.get()));
             }
         }
         {
@@ -654,7 +659,9 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
     RETURN_IF_ERROR(_create_operator(pool, tnodes[*node_idx], request, descs, op, cur_pipe,
                                      parent == nullptr ? -1 : parent->node_id(), child_idx,
                                      followed_by_shuffled_operator));
-
+    // Initialization must be done here. For example, group by expressions in agg will be used to
+    // decide if a local shuffle should be planed, so it must be initialized here.
+    RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {
         // add to parent's child(s)
@@ -697,8 +704,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
                     *node_idx, tnodes.size());
         }
     }
-
-    RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
 
     return Status::OK();
 }

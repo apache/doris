@@ -20,7 +20,7 @@ suite("test_full_compaction_run_status","nonConcurrent") {
         return
     }
     def tableName = "full_compaction_run_status_test"
- 
+
     // test successful group commit async load
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -37,8 +37,8 @@ suite("test_full_compaction_run_status","nonConcurrent") {
             `k` int ,
             `v` int ,
         ) engine=olap
-        DISTRIBUTED BY HASH(`k`) 
-        BUCKETS 2 
+        DISTRIBUTED BY HASH(`k`)
+        BUCKETS 2
         properties(
             "replication_num" = "1",
             "disable_auto_compaction" = "true")
@@ -65,7 +65,7 @@ suite("test_full_compaction_run_status","nonConcurrent") {
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
 
-            times = 1
+            def times = 1
             do{
                 (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)

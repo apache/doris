@@ -16,55 +16,52 @@
 // under the License.
 
 suite("test_s3_vault_path_start_with_slash", "nonConcurrent") {
+    def suiteName = name;
     if (!isCloudMode()) {
-        logger.info("skip ${name} case, because not cloud mode")
+        logger.info("skip ${suiteName} case, because not cloud mode")
         return
     }
 
     if (!enableStoragevault()) {
-        logger.info("skip ${name} case")
+        logger.info("skip ${suiteName} case, because storage vault not enabled")
         return
     }
 
-    def tableName = "table_test_s3_vault_path_start_with_slash"
-    try {
-        def vault_name = "test_s3_vault_path_start_with_slash_vault"
-        sql """
-            CREATE STORAGE VAULT IF NOT EXISTS ${vault_name}
-            PROPERTIES (
-                "type"="S3",
-                "s3.endpoint"="${getS3Endpoint()}",
-                "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}",
-                "s3.root.path" = "/test_s3_vault_path_start_with_slash_vault",
-                "s3.bucket" = "${getS3BucketName()}",
-                "s3.external_endpoint" = "",
-                "provider" = "${getS3Provider()}",
-                "set_as_default" = "true"
-            );
-        """
+    def randomStr = UUID.randomUUID().toString().replace("-", "")
+    def s3VaultName = "s3_" + randomStr
 
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """
-                CREATE TABLE ${tableName} (
-                    `key` INT,
-                    value INT
-                ) DUPLICATE KEY (`key`) 
-                DISTRIBUTED BY HASH (`key`) BUCKETS 1
-                PROPERTIES (
-                    "replication_num" = "1",
-                    "storage_vault_name" = "${vault_name}"
-                )
-            """
+    sql """
+        CREATE STORAGE VAULT ${s3VaultName}
+        PROPERTIES (
+            "type"="S3",
+            "s3.endpoint"="${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}",
+            "s3.root.path" = "/test_s3_vault_path_start_with_slash_vault",
+            "s3.bucket" = "${getS3BucketName()}",
+            "s3.external_endpoint" = "",
+            "provider" = "${getS3Provider()}",
+            "use_path_style" = "false"
+        );
+    """
 
-        sql """ insert into ${tableName} values(1, 1); """
-        sql """ sync;"""
-        def result = sql """ select * from ${tableName}; """
-        logger.info("result:${result}");
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0].toInteger() == 1)
-    } finally {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-    }
+    sql """
+        CREATE TABLE ${s3VaultName} (
+            `key` INT,
+            value INT
+        ) DUPLICATE KEY (`key`) 
+        DISTRIBUTED BY HASH (`key`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "storage_vault_name" = "${s3VaultName}"
+        )
+    """
+
+    sql """ insert into ${s3VaultName} values(1, 1); """
+    sql """ sync;"""
+    def result = sql """ select * from ${s3VaultName}; """
+    logger.info("result:${result}");
+    assertTrue(result.size() == 1)
+    assertTrue(result[0][0].toInteger() == 1)
 }

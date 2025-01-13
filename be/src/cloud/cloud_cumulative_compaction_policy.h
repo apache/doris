@@ -43,7 +43,9 @@ public:
                                          Version& last_delete_version,
                                          int64_t last_cumulative_point) = 0;
 
-    virtual int64_t new_compaction_level(const std::vector<RowsetSharedPtr>& input_rowsets) = 0;
+    virtual int64_t get_compaction_level(CloudTablet* tablet,
+                                         const std::vector<RowsetSharedPtr>& input_rowsets,
+                                         RowsetSharedPtr output_rowset) = 0;
 
     virtual int64_t pick_input_rowsets(CloudTablet* tablet,
                                        const std::vector<RowsetSharedPtr>& candidate_rowsets,
@@ -52,6 +54,8 @@ public:
                                        std::vector<RowsetSharedPtr>* input_rowsets,
                                        Version* last_delete_version, size_t* compaction_score,
                                        bool allow_delete = false) = 0;
+
+    virtual std::string name() = 0;
 };
 
 class CloudSizeBasedCumulativeCompactionPolicy : public CloudCumulativeCompactionPolicy {
@@ -68,7 +72,9 @@ public:
                                  Version& last_delete_version,
                                  int64_t last_cumulative_point) override;
 
-    int64_t new_compaction_level(const std::vector<RowsetSharedPtr>& input_rowsets) override {
+    int64_t get_compaction_level(CloudTablet* tablet,
+                                 const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset) override {
         return 0;
     }
 
@@ -79,6 +85,8 @@ public:
                                std::vector<RowsetSharedPtr>* input_rowsets,
                                Version* last_delete_version, size_t* compaction_score,
                                bool allow_delete = false) override;
+
+    std::string name() override { return "size_based"; }
 
 private:
     int64_t _level_size(const int64_t size);
@@ -105,7 +113,9 @@ public:
                                  Version& last_delete_version,
                                  int64_t last_cumulative_point) override;
 
-    int64_t new_compaction_level(const std::vector<RowsetSharedPtr>& input_rowsets) override;
+    int64_t get_compaction_level(CloudTablet* tablet,
+                                 const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset) override;
 
     int64_t pick_input_rowsets(CloudTablet* tablet,
                                const std::vector<RowsetSharedPtr>& candidate_rowsets,
@@ -114,6 +124,8 @@ public:
                                std::vector<RowsetSharedPtr>* input_rowsets,
                                Version* last_delete_version, size_t* compaction_score,
                                bool allow_delete = false) override;
+
+    std::string name() override { return "time_series"; }
 };
 
 #include "common/compile_check_end.h"

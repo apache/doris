@@ -63,6 +63,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -363,13 +365,12 @@ public class OneRangePartitionEvaluator<K>
         if (exprRanges.containsKey(inPredicate.getCompareExpr())
                 && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
             Expression compareExpr = inPredicate.getCompareExpr();
-            ColumnRange unionLiteralRange = ColumnRange.empty();
             ColumnRange compareExprRange = result.childrenResult.get(0).columnRanges.get(compareExpr);
+            RangeSet<ColumnBound> union = TreeRangeSet.create();
             for (Expression expr : inPredicate.getOptions()) {
-                unionLiteralRange = unionLiteralRange.union(
-                        compareExprRange.intersect(ColumnRange.singleton((Literal) expr)));
+                union.addAll(compareExprRange.intersect(ColumnRange.singleton((Literal) expr)).asRanges());
             }
-            result = intersectSlotRange(result, exprRanges, compareExpr, unionLiteralRange);
+            result = intersectSlotRange(result, exprRanges, compareExpr, new ColumnRange(union));
         }
         result = result.withRejectNot(false);
         return result;
@@ -828,9 +829,10 @@ public class OneRangePartitionEvaluator<K>
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
                 expressionRewriteContext) : null;
-        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+        if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
             return result;
         }
+
         if (!func.isPositive()) {
             Expression temp = lowerValue;
             lowerValue = upperValue;
@@ -857,5 +859,14 @@ public class OneRangePartitionEvaluator<K>
             newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
         }
+    }
+
+    // only allow literal(except NullLiteral) and null
+    private boolean checkFoldConstantValueIsValid(Expression lowerValue, Expression upperValue) {
+        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+            return false;
+        }
+        return (lowerValue == null || lowerValue instanceof Literal)
+                && (upperValue == null || upperValue instanceof Literal);
     }
 }

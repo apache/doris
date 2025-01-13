@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
@@ -50,7 +51,8 @@ public abstract class AbstractMaterializedViewScanRule extends AbstractMateriali
                 queryStructInfo.getTopPlan(),
                 materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
-                queryStructInfo.getTableBitSet()
+                queryStructInfo.getTableBitSet(),
+                ImmutableMap.of(), cascadesContext
         );
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()) {

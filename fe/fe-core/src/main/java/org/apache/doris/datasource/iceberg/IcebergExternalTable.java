@@ -96,8 +96,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     private boolean isValidRelatedTableCached = false;
     private boolean isValidRelatedTable = false;
 
-    public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
+    public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
+            IcebergExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.ICEBERG_EXTERNAL_TABLE);
     }
 
     public String getIcebergCatalogType() {
@@ -555,7 +556,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         this.isValidRelatedTableCached = isCached;
     }
 
-    private IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
+    public IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent()) {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {

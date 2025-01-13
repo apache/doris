@@ -121,7 +121,7 @@ suite("test_date_function") {
             (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
     """
 
-    sql "set parallel_fragment_exec_instance_num = 8"
+    sql "set parallel_pipeline_task_num = 8"
 
     qt_sql1 """
         SELECT

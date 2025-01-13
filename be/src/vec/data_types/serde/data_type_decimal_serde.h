@@ -161,11 +161,11 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
     return Status::OK();
 }
 
-// TODO: decimal256
 template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128V3> ||
-                  std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int32>>) {
+                  std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int32>> ||
+                  std::is_same_v<T, Decimal<Int64>>) {
         auto old_column_size = column.size();
         column.resize(old_column_size + arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();

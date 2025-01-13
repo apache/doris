@@ -162,7 +162,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(getName(), isDistinct);
     }
 

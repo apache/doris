@@ -27,6 +27,7 @@ import org.apache.http.conn.ConnectTimeoutException
 import org.apache.http.conn.HttpHostConnectException
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+
 Suite.metaClass.http_client = { String method, String url /* param */ ->
     Suite suite = delegate as Suite
     if (method != "GET" && method != "POST") {
@@ -35,7 +36,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
     if (!url || !(url =~ /^https?:\/\/.+/)) {
         throw new Exception("Invalid url: ${url}")
     }
-    
+
     Integer timeout = 300 // seconds
     Integer maxRetries = 10
     Integer retryCount = 0
@@ -71,7 +72,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
                 try {
                     code = response.getStatusLine().getStatusCode()
                     out = EntityUtils.toString(response.getEntity())
-                    
+
                     if (code >= 200 && code < 300) {
                         code = 0 // to be compatible with the old curl function
                         err = ""
@@ -97,7 +98,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
             }
 
             sleep(sleepTime)
-            sleepTime = Math.min(sleepTime * 2, 60000) 
+            sleepTime = Math.min(sleepTime * 2, 60000)
         }
 
         logger.error("HTTP request failed after ${maxRetries} attempts")
@@ -111,7 +112,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
 logger.info("Added 'http_client' function to Suite")
 
-Suite.metaClass.curl = { String method, String url, String body = null /* param */-> 
+Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10 /* param */->
     Suite suite = delegate as Suite
     if (method != "GET" && method != "POST") {
         throw new Exception(String.format("invalid curl method: %s", method))
@@ -119,19 +120,18 @@ Suite.metaClass.curl = { String method, String url, String body = null /* param 
     if (url.isBlank()) {
         throw new Exception("invalid curl url, blank")
     }
-    
-    Integer timeout = 10; // 10 seconds;
+
     Integer maxRetries = 10; // Maximum number of retries
     Integer retryCount = 0; // Current retry count
     Integer sleepTime = 5000; // Sleep time in milliseconds
 
     String cmd
     if (method == "POST" && body != null) {
-        cmd = String.format("curl --max-time %d -X %s -H Content-Type:application/json -d %s %s", timeout, method, body, url).toString()
+        cmd = String.format("curl --max-time %d -X %s -H Content-Type:application/json -d %s %s", timeoutSec, method, body, url).toString()
     } else {
-        cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+        cmd = String.format("curl --max-time %d -X %s %s", timeoutSec, method, url).toString()
     }
-    
+
     logger.info("curl cmd: " + cmd)
     def process
     int code
@@ -161,56 +161,13 @@ Suite.metaClass.curl = { String method, String url, String body = null /* param 
 
     return [code, out, err]
 }
-
 logger.info("Added 'curl' function to Suite")
-
 
 Suite.metaClass.show_be_config = { String ip, String port /*param */ ->
     return curl("GET", String.format("http://%s:%s/api/show_config", ip, port))
 }
 
 logger.info("Added 'show_be_config' function to Suite")
-
-Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
-}
-
-Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
-}
-
-Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id))
-}
-
-logger.info("Added 'be_get_compaction_status' function to Suite")
-
-Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
-            ip, port, tablet_id, compact_type))
-}
-
-Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
-    return _be_run_compaction(ip, port, tablet_id, "base")
-}
-
-logger.info("Added 'be_run_base_compaction' function to Suite")
-
-Suite.metaClass.be_run_cumulative_compaction = { String ip, String port, String tablet_id  /* param */-> 
-    return _be_run_compaction(ip, port, tablet_id, "cumulative")
-}
-
-logger.info("Added 'be_run_cumulative_compaction' function to Suite")
-
-Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet_id  /* param */-> 
-    return _be_run_compaction(ip, port, tablet_id, "full")
-}
-
-Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */-> 
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
-}
-
-logger.info("Added 'be_run_full_compaction' function to Suite")
 
 Suite.metaClass.update_be_config = { String ip, String port, String key, String value /*param */ ->
     return curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value))
@@ -232,7 +189,6 @@ Suite.metaClass.update_all_be_config = { String key, Object value ->
 }
 
 logger.info("Added 'update_all_be_config' function to Suite")
-
 
 Suite.metaClass._be_report = { String ip, int port, String reportName ->
     def url = "http://${ip}:${port}/api/report/${reportName}"
@@ -262,7 +218,7 @@ Suite.metaClass.be_report_task = { String ip, int port ->
 logger.info("Added 'be_report_task' function to Suite")
 
 // check nested index file api
-Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format -> 
+Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowsets_count, expected_indices_count, format ->
     def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
     logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
     // only when the expected_indices_count is 0, the tablet may not have the index file.
@@ -300,3 +256,4 @@ Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowset
 }
 
 logger.info("Added 'check_nested_index_file' function to Suite")
+

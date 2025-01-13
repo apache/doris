@@ -5,7 +5,7 @@ CREATE DATABASE issue_8778;
 use issue_8778
 CREATE TABLE `t1` (`tc1` int(11) NULL COMMENT "", `tc2` int(11) NULL COMMENT "", `tc3` int(11) NULL COMMENT "") ENGINE=OLAP DUPLICATE KEY(`tc1`, `tc2`, `tc3`) COMMENT "OLAP" DISTRIBUTED BY HASH(`tc1`) BUCKETS 10 PROPERTIES ("replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2");
 ()
-set parallel_fragment_exec_instance_num=2;
+set PARALLEL_PIPELINE_TASK_NUM=2;
 ()
 set disable_colocate_plan=false;
 ()
