@@ -34,10 +34,11 @@ suite("test_seq_type_rename_col", "p0") {
 
     sql "insert into ${table1}(k1,c1,c2,__DORIS_SEQUENCE_COL__) values(1,1,1,1),(2,2,2,2),(3,3,3,3);"
     sql "insert into ${table1}(k1,c1,c2,__DORIS_SEQUENCE_COL__) values(4,4,4,4),(5,5,5,5),(6,6,6,6);"
-
+    sql "sync;"
     qt_sql "select * from ${table1} order by k1;"
 
     sql "alter table ${table1} rename column c1 c1_rename;"
+    
 
     qt_sql "select * from ${table1} order by k1;"
 }
