@@ -242,10 +242,21 @@ suite("check_before_quit", "nonConcurrent,p0") {
         logger.info("show all tabkes: ${allTables}")
         for (int j = 0;j < allTables.size();j ++) {
             def tbl = allTables[j][0]
-            def createTableSql = sql "show create table ${db}.${tbl}"
+            def createTableSql = ""
+            try {
+                createTableSql = sql "show create table ${db}.${tbl}"
+                logger.info("create table sql: ${createTableSql}")
+            } catch (Exception e) {
+                if (e.getMessage().contains("not support async materialized view")) {
+                    createTableSql = sql "show create materialized view ${tbl}"
+                    logger.info("create materialized view sql: ${createTableSql}")
+                }
+            }
             if (createTableSql[0][1].contains("CREATE VIEW")) {
                 sql "drop view if exists ${tbl}"
-            }else {
+            } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                sql "drop materialized view if exists ${tbl}"
+            } else {
                 sql "drop table if exists ${tbl}"
             }
             sql(createTableSql[0][1])
