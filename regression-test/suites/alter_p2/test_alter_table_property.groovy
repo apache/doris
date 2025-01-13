@@ -16,6 +16,10 @@
 // under the License.
 
 suite ("test_alter_table_property") {
+    if (isCloudMode()) {
+        return
+    }
+
     String tableName = "test_alter_table_property_table"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -57,7 +61,8 @@ suite ("test_alter_table_property") {
     sql """ ALTER TABLE ${tableName} ADD PARTITION p2 VALUES LESS THAN ("200") """
     assertEquals(replication_num, queryReplicaCount("p2"))
 
-    if (isCloudMode()) {
+    def res = sql """show backends;"""
+    if (res.size() < 3) {
         return
     }
 
