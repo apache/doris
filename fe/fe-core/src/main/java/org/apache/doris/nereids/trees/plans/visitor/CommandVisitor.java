@@ -137,6 +137,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -756,5 +757,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
         return visitCommand(alterDatabaseRenameCommand, context);
+    }
+
+    default R visitShowTableStatusCommand(ShowTableStatusCommand showTableStatusCommand, C context) {
+        return visitCommand(showTableStatusCommand, context);
     }
 }
