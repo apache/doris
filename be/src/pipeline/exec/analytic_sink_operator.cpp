@@ -38,7 +38,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
     _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
     _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
-    _compute_order_by_function_timer = ADD_TIMER(profile(), "ComputeOrderByFunctionTime");
+    _compute_range_between_function_timer = ADD_TIMER(profile(), "ComputeOrderByFunctionTime");
     _partition_search_timer = ADD_TIMER(profile(), "PartitionSearchTime");
     _order_search_timer = ADD_TIMER(profile(), "OrderSearchTime");
     _remove_rows_timer = ADD_TIMER(profile(), "RemoveRowsTime");
@@ -151,12 +151,12 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     }
 
     // only support one order by column, so need two columns upper and lower bound
-    // _range_result_columns.resize(2);
-    _range_result_columns.resize(_order_by_exprs_size);
-    // should change the order by exprs to range column, IF FE have support range window
-    for (size_t i = 0; i < _order_by_exprs_size; i++) {
-        // RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
-        _range_result_columns[i] = _order_by_eq_expr_ctxs[i]->root()->data_type()->create_column();
+    _range_result_columns.resize(_range_between_expr_ctxs.size());
+    _range_between_expr_ctxs = p._range_between_expr_ctxs;
+    for (size_t i = 0; i < _range_between_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._range_between_expr_ctxs[i]->clone(state, _range_between_expr_ctxs[i]));
+        _range_result_columns[i] =
+                _range_between_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(p._total_size_of_aggregate_states,
@@ -639,8 +639,8 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
                                                          _partition_by_eq_expr_ctxs));
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.order_by_exprs,
                                                          _order_by_eq_expr_ctxs));
-    // RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
-    //                                                      _order_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
+                                                         _order_by_eq_expr_ctxs));
     return Status::OK();
 }
 
@@ -675,7 +675,12 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
                     vectorized::VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
-
+    if (!_range_between_expr_ctxs.empty()) {
+        DCHECK(_range_between_expr_ctxs.size() == 2);
+        RETURN_IF_ERROR(
+                vectorized::VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
+    }
+    RETURN_IF_ERROR(vectorized::VExpr::open(_range_between_expr_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -754,7 +759,6 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
                                          local_state._partition_by_columns[i].get(), block_rows));
         }
     }
-
     {
         SCOPED_TIMER(local_state._compute_order_by_timer);
         for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
@@ -763,14 +767,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
                                                  block_rows));
         }
     }
-
     {
-        SCOPED_TIMER(local_state._compute_order_by_function_timer);
-        // should change the order by exprs to range column, IF FE have support range window
-        for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
-                                                 local_state._range_result_columns[i].get(),
-                                                 block_rows));
+        SCOPED_TIMER(local_state._compute_range_between_function_timer);
+        for (size_t i = 0; i < local_state._range_between_expr_ctxs.size(); ++i) {
+            RETURN_IF_ERROR(
+                    _insert_range_column(input_block, local_state._range_between_expr_ctxs[i],
+                                         local_state._range_result_columns[i].get(), block_rows));
         }
     }
     vectorized::Block::erase_useless_column(input_block, column_to_keep);

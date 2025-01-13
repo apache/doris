@@ -108,6 +108,7 @@ private:
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
     vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
     vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
+    vectorized::VExprContextSPtrs _range_between_expr_ctxs;
     std::vector<std::vector<vectorized::MutableColumnPtr>> _agg_input_columns;
     std::vector<vectorized::MutableColumnPtr> _partition_by_columns;
     std::vector<vectorized::MutableColumnPtr> _order_by_columns;
@@ -153,7 +154,7 @@ private:
     RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
     RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
-    RuntimeProfile::Counter* _compute_order_by_function_timer = nullptr;
+    RuntimeProfile::Counter* _compute_range_between_function_timer = nullptr;
     RuntimeProfile::Counter* _partition_search_timer = nullptr;
     RuntimeProfile::Counter* _order_search_timer = nullptr;
     RuntimeProfile::Counter* _remove_rows_timer = nullptr;
@@ -198,6 +199,7 @@ private:
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
     vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
     vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
+    vectorized::VExprContextSPtrs _range_between_expr_ctxs;
 
     size_t _agg_functions_size = 0;
     std::vector<size_t> _num_agg_input;
