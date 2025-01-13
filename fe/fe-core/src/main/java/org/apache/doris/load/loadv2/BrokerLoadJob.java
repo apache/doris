@@ -247,7 +247,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                     true,
                     Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
                     Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "-1")));
-            this.jobProfile.getSummaryProfile().setQueryBeginTime();
+            this.jobProfile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
             // TODO: 怎么给这些 load job 设置 profile 记录时间
             // this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }
