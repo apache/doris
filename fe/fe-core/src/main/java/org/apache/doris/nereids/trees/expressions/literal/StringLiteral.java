@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 
@@ -26,8 +25,6 @@ import org.apache.doris.nereids.types.StringType;
  */
 public class StringLiteral extends StringLikeLiteral {
 
-    private final String value;
-
     /**
      * Constructor for Literal.
      *
@@ -35,21 +32,10 @@ public class StringLiteral extends StringLikeLiteral {
      */
     public StringLiteral(String value) {
         super(value, StringType.INSTANCE);
-        this.value = value;
-    }
-
-    @Override
-    public String getValue() {
-        return value;
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitStringLiteral(this, context);
-    }
-
-    @Override
-    public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.StringLiteral(value);
     }
 }
