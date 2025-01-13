@@ -240,7 +240,6 @@ private:
 
     const std::vector<TPlanFragmentDestination> _dests;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.
     const PlanNodeId _dest_node_id;
 

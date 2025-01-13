@@ -233,7 +233,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
 
     def num = allDataBases.size()
 
-    for (int i = 0; i < allDataBases.size(); i++) {
+    for (int i = 0; i < num; i++) {
         def db = allDataBases[i][0]
         if (db == "__internal_schema" || db == "information_schema" || db == "mysql") {
             continue
@@ -242,12 +242,26 @@ suite("check_before_quit", "nonConcurrent,p0") {
         logger.info("show all tabkes: ${allTables}")
         for (int j = 0;j < allTables.size();j ++) {
             def tbl = allTables[j][0]
-            def createTableSql = sql "show create table ${db}.${tbl}"
-            logger.info("create table sql info: ${createTableSql}")
-            sql "drop table if exists ${tbl}"
+            def createTableSql = ""
+            try {
+                createTableSql = sql "show create table ${db}.${tbl}"
+                logger.info("create table sql: ${createTableSql}")
+            } catch (Exception e) {
+                if (e.getMessage().contains("not support async materialized view")) {
+                    createTableSql = sql "show create materialized view ${tbl}"
+                    logger.info("create materialized view sql: ${createTableSql}")
+                }
+            }
+            if (createTableSql[0][1].contains("CREATE VIEW")) {
+                sql "drop view if exists ${tbl}"
+            } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                sql "drop materialized view if exists ${tbl}"
+            } else {
+                sql "drop table if exists ${tbl}"
+            }
             sql(createTableSql[0][1])
             def createTableSqlResult = sql "show create table ${tbl}"
-            logger.info("create table sql result info: ${createTableSqlResult}")
+            logger.info("create table/view sql result info: ${createTableSqlResult}")
             assertEquals(createTableSqlResult, createTableSql)
         }
     }

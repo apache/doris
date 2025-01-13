@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_offset_in_subquery_with_join", "query") {
+suite("test_offset_in_subquery_with_join", "query,arrow_flight_sql") {
     // define a sql table
     def testTable = "test_offset_in_subquery_with_join"
 

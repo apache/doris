@@ -142,7 +142,15 @@ public class PaimonExternalTable extends ExternalTable implements MvccTable {
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        if (isPartitionInvalid(snapshot)) {
+            return Collections.emptyList();
+        }
         return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
+    }
+
+    private boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
+        PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
+        return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
     }
 
     @Override

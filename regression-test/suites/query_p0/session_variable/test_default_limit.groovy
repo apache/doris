@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_default_limit') {
+suite('test_default_limit', "arrow_flight_sql") {
     sql 'drop table if exists baseall'
     sql 'drop table if exists bigtable'
 

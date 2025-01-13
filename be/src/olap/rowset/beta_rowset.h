@@ -80,7 +80,7 @@ public:
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
-    Status get_inverted_index_size(size_t* index_size);
+    Status get_inverted_index_size(int64_t* index_size) override;
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 

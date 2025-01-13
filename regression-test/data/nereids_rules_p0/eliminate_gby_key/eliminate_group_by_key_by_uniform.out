@@ -265,3 +265,13 @@ cherry	3
 
 -- !right_anti_right_side --
 
+-- !grouping --
+\N	\N
+\N	1
+\N	2
+\N	3
+1	\N
+1	1
+1	2
+1	3
+
