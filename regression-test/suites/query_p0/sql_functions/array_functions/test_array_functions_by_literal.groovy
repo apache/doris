@@ -16,6 +16,15 @@
 // under the License.
 
 suite("test_array_functions_by_literal") {
+
+    def funcs = { fold_by_be, enable_decimal256 ->
+        log.info("fold_by_be: $fold_by_be, enable_decimal256: $enable_decimal256")
+    // set session variable for enale_fold_constant_by_be and enable_decimal256
+    sql "set enable_fold_constant_by_be = $fold_by_be"
+    sql "set enable_decimal256 = $enable_decimal256"
+
+        
+    // array function
     // array_nested function
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
 
@@ -436,4 +445,11 @@ suite("test_array_functions_by_literal") {
        sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
        exception("array_apply does not support type")
     }
+    }
+
+    // to test variable for array literal functions
+    funcs.call(0, false)
+    funcs.call(1, false)
+    funcs.call(0, true)
+    funcs.call(1, true)
 }
