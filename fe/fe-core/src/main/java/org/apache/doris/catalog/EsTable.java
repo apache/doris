@@ -324,9 +324,12 @@ public class EsTable extends Table implements GsonPostProcessable {
         } else {
             throw new IOException("invalid partition type: " + partType);
         }
+        // parse httpSslEnabled before use it here.
+        EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
+    @Override
     public void gsonPostProcess() throws IOException {
         hosts = tableContext.get("hosts");
         seeds = hosts.split(",");
@@ -355,6 +358,8 @@ public class EsTable extends Table implements GsonPostProcessable {
         includeHiddenIndex = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
                 EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
 
+        // parse httpSslEnabled before use it here.
+        EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
