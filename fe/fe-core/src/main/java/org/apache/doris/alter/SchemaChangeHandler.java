@@ -635,7 +635,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     if (columnPos == null && col.getDataType().isComplexType()
                             && modColumn.getDataType().isComplexType()) {
-                        ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType());
+                        ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType(), true);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (col.isClusterKey()) {

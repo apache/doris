@@ -885,7 +885,7 @@ public class Column implements GsonPostProcessable {
 
         // Nested types only support changing the order and increasing the length of the nested char type
         // Char-type only support length growing
-        ColumnType.checkSupportSchemaChangeForComplexType(type, other.type);
+        ColumnType.checkSupportSchemaChangeForComplexType(type, other.type, false);
 
         // now we support convert decimal to varchar type
         if ((getDataType() == PrimitiveType.DECIMALV2 || getDataType().isDecimalV3Type())
