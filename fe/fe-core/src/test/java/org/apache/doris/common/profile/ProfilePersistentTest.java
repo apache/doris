@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.common.profile;
 
-import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.common.profile.Profile;
-import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.QueryState;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUnit;
@@ -77,7 +76,6 @@ public class ProfilePersistentTest {
         SummaryProfile summaryProfile = constructRandomSummaryProfile();
         String stringUniqueId = summaryProfile.getProfileId();
         TUniqueId thriftUniqueId = DebugUtil.parseTUniqueIdFromString(stringUniqueId);
-        profile.setId(stringUniqueId);
         profile.setSummaryProfile(summaryProfile);
 
         for (int i = 0; i < executionProfileNum; i++) {
