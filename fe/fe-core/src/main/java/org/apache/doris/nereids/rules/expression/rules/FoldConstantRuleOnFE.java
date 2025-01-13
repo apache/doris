@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -266,7 +267,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) equalTo.left()).compareTo((Literal) equalTo.right()) == 0);
+        try {
+            return BooleanLiteral.of(((ComparableLiteral) equalTo.left())
+                    .compareTo((ComparableLiteral) equalTo.right()) == 0);
+        } catch (Exception e) {
+            // left and right maybe not comparable
+            return BooleanLiteral.of(equalTo.left().equals(equalTo.right()));
+        }
     }
 
     @Override
@@ -276,7 +283,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) greaterThan.left()).compareTo((Literal) greaterThan.right()) > 0);
+        try {
+            return BooleanLiteral.of(((ComparableLiteral) greaterThan.left())
+                    .compareTo((ComparableLiteral) greaterThan.right()) > 0);
+        } catch (Exception e) {
+            // left and right maybe not comparable
+            return greaterThan;
+        }
     }
 
     @Override
@@ -286,8 +299,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) greaterThanEqual.left())
-                .compareTo((Literal) greaterThanEqual.right()) >= 0);
+        try {
+            return BooleanLiteral.of(((ComparableLiteral) greaterThanEqual.left())
+                    .compareTo((ComparableLiteral) greaterThanEqual.right()) >= 0);
+        } catch (Exception e) {
+            // left and right maybe not comparable
+            return greaterThanEqual;
+        }
     }
 
     @Override
@@ -297,7 +315,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) lessThan.left()).compareTo((Literal) lessThan.right()) < 0);
+        try {
+            return BooleanLiteral.of(((ComparableLiteral) lessThan.left())
+                    .compareTo((ComparableLiteral) lessThan.right()) < 0);
+        } catch (Exception e) {
+            // left and right maybe not comparable
+            return lessThan;
+        }
     }
 
     @Override
@@ -307,7 +331,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) lessThanEqual.left()).compareTo((Literal) lessThanEqual.right()) <= 0);
+        try {
+            return BooleanLiteral.of(((ComparableLiteral) lessThanEqual.left())
+                    .compareTo((ComparableLiteral) lessThanEqual.right()) <= 0);
+        } catch (Exception e) {
+            // left and right maybe not comparable
+            return lessThanEqual;
+        }
     }
 
     @Override
@@ -322,7 +352,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (l.isNullLiteral() && r.isNullLiteral()) {
             return BooleanLiteral.TRUE;
         } else if (!l.isNullLiteral() && !r.isNullLiteral()) {
-            return BooleanLiteral.of(l.compareTo(r) == 0);
+            try {
+                return BooleanLiteral.of(((ComparableLiteral) nullSafeEqual.left())
+                        .compareTo((ComparableLiteral) nullSafeEqual.right()) == 0);
+            } catch (Exception e) {
+                // left and right maybe not comparable
+                return BooleanLiteral.of(l.equals(r));
+            }
         } else {
             return BooleanLiteral.FALSE;
         }

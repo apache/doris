@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -76,7 +76,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new UnknownValue(context, predicate);
         }
         // only handle `NumericType` and `DateLikeType`
-        if (right.isLiteral() && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
+        if (right instanceof ComparableLiteral
+                && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
             return ValueDesc.range(context, predicate);
         }
         return new UnknownValue(context, predicate);
@@ -111,7 +112,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     public ValueDesc visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         // only handle `NumericType` and `DateLikeType`
         if (inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
-                && ExpressionUtils.isAllNonNullLiteral(inPredicate.getOptions())
+                && ExpressionUtils.isAllNonNullComparableLiteral(inPredicate.getOptions())
                 && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
                 || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
             return ValueDesc.discrete(context, inPredicate);
@@ -216,7 +217,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         /** merge discrete and ranges only, no merge other value desc */
         public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
                 Expression reference, List<ValueDesc> valueDescs) {
-            Set<Literal> discreteValues = Sets.newHashSet();
+            Set<ComparableLiteral> discreteValues = Sets.newHashSet();
             for (ValueDesc valueDesc : valueDescs) {
                 if (valueDesc instanceof DiscreteValue) {
                     discreteValues.addAll(((DiscreteValue) valueDesc).getValues());
@@ -224,10 +225,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
 
             // for 'a > 8 or a = 8', then range (8, +00) can convert to [8, +00)
-            RangeSet<Literal> rangeSet = TreeRangeSet.create();
+            RangeSet<ComparableLiteral> rangeSet = TreeRangeSet.create();
             for (ValueDesc valueDesc : valueDescs) {
                 if (valueDesc instanceof RangeValue) {
-                    Range<Literal> range = ((RangeValue) valueDesc).range;
+                    Range<ComparableLiteral> range = ((RangeValue) valueDesc).range;
                     rangeSet.add(range);
                     if (range.hasLowerBound()
                             && range.lowerBoundType() == BoundType.OPEN
@@ -250,7 +251,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (!discreteValues.isEmpty()) {
                 result.add(new DiscreteValue(context, reference, discreteValues));
             }
-            for (Range<Literal> range : rangeSet.asRanges()) {
+            for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
                 result.add(new RangeValue(context, reference, range));
             }
             for (ValueDesc valueDesc : valueDescs) {
@@ -267,7 +268,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         /** intersect */
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
-            Set<Literal> newValues = discrete.values.stream().filter(x -> range.range.contains(x))
+            Set<ComparableLiteral> newValues = discrete.values.stream().filter(x -> range.range.contains(x))
                     .collect(Collectors.toSet());
             if (newValues.isEmpty()) {
                 return new EmptyValue(context, range.reference);
@@ -277,11 +278,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         private static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
-            Literal value = (Literal) predicate.right();
+            ComparableLiteral value = (ComparableLiteral) predicate.right();
             if (predicate instanceof EqualTo) {
                 return new DiscreteValue(context, predicate.left(), Sets.newHashSet(value));
             }
-            Range<Literal> range = null;
+            Range<ComparableLiteral> range = null;
             if (predicate instanceof GreaterThanEqual) {
                 range = Range.atLeast(value);
             } else if (predicate instanceof GreaterThan) {
@@ -296,8 +297,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         public static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
-            // Set<Literal> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
-            Set<Literal> literals = in.getOptions().stream().map(Literal.class::cast).collect(Collectors.toSet());
+            // Set<ComparableLiteral> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
+            Set<ComparableLiteral> literals = in.getOptions().stream()
+                    .map(ComparableLiteral.class::cast).collect(Collectors.toSet());
             return new DiscreteValue(context, in.getCompareExpr(), literals);
         }
     }
@@ -328,14 +330,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      * a > 1 => (1...+∞)
      */
     public static class RangeValue extends ValueDesc {
-        Range<Literal> range;
+        Range<ComparableLiteral> range;
 
-        public RangeValue(ExpressionRewriteContext context, Expression reference, Range<Literal> range) {
+        public RangeValue(ExpressionRewriteContext context, Expression reference, Range<ComparableLiteral> range) {
             super(context, reference);
             this.range = range;
         }
 
-        public Range<Literal> getRange() {
+        public Range<ComparableLiteral> getRange() {
             return range;
         }
 
@@ -387,15 +389,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      * a in (1,2,3) => [1,2,3]
      */
     public static class DiscreteValue extends ValueDesc {
-        final Set<Literal> values;
+        final Set<ComparableLiteral> values;
 
         public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Set<Literal> values) {
+                Expression reference, Set<ComparableLiteral> values) {
             super(context, reference);
             this.values = values;
         }
 
-        public Set<Literal> getValues() {
+        public Set<ComparableLiteral> getValues() {
             return values;
         }
 
@@ -405,7 +407,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.union(this);
             }
             if (other instanceof DiscreteValue) {
-                Set<Literal> newValues = Sets.newHashSet();
+                Set<ComparableLiteral> newValues = Sets.newHashSet();
                 newValues.addAll(((DiscreteValue) other).values);
                 newValues.addAll(this.values);
                 return new DiscreteValue(context, reference, newValues);
@@ -422,7 +424,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.intersect(this);
             }
             if (other instanceof DiscreteValue) {
-                Set<Literal> newValues = Sets.newHashSet();
+                Set<ComparableLiteral> newValues = Sets.newHashSet();
                 newValues.addAll(((DiscreteValue) other).values);
                 newValues.retainAll(this.values);
                 if (newValues.isEmpty()) {
