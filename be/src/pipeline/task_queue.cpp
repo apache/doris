@@ -202,9 +202,12 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task, int core_id) {
 }
 
 void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
-    task->inc_runtime_ns(time_spent);
-    _prio_task_queues[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
-                                                                 time_spent);
+    // if the task not execute but exception early close, core_id == -1
+    // should not do update_statistics
+    if (auto core_id = task->get_core_id(); core_id >= 0) {
+        task->inc_runtime_ns(time_spent);
+        _prio_task_queues[core_id].inc_sub_queue_runtime(task->get_queue_level(), time_spent);
+    }
 }
 
 } // namespace doris::pipeline
