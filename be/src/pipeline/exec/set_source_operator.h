@@ -72,7 +72,7 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status set_child(OperatorPtr child) override {
-        _child = child;
+        Base::_child = child;
         return Status::OK();
     }
 

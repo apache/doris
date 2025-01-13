@@ -104,7 +104,7 @@ public:
 
     bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
     Status set_child(OperatorPtr child) override {
-        _child = child;
+        Base::_child = child;
         return Status::OK();
     }
 
