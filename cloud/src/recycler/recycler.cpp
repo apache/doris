@@ -2915,17 +2915,16 @@ int InstanceRecycler::recycle_expired_stage_objects() {
             continue;
         }
 
-        std::string prefix = s3_conf->prefix;
         s3_conf->prefix = stage.obj_info().prefix();
         std::shared_ptr<S3Accessor> accessor;
-        int ret1 = S3Accessor::create(std::move(*s3_conf), &accessor);
+        int ret1 = S3Accessor::create(*s3_conf, &accessor);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to init s3 accessor ret=" << ret1 << " " << ss.str();
             ret = -1;
             continue;
         }
 
-        if (prefix.find("/stage/") == std::string::npos) {
+        if (s3_conf->prefix.find("/stage/") == std::string::npos) {
             LOG(WARNING) << "try to delete illegal prefix, which is catastrophic, " << ss.str();
             ret = -1;
             continue;
