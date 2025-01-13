@@ -144,7 +144,6 @@ private:
     int64_t _rows_end_offset = 0;
     int64_t _input_total_rows = 0;
     bool _input_eos = false;
-    std::vector<int64_t> _input_col_ids;
     std::vector<vectorized::Block> _input_blocks;
     std::vector<int64_t> _input_block_first_row_positions;
     int64_t _removed_block_index = 0;

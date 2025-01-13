@@ -195,6 +195,7 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
         } else {
             current_row_start = _current_row_position + _rows_start_offset;
         }
+        // Eg: rows between unbounded preceding and 10 preceding
         // Make sure range_start <= range_end
         current_row_start = std::min(current_row_start, current_row_end);
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
@@ -288,8 +289,6 @@ bool AnalyticSinkLocalState::_get_next_for_range_between(int64_t batch_rows,
                     _range_result_columns[1].get(), _order_by_columns[0].get(),
                     _current_row_position, _order_by_pose.end, _partition_by_pose.end);
         }
-        // Make sure range_start <= range_end
-        // current_row_start = std::min(current_row_start, current_row_end);
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _order_by_pose.start, _order_by_pose.end);
         _insert_result_info(1);
@@ -385,10 +384,6 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t real_deal_with_width) {
 void AnalyticSinkLocalState::_output_current_block(vectorized::Block* block) {
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    if (_input_col_ids.size() < block->columns()) {
-        block->erase_not_in(_input_col_ids);
-    }
-
     DCHECK(_parent->cast<AnalyticSinkOperatorX>()._change_to_nullable_flags.size() ==
            _result_window_columns.size());
     for (size_t i = 0; i < _result_window_columns.size(); ++i) {
@@ -644,6 +639,8 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
                                                          _partition_by_eq_expr_ctxs));
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.order_by_exprs,
                                                          _order_by_eq_expr_ctxs));
+    // RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
+    //                                                      _order_by_eq_expr_ctxs));
     return Status::OK();
 }
 
@@ -737,12 +734,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
     local_state._input_total_rows += block_rows;
 
     // record origin columns, maybe be after this, could cast some column but no need to output
-    if (local_state._input_col_ids.empty()) {
-        for (int c = 0; c < input_block->columns(); ++c) {
-            local_state._input_col_ids.emplace_back(c);
-        }
-    }
-
+    auto column_to_keep = input_block->columns();
     {
         SCOPED_TIMER(local_state._compute_agg_data_timer);
         //insert _agg_input_columns, execute calculate for its, and those columns maybe could remove have used data
@@ -781,7 +773,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
                                                  block_rows));
         }
     }
-
+    vectorized::Block::erase_useless_column(input_block, column_to_keep);
     COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
     COUNTER_UPDATE(local_state._blocks_memory_usage, input_block->allocated_bytes());
     local_state._input_blocks.emplace_back(std::move(*input_block));
