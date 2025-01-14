@@ -35,6 +35,11 @@ suite("insert_with_null") {
         );
     """
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     def getRowCount = { expectedRowCount ->
         def retry = 0
         while (retry < 30) {

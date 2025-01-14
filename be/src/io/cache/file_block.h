@@ -123,6 +123,8 @@ public:
 
     uint64_t expiration_time() const { return _key.meta.expiration_time; }
 
+    std::string get_cache_file() const;
+
     State state_unlock(std::lock_guard<std::mutex>&) const;
 
     FileBlock& operator=(const FileBlock&) = delete;

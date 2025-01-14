@@ -142,6 +142,7 @@ suite("test_backup_restore_atomic", "backup_restore") {
 
     syncer.waitAllRestoreFinish(dbName)
 
+    sql "sync"
     for (def tableName in tables) {
         qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
     }
@@ -161,6 +162,7 @@ suite("test_backup_restore_atomic", "backup_restore") {
 
     syncer.waitAllRestoreFinish(dbName1)
 
+    sql "sync"
     qt_sql "SELECT * FROM ${dbName1}.${tableNamePrefix}_3 ORDER BY id"
 
     // add partition and insert some data.
@@ -196,6 +198,7 @@ suite("test_backup_restore_atomic", "backup_restore") {
 
     syncer.waitAllRestoreFinish(dbName1)
 
+    sql "sync"
     qt_sql "SELECT * FROM ${dbName1}.${tableNamePrefix}_3 ORDER BY id"
 
     for (def tableName in tables) {

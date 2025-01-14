@@ -32,7 +32,7 @@ suite("check_meta", "data_reliability,p3") {
 
             def repeatedTimes = 6;  // replica num * 2
             for (int i = 0; i < repeatedTimes; i++) {
-                sql """ select count(*) from ${db}.`${table}` """
+                sql """ select /*+ SET_VAR(enable_push_down_no_group_agg=false) */ count(*) from ${db}.`${table}` """
             }
         }
     }

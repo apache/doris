@@ -41,7 +41,7 @@ class PipelineFragmentContext;
 
 namespace doris::pipeline {
 
-class TaskQueue;
+class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
@@ -54,30 +54,27 @@ public:
                          le_state_map,
                  int task_idx);
 
-    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
-                   QueryContext* query_ctx);
+    Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
+                   const TDataSink& tsink, QueryContext* query_ctx);
 
     Status execute(bool* eos);
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close(Status exec_status);
+    Status close(Status exec_status, bool close_sink = true);
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
 
-    int get_previous_core_id() const {
-        return _previous_schedule_id != -1 ? _previous_schedule_id
-                                           : _pipeline->_previous_schedule_id;
-    }
+    int get_core_id() const { return _core_id; }
 
-    void set_previous_core_id(int id) {
-        if (id != _previous_schedule_id) {
-            if (_previous_schedule_id != -1) {
+    void set_core_id(int id) {
+        if (id != _core_id) {
+            if (_core_id != -1) {
                 COUNTER_UPDATE(_core_change_times, 1);
             }
-            _previous_schedule_id = id;
+            _core_id = id;
         }
     }
 
@@ -90,7 +87,7 @@ public:
             _blocked_dep = fin_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
                 _blocked_dep->start_watcher();
-                return !_wake_up_by_downstream;
+                return true;
             }
         }
         return false;
@@ -135,11 +132,12 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void clear_blocking_state(bool wake_up_by_downstream = false) {
+    void set_wake_up_early() { _wake_up_early = true; }
+
+    void clear_blocking_state() {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -159,8 +157,8 @@ public:
         }
     }
 
-    void set_task_queue(TaskQueue* task_queue);
-    TaskQueue* get_task_queue() { return _task_queue; }
+    void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
+    MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
@@ -173,10 +171,6 @@ public:
     // 1.2 priority queue's queue level
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
     int get_queue_level() const { return this->_queue_level; }
-
-    // 1.3 priority queue's core id
-    void set_core_id(int core_id) { this->_core_id = core_id; }
-    int get_core_id() const { return this->_core_id; }
 
     /**
      * Return true if:
@@ -224,6 +218,8 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
+    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     void stop_if_finished() {
@@ -233,6 +229,8 @@ public:
     }
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    bool wake_up_early() const { return _wake_up_early; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -249,11 +247,11 @@ private:
     bool _has_exceed_timeout = false;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _previous_schedule_id = -1;
+    int _core_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
-    TaskQueue* _task_queue = nullptr;
+    MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
     // it may be visited by different thread but there is no race condition
@@ -264,7 +262,6 @@ private:
     // 2 exe task
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
-    int _core_id = 0;
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -314,7 +311,7 @@ private:
 
     std::atomic<bool> _running = false;
     std::atomic<bool> _eos = false;
-    std::atomic<bool> _wake_up_by_downstream = false;
+    std::atomic<bool> _wake_up_early = false;
 };
 
 } // namespace doris::pipeline

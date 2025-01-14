@@ -74,6 +74,7 @@
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/pipeline.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -82,6 +83,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 } // namespace doris
@@ -116,11 +118,16 @@ std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
     }() + ")";
 }
 
-DataDistribution DataSinkOperatorXBase::required_data_distribution() const {
-    return _child && _child->ignore_data_distribution()
+DataDistribution OperatorBase::required_data_distribution() const {
+    return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
 }
+
+bool OperatorBase::require_shuffled_data_distribution() const {
+    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
+}
+
 const RowDescriptor& OperatorBase::row_desc() const {
     return _child->row_desc();
 }
@@ -141,8 +148,9 @@ std::string PipelineXSinkLocalState<SharedStateArg>::debug_string(int indentatio
 
 std::string OperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, parallel_tasks={}",
-                   std::string(indentation_level * 2, ' '), _op_name, node_id(), _parallel_tasks);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, parallel_tasks={}, _is_serial_operator={}",
+                   std::string(indentation_level * 2, ' '), _op_name, node_id(), _parallel_tasks,
+                   _is_serial_operator);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -335,7 +343,6 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::
         return status;
     }
     status = get_block(state, block, eos);
-    local_state->_peak_memory_usage_counter->set(local_state->_memory_used_counter->value());
     return status;
 }
 
@@ -363,8 +370,8 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
-                   _name, node_id());
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, _is_serial_operator={}",
+                   std::string(indentation_level * 2, ' '), _name, node_id(), _is_serial_operator);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -407,8 +414,7 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
         return nullptr;
     } else if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
                                         MultiCastSharedState>) {
-        LOG(FATAL) << "should not reach here!";
-        return nullptr;
+        throw Exception(Status::FatalError("should not reach here!"));
     } else {
         auto ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();
@@ -434,11 +440,7 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
 }
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0),
-          _rows_returned_counter(nullptr),
-          _peak_memory_usage_counter(nullptr),
-          _parent(parent),
-          _state(state) {
+        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {
     _query_statistics = std::make_shared<QueryStatistics>();
 }
 
@@ -477,9 +479,8 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
-    _memory_used_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "MemoryUsage", TUnit::BYTES, 1);
-    _peak_memory_usage_counter =
-            _runtime_profile->AddHighWaterMarkCounter("MemoryUsagePeak", TUnit::BYTES, "", 1);
+    _memory_used_counter =
+            _runtime_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     return Status::OK();
 }
 
@@ -511,9 +512,6 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
     }
     if constexpr (!std::is_same_v<SharedStateArg, FakeSharedState>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
-    }
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_memory_used_counter->value());
     }
     _closed = true;
     // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
@@ -553,9 +551,7 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
-    _memory_used_counter = ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsage", TUnit::BYTES, 1);
-    _peak_memory_usage_counter =
-            _profile->AddHighWaterMarkCounter("MemoryUsagePeak", TUnit::BYTES, "", 1);
+    _memory_used_counter = _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     return Status::OK();
 }
 
@@ -566,9 +562,6 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
     }
     if constexpr (!std::is_same_v<SharedState, FakeSharedState>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
-    }
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_memory_used_counter->value());
     }
     _closed = true;
     return Status::OK();
@@ -659,7 +652,7 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     if (_writer) {
         Status st = _writer->get_writer_status();
         if (exec_status.ok()) {
-            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+            _writer->force_close(state->is_cancelled() ? state->cancel_reason()
                                                        : Status::Cancelled("force close"));
         } else {
             _writer->force_close(exec_status);
@@ -787,4 +780,5 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSink
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

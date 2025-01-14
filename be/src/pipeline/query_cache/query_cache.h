@@ -37,6 +37,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 

@@ -41,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.CosFileSystem;
 import org.apache.hadoop.fs.CosNConfigKeys;
+import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
@@ -173,7 +174,6 @@ public class PropertyConverter {
                                                               CloudCredential credential) {
         Map<String, String> obsProperties = Maps.newHashMap();
         obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
-        obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
         obsProperties.put("fs.obs.impl", getHadoopFSImplByScheme("obs"));
         if (credential.isWhole()) {
             obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
@@ -193,6 +193,8 @@ public class PropertyConverter {
     public static String getHadoopFSImplByScheme(String fsScheme) {
         if (fsScheme.equalsIgnoreCase("obs")) {
             return OBSFileSystem.class.getName();
+        } else if (fsScheme.equalsIgnoreCase("file")) {
+            return LocalFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("cosn") || fsScheme.equalsIgnoreCase("lakefs")) {
@@ -272,7 +274,6 @@ public class PropertyConverter {
     private static void setS3FsAccess(Map<String, String> s3Properties, Map<String, String> properties,
                                       CloudCredential credential) {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
-        s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
         String credentialsProviders = getAWSCredentialsProviders(properties);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
@@ -283,8 +284,6 @@ public class PropertyConverter {
         if (credential.isTemporary()) {
             s3Properties.put(Constants.SESSION_TOKEN, credential.getSessionToken());
             s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, TemporaryAWSCredentialsProvider.class.getName());
-            s3Properties.put("fs.s3.impl.disable.cache", "true");
-            s3Properties.put("fs.s3a.impl.disable.cache", "true");
         }
         s3Properties.put(Constants.PATH_STYLE_ACCESS, properties.getOrDefault(USE_PATH_STYLE, "false"));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -359,7 +358,6 @@ public class PropertyConverter {
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
         Map<String, String> cosProperties = Maps.newHashMap();
         cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
-        cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         cosProperties.put("fs.lakefs.impl", getHadoopFSImplByScheme("lakefs"));
         if (credential.isWhole()) {

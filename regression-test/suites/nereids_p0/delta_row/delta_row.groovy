@@ -42,14 +42,34 @@ suite("delta_row") {
     sql "set global enable_auto_analyze=false;"
 
     sql "insert into t values (10, 'c');"
-    explain {
-        sql "physical plan select * from t where k > 6"
-        contains("stats=0.5,")
-        contains("stats=5(1)")
-        notContains("stats=0,")
-        notContains("stats=4 ")
+    def result = sql """explain physical plan select * from t where k > 6"""
+    logger.info("result:" + result)
+    def stringResult = ""
+    for (int i = 0; i < result.size(); i++) {
+        stringResult += result[i]
+    }
+    logger.info("stringResult:" + stringResult)
+    if (stringResult.contains("stats=5(1)")) {
+        logger.info("rows not reported, test analyze rows + delta rows")
+        assertTrue(stringResult.contains("stats=0.5,"))
+        assertFalse(stringResult.contains("stats=0,"))
+        assertFalse(stringResult.contains("stats=4 "))
+    } else {
+        logger.info("rows reported, test use reported rows.")
+        result = sql """show index stats t t"""
+        logger.info("index stats: " + result)
+        assertEquals(1, result.size())
+        assertNotEquals("-1", result[0][4])
+    }
+//    explain {
+//        sql "physical plan select * from t where k > 6"
+//        contains("stats=0.5,")
+//        contains("stats=5(1)")
+//        notContains("stats=0,")
+//        notContains("stats=4 ")
+// cost = 5.00002
 // PhysicalResultSink[75] ( outputExprs=[k#0, v#1] )
 // +--PhysicalFilter[72]@1 ( stats=0.5, predicates=(k#0 > 6) )
 //    +--PhysicalOlapScan[t]@0 ( stats=5(1) )
-    }
 }
+

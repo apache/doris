@@ -42,11 +42,6 @@ suite("materialized_view_grouping_sets") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -77,10 +72,6 @@ suite("materialized_view_grouping_sets") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -135,6 +126,9 @@ suite("materialized_view_grouping_sets") {
     sql """analyze table lineitem with sync;"""
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='7');"""
 
     // query has group sets, and mv doesn't
     // single table grouping sets without grouping scalar function

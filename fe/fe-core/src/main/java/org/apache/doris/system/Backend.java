@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -152,6 +154,8 @@ public class Backend implements Writable {
     // Not need serialize this field. If fe restart the state is reset to false. Maybe fe will
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
+
+    private long nextForceEditlogHeartbeatTime = System.currentTimeMillis() + (new SecureRandom()).nextInt(60 * 1000);
 
     public Backend() {
         this.host = "";
@@ -337,6 +341,8 @@ public class Backend implements Writable {
             sb.append(", isDecommissioned=true, exclude it");
         } else if (isComputeNode()) {
             sb.append(", isComputeNode=true, exclude it");
+        } else if (!Config.disable_backend_black_list && !SimpleScheduler.isAvailable(this)) {
+            sb.append(", is in black list, exclude it");
         } else {
             sb.append(", hdd disks count={");
             if (hddOk > 0) {
@@ -797,13 +803,8 @@ public class Backend implements Writable {
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
-                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]";
-    }
-
-    public String getHealthyStatus() {
-        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
-                + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
-                + TimeUtils.longToTimeString(lastUpdateMs);
+                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]"
+                + ", backendStatus: " + backendStatus;
     }
 
     /**
@@ -881,7 +882,18 @@ public class Backend implements Writable {
 
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
+
+            // even if no change, write an editlog to make lastUpdateMs in image update
+            if (System.currentTimeMillis() >= this.nextForceEditlogHeartbeatTime) {
+                isChanged = true;
+                int delaySecond = Config.editlog_healthy_heartbeat_seconds + (new SecureRandom()).nextInt(60);
+                this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
+            }
         } else {
+            // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
+            if (hbResponse.getHbTime() > 0) {
+                this.lastUpdateMs = hbResponse.getHbTime();
+            }
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
             // And if it is a replay process, must set backend to dead.
             if (isReplay || ++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
@@ -945,7 +957,9 @@ public class Backend implements Writable {
         public String toString() {
             return "[" + "lastSuccessReportTabletsTime='" + lastSuccessReportTabletsTime + '\''
                     + ", lastStreamLoadTime=" + lastStreamLoadTime + ", isQueryDisabled=" + isQueryDisabled
-                    + ", isLoadDisabled=" + isLoadDisabled + "]";
+                    + ", isLoadDisabled=" + isLoadDisabled
+                    + ", currentFragmentNum=" + currentFragmentNum
+                    + ", lastFragmentUpdateTime=" + lastFragmentUpdateTime + "]";
         }
     }
 

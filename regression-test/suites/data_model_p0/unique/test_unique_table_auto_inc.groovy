@@ -47,7 +47,7 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_sql "select * from ${table1};"
+    order_qt_sql "select * from ${table1};"
     sql """ insert into ${table1} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
     qt_sql "select * from ${table1} order by id"
     sql "drop table if exists ${table1};"
@@ -117,7 +117,7 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_sql "select * from ${table3};"
+    order_qt_sql "select * from ${table3};"
     sql """ insert into ${table3} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
     qt_sql "select * from ${table3} order by id"
     sql "drop table if exists ${table3};"
@@ -152,7 +152,7 @@ suite("test_unique_table_auto_inc") {
         time 10000 // limit inflight 10s
     }
     sql "sync"
-    qt_update_inplace "select * from ${table4};"
+    order_qt_update_inplace "select * from ${table4};"
     sql "drop table if exists ${table4};"
 
     // test for partial update, auto inc col is key

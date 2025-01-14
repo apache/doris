@@ -268,4 +268,10 @@ public class PartitionKeyTest {
         dis.close();
         Files.deleteIfExists(path);
     }
+
+    @Test
+    public void testMaxValueToSql() throws Exception {
+        PartitionKey key = PartitionKey.createInfinityPartitionKey(allColumns, true);
+        Assert.assertEquals("(MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE)", key.toSql());
+    }
 }

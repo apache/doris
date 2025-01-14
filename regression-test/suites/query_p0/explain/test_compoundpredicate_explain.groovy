@@ -23,49 +23,74 @@ suite("test_compoundpredicate_explain") {
 
     sql """INSERT INTO test_compoundpredicate_explain (k1, k2) VALUES (500, 450), (1100, 400), (300, 600), (700, 650), (800, 800), (1500, 300);"""
 
-    def testQueries = [
-        "select * from test_compoundpredicate_explain where k1 > 500 and k2 < 700 or k1 < 3000",
-        "select * from test_compoundpredicate_explain where k1 > 500 or k2 < 700 and k1 < 3000",
-        "select * from test_compoundpredicate_explain where not (k1 > 500 and k2 < 700) or k1 < 3000",
-        "select * from test_compoundpredicate_explain where k1 > 500 and (k2 < 700 or k1 < 3000)",
-        "select * from test_compoundpredicate_explain where not (k1 > 500 or k2 < 700) and k1 < 3000",
-        "select * from test_compoundpredicate_explain where (k1 > 500 and not k2 < 700) or k1 < 3000",
-        "select * from test_compoundpredicate_explain where (k1 > 500 and k2 < 700) and (k1 < 3000 or k2 > 400)",
-        "select * from test_compoundpredicate_explain where not (k1 > 500 or (k2 < 700 and k1 < 3000))",
-        "select * from test_compoundpredicate_explain where k1 > 500 or not (k2 < 700 and k1 < 3000)",
-        "select * from test_compoundpredicate_explain where k1 < 1000 and (k2 < 700 or k1 > 500) and not (k2 > 300)",
-        "select * from test_compoundpredicate_explain where not ((k1 > 500 and k2 < 700) or k1 < 3000)",
-        "select * from test_compoundpredicate_explain where k1 > 500 and not (k2 < 700 or k1 < 3000)",
-        "select * from test_compoundpredicate_explain where (k1 > 500 or k2 < 700) and (k1 < 3000 and k2 > 200)",
-        "select * from test_compoundpredicate_explain where (k1 > 500 and k2 < 700) or not (k1 < 3000 and k2 > 200)"
-    ]
+    explain {
+        sql "select * from test_compoundpredicate_explain where k1 > 500 and k2 < 700 or k1 < 3000"
+        contains "(((k1[#0] > 500) AND (k2[#1] < 700)) OR (k1[#0] < 3000))"
+    }
 
-    testQueries.each { query ->
-        def explainResult1 = sql "explain all plan ${query}"
-        def explainResult2 = sql "explain ${query}"
+    explain {
+        sql "select * from test_compoundpredicate_explain where k1 > 500 or k2 < 700 and k1 < 3000"
+        contains "((k1[#0] > 500) OR ((k2[#1] < 700) AND (k1[#0] < 3000)))"
+    }
 
-        def predicates2Line = explainResult2.find { line ->
-            line[0].toString().trim().startsWith("PREDICATES:")
-        }
+    explain {
+        sql "select * from test_compoundpredicate_explain where not (k1 > 500 and k2 < 700) or k1 < 3000"
+        contains "((k1[#0] < 3000) OR (k2[#1] >= 700))"
+    }
 
-        if (predicates2Line != null) {
-            def predicates2 = predicates2Line[0].split("PREDICATES:").last().trim()
+    explain {
+        sql "select * from test_compoundpredicate_explain where k1 > 500 and (k2 < 700 or k1 < 3000)"
+        contains "PREDICATES: ((k1[#0] > 500) AND ((k2[#1] < 700) OR (k1[#0] < 3000)))"
+    }
 
-            predicates2 = predicates2?.replaceAll(/\[\#(\d+)\]/) { match, group1 -> "#" + group1 }
+    explain {
+        sql "select * from test_compoundpredicate_explain where not (k1 > 500 or k2 < 700) and k1 < 3000"
+        contains "PREDICATES: ((k1[#0] <= 500) AND (k2[#1] >= 700))"
+    }
 
-            def isMatch = explainResult1.any { line ->
-                line.toString().contains(predicates2)
-            }
+    explain {
+        sql "select * from test_compoundpredicate_explain where (k1 > 500 and not k2 < 700) or k1 < 3000"
+        contains "PREDICATES: (((k1[#0] > 500) AND (k2[#1] >= 700)) OR (k1[#0] < 3000))"
+    }
 
-            log.info("Testing query: " + query)
-            log.info("Standardized Predicates from PREDICATES: " + predicates2)
-            log.info("Match found in OPTIMIZED PLAN: " + isMatch)
+    explain {
+        sql "select * from test_compoundpredicate_explain where (k1 > 500 and k2 < 700) and (k1 < 3000 or k2 > 400)"
+        contains "PREDICATES: (((k1[#0] > 500) AND (k2[#1] < 700)) AND ((k1[#0] < 3000) OR (k2[#1] > 400)))"
+    }
 
-            assert isMatch : "Predicates are not equal for query: ${query}"
-        } else {
-            logger.error("PREDICATES: not found in explain result for query: ${query}")
-            assert false : "PREDICATES: not found in explain result"
-        }
+    explain {
+        sql  "select * from test_compoundpredicate_explain where not (k1 > 500 or (k2 < 700 and k1 < 3000))"
+        contains "PREDICATES: ((k1[#0] <= 500) AND ((k2[#1] >= 700) OR (k1[#0] >= 3000)))"
+    }
+
+    explain {
+        sql "select * from test_compoundpredicate_explain where k1 > 500 or not (k2 < 700 and k1 < 3000)"
+        contains "PREDICATES: ((k1[#0] > 500) OR (k2[#1] >= 700))"
+    }
+
+    explain {
+        sql "select * from test_compoundpredicate_explain where k1 < 1000 and (k2 < 700 or k1 > 500) and not (k2 > 300)"
+        contains "PREDICATES: (((k1[#0] < 1000) AND ((k2[#1] < 700) OR (k1[#0] > 500))) AND (k2[#1] <= 300))"
+    }
+
+    explain {
+        sql "select * from test_compoundpredicate_explain where not ((k1 > 500 and k2 < 700) or k1 < 3000)"
+        contains "PREDICATES: (((k1[#0] <= 500) OR (k2[#1] >= 700)) AND (k1[#0] >= 3000))"
+    }
+
+    explain {
+        sql "select * from test_compoundpredicate_explain where k1 > 500 and not (k2 < 700 or k1 < 3000)"
+        contains "PREDICATES: ((k1[#0] >= 3000) AND (k2[#1] >= 700))"
+    }
+
+    explain {
+        sql "select * from test_compoundpredicate_explain where (k1 > 500 or k2 < 700) and (k1 < 3000 and k2 > 200)"
+        contains "PREDICATES: ((((k1[#0] > 500) OR (k2[#1] < 700)) AND (k1[#0] < 3000)) AND (k2[#1] > 200))"
+    }
+
+    explain {
+        sql "select * from test_compoundpredicate_explain where (k1 > 500 and k2 < 700) or not (k1 < 3000 and k2 > 200)"
+        contains "PREDICATES: ((((k1[#0] > 500) AND (k2[#1] < 700)) OR (k1[#0] >= 3000)) OR (k2[#1] <= 200))"
     }
 
     sql "drop table if exists test_compoundpredicate_explain"

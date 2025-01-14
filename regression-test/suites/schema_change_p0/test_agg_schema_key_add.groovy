@@ -52,7 +52,7 @@ suite("test_agg_schema_key_add", "p0") {
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage
     //Test the AGGREGATE model by adding a key column with VARCHAR
-    errorMessage = "errCode = 2, detailMessage = Key column can not set aggregation type: province"
+    errorMessage = "errCode = 2, detailMessage = Key column province can not set aggregation type"
     expectException({
         sql initTable
         sql initTableData
@@ -66,7 +66,7 @@ suite("test_agg_schema_key_add", "p0") {
 
 
     //Test the AGGREGATE model by adding a key column with BOOLEAN
-    errorMessage = "errCode = 2, detailMessage = Key column can not set aggregation type: special_area"
+    errorMessage = "errCode = 2, detailMessage = Key column special_area can not set aggregation type"
     expectException({
         sql initTable
         sql initTableData
@@ -80,7 +80,7 @@ suite("test_agg_schema_key_add", "p0") {
 
 
     //Test the AGGREGATE model by adding a key column with TINYINT
-    errorMessage = "errCode = 2, detailMessage = Key column can not set aggregation type: special_area"
+    errorMessage = "errCode = 2, detailMessage = Key column special_area can not set aggregation type"
     expectException({
         sql initTable
         sql initTableData
@@ -94,7 +94,7 @@ suite("test_agg_schema_key_add", "p0") {
 
 
     //Test the AGGREGATE model by adding a key column with SMALLINT
-    errorMessage = "errCode = 2, detailMessage = Key column can not set aggregation type: area_num"
+    errorMessage = "errCode = 2, detailMessage = Key column area_num can not set aggregation type"
     expectException({
         sql initTable
         sql initTableData
@@ -446,7 +446,7 @@ suite("test_agg_schema_key_add", "p0") {
 
 
     //TODO Test the AGGREGATE model by adding a key column with STRING
-    errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[comment]."
+    errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[comment]"
     expectException({
         sql initTable
         sql initTableData
@@ -489,7 +489,7 @@ suite("test_agg_schema_key_add", "p0") {
 
 
     //TODO Test the AGGREGATE model by adding a column with JSON type none default value 
-    errorMessage = "errCode = 2, detailMessage = JSONB or VARIANT type should not be used in key column[j]."
+    errorMessage = "errCode = 2, detailMessage = JsonType type should not be used in key column[j]."
     expectException({
         sql initTable
         sql initTableData
@@ -503,7 +503,7 @@ suite("test_agg_schema_key_add", "p0") {
 
 
     //TODO Test the AGGREGATE model by adding a key column with JSON
-    errorMessage = "errCode = 2, detailMessage = JSONB or VARIANT type should not be used in key column[j]."
+    errorMessage = "errCode = 2, detailMessage = JsonType type should not be used in key column[j]."
     expectException({
         sql initTable
         sql initTableData

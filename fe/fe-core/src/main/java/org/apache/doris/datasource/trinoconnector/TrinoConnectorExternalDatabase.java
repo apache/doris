@@ -22,12 +22,16 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog.Type;
 
 public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnectorExternalTable> {
-    public TrinoConnectorExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
-        super(extCatalog, id, name, Type.TRINO_CONNECTOR);
+    public TrinoConnectorExternalDatabase(ExternalCatalog extCatalog, Long id, String name, String remoteName) {
+        super(extCatalog, id, name, remoteName, Type.TRINO_CONNECTOR);
     }
 
     @Override
-    protected TrinoConnectorExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
-        return new TrinoConnectorExternalTable(tblId, tableName, name, (TrinoConnectorExternalCatalog) extCatalog);
+    public TrinoConnectorExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+            ExternalCatalog catalog,
+            ExternalDatabase db) {
+        return new TrinoConnectorExternalTable(tblId, localTableName, remoteTableName,
+                (TrinoConnectorExternalCatalog) extCatalog,
+                (TrinoConnectorExternalDatabase) db);
     }
 }

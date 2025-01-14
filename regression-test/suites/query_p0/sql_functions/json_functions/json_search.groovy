@@ -24,7 +24,7 @@ suite("test_json_search") {
     sql """use ${dbName}"""
 
     def testTable = "test_json_search"
-
+    sql """ drop table if exists test_json_search;"""
     sql """
             CREATE TABLE `${testTable}` (
               `id` int NULL,

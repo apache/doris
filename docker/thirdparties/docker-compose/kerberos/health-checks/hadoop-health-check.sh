@@ -32,6 +32,7 @@ fi
 FAILED=$(supervisorctl status | grep -v RUNNING || true)
 
 if [ "$FAILED" == "" ]; then
+  echo "All services are running"
   exit 0
 else
   echo "Some of the services are failing: ${FAILED}"

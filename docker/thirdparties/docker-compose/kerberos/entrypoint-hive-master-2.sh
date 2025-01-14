@@ -25,12 +25,26 @@ cp /etc/trino/conf/presto-server.keytab /keytabs/other-presto-server.keytab
 cp /keytabs/update-location.sh /etc/hadoop-init.d/update-location.sh
 /usr/local/hadoop-run.sh &
 
-sleep 30
+# check healthy hear
+echo "Waiting for hadoop to be healthy"
+
+for i in {1..10}; do
+    if /usr/local/health.sh; then
+        echo "Hadoop is healthy"
+        break
+    fi
+    echo "Hadoop is not healthy yet. Retrying in 20 seconds..."
+    sleep 20
+done
+
+if [ $i -eq 10 ]; then
+    echo "Hadoop did not become healthy after 120 attempts. Exiting."
+    exit 1
+fi
 
 echo "Init kerberos test data"
 kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master-2@OTHERREALM.COM
 hive  -f /usr/local/sql/create_kerberos_hive_table.sql
-
-sleep 20
+touch /mnt/SUCCESS
 
 tail -f /dev/null

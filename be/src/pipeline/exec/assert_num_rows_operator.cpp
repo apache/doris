@@ -21,12 +21,13 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),
           _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
           _subquery_string(tnode.assert_num_rows_node.subquery_string) {
+    _is_serial_operator = true;
     if (tnode.assert_num_rows_node.__isset.assertion) {
         _assertion = tnode.assert_num_rows_node.assertion;
     } else {

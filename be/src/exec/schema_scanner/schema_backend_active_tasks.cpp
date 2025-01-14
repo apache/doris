@@ -25,6 +25,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
@@ -76,7 +78,7 @@ Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Bloc
 
         ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_block(
                 _task_stats_block.get());
-        _total_rows = _task_stats_block->rows();
+        _total_rows = (int)_task_stats_block->rows();
     }
 
     if (_row_idx == _total_rows) {

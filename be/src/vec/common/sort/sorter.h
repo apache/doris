@@ -43,6 +43,8 @@ class RowDescriptor;
 
 namespace doris::vectorized {
 
+using MergeSorterQueue = SortingQueueBatch<MergeSortCursor>;
+
 // TODO: now we only use merge sort
 class MergeSorterState {
     ENABLE_FACTORY_CREATOR(MergeSorterState);
@@ -53,9 +55,9 @@ public:
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
-            : unsorted_block_(Block::create_unique(
+            : _unsorted_block(Block::create_unique(
                       VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
-              offset_(offset) {}
+              _offset(offset) {}
 
     ~MergeSorterState() = default;
 
@@ -66,32 +68,33 @@ public:
     Status merge_sort_read(doris::vectorized::Block* block, int batch_size, bool* eos);
 
     size_t data_size() const {
-        size_t size = unsorted_block_->bytes();
-        return size + in_mem_sorted_bocks_size_;
+        size_t size = _unsorted_block->bytes();
+        return size + _in_mem_sorted_bocks_size;
     }
 
-    uint64_t num_rows() const { return num_rows_; }
+    uint64_t num_rows() const { return _num_rows; }
 
-    std::shared_ptr<Block> last_sorted_block() { return sorted_blocks_.back(); }
+    std::shared_ptr<Block> last_sorted_block() { return _sorted_blocks.back(); }
 
-    std::vector<std::shared_ptr<Block>>& get_sorted_block() { return sorted_blocks_; }
-    std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
+    std::vector<std::shared_ptr<Block>>& get_sorted_block() { return _sorted_blocks; }
+    MergeSorterQueue& get_queue() { return _queue; }
     void reset();
 
-    std::unique_ptr<Block> unsorted_block_;
+    std::unique_ptr<Block>& unsorted_block() { return _unsorted_block; }
 
 private:
     Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
 
-    std::priority_queue<MergeSortCursor> priority_queue_;
-    std::vector<std::shared_ptr<Block>> sorted_blocks_;
-    size_t in_mem_sorted_bocks_size_ = 0;
-    uint64_t num_rows_ = 0;
+    std::unique_ptr<Block> _unsorted_block;
+    MergeSorterQueue _queue;
+    std::vector<std::shared_ptr<Block>> _sorted_blocks;
+    size_t _in_mem_sorted_bocks_size = 0;
+    uint64_t _num_rows = 0;
 
-    int64_t offset_;
+    size_t _offset;
 
-    Block merge_sorted_block_;
-    std::unique_ptr<VSortedRunMerger> merger_;
+    Block _merge_sorted_block;
+    std::unique_ptr<VSortedRunMerger> _merger;
 };
 
 class Sorter {
@@ -177,21 +180,15 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block_->rows() > buffered_block_size_ ||
-               _state->unsorted_block_->bytes() > buffered_block_bytes_;
+        return _state->unsorted_block()->allocated_bytes() >= buffered_block_bytes_;
     }
 
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 
-    static constexpr size_t INITIAL_BUFFERED_BLOCK_SIZE = 1024 * 1024;
-    static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+    static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 * 1024 * 1024;
 
-    static constexpr size_t SPILL_BUFFERED_BLOCK_SIZE = 4 * 1024 * 1024;
-    static constexpr size_t SPILL_BUFFERED_BLOCK_BYTES = 256 << 20;
-
-    size_t buffered_block_size_ = INITIAL_BUFFERED_BLOCK_SIZE;
     size_t buffered_block_bytes_ = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 

@@ -51,6 +51,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         // _untracked_mem temporary store bytes that not synchronized to process reserved memory,
         // but bytes have been subtracted from thread _reserved_mem.
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
+        _limiter_tracker->release_reserved(_untracked_mem);
         _reserved_mem = 0;
         _untracked_mem = 0;
     }

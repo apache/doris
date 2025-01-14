@@ -129,6 +129,7 @@ suite("test_bloom_filter_hit") {
     sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
 
     // bf filter
+    sql """ SET parallel_pipeline_task_num=1 """
     qt_sql """ select * from test_ip_bf where ip_v6='4a3e:dc26:1819:83e6:9ee5:7239:ff44:aee8' """
     profiles = httpGet(profileUrl)
     log.debug("profiles:{}", profiles);

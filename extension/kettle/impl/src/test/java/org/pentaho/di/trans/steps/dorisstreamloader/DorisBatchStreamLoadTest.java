@@ -32,7 +32,7 @@ public class DorisBatchStreamLoadTest {
     @Ignore
     public void testStreamLoad() throws Exception {
         DorisOptions options = DorisOptions.builder()
-                .withFenodes("10.16.10.6:28737")
+                .withFenodes("127.0.0.1:8030")
                 .withDatabase("test")
                 .withTable("test_flink_c")
                 .withUsername("root")

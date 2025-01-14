@@ -83,7 +83,7 @@ private:
 
     size_t _rows_per_scanner {_min_rows_per_scanner};
 
-    std::map<RowsetId, SegmentCacheHandle> _segment_cache_handles;
+    std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;

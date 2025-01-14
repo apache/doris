@@ -59,7 +59,7 @@ class StreamSinkFileWriterTest : public testing::Test {
 
         // APPEND_DATA
         virtual Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, uint64_t offset, std::span<const Slice> data,
+                                   int32_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos = false,
                                    FileType file_type = FileType::SEGMENT_FILE) override {
             EXPECT_EQ(PARTITION_ID, partition_id);

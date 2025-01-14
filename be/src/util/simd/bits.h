@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #if defined(__ARM_NEON) && defined(__aarch64__)
@@ -27,8 +28,7 @@
 
 #include "util/sse_util.hpp"
 
-namespace doris {
-namespace simd {
+namespace doris::simd {
 
 consteval auto bits_mask_length() {
 #if defined(__ARM_NEON) && defined(__aarch64__)
@@ -70,7 +70,7 @@ inline uint64_t bytes16_mask_to_bits64_mask(const uint8_t* data) {
 inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
 #ifdef __AVX2__
     auto zero32 = _mm256_setzero_si256();
-    uint32_t mask = static_cast<uint32_t>(_mm256_movemask_epi8(
+    auto mask = static_cast<uint32_t>(_mm256_movemask_epi8(
             _mm256_cmpgt_epi8(_mm256_loadu_si256(reinterpret_cast<const __m256i*>(data)), zero32)));
 #elif defined(__SSE2__)
     auto zero16 = _mm_setzero_si128();
@@ -125,8 +125,10 @@ void iterate_through_bits_mask(Func func, decltype(bytes_mask_to_bits_mask(nullp
 #endif
 }
 
-inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
-    size_t num = 0;
+template <typename T>
+    requires requires { std::is_unsigned_v<T>; }
+inline T count_zero_num(const int8_t* __restrict data, T size) {
+    T num = 0;
     const int8_t* end = data + size;
 #if defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
@@ -138,13 +140,13 @@ inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(data)), zero16))) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)), zero16)))
-                 << 16u) |
+                 << 16U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 32)), zero16)))
-                 << 32u) |
+                 << 32U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_cmpeq_epi8(
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)), zero16)))
-                 << 48u));
+                 << 48U));
     }
 #endif
     for (; data < end; ++data) {
@@ -153,9 +155,10 @@ inline size_t count_zero_num(const int8_t* __restrict data, size_t size) {
     return num;
 }
 
-inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict null_map,
-                             size_t size) {
-    size_t num = 0;
+template <typename T>
+    requires requires { std::is_unsigned_v<T>; }
+inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict null_map, T size) {
+    T num = 0;
     const int8_t* end = data + size;
 #if defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
@@ -172,19 +175,19 @@ inline size_t count_zero_num(const int8_t* __restrict data, const uint8_t* __res
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)),
                                  zero16),
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 16)))))
-                 << 16u) |
+                 << 16U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                          _mm_cmpeq_epi8(
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 32)),
                                  zero16),
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 32)))))
-                 << 32u) |
+                 << 32U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                          _mm_cmpeq_epi8(
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)),
                                  zero16),
                          _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 48)))))
-                 << 48u));
+                 << 48U));
     }
 #endif
     for (; data < end; ++data, ++null_map) {
@@ -235,5 +238,4 @@ inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 0);
 }
 
-} // namespace simd
-} // namespace doris
+} // namespace doris::simd

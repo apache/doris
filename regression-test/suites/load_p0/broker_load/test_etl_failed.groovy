@@ -52,10 +52,6 @@ suite("test_etl_failed", "load_p0") {
                 "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
-            PROPERTIES(
-                "use_new_load_scan_node" = "true",
-                "max_filter_ratio" = "0.1"
-            );
     """
 
     def max_try_milli_secs = 600000

@@ -27,6 +27,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 Status SpillWriter::open() {
     if (file_writer_) {
         return Status::OK();

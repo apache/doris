@@ -369,7 +369,7 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnFloat64::create(input_rows_count);
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 

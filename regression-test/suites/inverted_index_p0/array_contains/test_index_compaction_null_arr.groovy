@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_compaction_null_arr", "array_contains_inverted_index") {
+suite("test_index_compaction_null_arr", "array_contains_inverted_index, nonConcurrent") {
     // here some variable to control inverted index query
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""

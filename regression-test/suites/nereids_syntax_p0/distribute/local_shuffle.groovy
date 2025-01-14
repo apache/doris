@@ -52,7 +52,7 @@ suite("local_shuffle") {
         set force_to_local_shuffle=true;
         """
 
-    order_qt_read_single_olap_table "select * from test_local_shuffle1"
+    order_qt_read_single_olap_table "select * from test_local_shuffle1 order by id, id2"
 
     order_qt_broadcast_join """
         select *
@@ -96,7 +96,7 @@ suite("local_shuffle") {
         ) a
         right outer join [shuffle]
         test_local_shuffle2
-        on a.id=test_local_shuffle2.id2
+        on a.id=test_local_shuffle2.id2 order by test_local_shuffle2.id, test_local_shuffle2.id2
         """
 
     order_qt_bucket_shuffle_with_prune_tablets2 """
@@ -109,7 +109,7 @@ suite("local_shuffle") {
             from test_local_shuffle1
             where id=1
         ) a
-        on a.id=test_local_shuffle2.id2
+        on a.id=test_local_shuffle2.id2 order by test_local_shuffle2.id, test_local_shuffle2.id2
         """
 
     order_qt_bucket_shuffle_with_prune_tablets3 """
@@ -150,11 +150,11 @@ suite("local_shuffle") {
         """
 
     order_qt_fillup_bucket """
-            SELECT cast(a.c0 as int), cast(b.c0 as int) FROM
+            SELECT cast(a.c0 as int), cast(b.c0 as int) res FROM
             (select * from test_local_shuffle3 where c0 =1)a
             RIGHT OUTER JOIN
             (select * from test_local_shuffle4)b
-            ON a.c0 = b.c0
+            ON a.c0 = b.c0 order by res
             """
 
     multi_sql """
@@ -182,6 +182,6 @@ suite("local_shuffle") {
             ) a
             inner join [shuffle]
             test_shuffle_left_with_local_shuffle b
-            on a.id2=b.id;
+            on a.id2=b.id order by a.id2;
         """
 }

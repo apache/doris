@@ -40,7 +40,7 @@ private:
     void insert(const Field&) override { ++s; }
 
 public:
-    const char* get_family_name() const override { return "Nothing"; }
+    std::string get_name() const override { return "Nothing"; }
     MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
 
     bool structure_equals(const IColumn& rhs) const override {

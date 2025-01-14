@@ -65,10 +65,12 @@ suite("test_backup_restore_atomic_cancel") {
         values.add("(${i}, ${i})")
     }
     sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(",")}"
+    sql "sync"
     def result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
     sql "INSERT INTO ${dbName}.${tableName1} VALUES ${values.join(",")}"
+    sql "sync"
     result = sql "SELECT * FROM ${dbName}.${tableName1}"
     assertEquals(result.size(), values.size());
 
@@ -111,7 +113,7 @@ suite("test_backup_restore_atomic_cancel") {
     logger.info("show restore result: ${restore_result}")
     assertTrue(restore_result.last().State == "CANCELLED")
 
-
+    sql "sync"
     // Do not affect any tables.
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size() + 1);

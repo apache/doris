@@ -77,7 +77,7 @@ suite("test_ingest_binlog") {
     }
 
     target_sql " sync "
-    res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
+    def res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
     assertEquals(res.size(), insert_num)
 
 

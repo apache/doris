@@ -301,6 +301,14 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
 }
 
 template <typename T>
+void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
+}
+
+template <typename T>
 void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 

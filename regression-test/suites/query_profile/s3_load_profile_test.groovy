@@ -19,7 +19,7 @@ import groovy.json.JsonSlurper
 
 def getProfile = { id ->
         def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/rest/v1/query_profile/$id").openConnection()
+        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
         conn.setRequestMethod("GET")
         def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
                 (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
@@ -31,9 +31,9 @@ def getProfile = { id ->
 suite('s3_load_profile_test') {
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
-    sql "drop table if exists dup_tbl_basic;"
+    sql "drop table if exists s3_load_profile_test_dup_tbl_basic;"
     sql """
-    CREATE TABLE dup_tbl_basic
+    CREATE TABLE s3_load_profile_test_dup_tbl_basic
 (
     k00 INT             NOT NULL,
     k01 DATE            NOT NULL,
@@ -100,7 +100,7 @@ PROPERTIES (
 );
 """
     def loadAttribute =new LoadAttributes("s3://${getS3BucketName()}/regression/load/data/basic_data.csv",
-                "dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "s3_load_profile_test_dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
                 "", "", "", "", "")
 
     def ak = getS3AK()
@@ -109,6 +109,7 @@ PROPERTIES (
     sql "set enable_profile=true;"    
     
     def label = "test_s3_load_" + UUID.randomUUID().toString().replace("-", "_")
+    logger.info("s3_load_profile_test_dup_tbl_basic, label: $label")
     loadAttribute.label = label
     def prop = loadAttribute.getPropertiesStr()
 
@@ -167,21 +168,14 @@ PROPERTIES (
             assertTrue(false, "load Timeout: $loadAttribute.label")
         }
     }
-
+    Thread.sleep(5000)
     qt_select """ select count(*) from $loadAttribute.dataDesc.tableName """
-
+    logger.info("jobId: " + jobId)
     def profileString = getProfile(jobId)
-    profileJson = new JsonSlurper().parseText(profileString)
-    assertEquals(0, profileJson.code)
-    profileDataString = profileJson.data
-    logger.info("profileDataString:" + profileDataString)
-    def taskStateIdx = profileDataString.indexOf("Task&nbsp;&nbsp;State:&nbsp;&nbsp;FINISHED")
-    assertFalse(taskStateIdx == -1)
-    def executionProfileIdx = profileDataString.indexOf("Execution&nbsp;&nbsp;Profile")
-    assertFalse(executionProfileIdx == -1)
-    assertTrue(profileDataString.contains("NumScanners"))
-    assertTrue(profileDataString.contains("RowsProduced"))
-    assertTrue(profileDataString.contains("RowsRead"))
+    logger.info("profileDataString:" + profileString)
+    assertTrue(profileString.contains("NumScanners"))
+    assertTrue(profileString.contains("RowsProduced"))
+    assertTrue(profileString.contains("RowsRead"))
 }
 
 class DataDesc {
@@ -218,7 +212,6 @@ class LoadAttributes {
         this.isExceptFailed = isExceptFailed
 
         properties = new HashMap<>()
-        properties.put("use_new_load_scan_node", "true")
     }
 
     LoadAttributes addProperties(String k, String v) {

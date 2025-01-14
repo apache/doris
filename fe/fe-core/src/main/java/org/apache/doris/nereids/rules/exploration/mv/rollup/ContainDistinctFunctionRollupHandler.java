@@ -76,6 +76,7 @@ public class ContainDistinctFunctionRollupHandler extends AggFunctionRollUpHandl
         Set<Expression> mvExpressionsQueryBased = mvExprToMvScanExprQueryBased.keySet();
         Set<Slot> aggregateFunctionParamSlots = queryAggregateFunctionShuttled.collectToSet(Slot.class::isInstance);
         if (aggregateFunctionParamSlots.stream().anyMatch(slot -> !mvExpressionsQueryBased.contains(slot))) {
+            // If query use any slot not in view, can not roll up
             return false;
         }
         return true;

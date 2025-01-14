@@ -50,7 +50,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     public BoundFunction(String name, List<Expression> children) {
-        super(name, children);
+        this(name, children, false);
+    }
+
+    public BoundFunction(String name, List<Expression> children, boolean inferred) {
+        super(name, children, inferred);
     }
 
     @Override
@@ -76,12 +80,12 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(getName(), children);
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         StringBuilder sql = new StringBuilder(getName()).append("(");
         int arity = arity();
         for (int i = 0; i < arity; i++) {

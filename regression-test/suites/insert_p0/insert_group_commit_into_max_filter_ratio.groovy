@@ -117,7 +117,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         assertTrue(json.GroupCommit)
         // assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
-        assertEquals(loaded_rows, json.NumberLoadedRows)
+        assertEquals(0, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
         assertEquals(unselected_rows, json.NumberUnselectedRows)
         if (filtered_rows > 0) {
@@ -169,7 +169,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
     // 100 rows(success, fail), 10000 rows(success, fail), 15000 rows(success, fail)
     // async mode, sync mode, off mode
     sql """ truncate table ${tableName} """
-    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
 
         sql """ set group_commit = sync_mode; """
         group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1
@@ -210,7 +210,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         sql """ set group_commit = async_mode; """
         sql """ set enable_insert_strict = false; """
         group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
-        get_row_count_with_retry(6)
+        get_row_count_with_retry(8)
         order_qt_sql """ select * from ${dbTableName} """
     }
     sql """ truncate table ${tableName} """

@@ -39,6 +39,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -226,7 +227,7 @@ public class EsUtilTest extends EsTestCase {
     public void testDateType() throws IOException, URISyntaxException {
         ObjectNode testDateFormat = EsUtil.getRootSchema(
                 EsUtil.getMapping(loadJsonFromFile("data/es/test_date_format.json")), null, new ArrayList<>());
-        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false, new ArrayList<>(), new HashMap<>());
         Assertions.assertEquals(8, parseColumns.size());
         for (Column column : parseColumns) {
             String name = column.getName();
@@ -259,7 +260,7 @@ public class EsUtilTest extends EsTestCase {
     public void testFieldAlias() throws IOException, URISyntaxException {
         ObjectNode testFieldAlias = EsUtil.getRootSchema(
                 EsUtil.getMapping(loadJsonFromFile("data/es/test_field_alias.json")), null, new ArrayList<>());
-        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_field_alias", null, testFieldAlias, true, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_field_alias", null, testFieldAlias, true, new ArrayList<>(), new HashMap<>());
         Assertions.assertEquals("datetimev2(0)", parseColumns.get(2).getType().toSql());
         Assertions.assertEquals("text", parseColumns.get(4).getType().toSql());
     }
@@ -269,7 +270,7 @@ public class EsUtilTest extends EsTestCase {
         ObjectNode testFieldAlias = EsUtil.getRootSchema(
                 EsUtil.getMapping(loadJsonFromFile("data/es/es6_dynamic_complex_type.json")), null, new ArrayList<>());
         List<Column> columns = EsUtil.genColumnsFromEs("test_complex_type", "complex_type", testFieldAlias, true,
-                new ArrayList<>());
+                new ArrayList<>(), new HashMap<>());
         Assertions.assertEquals(3, columns.size());
     }
 

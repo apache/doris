@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * ScalarFunction 'CompressAsSmallInt'.
  */
-public class EncodeAsSmallInt extends ScalarFunction
+public class EncodeAsSmallInt extends EncodeString
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(

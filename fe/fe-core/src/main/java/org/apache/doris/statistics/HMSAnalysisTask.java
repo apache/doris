@@ -104,10 +104,11 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         for (String names : partitionNames) {
             // names is like "date=20230101" for one level partition
             // and like "date=20230101/hour=12" for two level partition
-            String[] parts = names.split("/");
-            for (String part : parts) {
-                if (part.startsWith(col.getName())) {
-                    String value = HiveUtil.getHivePartitionValue(part);
+            List<String[]> parts = HiveUtil.toPartitionColNameAndValues(names);
+            for (String[] part : parts) {
+                String colName = part[0];
+                String value = part[1];
+                if (colName != null && colName.equals(col.getName())) {
                     // HIVE_DEFAULT_PARTITION hive partition value when the partition name is not specified.
                     if (value == null || value.isEmpty() || value.equals(HiveMetaStoreCache.HIVE_DEFAULT_PARTITION)) {
                         numNulls += 1;

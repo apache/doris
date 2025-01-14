@@ -75,6 +75,7 @@ struct FileCacheProfile {
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* num_inverted_index_remote_io_total = nullptr;
     RuntimeProfile::Counter* local_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
@@ -82,6 +83,11 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
+    RuntimeProfile::Counter* read_cache_file_directly_timer = nullptr;
+    RuntimeProfile::Counter* cache_get_or_set_timer = nullptr;
+    RuntimeProfile::Counter* lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* get_timer = nullptr;
+    RuntimeProfile::Counter* set_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile) {
         static const char* cache_profile = "FileCache";
@@ -90,6 +96,8 @@ struct FileCacheProfileReporter {
                                                           cache_profile, 1);
         num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
                                                            cache_profile, 1);
+        num_inverted_index_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "NumInvertedIndexRemoteIOTotal", TUnit::UNIT, cache_profile, 1);
         local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LocalIOUseTimer", cache_profile, 1);
         remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "RemoteIOUseTimer", cache_profile, 1);
         write_cache_io_timer =
@@ -102,11 +110,20 @@ struct FileCacheProfileReporter {
                                                                 TUnit::BYTES, cache_profile, 1);
         bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromRemote",
                                                                  TUnit::BYTES, cache_profile, 1);
+        read_cache_file_directly_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReadCacheFileDirectlyTimer", cache_profile, 1);
+        cache_get_or_set_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(profile, "CacheGetOrSetTimer", cache_profile, 1);
+        lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
+        get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
+        set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
     }
 
     void update(const FileCacheStatistics* statistics) const {
         COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
         COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
+        COUNTER_UPDATE(num_inverted_index_remote_io_total,
+                       statistics->num_inverted_index_remote_io_total);
         COUNTER_UPDATE(local_io_timer, statistics->local_io_timer);
         COUNTER_UPDATE(remote_io_timer, statistics->remote_io_timer);
         COUNTER_UPDATE(write_cache_io_timer, statistics->write_cache_io_timer);
@@ -114,6 +131,11 @@ struct FileCacheProfileReporter {
         COUNTER_UPDATE(num_skip_cache_io_total, statistics->num_skip_cache_io_total);
         COUNTER_UPDATE(bytes_scanned_from_cache, statistics->bytes_read_from_local);
         COUNTER_UPDATE(bytes_scanned_from_remote, statistics->bytes_read_from_remote);
+        COUNTER_UPDATE(read_cache_file_directly_timer, statistics->read_cache_file_directly_timer);
+        COUNTER_UPDATE(cache_get_or_set_timer, statistics->cache_get_or_set_timer);
+        COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
+        COUNTER_UPDATE(get_timer, statistics->get_timer);
+        COUNTER_UPDATE(set_timer, statistics->set_timer);
     }
 };
 

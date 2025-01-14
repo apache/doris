@@ -325,14 +325,14 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
             request.__set_group_commit_mode("sync_mode");
         }
     }
-    if (_exec_env->master_info()->__isset.backend_id) {
-        request.__set_backend_id(_exec_env->master_info()->backend_id);
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        request.__set_backend_id(_exec_env->cluster_info()->backend_id);
     } else {
-        LOG(WARNING) << "_exec_env->master_info not set backend_id";
+        LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
     }
 
     // plan this load
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,

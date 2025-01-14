@@ -28,7 +28,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -261,16 +260,15 @@ public class PartitionTableInfo {
                     partitionDescs.size(), createTablePartitionMaxNum));
             }
 
-            try {
-                ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
+            ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
 
-                // only auto partition support partition expr
-                if (!isAutoPartition) {
-                    if (exprs.stream().anyMatch(expr -> expr instanceof FunctionCallExpr)) {
-                        throw new DdlException("Non-auto partition table not support partition expr!");
-                    }
+            // only auto partition support partition expr
+            if (!isAutoPartition) {
+                if (exprs.stream().anyMatch(expr -> expr instanceof FunctionCallExpr)) {
+                    throw new AnalysisException("Non-auto partition table not support partition expr!");
                 }
-
+            }
+            try {
                 // here we have already extracted identifierPartitionColumns
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
@@ -293,7 +291,7 @@ public class PartitionTableInfo {
     }
 
     private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
-        return new ArrayList<>(expressions.stream().map(expression -> {
+        return expressions.stream().map(expression -> {
             if (expression instanceof UnboundSlot) {
                 return new SlotRef(null, ((UnboundSlot) expression).getName());
             } else if (expression instanceof UnboundFunction) {
@@ -303,9 +301,9 @@ public class PartitionTableInfo {
                         new FunctionParams(convertToLegacyArguments(function.children())));
             } else {
                 throw new AnalysisException(
-                    "unsupported auto partition expr " + expression.toString());
+                        "unsupported auto partition expr " + expression.toString());
             }
-        }).collect(Collectors.toList()));
+        }).collect(Collectors.toCollection(ArrayList::new));
     }
 
     private static List<Expr> convertToLegacyArguments(List<Expression> children) {

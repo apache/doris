@@ -75,8 +75,7 @@ suite("test_array_map_function") {
         test {
             sql"""select c_array1,array_max(array_map(x->countequal(c_array1,x),c_array1)) from array_test2;"""
             check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
+                assertTrue(exception == null)
             }
         }
 

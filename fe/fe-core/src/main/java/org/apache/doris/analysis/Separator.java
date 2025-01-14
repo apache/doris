@@ -34,6 +34,11 @@ public class Separator implements ParseNode {
         this.separator = null;
     }
 
+    public Separator(String separator, String oriSeparator) {
+        this.oriSeparator = oriSeparator;
+        this.separator = separator;
+    }
+
     public String getOriSeparator() {
         return oriSeparator;
     }

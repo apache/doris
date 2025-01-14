@@ -306,6 +306,7 @@ public:
                           sp->clear_call_back(mockcallback.point_name);
                       });
         sp->disable_processing();
+        ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
     }
 };
 

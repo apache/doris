@@ -77,8 +77,16 @@ TEST_F(StatusTest, TStatusCodeWithStatus) {
             continue;
         }
         EXPECT_TRUE(tstatus_st.first < ErrorCode::MAX_ERROR_CODE_DEFINE_NUM);
-        EXPECT_TRUE(ErrorCode::error_states[tstatus_st.first].description.compare(
-                            tstatus_st.second) == 0);
+        bool ret = ErrorCode::error_states[tstatus_st.first].description.compare(
+                           tstatus_st.second) == 0;
+        if (!ret) {
+            std::cout << "ErrorCode::error_states's " << tstatus_st.first << " compare to "
+                      << tstatus_st.second
+                      << " failed. you need check whether TStatusCode defined in thrift "
+                         "is same with ERROR_CODES in status.h"
+                      << std::endl;
+        }
+        EXPECT_TRUE(ret);
     }
 }
 

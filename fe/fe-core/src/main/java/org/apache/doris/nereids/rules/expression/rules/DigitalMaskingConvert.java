@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
@@ -43,8 +44,8 @@ public class DigitalMaskingConvert implements ExpressionPatternRuleFactory {
                     new Concat(
                             new Left(digitalMasking.child(), Literal.of(3)),
                             Literal.of("****"),
-                            new Right(digitalMasking.child(), Literal.of(4)))
-                    )
+                            new Right(digitalMasking.child(), Literal.of(4))))
+                    .toRule(ExpressionRuleType.DIGITAL_MASKING_CONVERT)
         );
     }
 }

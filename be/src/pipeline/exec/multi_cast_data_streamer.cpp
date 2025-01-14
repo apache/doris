@@ -22,17 +22,15 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::pipeline {
-
-MultiCastBlock::MultiCastBlock(vectorized::Block* block, int used_count, int un_finish_copy,
-                               size_t mem_size)
-        : _used_count(used_count), _un_finish_copy(un_finish_copy), _mem_size(mem_size) {
+#include "common/compile_check_begin.h"
+MultiCastBlock::MultiCastBlock(vectorized::Block* block, int un_finish_copy, size_t mem_size)
+        : _un_finish_copy(un_finish_copy), _mem_size(mem_size) {
     _block = vectorized::Block::create_unique(block->get_columns_with_type_and_name());
     block->clear();
 }
 
 Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block, bool* eos) {
     int* un_finish_copy = nullptr;
-    int use_count = 0;
     {
         std::lock_guard l(_mutex);
         auto& pos_to_pull = _sender_pos_to_read[sender_idx];
@@ -43,8 +41,6 @@ Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* blo
 
         _cumulative_mem_size -= pos_to_pull->_mem_size;
 
-        pos_to_pull->_used_count--;
-        use_count = pos_to_pull->_used_count;
         un_finish_copy = &pos_to_pull->_un_finish_copy;
 
         pos_to_pull++;
@@ -56,12 +52,7 @@ Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* blo
         *eos = _eos and pos_to_pull == end;
     }
 
-    if (use_count == 0) {
-        // will clear _multi_cast_blocks
-        _wait_copy_block(block, *un_finish_copy);
-    } else {
-        _copy_block(block, *un_finish_copy);
-    }
+    _copy_block(block, *un_finish_copy);
 
     return Status::OK();
 }
@@ -71,19 +62,11 @@ void MultiCastDataStreamer::_copy_block(vectorized::Block* block, int& un_finish
     for (int i = 0; i < block->columns(); ++i) {
         block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
     }
-
     std::unique_lock l(_mutex);
     un_finish_copy--;
     if (un_finish_copy == 0) {
-        l.unlock();
-        _cv.notify_one();
+        _multi_cast_blocks.pop_front();
     }
-}
-
-void MultiCastDataStreamer::_wait_copy_block(vectorized::Block* block, int& un_finish_copy) {
-    std::unique_lock l(_mutex);
-    _cv.wait(l, [&]() { return un_finish_copy == 0; });
-    _multi_cast_blocks.pop_front();
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
@@ -96,8 +79,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
 
     {
         std::lock_guard l(_mutex);
-        _multi_cast_blocks.emplace_back(block, _cast_sender_count, _cast_sender_count - 1,
-                                        block_mem_size);
+        _multi_cast_blocks.emplace_back(block, _cast_sender_count, block_mem_size);
         // last elem
         auto end = std::prev(_multi_cast_blocks.end());
         for (int i = 0; i < _sender_pos_to_read.size(); ++i) {

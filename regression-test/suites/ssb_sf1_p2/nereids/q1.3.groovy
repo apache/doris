@@ -29,7 +29,7 @@ suite("ssb_sf1_q1_3_nereids") {
 
     test {
         // sql(new File(context.file.parentFile, "../sql/q1.3.sql").text)
-        sql """SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/  
+        sql """SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/
         SUM(lo_extendedprice*lo_discount) AS
         REVENUE
         FROM  lineorder, date

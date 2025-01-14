@@ -170,6 +170,10 @@ public class CloudClusterChecker extends MasterDaemon {
             String endpoint = addr + ":" + node.getHeartbeatPort();
             Cloud.NodeStatusPB status = node.getStatus();
             Backend be = currentMap.get(endpoint);
+            if (be == null) {
+                LOG.warn("cant get valid be {} from fe mem, ignore it checker will add this be at next", endpoint);
+                continue;
+            }
 
             if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONING) {
                 if (!be.isDecommissioned()) {

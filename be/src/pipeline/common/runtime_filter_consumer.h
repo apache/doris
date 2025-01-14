@@ -78,7 +78,7 @@ private:
 
     const RowDescriptor& _row_descriptor_ref;
 
-    VExprContextSPtrs& _conjuncts_ref;
+    vectorized::VExprContextSPtrs& _conjuncts_ref;
 
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;

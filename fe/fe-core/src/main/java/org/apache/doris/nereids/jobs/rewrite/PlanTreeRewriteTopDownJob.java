@@ -58,7 +58,6 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
             RewriteJobContext newRewriteJobContext = rewriteJobContext.withChildrenVisited(true);
             pushJob(new PlanTreeRewriteTopDownJob(newRewriteJobContext, context, isTraverseChildren, rules));
 
-            // NOTICE: this relay on pull up cte anchor
             if (isTraverseChildren.test(rewriteJobContext.plan)) {
                 pushChildrenJobs(newRewriteJobContext);
             }

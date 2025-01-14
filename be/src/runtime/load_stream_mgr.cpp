@@ -32,8 +32,7 @@
 
 namespace doris {
 
-LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num)
-        : _num_threads(segment_file_writer_thread_num) {
+LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num) {
     static_cast<void>(ThreadPoolBuilder("SegmentFileWriterThreadPool")
                               .set_min_threads(segment_file_writer_thread_num)
                               .set_max_threads(segment_file_writer_thread_num)

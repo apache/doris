@@ -23,7 +23,7 @@ suite("test_partial_update_after_delete", "p0") {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
             sql "SET enable_nereids_planner=true;"
             sql "SET enable_fallback_to_original_planner=false;"

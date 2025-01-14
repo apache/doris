@@ -24,17 +24,18 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -100,6 +101,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -211,7 +213,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long min = dateMinLiteral.getValue();
                     builder.setMinValue(min);
                     builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-                } catch (AnalysisException e) {
+                } catch (AnalysisException | DateTimeException e) {
                     convertSuccess = false;
                 }
             }
@@ -222,7 +224,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long max = dateMaxLiteral.getValue();
                     builder.setMaxValue(max);
                     builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                } catch (AnalysisException e) {
+                } catch (AnalysisException | DateTimeException e) {
                     convertSuccess = false;
                 }
             }
@@ -451,12 +453,26 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     @Override
-    public ColumnStatistic visitCompoundPredicate(CompoundPredicate compoundPredicate, Statistics context) {
-        List<Expression> childExprs = compoundPredicate.children();
-        ColumnStatistic firstChild = childExprs.get(0).accept(this, context);
+    public ColumnStatistic visitOr(Or or, Statistics inputStats) {
+        List<Expression> children = or.children();
+        // TODO: this algorithm is not right, fix it latter
+        ColumnStatistic firstChild = children.get(0).accept(this, inputStats);
         double maxNull = StatsMathUtil.maxNonNaN(firstChild.numNulls, 1);
-        for (int i = 1; i < childExprs.size(); i++) {
-            ColumnStatistic columnStatistic = childExprs.get(i).accept(this, context);
+        for (int i = 1; i < children.size(); i++) {
+            ColumnStatistic columnStatistic = children.get(i).accept(this, inputStats);
+            maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
+        }
+        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
+    }
+
+    @Override
+    public ColumnStatistic visitAnd(And and, Statistics inputStats) {
+        List<Expression> children = and.children();
+        // TODO: this algorithm is not right, fix it latter
+        ColumnStatistic firstChild = children.get(0).accept(this, inputStats);
+        double maxNull = StatsMathUtil.maxNonNaN(firstChild.numNulls, 1);
+        for (int i = 1; i < children.size(); i++) {
+            ColumnStatistic columnStatistic = children.get(i).accept(this, inputStats);
             maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
         }
         return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();

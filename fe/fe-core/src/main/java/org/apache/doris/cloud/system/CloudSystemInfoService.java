@@ -457,6 +457,9 @@ public class CloudSystemInfoService extends SystemInfoService {
     @Override
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
+        if (memBe == null) {
+            return;
+        }
         // for rename cluster
         String originalClusterName = memBe.getCloudClusterName();
         String originalClusterId = memBe.getCloudClusterId();

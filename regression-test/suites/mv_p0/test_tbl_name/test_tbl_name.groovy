@@ -40,31 +40,26 @@ suite ("test_tbl_name") {
     sql """insert into functionality_olap values(143,'mv',18);"""
 
     sql """analyze table functionality_olap with sync;"""
+    sql """alter table functionality_olap modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("""select 
+    mv_rewrite_success("""select 
             functionality_olap.id as id,
             sum(functionality_olap.score) as score_max
             from functionality_olap
-            group by functionality_olap.id order by 1,2; """)
-        contains "(MV_OLAP_SUM)"
-    }
+            group by functionality_olap.id order by 1,2; """, "MV_OLAP_SUM")
     qt_select_mv """select 
             functionality_olap.id as id,
             sum(functionality_olap.score) as score_max
             from functionality_olap
             group by functionality_olap.id order by 1,2;"""
 
-    explain {
-        sql("""select 
+    mv_rewrite_success("""select 
             id,
             sum(score) as score_max
             from functionality_olap
             group by id order by 1,2;
-            """)
-        contains "(MV_OLAP_SUM)"
-    }
+            """, "MV_OLAP_SUM")
     qt_select_mv """select 
         id,
         sum(score) as score_max
@@ -72,22 +67,16 @@ suite ("test_tbl_name") {
         group by id order by 1,2;
         """
     sql """set enable_stats=true;"""
-    explain {
-        sql("""select 
+    mv_rewrite_success("""select 
             functionality_olap.id as id,
             sum(functionality_olap.score) as score_max
             from functionality_olap
-            group by functionality_olap.id order by 1,2; """)
-        contains "(MV_OLAP_SUM)"
-    }
+            group by functionality_olap.id order by 1,2; """, "MV_OLAP_SUM")
 
-    explain {
-        sql("""select 
+    mv_rewrite_success("""select 
             id,
             sum(score) as score_max
             from functionality_olap
             group by id order by 1,2;
-            """)
-        contains "(MV_OLAP_SUM)"
-    }
+            """, "MV_OLAP_SUM")
 }

@@ -116,7 +116,8 @@ public class UdfExecutor extends BaseExecutor {
             Object[] parameters = new Object[numColumns];
             for (int i = 0; i < numRows; ++i) {
                 for (int j = 0; j < numColumns; ++j) {
-                    parameters[j] = inputs[j][i];
+                    int row = inputTable.isConstColumn(j) ? 0 : i;
+                    parameters[j] = inputs[j][row];
                 }
                 result[i] = methodAccess.invoke(udf, evaluateIndex, parameters);
             }

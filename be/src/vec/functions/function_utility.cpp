@@ -75,7 +75,7 @@ public:
     bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
@@ -133,7 +133,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_column = ColumnString::create();
         res_column->insert_data(version.c_str(), version.length());
         auto col_const = ColumnConst::create(std::move(res_column), input_rows_count);

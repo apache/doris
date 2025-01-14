@@ -69,6 +69,11 @@ public class SyncJobManager implements Writable {
     }
 
     public void addDataSyncJob(CreateDataSyncJobStmt stmt) throws DdlException {
+        if (!Config.enable_feature_data_sync_job) {
+            throw new DdlException("Data sync job is deprecated and disabled by default. You can enable it by setting "
+                    + "'enable_feature_data_sync_job=true' in fe.conf. "
+                    + "But it's not recommended to use it in production.");
+        }
         long jobId = Env.getCurrentEnv().getNextId();
         SyncJob syncJob = SyncJob.fromStmt(jobId, stmt);
         writeLock();

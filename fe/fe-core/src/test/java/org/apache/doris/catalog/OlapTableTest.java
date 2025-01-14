@@ -22,6 +22,12 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -33,8 +39,10 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class OlapTableTest {
 
@@ -57,7 +65,7 @@ public class OlapTableTest {
             }
             OlapTable tbl = (OlapTable) table;
             tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
-                    IndexDef.IndexType.BITMAP, null, "xxxxxx")));
+                    IndexDef.IndexType.BITMAP, null, "xxxxxx", Lists.newArrayList(1))));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
@@ -167,5 +175,112 @@ public class OlapTableTest {
         Assert.assertEquals(103, row);
 
         olapTable.getRowCountForPartitionIndex(11, 10, true);
+    }
+
+    @Test
+    public void testGetSchemaAllIndexes() {
+        OlapTable table = new OlapTable();
+        List<Column> schema1 = Lists.newArrayList();
+        Column col1 = new Column("col1", PrimitiveType.INT);
+        Column col2 = new Column("col2", PrimitiveType.INT);
+        Column col3 = new Column("col3", PrimitiveType.INT);
+        Column col4 = new Column("col4", PrimitiveType.INT);
+        schema1.add(col1);
+        schema1.add(col2);
+        MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema1, 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.DUP_KEYS, null);
+        table.addIndexIdToMetaForUnitTest(1, meta1);
+        table.addIndexNameToIdForUnitTest("index1", 1L);
+
+        List<Column> schema2 = Lists.newArrayList();
+        schema2.add(col3);
+        schema2.add(col4);
+        MaterializedIndexMeta meta2 = new MaterializedIndexMeta(2L, schema2, 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.DUP_KEYS, null);
+        table.addIndexIdToMetaForUnitTest(1, meta1);
+        table.addIndexIdToMetaForUnitTest(2, meta2);
+        table.addIndexNameToIdForUnitTest("index2", 2L);
+
+        MaterializedIndex index1 = new MaterializedIndex(1, MaterializedIndex.IndexState.NORMAL);
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<MaterializedIndex> getVisibleIndex() {
+                return Lists.newArrayList(index1);
+            }
+        };
+
+        Set<Column> schemaAllIndexes = table.getSchemaAllIndexes(false);
+        Assert.assertEquals(2, schemaAllIndexes.size());
+        Assert.assertFalse(schemaAllIndexes.contains(col3));
+        Assert.assertFalse(schemaAllIndexes.contains(col4));
+        Assert.assertTrue(schemaAllIndexes.contains(col1));
+        Assert.assertTrue(schemaAllIndexes.contains(col2));
+
+        MaterializedIndex index2 = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<MaterializedIndex> getVisibleIndex() {
+                return Lists.newArrayList(index2);
+            }
+        };
+        schemaAllIndexes = table.getSchemaAllIndexes(false);
+        Assert.assertEquals(2, schemaAllIndexes.size());
+        Assert.assertTrue(schemaAllIndexes.contains(col3));
+        Assert.assertTrue(schemaAllIndexes.contains(col4));
+        Assert.assertFalse(schemaAllIndexes.contains(col1));
+        Assert.assertFalse(schemaAllIndexes.contains(col2));
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<MaterializedIndex> getVisibleIndex() {
+                return Lists.newArrayList(index1, index2);
+            }
+        };
+        schemaAllIndexes = table.getSchemaAllIndexes(false);
+        Assert.assertEquals(4, schemaAllIndexes.size());
+        Assert.assertTrue(schemaAllIndexes.contains(col3));
+        Assert.assertTrue(schemaAllIndexes.contains(col4));
+        Assert.assertTrue(schemaAllIndexes.contains(col1));
+        Assert.assertTrue(schemaAllIndexes.contains(col2));
+
+        col1.setIsVisible(false);
+        schemaAllIndexes = table.getSchemaAllIndexes(false);
+        Assert.assertEquals(3, schemaAllIndexes.size());
+        Assert.assertTrue(schemaAllIndexes.contains(col3));
+        Assert.assertTrue(schemaAllIndexes.contains(col4));
+        Assert.assertFalse(schemaAllIndexes.contains(col1));
+        Assert.assertTrue(schemaAllIndexes.contains(col2));
+    }
+
+    @Test
+    public void testTopNPushDownWithTag() throws Exception {
+        FeConstants.runningUnitTest = true;
+
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+        Backend be1 = new Backend(10001, "192.168.1.1", 9050);
+        be1.setTagMap(taga.toMap());
+        be1.setAlive(true);
+
+        Tag tagb = Tag.create(Tag.TYPE_LOCATION, "tagb");
+        Backend be2 = new Backend(10002, "192.168.1.2", 9050);
+        be2.setAlive(true);
+        be2.setTagMap(tagb.toMap());
+
+        Env.getCurrentSystemInfo().addBackend(be1);
+        Env.getCurrentSystemInfo().addBackend(be2);
+
+        OlapTable tab = new OlapTable();
+        TFetchOption tfetchOption = tab.generateTwoPhaseReadOption(-1);
+        Assert.assertTrue(tfetchOption.nodes_info.nodes.size() == 2);
+
+        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
+        Set<Tag> tagSet = new HashSet<>();
+        tagSet.add(taga);
+
+        connectContext.setResourceTags(tagSet, false);
+        TFetchOption tfetchOption2 = tab.generateTwoPhaseReadOption(-1);
+        Assert.assertTrue(tfetchOption2.nodes_info.nodes.size() == 1);
+        ConnectContext.remove();
+
     }
 }

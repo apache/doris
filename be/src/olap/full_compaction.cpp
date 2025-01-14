@@ -59,6 +59,9 @@ Status FullCompaction::prepare_compact() {
     std::unique_lock cumu_lock(tablet()->get_cumulative_compaction_lock());
     tablet()->set_is_full_compaction_running(true);
 
+    DBUG_EXECUTE_IF("FullCompaction.prepare_compact.set_cumu_point",
+                    { tablet()->set_cumulative_layer_point(tablet()->max_version_unlocked() + 1); })
+
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
 
@@ -72,9 +75,6 @@ Status FullCompaction::execute_compact() {
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
-
-    tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
-                                                                      _output_rowset);
 
     Version last_version = _input_rowsets.back()->version();
     tablet()->cumulative_compaction_policy()->update_cumulative_point(tablet(), _input_rowsets,

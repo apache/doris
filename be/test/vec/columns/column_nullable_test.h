@@ -83,7 +83,7 @@ inline MutableColumnPtr create_nested_column(size_t input_rows_count) {
         if constexpr (std::is_integral_v<T>) {
             column->insert(rand() % std::numeric_limits<T>::max());
         } else if constexpr (std::is_same_v<T, String>) {
-            column->insert(generate_random_string(rand() % 512));
+            column->insert(Field(generate_random_string(rand() % 512)));
         } else if constexpr (std::is_same_v<T, Decimal64>) {
             column->insert(Int64(rand() % std::numeric_limits<Int64>::max()));
         } else {

@@ -65,6 +65,8 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         return Status::RpcError("Client rpc client failed");
     }
 
+    VLOG_DEBUG << "Sending profile";
+
     try {
         try {
             rpc_client->reportExecStatus(res, req);
@@ -165,7 +167,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
 
     TReportExecStatusParams req;
     THRIFT_MOVE_VALUES(req, query_profile, profile);
-    req.__set_backend_id(ExecEnv::GetInstance()->master_info()->backend_id);
+    req.__set_backend_id(ExecEnv::GetInstance()->cluster_info()->backend_id);
     // invalid query id to avoid API compatibility during upgrade
     req.__set_query_id(TUniqueId());
     req.__set_done(is_done);
@@ -272,13 +274,13 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
 void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
     decltype(_profile_map) profile_copy;
     decltype(_load_channel_profile_map) load_channel_profile_copy;
-
+    VLOG_DEBUG << "Beging reporting profile";
     {
         std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
         _profile_map.swap(profile_copy);
         _load_channel_profile_map.swap(load_channel_profile_copy);
     }
-
+    VLOG_DEBUG << "After swap profile map";
     // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
     for (auto& entry : profile_copy) {
         const auto& query_id = entry.first;
@@ -344,7 +346,7 @@ void RuntimeQueryStatisticsMgr::register_query_statistics(std::string query_id,
 }
 
 void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     // 1 get query statistics map
     std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
     std::map<std::string, std::pair<bool, bool>> qs_status; // <finished, timeout>
@@ -518,7 +520,7 @@ void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int6
 
 void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
 
     // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
     for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {

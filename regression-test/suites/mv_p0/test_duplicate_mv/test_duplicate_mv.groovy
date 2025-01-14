@@ -39,6 +39,8 @@ suite ("test_duplicate_mv") {
    sql "insert into duplicate_table select 2,3,4,5;"
    sql "insert into duplicate_table select 1,2,3,4;"
 
+    sql """alter table duplicate_table modify column k1 set stats ('row_count'='3');"""
+
     qt_select_star "select * from duplicate_table order by k1;"
 
     mv_rewrite_success("select k1, k2, k3, k4 from duplicate_table group by k1, k2, k3, k4;", "deduplicate")

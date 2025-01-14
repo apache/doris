@@ -34,6 +34,7 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -227,6 +228,51 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         if (comment != null) {
             this.comment = comment;
         }
+    }
+
+    /*
+     * make stmt by nereids
+     */
+    public CreateRoutineLoadStmt(LabelName labelName, String dbName, String name, String tableName,
+            List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
+            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
+            int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
+            long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
+            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
+            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
+            boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
+        this.labelName = labelName;
+        this.dbName = dbName;
+        this.name = name;
+        this.tableName = tableName;
+        this.loadPropertyList = loadPropertyList;
+        this.setOrigStmt(origStmt);
+        this.setUserInfo(userIdentity);
+        this.jobProperties = jobProperties;
+        this.typeName = typeName;
+        this.routineLoadDesc = routineLoadDesc;
+        this.desiredConcurrentNum = desireTaskConcurrentNum;
+        this.maxErrorNum = maxErrorNum;
+        this.maxFilterRatio = maxFilterRatio;
+        this.maxBatchIntervalS = maxBatchIntervalS;
+        this.maxBatchRows = maxBatchRows;
+        this.maxBatchSizeBytes = maxBatchSizeBytes;
+        this.execMemLimit = execMemLimit;
+        this.sendBatchParallelism = sendBatchParallelism;
+        this.timezone = timezone;
+        this.format = format;
+        this.jsonPaths = jsonPaths;
+        this.jsonRoot = jsonRoot;
+        this.enclose = enclose;
+        this.escape = escape;
+        this.workloadGroupId = workloadGroupId;
+        this.loadToSingleTablet = loadToSingleTablet;
+        this.strictMode = strictMode;
+        this.isPartialUpdate = isPartialUpdate;
+        this.stripOuterArray = stripOuterArray;
+        this.numAsString = numAsString;
+        this.fuzzyParse = fuzzyParse;
+        this.dataSourceProperties = dataSourceProperties;
     }
 
     public String getName() {

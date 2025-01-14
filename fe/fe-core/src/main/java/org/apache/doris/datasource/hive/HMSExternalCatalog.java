@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -34,6 +35,8 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -53,6 +56,7 @@ import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -85,6 +89,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private int hmsEventsBatchSizePerRpc = -1;
     private boolean enableHmsEventsIncrementalSync = false;
 
+    //for "type" = "hms" , but is iceberg table.
+    private IcebergMetadataOps icebergMetadataOps;
 
     @VisibleForTesting
     public HMSExternalCatalog() {
@@ -95,12 +101,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
      * Default constructor for HMSExternalCatalog.
      */
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment) {
+                              String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
-        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-        authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
     }
 
     @Override
@@ -113,20 +117,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
         }
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
-            enableHmsEventsIncrementalSync =
-                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
-        } else {
-            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
-        }
-
-        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
-            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
-        } else {
-            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
-        }
-
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
@@ -164,9 +154,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        if (authenticator == null) {
+        this.preExecutionAuthenticator = new PreExecutionAuthenticator();
+        if (this.authenticator == null) {
             AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
         }
 
         HiveConf hiveConf = null;
@@ -238,7 +230,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(getQualifiedName(dbName)));
+                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
             }
         } else {
             Long dbId = dbNameToId.remove(dbName);
@@ -256,10 +248,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
 
-        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType, false);
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.updateCache(dbName, db, Util.genIdByName(getQualifiedName(dbName)));
+                metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                        Util.genIdByName(name, db.getFullName()));
             }
         } else {
             dbNameToId.put(dbName, dbId);
@@ -282,6 +275,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+        }
+
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
+            enableHmsEventsIncrementalSync =
+                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
+        } else {
+            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
+        }
+
+        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
+            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
+        } else {
+            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
         }
     }
 
@@ -382,6 +389,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     throw new AnalysisException("Unsupported meta function type: " + this);
             }
         }
+    }
+
+    public IcebergMetadataOps getIcebergMetadataOps() {
+        makeSureInitialized();
+        if (icebergMetadataOps == null) {
+            HiveCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
+            icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
+        }
+        return icebergMetadataOps;
     }
 }
 

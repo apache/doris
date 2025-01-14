@@ -84,7 +84,6 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
     bool is_comparable() const override {
         return key_type->is_comparable() && value_type->is_comparable();

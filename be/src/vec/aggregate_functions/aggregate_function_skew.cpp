@@ -25,6 +25,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 AggregateFunctionPtr type_dispatch_for_aggregate_function_skew(const DataTypes& argument_types,
@@ -45,7 +46,8 @@ AggregateFunctionPtr type_dispatch_for_aggregate_function_skew(const DataTypes& 
 
 AggregateFunctionPtr create_aggregate_function_skew(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     if (argument_types.size() != 1) {
         LOG(WARNING) << "aggregate function " << name << " requires exactly 1 argument";
         return nullptr;

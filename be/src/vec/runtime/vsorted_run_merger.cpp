@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -29,6 +30,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
@@ -96,6 +98,14 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         }
         _pending_cursor = nullptr;
     }
+
+    Defer set_limit([&]() {
+        _num_rows_returned += output_block->rows();
+        if (_limit != -1 && _num_rows_returned >= _limit) {
+            output_block->set_num_rows(output_block->rows() - (_num_rows_returned - _limit));
+            *eos = true;
+        }
+    });
 
     if (_priority_queue.empty()) {
         *eos = true;
@@ -195,11 +205,6 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         }
     }
 
-    _num_rows_returned += output_block->rows();
-    if (_limit != -1 && _num_rows_returned >= _limit) {
-        output_block->set_num_rows(output_block->rows() - (_num_rows_returned - _limit));
-        *eos = true;
-    }
     return Status::OK();
 }
 

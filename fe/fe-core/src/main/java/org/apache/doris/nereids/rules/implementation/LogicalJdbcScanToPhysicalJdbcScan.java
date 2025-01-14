@@ -35,8 +35,7 @@ public class LogicalJdbcScanToPhysicalJdbcScan extends OneImplementationRuleFact
                 jdbcScan.getTable(),
                 jdbcScan.getQualifier(),
                 Optional.empty(),
-                jdbcScan.getLogicalProperties(),
-                jdbcScan.getConjuncts())
+                jdbcScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_JDBC_SCAN_TO_PHYSICAL_JDBC_SCAN_RULE);
     }
 }

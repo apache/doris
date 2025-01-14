@@ -67,6 +67,7 @@ class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
     lucene::store::RAMDirectory* _ram_dir = nullptr;
     CL_NS(store)::IndexInput* _stream = nullptr;
+    // The life cycle of _entries should be consistent with that of the DorisCompoundReader.
     EntriesType* _entries = nullptr;
     std::mutex _this_lock;
     bool _closed = false;

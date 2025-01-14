@@ -103,10 +103,15 @@ Status BaseDeltaWriter::init() {
     if (_is_init) {
         return Status::OK();
     }
+    auto* t_ctx = doris::thread_context(true);
+    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
+    if (t_ctx) {
+        wg_sptr = t_ctx->workload_group().lock();
+    }
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
-            _rowset_builder->get_partial_update_info(), nullptr,
+            _rowset_builder->get_partial_update_info(), wg_sptr,
             _rowset_builder->tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
@@ -249,7 +254,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
         for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(*column);
+            const TabletIndex* index_meta = tablet_schema->inverted_index(*column);
             if (index_meta) {
                 indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
             }

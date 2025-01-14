@@ -33,6 +33,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/json/path_in_data.h"
@@ -44,7 +45,7 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 DataTypeObject::DataTypeObject(const String& schema_format_, bool is_nullable_)
         : schema_format(to_lower(schema_format_)), is_nullable(is_nullable_) {}
 bool DataTypeObject::equals(const IDataType& rhs) const {
@@ -115,7 +116,8 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
-        *reinterpret_cast<uint32_t*>(buf) = meta_binary.size();
+        // Safe cast
+        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(meta_binary.size());
         buf += sizeof(uint32_t);
         memcpy(buf, meta_binary.data(), meta_binary.size());
         buf += meta_binary.size();
@@ -124,10 +126,11 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
         buf = type->serialize(entry->data.get_finalized_column(), buf, be_exec_version);
     }
     // serialize num of subcolumns
-    *reinterpret_cast<uint32_t*>(size_pos) = num_of_columns;
+    // Safe case
+    *reinterpret_cast<uint32_t*>(size_pos) = static_cast<UInt32>(num_of_columns);
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
-        *reinterpret_cast<uint32_t*>(buf) = column_object.rows();
+        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(column_object.rows());
         buf += sizeof(uint32_t);
     }
 
@@ -183,13 +186,13 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
 std::string DataTypeObject::to_string(const IColumn& column, size_t row_num) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     std::string res;
-    static_cast<void>(variant.serialize_one_row_to_string(row_num, &res));
+    static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), &res));
     return res;
 }
 
 void DataTypeObject::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
-    static_cast<void>(variant.serialize_one_row_to_string(row_num, ostr));
+    static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), ostr));
 }
 
 } // namespace doris::vectorized

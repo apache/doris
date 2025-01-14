@@ -327,4 +327,11 @@ bool validate_utf8(const char* src, size_t len) {
     return validate_utf8_naive(src, len);
 }
 #endif
+
+bool validate_utf8(const TFileScanRangeParams& params, const char* src, size_t len) {
+    if (params.__isset.file_attributes && !params.file_attributes.enable_text_validate_utf8) {
+        return true;
+    }
+    return validate_utf8(src, len);
+}
 } // namespace doris

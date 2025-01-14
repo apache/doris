@@ -190,7 +190,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
-        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        // don't generate uniform slot
+        // TODO: this need be supported later
     }
 
     @Override

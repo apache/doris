@@ -169,7 +169,7 @@ suite("test_schema_change_unique", "p0") {
         }
     }
 
-    sql """ alter table ${tableName3} add column v14 int NOT NULL default "1" after k13 """
+    sql """ alter table ${tableName3} add column v14 int REPLACE NOT NULL default "1" after k13 """
     sql """ insert into ${tableName3} values (10001, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
 

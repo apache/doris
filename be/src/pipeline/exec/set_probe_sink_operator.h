@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -60,6 +61,9 @@ private:
     vectorized::ColumnRawPtrs _probe_columns;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+
+    RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -96,8 +100,6 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    bool require_shuffled_data_distribution() const override { return true; }
-
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 
 private:
@@ -115,4 +117,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -30,6 +30,7 @@ class PartitionField;
 }; // namespace iceberg
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 class IColumn;
 class PartitionColumnTransform;
@@ -152,8 +153,8 @@ public:
         ColumnPtr string_column_ptr;
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             string_column_ptr = nullable_column->get_nested_column_ptr();
             is_nullable = true;
@@ -174,7 +175,7 @@ public:
         temp_arguments[0] = 0; // str column
         temp_arguments[1] = 1; // pos
         temp_arguments[2] = 2; // width
-        size_t result_column_id = 3;
+        uint32_t result_column_id = 3;
 
         SubstringUtil::substring_execute(temp_block, temp_arguments, result_column_id,
                                          temp_block.rows());
@@ -210,7 +211,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -269,7 +270,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -331,8 +332,8 @@ public:
         ColumnPtr column_ptr;
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
             is_nullable = true;
@@ -341,7 +342,7 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr);
+        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
         auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
@@ -390,7 +391,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -453,7 +454,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -517,7 +518,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -596,7 +597,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -623,9 +624,9 @@ public:
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
 
-            int32_t days_from_unix_epoch = value.daynr() - 719528;
-            Int64 long_value = static_cast<Int64>(days_from_unix_epoch);
-            uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+            int64_t days_from_unix_epoch = value.daynr() - 719528;
+            uint32_t hash_value = HashUtil::murmur_hash3_32(&days_from_unix_epoch,
+                                                            sizeof(days_from_unix_epoch), 0);
 
             *p_out = (hash_value & INT32_MAX) % _bucket_num;
             ++p_in;
@@ -664,7 +665,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -745,7 +746,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -810,7 +811,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -836,7 +837,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value);
+            // datetime_diff<YEAR> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value));
             ++p_in;
             ++p_out;
         }
@@ -880,7 +883,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -906,7 +909,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // datetime_diff<YEAR> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -950,7 +955,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -976,7 +981,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value);
+            // datetime_diff<MONTH> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value));
             ++p_in;
             ++p_out;
         }
@@ -1020,7 +1027,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1046,7 +1053,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // datetime_diff<MONTH> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -1090,7 +1099,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1116,7 +1125,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);
+            // datetime_diff<DAY> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value));
             ++p_in;
             ++p_out;
         }
@@ -1166,7 +1177,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1192,7 +1203,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // datetime_diff<DAY> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -1241,7 +1254,7 @@ public:
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
-        CHECK(column_ptr != nullptr);
+        CHECK(column_ptr);
 
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
@@ -1267,7 +1280,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // hour diff would't overflow int32
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -1313,7 +1328,7 @@ public:
         ColumnPtr column_ptr;
         ColumnPtr null_map_column_ptr;
         if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
+                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         } else {
@@ -1333,3 +1348,4 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+#include "common/compile_check_end.h"

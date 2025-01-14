@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_query_tvf") {
+suite("test_jdbc_query_tvf", "p0,external,external_docker") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -25,7 +25,7 @@ suite("test_jdbc_query_tvf") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String user = "test_jdbc_user";
         String pwd = '123456';
-        String catalog_name = "mysql_jdbc_catalog";
+        String catalog_name = "test_jdbc_query_tvf";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
 
         sql """drop catalog if exists ${catalog_name} """

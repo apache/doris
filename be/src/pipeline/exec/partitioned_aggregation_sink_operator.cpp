@@ -27,6 +27,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
         : Base(parent, state) {
@@ -202,7 +203,7 @@ size_t PartitionedAggSinkOperatorX::revocable_mem_size(RuntimeState* state) cons
 
 Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
@@ -319,4 +320,5 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
             std::move(spill_runnable));
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

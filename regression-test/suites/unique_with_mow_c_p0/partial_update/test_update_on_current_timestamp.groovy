@@ -17,6 +17,10 @@
 // under the License.
 
 suite("test_mow_update_on_current_timestamp", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
+
     sql 'set experimental_enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'

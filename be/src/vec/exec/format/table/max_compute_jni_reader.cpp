@@ -77,7 +77,11 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
             {"start_offset", std::to_string(_range.start_offset)},
             {"split_size", std::to_string(_range.size)},
             {"required_fields", required_fields.str()},
-            {"columns_types", columns_types.str()}};
+            {"columns_types", columns_types.str()},
+
+            {"connect_timeout", std::to_string(_max_compute_params.connect_timeout)},
+            {"read_timeout", std::to_string(_max_compute_params.read_timeout)},
+            {"retry_count", std::to_string(_max_compute_params.retry_times)}};
     _jni_connector = std::make_unique<JniConnector>(
             "org/apache/doris/maxcompute/MaxComputeJniScanner", params, column_names);
 }

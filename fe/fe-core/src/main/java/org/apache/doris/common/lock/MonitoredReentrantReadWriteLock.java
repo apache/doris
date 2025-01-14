@@ -17,6 +17,12 @@
 
 package org.apache.doris.common.lock;
 
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.qe.ConnectContext;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -24,6 +30,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * monitoring capabilities for read and write locks.
  */
 public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
+
+    private static final Logger LOG = LogManager.getLogger(MonitoredReentrantReadWriteLock.class);
     // Monitored read and write lock instances
     private final ReadLock readLock = new ReadLock(this);
     private final WriteLock writeLock = new WriteLock(this);
@@ -97,6 +105,11 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
         public void lock() {
             super.lock();
             monitor.afterLock();
+            if (isFair() && getReadHoldCount() > 0) {
+                LOG.warn(" read lock count is {}, write lock count is {}, stack is {}, query id is {}",
+                        getReadHoldCount(), getWriteHoldCount(), Thread.currentThread().getStackTrace(),
+                        ConnectContext.get() == null ? "" : DebugUtil.printId(ConnectContext.get().queryId()));
+            }
         }
 
         /**

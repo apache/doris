@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_change_on_renamed_column") {
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
@@ -67,7 +71,7 @@ suite("test_index_change_on_renamed_column") {
             `id` INT COMMENT "",
             `s` STRING COMMENT ""
         )
-        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ( "replication_num" = "1" );
         """
 
@@ -99,7 +103,14 @@ suite("test_index_change_on_renamed_column") {
     assertEquals(show_result[0][2], "idx_s")
 
     qt_select2 """ SELECT * FROM ${tableName} order by id; """
-    qt_select3 """ SELECT * FROM ${tableName} where s1 match 'welcome'; """
+    qt_select3 """ SELECT /*+ SET_VAR(enable_inverted_index_query = true) */ * FROM ${tableName} where s1 match 'welcome'; """
+
+    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+    String tablet_id = tablets[0].TabletId
+    String backend_id = tablets[0].BackendId
+    String ip = backendId_to_backendIP.get(backend_id)
+    String port = backendId_to_backendHttpPort.get(backend_id)
+    check_nested_index_file(ip, port, tablet_id, 3, 1, "V2")
 
     // drop inverted index on renamed column
     sql """ alter table ${tableName} drop index idx_s; """

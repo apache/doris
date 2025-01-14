@@ -71,7 +71,7 @@ public class GbaseJdbcExecutor extends BaseJdbcExecutor {
             case CHAR:
             case VARCHAR:
             case STRING:
-                String stringVal = resultSet.getString(columnIndex + 1);
+                String stringVal = (String) resultSet.getObject(columnIndex + 1);
                 return resultSet.wasNull() ? null : stringVal;
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());

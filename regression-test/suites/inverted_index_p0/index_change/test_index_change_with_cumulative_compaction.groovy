@@ -40,6 +40,23 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    def trigger_compaction_with_retry = {table_name, compaction_type = "cumulative", max_retries = 10, delay_ms = 2000 ->
+        def retry_count = 0
+        while (true) {
+            try {
+                trigger_and_wait_compaction(table_name, compaction_type)
+                return // Success
+            } catch (Exception e) {
+                retry_count++
+                if (retry_count >= max_retries) {
+                    throw new Exception("Failed to complete ${compaction_type} compaction after ${max_retries} attempts", e)
+                }
+                logger.warn("Compaction attempt ${retry_count} failed: ${e.getMessage()}")
+                Thread.sleep(delay_ms)
+            }
+        }
+    }
+
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
         String[][] backends = sql """ show backends; """
@@ -142,36 +159,6 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
         wait_for_latest_op_on_table_finish(tableName, timeout)
 
-        // trigger compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X POST http://")
-            sb.append(backendId_to_backendIP.get(backend_id))
-            sb.append(":")
-            sb.append(backendId_to_backendHttpPort.get(backend_id))
-            sb.append("/api/compaction/run?tablet_id=")
-            sb.append(tablet_id)
-            sb.append("&compact_type=cumulative")
-
-            String command = sb.toString()
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
-
         // build index
         if (!isCloudMode()) {
             sql "build index idx_user_id on ${tableName}"
@@ -179,34 +166,8 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
             sql "build index idx_city on ${tableName}"
         }
 
-        // wait for all compactions done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                StringBuilder sb = new StringBuilder();
-                sb.append("curl -X GET http://")
-                sb.append(backendId_to_backendIP.get(backend_id))
-                sb.append(":")
-                sb.append(backendId_to_backendHttpPort.get(backend_id))
-                sb.append("/api/compaction/run_status?tablet_id=")
-                sb.append(tablet_id)
-
-                String command = sb.toString()
-                logger.info(command)
-                process = command.execute()
-                code = process.waitFor()
-                err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                out = process.getText()
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
+        // trigger compactions for all tablets in ${tableName}
+        trigger_compaction_with_retry(tableName, "cumulative")
 
         int rowCount = 0
         for (def tablet in tablets) {

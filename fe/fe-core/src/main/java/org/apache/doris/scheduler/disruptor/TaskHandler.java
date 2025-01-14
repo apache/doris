@@ -68,6 +68,8 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
             taskExecutor.execute();
         } catch (JobException e) {
             log.warn("Memory task execute failed, taskId: {}, msg : {}", taskId, e.getMessage());
+        } finally {
+            transientTaskManager.removeMemoryTask(taskId);
         }
     }
 

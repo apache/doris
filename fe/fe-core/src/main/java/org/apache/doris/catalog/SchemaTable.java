@@ -487,8 +487,8 @@ public class SchemaTable extends Table {
                             .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("SPILL_THRESHOLD_LOW_WATERMARK", ScalarType.createVarchar(256))
-                            .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
+                            .column("MEMORY_LOW_WATERMARK", ScalarType.createVarchar(256))
+                            .column("MEMORY_HIGH_WATERMARK", ScalarType.createVarchar(256))
                             .column("TAG", ScalarType.createVarchar(256))
                             .column("READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("REMOTE_READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
@@ -556,6 +556,15 @@ public class SchemaTable extends Table {
                                     .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
+            .put("file_cache_statistics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_statistics", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BE_IP", ScalarType.createStringType())
+                                    .column("CACHE_PATH", ScalarType.createStringType())
+                                    .column("METRIC_NAME", ScalarType.createStringType())
+                                    .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
             .put("catalog_meta_cache_statistics",

@@ -21,7 +21,6 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
-import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.disruptor.TimerJobEvent;
 import org.apache.doris.job.task.AbstractTask;
 
@@ -40,9 +39,9 @@ import java.util.Map;
 @Log4j2
 public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<TimerJobEvent<T>> {
 
-    private final Map<JobType, TaskDisruptor<T>> disruptorMap;
+    private final Map<JobType, TaskProcessor> disruptorMap;
 
-    public DispatchTaskHandler(Map<JobType, TaskDisruptor<T>> disruptorMap) {
+    public DispatchTaskHandler(Map<JobType, TaskProcessor> disruptorMap) {
         this.disruptorMap = disruptorMap;
     }
 
@@ -66,8 +65,8 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
                 }
                 JobType jobType = event.getJob().getJobType();
                 for (AbstractTask task : tasks) {
-                    if (!disruptorMap.get(jobType).publishEvent(task, event.getJob().getJobConfig())) {
-                        task.cancel();
+                    if (!disruptorMap.get(jobType).addTask(task)) {
+                        task.cancel(true);
                         continue;
                     }
                     log.info("dispatch timer job success, job id is {},  task id is {}",

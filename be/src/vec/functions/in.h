@@ -194,7 +194,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto* in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
@@ -216,7 +216,7 @@ public:
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                                materialized_column);
+                                materialized_column.get());
                 const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                                null_col_ptr->get_null_map_column())
                                                .get_data();

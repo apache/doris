@@ -30,6 +30,7 @@ import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileType;
 
 import java.util.ArrayList;
@@ -83,7 +84,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
     }
 
     @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
         return new GroupCommitScanNode(id, desc, tableId);
     }
 

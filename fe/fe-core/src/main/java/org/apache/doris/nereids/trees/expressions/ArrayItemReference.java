@@ -92,7 +92,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return child(0).toSql();
     }
 
@@ -121,7 +121,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(exprId);
     }
 

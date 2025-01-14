@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import java.util.Map;
 
@@ -29,6 +30,7 @@ public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartiti
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult) throws AnalysisException {
-        lastResult.setItems(mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems());
+        MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
+        lastResult.setItems(relatedTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(relatedTable)));
     }
 }

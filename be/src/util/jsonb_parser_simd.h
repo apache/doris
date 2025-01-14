@@ -85,16 +85,16 @@ public:
 
     // parse a UTF-8 JSON string
     bool parse(const std::string& str, hDictInsert handler = nullptr) {
-        return parse(str.c_str(), (unsigned int)str.size(), handler);
+        return parse(str.c_str(), str.size(), handler);
     }
 
     // parse a UTF-8 JSON c-style string (NULL terminated)
     bool parse(const char* c_str, hDictInsert handler = nullptr) {
-        return parse(c_str, (unsigned int)strlen(c_str), handler);
+        return parse(c_str, strlen(c_str), handler);
     }
 
     // parse a UTF-8 JSON string with length
-    bool parse(const char* pch, unsigned int len, hDictInsert handler = nullptr) {
+    bool parse(const char* pch, size_t len, hDictInsert handler = nullptr) {
         // reset state before parse
         reset();
 

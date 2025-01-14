@@ -176,7 +176,7 @@ suite("test_cloud_mow_broker_load_with_retry", "nonConcurrent") {
                 ++i
             }
         } finally {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
             sql "DROP TABLE IF EXISTS ${table};"
             GetDebugPoint().clearDebugPointsForAllBEs()
         }

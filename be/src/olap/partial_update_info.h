@@ -42,11 +42,12 @@ struct RowsetId;
 class BitmapValue;
 
 struct PartialUpdateInfo {
-    void init(const TabletSchema& tablet_schema, UniqueKeyUpdateModePB unique_key_update_mode,
-              const std::set<std::string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
-              const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
-              int64_t cur_max_version = -1);
+    Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
+                UniqueKeyUpdateModePB unique_key_update_mode,
+                const std::set<std::string>& partial_update_cols, bool is_strict_mode,
+                int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
+                const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
+                int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
@@ -114,10 +115,11 @@ class FixedReadPlan {
 public:
     void prepare_to_read(const RowLocation& row_location, size_t pos);
     Status read_columns_by_plan(const TabletSchema& tablet_schema,
-                                const std::vector<uint32_t> cids_to_read,
+                                std::vector<uint32_t> cids_to_read,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index,
-                                const signed char* __restrict delete_signs = nullptr) const;
+                                bool force_read_old_delete_signs,
+                                const signed char* __restrict cur_delete_signs = nullptr) const;
     Status fill_missing_columns(RowsetWriterContext* rowset_ctx,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 const TabletSchema& tablet_schema, vectorized::Block& full_block,

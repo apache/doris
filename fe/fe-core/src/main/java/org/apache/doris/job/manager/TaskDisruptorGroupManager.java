@@ -22,13 +22,10 @@ import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.disruptor.ExecuteTaskEvent;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.disruptor.TimerJobEvent;
-import org.apache.doris.job.executor.DefaultTaskExecutorHandler;
 import org.apache.doris.job.executor.DispatchTaskHandler;
-import org.apache.doris.job.extensions.insert.InsertTask;
-import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.executor.TaskProcessor;
 import org.apache.doris.job.task.AbstractTask;
 
 import com.lmax.disruptor.EventFactory;
@@ -44,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
-    private final Map<JobType, TaskDisruptor<T>> disruptorMap = new EnumMap<>(JobType.class);
+    private final Map<JobType, TaskProcessor> disruptorMap = new EnumMap<>(JobType.class);
 
     @Getter
     private TaskDisruptor<TimerJobEvent<AbstractJob>> dispatchDisruptor;
@@ -65,8 +62,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
-    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
-    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.insert_task_queue_size);
+    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.mtmv_task_queue_size);
 
 
     public void init() {
@@ -92,45 +89,48 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     }
 
     private void registerInsertDisruptor() {
-        EventFactory<ExecuteTaskEvent<InsertTask>> insertEventFactory = ExecuteTaskEvent.factory();
         ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-task-execute");
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_INSERT_THREAD_NUM];
-        for (int i = 0; i < DISPATCH_INSERT_THREAD_NUM; i++) {
-            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
-        }
-        EventTranslatorVararg<ExecuteTaskEvent<InsertTask>> eventTranslator =
-                (event, sequence, args) -> {
-                    event.setTask((InsertTask) args[0]);
-                    event.setJobConfig((JobExecutionConfiguration) args[1]);
-                };
-        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
-                insertTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
-                insertTaskExecutorHandlers, eventTranslator);
-        disruptorMap.put(JobType.INSERT, insertDisruptor);
+
+
+        TaskProcessor insertTaskProcessor = new TaskProcessor(DISPATCH_INSERT_THREAD_NUM,
+                DISPATCH_INSERT_TASK_QUEUE_SIZE, insertTaskThreadFactory);
+        disruptorMap.put(JobType.INSERT, insertTaskProcessor);
     }
 
     private void registerMTMVDisruptor() {
-        EventFactory<ExecuteTaskEvent<MTMVTask>> mtmvEventFactory = ExecuteTaskEvent.factory();
+
         ThreadFactory mtmvTaskThreadFactory = new CustomThreadFactory("mtmv-task-execute");
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_MTMV_THREAD_NUM];
-        for (int i = 0; i < DISPATCH_MTMV_THREAD_NUM; i++) {
-            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<MTMVTask>();
-        }
-        EventTranslatorVararg<ExecuteTaskEvent<MTMVTask>> eventTranslator =
-                (event, sequence, args) -> {
-                    event.setTask((MTMVTask) args[0]);
-                    event.setJobConfig((JobExecutionConfiguration) args[1]);
-                };
-        TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
-                mtmvTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
-                insertTaskExecutorHandlers, eventTranslator);
-        disruptorMap.put(JobType.MV, mtmvDisruptor);
+        TaskProcessor mtmvTaskProcessor = new TaskProcessor(DISPATCH_MTMV_THREAD_NUM,
+                DISPATCH_MTMV_TASK_QUEUE_SIZE, mtmvTaskThreadFactory);
+        disruptorMap.put(JobType.MV, mtmvTaskProcessor);
     }
 
     public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
                                        JobExecutionConfiguration jobExecutionConfiguration) {
-        return disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
+
+
+        return disruptorMap.get(jobType).addTask(task);
     }
 
 
+    /**
+     * Normalizes the given size to the nearest power of two.
+     * This method ensures that the size is a power of two, which is often required for optimal
+     * performance in certain data structures like ring buffers.
+     *
+     * @param size The input size to be normalized.
+     * @return The nearest power of two greater than or equal to the input size.
+     */
+    public static int normalizeRingbufferSize(int size) {
+        int ringBufferSize = size - 1;
+        if (size < 1) {
+            return DEFAULT_RING_BUFFER_SIZE;
+        }
+        ringBufferSize |= ringBufferSize >>> 1;
+        ringBufferSize |= ringBufferSize >>> 2;
+        ringBufferSize |= ringBufferSize >>> 4;
+        ringBufferSize |= ringBufferSize >>> 8;
+        ringBufferSize |= ringBufferSize >>> 16;
+        return ringBufferSize + 1;
+    }
 }

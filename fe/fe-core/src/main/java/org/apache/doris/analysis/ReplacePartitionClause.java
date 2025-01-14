@@ -77,6 +77,20 @@ public class ReplacePartitionClause extends AlterTableClause {
                 properties, PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
     }
 
+    // for nereids
+    public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
+            boolean isForce, Map<String, String> properties,
+            boolean isStrictRange, boolean useTempPartitionName) {
+        super(AlterOpType.REPLACE_PARTITION);
+        this.partitionNames = partitionNames;
+        this.tempPartitionNames = tempPartitionNames;
+        this.needTableStable = false;
+        this.forceDropOldPartition = isForce;
+        this.properties = properties;
+        this.isStrictRange = isStrictRange;
+        this.useTempPartitionName = useTempPartitionName;
+    }
+
     public List<String> getPartitionNames() {
         return partitionNames.getPartitionNames();
     }

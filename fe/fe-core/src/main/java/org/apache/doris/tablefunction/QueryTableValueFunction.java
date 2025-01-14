@@ -28,6 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,5 +88,5 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
     @Override
-    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
+    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
 }

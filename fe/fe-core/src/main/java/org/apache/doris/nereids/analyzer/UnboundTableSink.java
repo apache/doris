@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
@@ -35,6 +34,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -136,11 +136,6 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -181,5 +176,13 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
     @Override
     public List<Slot> computeOutput() {
         throw new UnboundException("output");
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("UnboundTableSink",
+                "nameParts", StringUtils.join(nameParts, "."),
+                "colNames", colNames,
+                "hints", hints);
     }
 }

@@ -118,16 +118,17 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         }
     };
-    const vectorized::IColumn* column = column_ptr;
+    const vectorized::IColumn* column = column_ptr.get();
     if (type_ptr->is_nullable()) {
-        auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+        const auto* nullable_column =
+                assert_cast<const vectorized::ColumnNullable*>(column_ptr.get());
         if (nullable_column->is_null_at(row)) {
             fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
             return Status::OK();
         }
         column = nullable_column->get_nested_column_ptr().get();
     } else {
-        column = column_ptr;
+        column = column_ptr.get();
     }
     auto [item, size] = column->get_data_at(row);
     switch (type.type) {

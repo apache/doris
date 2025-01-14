@@ -55,11 +55,16 @@ public class Storage {
     public static final String IMAGE_NEW = "image.ckpt";
     public static final String VERSION_FILE = "VERSION";
     public static final String ROLE_FILE = "ROLE";
+    public static final String DEPLOY_MODE_FILE = "DEPLOY_MODE";
+    public static final String DEPLOY_MODE = "deploy_mode";
+    public static final String CLOUD_MODE = "cloud";
+    public static final String LOCAL_MODE = "local";
 
     private int clusterID = 0;
     private String token;
     private FrontendNodeType role = FrontendNodeType.UNKNOWN;
     private String nodeName;
+    private String deployMode;
     private long editsSeq;
     private long latestImageSeq = 0;
     private long latestValidatedImageSeq = 0;
@@ -116,6 +121,14 @@ public class Storage {
             nodeName = prop.getProperty(NODE_NAME, null);
         }
 
+        File modeFile = getModeFile();
+        if (modeFile.isFile()) {
+            try (FileInputStream in = new FileInputStream(modeFile)) {
+                prop.load(in);
+            }
+            deployMode = prop.getProperty(DEPLOY_MODE);
+        }
+
         // Find the latest two images
         File dir = new File(metaDir);
         File[] children = dir.listFiles();
@@ -163,6 +176,14 @@ public class Storage {
 
     public FrontendNodeType getRole() {
         return role;
+    }
+
+    public String getDeployMode() {
+        return deployMode;
+    }
+
+    public void setDeployMode(String deployMode) {
+        this.deployMode = deployMode;
     }
 
     public String getNodeName() {
@@ -222,6 +243,12 @@ public class Storage {
         properties.setProperty(NODE_NAME, nameNode);
 
         writePropertiesToFile(properties, ROLE_FILE);
+    }
+
+    public void writeClusterMode() throws IOException {
+        Properties properties = new Properties();
+        properties.setProperty(DEPLOY_MODE, deployMode);
+        writePropertiesToFile(properties, DEPLOY_MODE_FILE);
     }
 
     private void writePropertiesToFile(Properties properties, String fileName) throws IOException {
@@ -285,6 +312,10 @@ public class Storage {
 
     public final File getRoleFile() {
         return new File(metaDir, ROLE_FILE);
+    }
+
+    public final File getModeFile() {
+        return new File(metaDir, DEPLOY_MODE_FILE);
     }
 
     public File getCurrentEditsFile() {

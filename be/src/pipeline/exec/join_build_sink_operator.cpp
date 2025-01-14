@@ -23,7 +23,7 @@
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                               LocalSinkStateInfo& info) {
@@ -33,15 +33,11 @@ Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* stat
 
     PipelineXSinkLocalState<SharedStateArg>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<SharedStateArg>::profile(),
-                                      "BuildRows", TUnit::UNIT);
 
     _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "PublishRuntimeFilterTime");
-    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
-                                              "RuntimeFilterComputeTime");
-    _runtime_filter_init_timer =
-            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "RuntimeFilterInitTime");
+    _runtime_filter_compute_timer =
+            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "BuildRuntimeFilterTime");
     return Status::OK();
 }
 
@@ -82,6 +78,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join),
           _runtime_filter_descs(tnode.runtime_filters) {
+    DataSinkOperatorX<LocalStateType>::_is_serial_operator =
+            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||

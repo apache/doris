@@ -234,8 +234,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
-                            maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000,
-                            taskKafkaProgress, isMultiTable());
+                            getTimeout() * 1000, taskKafkaProgress, isMultiTable(), -1, false);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -367,6 +366,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void unprotectUpdateProgress() throws UserException {
+        // For cloud mode, should update cloud progress from meta service,
+        // then update progress with default offset from Kafka if necessary.
+        if (Config.isCloudMode()) {
+            updateCloudProgress();
+        }
         updateNewPartitionProgress();
     }
 

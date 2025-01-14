@@ -55,7 +55,7 @@ using FunctionWeeksDiff =
 using FunctionHoursDiff =
         FunctionDateOrDateTimeComputation<HoursDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
 using FunctionMinutesDiff =
-        FunctionDateOrDateTimeComputation<MintueSDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+        FunctionDateOrDateTimeComputation<MintuesDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
 using FunctionSecondsDiff =
         FunctionDateOrDateTimeComputation<SecondsDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
 
@@ -68,6 +68,7 @@ struct NowFunctionName {
     static constexpr auto name = "now";
 };
 
+//TODO: remove the inter-layer CurrentDateTimeImpl
 using FunctionNow = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, false>>;
 
 using FunctionNowWithPrecision =

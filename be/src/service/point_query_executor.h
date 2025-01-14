@@ -276,12 +276,16 @@ struct Metrics {
               init_key_ns(TUnit::TIME_NS),
               lookup_key_ns(TUnit::TIME_NS),
               lookup_data_ns(TUnit::TIME_NS),
-              output_data_ns(TUnit::TIME_NS) {}
+              output_data_ns(TUnit::TIME_NS),
+              load_segment_key_stage_ns(TUnit::TIME_NS),
+              load_segment_data_stage_ns(TUnit::TIME_NS) {}
     RuntimeProfile::Counter init_ns;
     RuntimeProfile::Counter init_key_ns;
     RuntimeProfile::Counter lookup_key_ns;
     RuntimeProfile::Counter lookup_data_ns;
     RuntimeProfile::Counter output_data_ns;
+    RuntimeProfile::Counter load_segment_key_stage_ns;
+    RuntimeProfile::Counter load_segment_data_stage_ns;
     OlapReaderStatistics read_stats;
     size_t row_cache_hits = 0;
     bool hit_lookup_cache = false;
@@ -297,7 +301,9 @@ public:
 
     Status lookup_up();
 
-    std::string print_profile();
+    void print_profile();
+
+    const OlapReaderStatistics& read_stats() const { return _read_stats; }
 
 private:
     Status _init_keys(const PTabletKeyLookupRequest* request);

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -315,6 +316,16 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
      */
     @Override
     public FirstOrLastValue visitFirstValue(FirstValue firstValue, Void ctx) {
+        FirstOrLastValue.checkSecondParameter(firstValue);
+        if (2 == firstValue.arity()) {
+            if (firstValue.child(1).equals(BooleanLiteral.TRUE)) {
+                return firstValue;
+            } else {
+                firstValue = (FirstValue) firstValue.withChildren(firstValue.child(0));
+                windowExpression = windowExpression.withFunction(firstValue);
+            }
+        }
+
         Optional<WindowFrame> windowFrame = windowExpression.getWindowFrame();
         if (windowFrame.isPresent()) {
             WindowFrame wf = windowFrame.get();
@@ -337,6 +348,16 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary()));
         }
         return firstValue;
+    }
+
+    @Override
+    public FirstOrLastValue visitLastValue(LastValue lastValue, Void ctx) {
+        FirstOrLastValue.checkSecondParameter(lastValue);
+        if (2 == lastValue.arity() && lastValue.child(1).equals(BooleanLiteral.FALSE)) {
+            lastValue = (LastValue) lastValue.withChildren(lastValue.child(0));
+            windowExpression = windowExpression.withFunction(lastValue);
+        }
+        return lastValue;
     }
 
     /**

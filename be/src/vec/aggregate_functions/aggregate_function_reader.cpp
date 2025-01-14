@@ -30,6 +30,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 // auto spread at nullable condition, null value do not participate aggregate
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {

@@ -350,8 +350,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     CUMULATIVE_SIZE_BASED_POLICY);
-    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
-                                                          cumulative_compaction_policy);
+    const uint32_t score = _tablet->calc_compaction_score();
 
     EXPECT_EQ(15, score);
 }
@@ -372,10 +371,9 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     CUMULATIVE_SIZE_BASED_POLICY);
-    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
-                                                          cumulative_compaction_policy);
+    const uint32_t score = _tablet->calc_compaction_score();
 
-    EXPECT_EQ(7, score);
+    EXPECT_EQ(9, score);
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, calculate_cumulative_point_big_base) {

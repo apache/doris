@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_create_table") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
+
     def tableName = "cluster_key_test_create_table"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     onFinish {

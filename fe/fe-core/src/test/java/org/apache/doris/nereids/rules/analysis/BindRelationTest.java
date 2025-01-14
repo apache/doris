@@ -17,32 +17,19 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.RandomDistributionInfo;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
-import java.util.Optional;
 
 class BindRelationTest extends TestWithFeService implements GeneratedPlanPatterns {
     private static final String DB1 = "db1";
@@ -72,7 +59,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("t")),
                 connectContext, new BindRelation());
 
-        Assertions.assertTrue(plan instanceof LogicalOlapScan);
+        Assertions.assertInstanceOf(LogicalOlapScan.class, plan);
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
@@ -84,61 +71,10 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("db1", "t")),
                 connectContext, new BindRelation());
 
-        Assertions.assertTrue(plan instanceof LogicalOlapScan);
+        Assertions.assertInstanceOf(LogicalOlapScan.class, plan);
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
-    }
-
-    @Test
-    public void bindExternalRelation() {
-        connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
-        String tableName = "external_table";
-
-        List<Column> externalTableColumns = ImmutableList.of(
-                new Column("id", Type.INT),
-                new Column("name", Type.VARCHAR)
-        );
-
-        Database externalDatabase = new Database(10000, DEFAULT_CLUSTER_PREFIX + DB1);
-
-        OlapTable externalOlapTable = new OlapTable(1, tableName, externalTableColumns, KeysType.DUP_KEYS,
-                new PartitionInfo(), new RandomDistributionInfo(10)) {
-            @Override
-            public List<Column> getBaseSchema(boolean full) {
-                return externalTableColumns;
-            }
-
-            @Override
-            public boolean hasDeleteSign() {
-                return false;
-            }
-
-            @Override
-            public DatabaseIf getDatabase() {
-                return externalDatabase;
-            }
-        };
-
-        CustomTableResolver customTableResolver = qualifiedTable -> {
-            if (qualifiedTable.get(2).equals(tableName)) {
-                return externalOlapTable;
-            } else {
-                return null;
-            }
-        };
-
-        PlanChecker.from(connectContext)
-                .parse("select * from " + tableName + " as et join db1.t on et.id = t.a")
-                .customAnalyzer(Optional.of(customTableResolver)) // analyze internal relation
-                .matches(
-                        logicalJoin(
-                                logicalSubQueryAlias(
-                                    logicalOlapScan().when(r -> r.getTable() == externalOlapTable)
-                                ),
-                                logicalOlapScan().when(r -> r.getTable().getName().equals("t"))
-                        )
-                );
     }
 
     @Test
@@ -148,7 +84,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("tagg")),
                 connectContext, new BindRelation());
 
-        Assertions.assertTrue(plan instanceof LogicalAggregate);
+        Assertions.assertInstanceOf(LogicalAggregate.class, plan);
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "tagg"),
                 plan.getOutput().get(0).getQualifier());

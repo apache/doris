@@ -16,6 +16,8 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_ip_rf") {
+    sql "set enable_runtime_filter_prune=false;"
+
     sql """ DROP TABLE IF EXISTS ip_test """
     sql """ DROP TABLE IF EXISTS ip_test2 """
     sql """
@@ -57,17 +59,26 @@ suite("test_ip_rf") {
     sql "set runtime_filter_type=0;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v4=b.ip_v4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v6=b.ip_v6;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v4=b.ip_v4 and c.ip_v4=b.ip_v4;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v6=b.ip_v6 and c.ip_v6=b.ip_v6;"
     sql "set runtime_filter_type=1;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v4=b.ip_v4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v6=b.ip_v6;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v4=b.ip_v4 and c.ip_v4=b.ip_v4;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v6=b.ip_v6 and c.ip_v6=b.ip_v6;"
     sql "set runtime_filter_type=2;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v4=b.ip_v4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v6=b.ip_v6;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v4=b.ip_v4 and c.ip_v4=b.ip_v4;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v6=b.ip_v6 and c.ip_v6=b.ip_v6;"
     sql "set runtime_filter_type=4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v4=b.ip_v4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v6=b.ip_v6;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v4=b.ip_v4 and c.ip_v4=b.ip_v4;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v6=b.ip_v6 and c.ip_v6=b.ip_v6;"
     sql "set runtime_filter_type=8;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v4=b.ip_v4;"
     qt_sql "select count(*) from ip_test a, ip_test2 b where a.ip_v6=b.ip_v6;"
-   
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v4=b.ip_v4 and c.ip_v4=b.ip_v4;"
+    qt_sql "select count(*) from ip_test a, ip_test2 b, ip_test c where a.ip_v6=b.ip_v6 and c.ip_v6=b.ip_v6;"
 }

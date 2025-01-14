@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -67,6 +69,16 @@ public class ExprCostModel extends ExpressionVisitor<Double, Void> {
 
     @Override
     public Double visitLiteral(Literal literal, Void context) {
+        return 0.0;
+    }
+
+    @Override
+    public Double visitAnd(And and, Void context) {
+        return 0.0;
+    }
+
+    @Override
+    public Double visitOr(Or or, Void context) {
         return 0.0;
     }
 

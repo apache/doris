@@ -128,7 +128,7 @@ PhysicalResultSink
 -- !full_outer_join_compound_conditions --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----filter(((t1.score > 5) OR (t2.score > 5)))
+----filter(OR[(t1.score > 5),(t2.score > 5)])
 ------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[t]
 --------PhysicalOlapScan[t]

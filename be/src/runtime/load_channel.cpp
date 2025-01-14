@@ -45,8 +45,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(
-                    _load_id.to_thrift());
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(_load_id.to_thrift());
     std::shared_ptr<MemTrackerLimiter> mem_tracker = nullptr;
     WorkloadGroupPtr wg_ptr = nullptr;
 
@@ -60,7 +59,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
                 fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()));
         if (wg_id > 0) {
             WorkloadGroupPtr workload_group_ptr =
-                    ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(wg_id);
+                    ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
             if (workload_group_ptr) {
                 wg_ptr = workload_group_ptr;
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);
@@ -98,7 +97,6 @@ void LoadChannel::_init_profile() {
                                                _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
-    _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
     _handle_eos_timer = ADD_CHILD_TIMER(_self_profile, "HandleEosTime", "AddBatchTime");
     _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);

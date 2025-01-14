@@ -45,6 +45,7 @@ class DataTypeDateV2;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** DateTime stores time as unix timestamp.
 	* The value itself is independent of time zone.
@@ -143,4 +144,5 @@ constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;
 template <typename DataType>
 constexpr bool IsTimeV2Type = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

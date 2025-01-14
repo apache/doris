@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -42,6 +44,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -118,8 +121,14 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     () -> projectOutput,
                     () -> DataTrait.EMPTY_TRAIT
             );
-            PhysicalProject<? extends Plan> project = new PhysicalProject<>(projections,
+            AbstractPhysicalPlan child = ((AbstractPhysicalPlan) aggregate.child());
+            PhysicalProperties projectPhysicalProperties = new PhysicalProperties(
+                    child.getPhysicalProperties().getDistributionSpec(),
+                    child.getPhysicalProperties().getOrderSpec());
+            PhysicalProject<? extends Plan> project = new PhysicalProject<>(projections, Optional.empty(),
                     projectLogicalProperties,
+                    projectPhysicalProperties,
+                    child.getStats(),
                     aggregate.child());
             aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
                     .withAggOutput(aggOutputReplaced)

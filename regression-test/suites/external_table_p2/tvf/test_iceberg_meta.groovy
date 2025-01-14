@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_iceberg") {
-
+    String suiteName = "test_iceberg_meta"
     Boolean ignoreP2 = true;
     if (ignoreP2) {
         logger.info("disable p2 test");
@@ -54,5 +54,37 @@ suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_
                             "query_type" = "snapshots")
                             where snapshot_id = 7235593032487457798;
                         """
+         String user = "${suiteName}_user"
+         String pwd = 'C123_567p'
+         try_sql("DROP USER ${user}")
+         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+         //cloud-mode
+         if (isCloudMode()) {
+             def clusters = sql " SHOW CLUSTERS; "
+             assertTrue(!clusters.isEmpty())
+             def validCluster = clusters[0][0]
+             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+         }
+
+         sql """grant select_priv on regression_test to ${user}"""
+         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+             test {
+                   sql """
+                      select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
+                                                  "table" = "${iceberg_catalog_name}.${db}.multi_partition",
+                                                  "query_type" = "snapshots");
+                   """
+                   exception "denied"
+             }
+         }
+         sql """grant select_priv on ${iceberg_catalog_name}.${db}.multi_partition to ${user}"""
+         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+           sql """
+              select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
+                                          "table" = "${iceberg_catalog_name}.${db}.multi_partition",
+                                          "query_type" = "snapshots");
+           """
+         }
+         try_sql("DROP USER ${user}")
     }
 }

@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -68,21 +69,19 @@ public:
 
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
                                         const TypeInfo* type_info)
-            : _bf_options(bf_options),
-              _type_info(type_info),
-              _has_null(false),
-              _bf_buffer_size(0) {}
+            : _bf_options(bf_options), _type_info(type_info) {}
 
     ~BloomFilterIndexWriterImpl() override = default;
 
     Status add_values(const void* values, size_t count) override {
-        const CppType* v = (const CppType*)values;
+        const auto* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
                 if constexpr (_is_slice_type()) {
-                    CppType new_value;
-                    RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
-                    _values.insert(new_value);
+                    const auto* s = reinterpret_cast<const Slice*>(v);
+                    auto hash =
+                            DORIS_TRY(BloomFilter::hash(s->data, s->size, _bf_options.strategy));
+                    _hash_values.insert(hash);
                 } else if constexpr (_is_int128()) {
                     int128_t new_value;
                     memcpy(&new_value, v, sizeof(PackedInt128));
@@ -101,25 +100,28 @@ public:
     Status flush() override {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(BloomFilter::create(BLOCK_BLOOM_FILTER, &bf));
-        RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
-        bf->set_has_null(_has_null);
-        for (auto& v : _values) {
-            if constexpr (_is_slice_type()) {
-                Slice* s = (Slice*)&v;
-                bf->add_bytes(s->data, s->size);
-            } else {
+        if constexpr (_is_slice_type()) {
+            RETURN_IF_ERROR(bf->init(_hash_values.size(), _bf_options.fpp, _bf_options.strategy));
+            for (const auto& h : _hash_values) {
+                bf->add_hash(h);
+            }
+        } else {
+            RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
+            for (auto& v : _values) {
                 bf->add_bytes((char*)&v, sizeof(CppType));
             }
         }
+        bf->set_has_null(_has_null);
         _bf_buffer_size += bf->size();
         _bfs.push_back(std::move(bf));
         _values.clear();
+        _hash_values.clear();
         _has_null = false;
         return Status::OK();
     }
 
     Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override {
-        if (_values.size() > 0) {
+        if (_values.size() > 0 || !_hash_values.empty()) {
             RETURN_IF_ERROR(flush());
         }
         index_meta->set_type(BLOOM_FILTER_INDEX);
@@ -160,20 +162,21 @@ private:
     static constexpr bool _is_int128() { return field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT; }
 
 private:
-    BloomFilterOptions _bf_options;
-    const TypeInfo* _type_info;
+    BloomFilterOptions _bf_options {};
+    const TypeInfo* _type_info = nullptr;
     vectorized::Arena _arena;
-    bool _has_null;
-    uint64_t _bf_buffer_size;
+    bool _has_null = false;
+    uint64_t _bf_buffer_size = 0;
     // distinct values
     ValueDict _values;
     std::vector<std::unique_ptr<BloomFilter>> _bfs;
+    std::set<uint64_t> _hash_values;
 };
 
 } // namespace
 
 Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
-    const Slice* v = (const Slice*)values;
+    const auto* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
         RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
@@ -189,7 +192,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
     RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
     bf->set_has_null(_has_null);
     for (auto& v : _values) {
-        Slice* s = (Slice*)&v;
+        auto* s = (Slice*)&v;
         bf->add_bytes(s->data, s->size);
     }
     _bf_buffer_size += bf->size();
@@ -205,7 +208,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
 
 Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
                                                     ColumnIndexMetaPB* index_meta) {
-    if (_values.size() > 0) {
+    if (!_values.empty()) {
         RETURN_IF_ERROR(flush());
     }
     index_meta->set_type(BLOOM_FILTER_INDEX);
@@ -246,7 +249,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
 }
 
 Status NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
-    const Slice* src = reinterpret_cast<const Slice*>(values);
+    const auto* src = reinterpret_cast<const Slice*>(values);
     for (int i = 0; i < count; ++i, ++src) {
         if (src->size < _gram_size) {
             continue;
@@ -339,10 +342,28 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
-        res->reset(new NGramBloomFilterIndexWriterImpl(bf_options, gram_size, gram_bf_size));
+        *res = std::make_unique<NGramBloomFilterIndexWriterImpl>(bf_options, gram_size,
+                                                                 gram_bf_size);
         break;
     default:
         return Status::NotSupported("unsupported type for ngram bloom filter index:{}",
+                                    std::to_string(int(type)));
+    }
+    return Status::OK();
+}
+
+Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
+                                                    const TypeInfo* typeinfo,
+                                                    std::unique_ptr<BloomFilterIndexWriter>* res) {
+    FieldType type = typeinfo->type();
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        *res = std::make_unique<PrimaryKeyBloomFilterIndexWriterImpl>(bf_options, typeinfo);
+        break;
+    default:
+        return Status::NotSupported("unsupported type for primary key bloom filter index:{}",
                                     std::to_string(int(type)));
     }
     return Status::OK();

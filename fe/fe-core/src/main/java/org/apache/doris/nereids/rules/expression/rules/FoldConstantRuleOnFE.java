@@ -20,14 +20,20 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -50,8 +56,10 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -184,7 +192,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } else if (expr instanceof AggregateExpression && ((AggregateExpression) expr).getFunction().isDistinct()) {
             return expr;
         }
-        return expr.accept(this, ctx);
+        // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
+        //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
+        Expression newExpr = expr.accept(this, ctx);
+        if (newExpr.equals(expr)) {
+            return expr;
+        }
+        return newExpr;
     }
 
     /**
@@ -211,6 +225,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     @Override
+    public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
+        Variable variable = ExpressionAnalyzer.resolveUnboundVariable(unboundVariable);
+        return variable.getRealExpression();
+    }
+
+    @Override
     public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
         String dbName = encryptKeyRef.getDbName();
         ConnectContext connectContext = context.cascadesContext.getConnectContext();
@@ -219,6 +239,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         if ("".equals(dbName)) {
             throw new AnalysisException("DB " + dbName + "not found");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                        dbName, PrivPredicate.SHOW)) {
+            String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SHOW.getPrivs().toString(), dbName);
+            throw new AnalysisException(message);
         }
         org.apache.doris.catalog.Database database =
                 Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
@@ -384,15 +411,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // x and y
                     return and.withChildren(nonTrueLiteral);
             }
-        } else if (nullCount == 1) {
+        } else if (nullCount < and.children().size()) {
             if (nonTrueLiteral.size() == 1) {
-                // null and true
-                return new NullLiteral(BooleanType.INSTANCE);
+                return nonTrueLiteral.get(0);
+            } else {
+                // null and x
+                return and.withChildren(nonTrueLiteral);
             }
-            // null and x
-            return and.withChildren(nonTrueLiteral);
         } else {
-            // null and null
+            // null and null and null and ...
             return new NullLiteral(BooleanType.INSTANCE);
         }
     }
@@ -425,10 +452,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // x or y
                     return or.withChildren(nonFalseLiteral);
             }
-        } else if (nullCount == 1) {
+        } else if (nullCount < nonFalseLiteral.size()) {
             if (nonFalseLiteral.size() == 1) {
                 // null or false
-                return new NullLiteral(BooleanType.INSTANCE);
+                return nonFalseLiteral.get(0);
             }
             // null or x
             return or.withChildren(nonFalseLiteral);
@@ -455,7 +482,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
             } catch (AnalysisException t) {
                 if (cast.isExplicitType()) {
-                    return new NullLiteral(dataType);
+                    return cast;
                 } else {
                     // If cast is from type coercion, we don't use NULL literal and will throw exception.
                     throw t;
@@ -520,9 +547,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         Expression defaultResult = null;
         if (caseWhen.getDefaultValue().isPresent()) {
             defaultResult = caseWhen.getDefaultValue().get();
-            if (deepRewrite) {
-                defaultResult = rewrite(defaultResult, context);
-            }
         }
         if (foundNewDefault) {
             defaultResult = newDefault;
@@ -702,7 +726,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (expression instanceof AggregateFunction || expression instanceof TableGeneratingFunction) {
             return Optional.of(expression);
         }
-        if (expression instanceof PropagateNullable && ExpressionUtils.hasNullLiteral(expression.getArguments())) {
+        if (ExpressionUtils.hasNullLiteral(expression.getArguments())
+                && (expression instanceof PropagateNullLiteral || expression instanceof PropagateNullable)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
         if (!ExpressionUtils.isAllLiteral(expression.getArguments())) {
@@ -740,6 +765,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
                         .isDebugSkipFoldConstant())
                 .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
-                .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext));
+                .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext))
+                .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_FE);
     }
 }

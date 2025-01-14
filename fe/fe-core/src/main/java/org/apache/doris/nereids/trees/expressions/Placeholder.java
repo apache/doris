@@ -66,7 +66,7 @@ public class Placeholder extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "?";
     }
 

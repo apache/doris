@@ -499,6 +499,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         if (_block == nullptr && !_get_data_by_ref) {
             _block = std::make_shared<Block>(_schema.create_block(
                     _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+            _ref.block = _block;
         }
 
         if (!_is_empty() && _current_valid()) {

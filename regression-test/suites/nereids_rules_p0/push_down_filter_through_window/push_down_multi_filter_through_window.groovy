@@ -157,4 +157,24 @@ suite("push_down_multi_filter_through_window") {
         sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 or rk <= 1;")
         notContains "VPartitionTopN"
     }
+
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, sum(c2) over(order by c2 range between unbounded preceding and unbounded following) as sw from push_down_multi_predicate_through_window_t) t where rn <= 1 and sw <= 1;")
+        notContains "VPartitionTopN"
+    }
+
+    explain {
+        sql ("select * from (select sum(c2) over(order by c2 range between unbounded preceding and unbounded following) as sw, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and sw <= 1;")
+        notContains "VPartitionTopN"
+    }
+
+    explain {
+        sql ("select * from (select row_number() over(partition by c1, c2 order by c3 rows between unbounded preceding and current row) as rn, sum(c2) over(order by c2) as sw from push_down_multi_predicate_through_window_t) t where rn <= 1 and sw <= 1;")
+        notContains "VPartitionTopN"
+    }
+
+    explain {
+        sql ("select * from (select sum(c2) over(order by c2) as sw, row_number() over(partition by c1, c2 order by c3  rows between unbounded preceding and current row) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and sw <= 1;")
+        notContains "VPartitionTopN"
+    }
 }

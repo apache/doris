@@ -27,6 +27,7 @@
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class OlapTabletFinder {
 public:
@@ -76,3 +77,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

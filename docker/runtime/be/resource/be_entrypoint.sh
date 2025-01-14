@@ -41,9 +41,19 @@ DB_ADMIN_USER=${USER:-"root"}
 
 DB_ADMIN_PASSWD=$PASSWD
 
+ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
+WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
+
 log_stderr()
 {
     echo "[`date`] $@" >&2
+}
+
+function add_default_conf()
+{
+    if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+          echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+    fi
 }
 
 update_conf_from_configmap()
@@ -64,6 +74,10 @@ update_conf_from_configmap()
         if test -e $tgt ; then
             # make a backup
             mv -f $tgt ${tgt}.bak
+        fi
+        if [[ "$conffile" == "be.conf" ]]; then
+             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
+             continue
         fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
     done
@@ -223,6 +237,25 @@ function check_and_register()
     fi
 }
 
+function work_load_group_for_cgroup_path() {
+    output=$(cat /proc/filesystems | grep cgroup)
+    if [ -z "$output" ]; then
+        log_stderr "[error] The host machine does not have cgroup installed, so the workload group function will be limited."
+        exit 1
+    fi
+
+    mkdir -p /sys/fs/cgroup/cpu/doris
+    chmod 770 /sys/fs/cgroup/cpu/doris
+    chown -R root:root /sys/fs/cgroup/cpu/doris
+
+    if [[ -f "/sys/fs/cgroup/cgroup.controllers" ]]; then
+        log_stderr "[info] The host machine cgroup version: v2."
+        chmod a+w /sys/fs/cgroup/cgroup.procs
+    else
+        log_stderr "[info] The host machine cgroup version: v1."
+    fi
+}
+
 fe_addrs=$1
 if [[ "x$fe_addrs" == "x" ]]; then
     echo "need fe address as paramter!"
@@ -230,7 +263,13 @@ if [[ "x$fe_addrs" == "x" ]]; then
     exit 1
 fi
 
+if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+      log_stderr '[info] Enable workload group !'
+      work_load_group_for_cgroup_path
+fi
+
 update_conf_from_configmap
+add_default_conf
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
@@ -242,4 +281,3 @@ log_stderr "run start_be.sh"
 # befor doris 2.0.2 ,doris start with : start_xx.sh
 # sine doris 2.0.2 ,doris start with : start_xx.sh --console  doc: https://doris.apache.org/docs/dev/install/standard-deployment/#version--202
 $DORIS_HOME/bin/start_be.sh --console
-

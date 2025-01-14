@@ -65,7 +65,7 @@ MemTableWriter::~MemTableWriter() {
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
                             TabletSchemaSPtr tablet_schema,
                             std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                            ThreadPool* wg_flush_pool_ptr, bool unique_key_mow) {
+                            std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow) {
     _rowset_writer = rowset_writer;
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
@@ -77,19 +77,9 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     // create flush handler
     // by assigning segment_id to memtable before submiting to flush executor,
     // we can make sure same keys sort in the same order in all replicas.
-    if (wg_flush_pool_ptr) {
-        RETURN_IF_ERROR(
-                ExecEnv::GetInstance()
-                        ->storage_engine()
-                        .memtable_flush_executor()
-                        ->create_flush_token(_flush_token, _rowset_writer, wg_flush_pool_ptr));
-    } else {
-        RETURN_IF_ERROR(
-                ExecEnv::GetInstance()
-                        ->storage_engine()
-                        .memtable_flush_executor()
-                        ->create_flush_token(_flush_token, _rowset_writer, _req.is_high_priority));
-    }
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
+                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr));
 
     _is_init = true;
     return Status::OK();

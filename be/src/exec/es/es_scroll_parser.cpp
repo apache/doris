@@ -401,8 +401,7 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     };
 
     if (pure_doc_value && col.IsArray() && !col.Empty()) {
-        if (col.IsNumber()) {
-            RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
+        if (col[0].IsNumber()) {
             T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
             col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
             return Status::OK();
@@ -488,7 +487,7 @@ Status process_single_column(const rapidjson::Value& col, PrimitiveType sub_type
                              bool pure_doc_value, vectorized::Array& array) {
     T val;
     RETURN_IF_ERROR(handle_value<T>(col, sub_type, pure_doc_value, val));
-    array.push_back(val);
+    array.push_back(vectorized::Field(val));
     return Status::OK();
 }
 

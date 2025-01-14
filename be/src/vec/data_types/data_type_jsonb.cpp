@@ -20,11 +20,13 @@
 #include <typeinfo>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris {
@@ -34,7 +36,7 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -59,7 +61,8 @@ void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, si
 
 Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
     JsonBinaryValue value;
-    RETURN_IF_ERROR(value.from_json_string(rb.position(), rb.count()));
+    // Throw exception if rb.count is large than INT32_MAX
+    RETURN_IF_ERROR(value.from_json_string(rb.position(), cast_set<Int32>(rb.count())));
 
     auto* column_string = static_cast<ColumnString*>(column);
     column_string->insert_data(value.value(), value.size());

@@ -25,13 +25,13 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -124,6 +124,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                                 .isDebugSkipFoldConstant())
                         .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
                         .thenApply(FoldConstantRuleOnBE::foldByBE)
+                        .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_BE)
         );
     }
 
@@ -192,7 +193,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static void collectConst(Expression expr, Map<String, Expression> constMap,
             Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
-        if (expr.isConstant() && !shouldSkipFold(expr)) {
+        if (expr.isConstant() && !expr.isLiteral() && !expr.anyMatch(e -> shouldSkipFold((Expression) e))) {
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
             Expr staleExpr;
@@ -218,11 +219,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     // Some expressions should not do constant folding
     private static boolean shouldSkipFold(Expression expr) {
-        // Skip literal expr
-        if (expr.isLiteral()) {
-            return true;
-        }
-
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()
@@ -273,12 +269,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
             Map<String, Expression> constMap, ConnectContext context) {
-
         Map<String, Expression> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
             if (backendIds.isEmpty()) {
-                throw new UserException("No alive backends");
+                LOG.warn("no available backend ids for folding constant on BE");
+                return Collections.emptyMap();
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
@@ -305,7 +301,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
             Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
                     tParams);
+            long beFoldStartTime = 0L;
+            if (context.getSessionVariable().enableProfile()) {
+                beFoldStartTime = TimeUtils.getStartTimeMs();
+            }
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
+            if (context.getExecutor() != null && context.getSessionVariable().enableProfile()) {
+                context.getExecutor().getSummaryProfile().sumBeFoldTime(TimeUtils.getStartTimeMs() - beFoldStartTime);
+            }
 
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
@@ -486,8 +489,16 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new StringLiteral(resultContent.getStringValue(i));
-                res.add(literal);
+                // get the raw byte data to avoid character encoding conversion problems
+                ByteString bytesValues = resultContent.getBytesValue(i);
+                // use UTF-8 encoding to ensure proper handling of binary data
+                String stringValue = bytesValues.toStringUtf8();
+                // handle special NULL value cases
+                if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
+                    res.add(new NullLiteral(type));
+                } else {
+                    res.add(new StringLiteral(stringValue));
+                }
             }
         } else if (type.isArrayType()) {
             ArrayType arrayType = (ArrayType) type;

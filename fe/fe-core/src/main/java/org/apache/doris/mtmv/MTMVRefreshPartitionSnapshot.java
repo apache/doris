@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
@@ -89,6 +90,13 @@ public class MTMVRefreshPartitionSnapshot {
         } catch (Throwable e) {
             LOG.warn("MTMV compatibleTables failed, mtmv: {}", mtmv.getName(), e);
         }
+
+        try {
+            // snapshot add tableId resolve problem of recreate table
+            compatibleTablesSnapshot();
+        } catch (Throwable e) {
+            LOG.warn("MTMV compatibleTables failed, mtmv: {}", mtmv.getName(), e);
+        }
     }
 
     private void compatiblePartitions(MTMV mtmv) throws AnalysisException {
@@ -109,6 +117,32 @@ public class MTMVRefreshPartitionSnapshot {
 
     private boolean checkHasDataWithoutPartitionId() {
         for (MTMVSnapshotIf snapshot : partitions.values()) {
+            if (snapshot instanceof MTMVVersionSnapshot && ((MTMVVersionSnapshot) snapshot).getId() == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void compatibleTablesSnapshot() {
+        if (!checkHasDataWithoutTableId()) {
+            return;
+        }
+        for (Entry<BaseTableInfo, MTMVSnapshotIf> entry : tablesInfo.entrySet()) {
+            MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
+            if (versionSnapshot.getId() == 0) {
+                try {
+                    TableIf table = MTMVUtil.getTable(entry.getKey());
+                    versionSnapshot.setId(table.getId());
+                } catch (AnalysisException e) {
+                    LOG.warn("MTMV compatibleTablesSnapshot failed, can not get table by: {}", entry.getKey());
+                }
+            }
+        }
+    }
+
+    private boolean checkHasDataWithoutTableId() {
+        for (MTMVSnapshotIf snapshot : tablesInfo.values()) {
             if (snapshot instanceof MTMVVersionSnapshot && ((MTMVVersionSnapshot) snapshot).getId() == 0) {
                 return true;
             }

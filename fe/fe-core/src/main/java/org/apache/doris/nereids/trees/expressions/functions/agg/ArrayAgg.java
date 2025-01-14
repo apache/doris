@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -37,8 +36,8 @@ import java.util.List;
 /**
  * AggregateFunction 'array_agg'.
  */
-public class ArrayAgg extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+public class ArrayAgg extends NotNullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(new AnyDataType(0))
     );

@@ -33,6 +33,14 @@ import java.util.List;
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
 public final class GlobalVariable {
 
+    public static final int VARIABLE_VERSION_0 = 0;
+    public static final int VARIABLE_VERSION_100 = 100;
+    public static final int VARIABLE_VERSION_101 = 101;
+    public static final int VARIABLE_VERSION_200 = 200;
+    public static final int VARIABLE_VERSION_300 = 300;
+    public static final int CURRENT_VARIABLE_VERSION = VARIABLE_VERSION_300;
+    public static final String VARIABLE_VERSION = "variable_version";
+
     public static final String VERSION_COMMENT = "version_comment";
     public static final String VERSION = "version";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
@@ -69,6 +77,9 @@ public final class GlobalVariable {
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
+    @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
+            | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
+    public static int variableVersion = CURRENT_VARIABLE_VERSION;
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
@@ -81,7 +92,7 @@ public final class GlobalVariable {
     // 0: table names are stored as specified and comparisons are case sensitive.
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.
     // 2: table names are stored as given but compared in lowercase.
-    @VariableMgr.VarAttr(name = LOWER_CASE_TABLE_NAMES, flag = VariableMgr.READ_ONLY)
+    @VariableMgr.VarAttr(name = LOWER_CASE_TABLE_NAMES, flag = VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
     public static int lowerCaseTableNames = 0;
 
     @VariableMgr.VarAttr(name = LICENSE, flag = VariableMgr.READ_ONLY)
@@ -189,8 +200,7 @@ public final class GlobalVariable {
         List<String> varNames = Lists.newArrayList();
         for (Field field : GlobalVariable.class.getDeclaredFields()) {
             VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
-            // Since the flag of lower_case_table_names is READ_ONLY, it is handled separately here.
-            if (attr != null && (attr.flag() == VariableMgr.GLOBAL || attr.name().equals(LOWER_CASE_TABLE_NAMES))) {
+            if (attr != null && (attr.flag() & VariableMgr.GLOBAL) != 0) {
                 varNames.add(attr.name());
             }
         }

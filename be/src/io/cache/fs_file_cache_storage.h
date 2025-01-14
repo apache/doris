@@ -70,6 +70,7 @@ public:
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
+    std::string get_local_file(const FileCacheKey& key) override;
 
     [[nodiscard]] static std::string get_path_in_local_cache(const std::string& dir, size_t offset,
                                                              FileCacheType type,
@@ -100,6 +101,9 @@ private:
     [[nodiscard]] std::string get_version_path() const;
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
+
+    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
+            const std::string& dir, size_t offset);
 
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;

@@ -20,15 +20,15 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
-        externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+        def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         def test_dir = "user/doris/preinstalled_data/data_case/autoinc"
 
-        def load_from_hdfs = {columns, testTable, label, testFile, format, brokerName, hdfsUser, hdfsPasswd ->
+        def load_from_hdfs = {columns, testTable, label, testFile, format ->
             def result1= sql """ LOAD LABEL ${label} (
                                 DATA INFILE("hdfs://${externalEnvIp}:${hdfs_port}/${test_dir}/${testFile}")
                                 INTO TABLE ${testTable}
@@ -46,9 +46,9 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
         }
 
         def wait_for_load_result = {checklabel, testTable ->
-            max_try_milli_secs = 10000
+            def max_try_milli_secs = 10000
             while(max_try_milli_secs) {
-                result = sql "show load where label = '${checklabel}'"
+                def result = sql "show load where label = '${checklabel}'"
                 if(result[0][2] == "FINISHED") {
                     break
                 } else {
@@ -61,7 +61,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
             }
         }
 
-        table = "test_autoinc_broker_load"
+        def table = "test_autoinc_broker_load"
         sql "drop table if exists ${table}"
         sql """ CREATE TABLE IF NOT EXISTS `${table}` (
             `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",
@@ -78,9 +78,9 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
             "enable_unique_key_merge_on_write" = "true") """
         
         def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_from_hdfs("name, value", table, test_load_label, "auto_inc_basic.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        load_from_hdfs("name, value", table, test_load_label, "auto_inc_basic.csv", "csv")
         wait_for_load_result(test_load_label, table)
-        qt_sql "select * from ${table};"
+        qt_sql "select * from ${table} order by id;"
         sql """ insert into ${table} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
         qt_sql "select * from ${table} order by id"
         sql "drop table if exists ${table};"
@@ -102,7 +102,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
             "storage_format" = "V2",
             "enable_unique_key_merge_on_write" = "true");"""
         test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_from_hdfs("id, name, value", table, test_load_label, "auto_inc_with_null.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        load_from_hdfs("id, name, value", table, test_load_label, "auto_inc_with_null.csv", "csv")
         wait_for_load_result(test_load_label, table)
         sql "sync"
         qt_sql "select * from ${table};"

@@ -58,8 +58,16 @@ public class Utils {
      */
     public static String quoteIfNeeded(String part) {
         // We quote strings except the ones which consist of digits only.
-        return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
-                ? part : part.replace("`", "``");
+        StringBuilder quote = new StringBuilder(part.length());
+        for (int i = 0; i < part.length(); i++) {
+            char c = part.charAt(i);
+            if (c == '`') {
+                quote.append("``");
+            } else {
+                quote.append(c);
+            }
+        }
+        return quote.toString();
     }
 
     /**

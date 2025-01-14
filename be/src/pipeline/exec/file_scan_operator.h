@@ -29,6 +29,7 @@
 #include "vec/exec/scan/split_source_connector.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class VFileScanner;
 } // namespace vectorized
@@ -86,4 +87,5 @@ private:
     const std::string _table_name;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

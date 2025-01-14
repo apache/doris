@@ -230,6 +230,7 @@ public class FunctionSet<T> {
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
     public static final String HISTOGRAM = "histogram";
+    public static final String LINEAR_HISTOGRAM = "linear_histogram";
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
 
@@ -1546,6 +1547,14 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT),
                     Type.VARCHAR, t,
+                    "", "", "", "", "", true, false, true, true));
+
+            // linear histogram
+            addBuiltin(AggregateFunction.createBuiltin(LINEAR_HISTOGRAM,
+                    Lists.<Type>newArrayList(t, Type.DOUBLE), Type.VARCHAR, t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(LINEAR_HISTOGRAM,
+                    Lists.<Type>newArrayList(t, Type.DOUBLE, Type.DOUBLE), Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
 
             // group array

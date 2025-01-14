@@ -29,10 +29,12 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const bool result_is_nullable) {
+                                                             const bool result_is_nullable,
+                                                             const AggregateFunctionAttr& attr) {
     if (argument_types.size() < 3) {
         LOG(WARNING) << "window_funnel's argument less than 3.";
         return nullptr;

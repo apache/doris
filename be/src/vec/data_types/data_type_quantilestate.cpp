@@ -27,6 +27,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 // binary: const flag | row num | read saved num | <size array> | <quantilestate array>
 // <size array>:  quantilestate1 size | quantilestate2 size | ...
 // <quantilestate array>: quantilestate1 | quantilestate2 | ...
@@ -158,8 +159,7 @@ MutableColumnPtr DataTypeQuantileState::create_column() const {
 void DataTypeQuantileState::serialize_as_stream(const QuantileState& cvalue, BufferWritable& buf) {
     auto& value = const_cast<QuantileState&>(cvalue);
     std::string memory_buffer;
-    int bytesize = value.get_serialized_size();
-    memory_buffer.resize(bytesize);
+    memory_buffer.resize(value.get_serialized_size());
     value.serialize(const_cast<uint8_t*>(reinterpret_cast<uint8_t*>(memory_buffer.data())));
     write_string_binary(memory_buffer, buf);
 }

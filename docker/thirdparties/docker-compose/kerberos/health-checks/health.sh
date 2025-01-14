@@ -32,3 +32,4 @@ if test -d "${HEALTH_D}"; then
         "${health_script}" &>> /var/log/container-health.log || exit 1
     done
 fi
+exit 0

@@ -107,6 +107,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
 
+    private long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -324,6 +326,17 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return rowStorePageSize;
     }
 
+    public TableProperty buildStoragePageSize() {
+        storagePageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long storagePageSize() {
+        return storagePageSize;
+    }
+
     public TableProperty buildSkipWriteIndexOnLoad() {
         skipWriteIndexOnLoad = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, "false"));
@@ -454,6 +467,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
@@ -617,10 +631,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
-    public void setEnableUniqueKeySkipBitmap(boolean enable) {
-        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, Boolean.toString(enable));
-    }
-
     public boolean getEnableUniqueKeySkipBitmap() {
         return Boolean.parseBoolean(properties.getOrDefault(
             PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false"));
@@ -724,6 +734,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildStoreRowColumn();
         buildRowStoreColumns();
         buildRowStorePageSize();
+        buildStoragePageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
@@ -776,10 +787,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public String getStorageVaultName() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
-    }
-
-    public void setStorageVaultName(String storageVaultName) {
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 
     public String getPropertiesString() throws IOException {

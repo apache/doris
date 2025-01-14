@@ -140,6 +140,8 @@ public abstract class TestWithFeService {
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
     protected int lastFeRpcPort = 0;
+    // make it default to enable_advance_next_id
+    protected boolean enableAdvanceNextId = Config.enable_advance_next_id;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "";
 
@@ -152,7 +154,10 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        // this.enableAdvanceNextId may be reset by children classes
+        Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
+        FeConstants.shouldCreateInternalWorkloadGroup = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
@@ -517,8 +522,8 @@ public abstract class TestWithFeService {
         Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setPathHash(be.getId());
-        diskInfo1.setTotalCapacityB(10L << 30);
-        diskInfo1.setAvailableCapacityB(5L << 30);
+        diskInfo1.setTotalCapacityB(10L << 40);
+        diskInfo1.setAvailableCapacityB(5L << 40);
         diskInfo1.setDataUsedCapacityB(480000);
         diskInfo1.setPathHash(be.getId());
         Map<String, DiskInfo> disks = Maps.newHashMap();

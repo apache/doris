@@ -32,6 +32,7 @@ class RowDescriptor;
 class TExpr;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs,
                                      std::shared_ptr<pipeline::Dependency> dep,
@@ -107,6 +108,18 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         force_close(status);
     }
 
+    if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
+        if (auto cg_ctl_sptr =
+                    state->get_query_ctx()->workload_group()->get_cgroup_cpu_ctl_wptr().lock()) {
+            Status ret = cg_ctl_sptr->add_thread_to_cgroup();
+            if (ret.ok()) {
+                std::string wg_tname =
+                        "asyc_wr_" + state->get_query_ctx()->workload_group()->name();
+                Thread::set_self_name(wg_tname);
+            }
+        }
+    }
+
     DCHECK(_dependency);
     if (_writer_status.ok()) {
         while (true) {
@@ -114,7 +127,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             cpu_time_stop_watch.start();
             Defer defer {[&]() {
                 if (state && state->get_query_ctx()) {
-                    state->get_query_ctx()->update_wg_cpu_adder(cpu_time_stop_watch.elapsed_time());
+                    state->get_query_ctx()->update_cpu_time(cpu_time_stop_watch.elapsed_time());
                 }
             }};
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
@@ -213,7 +226,7 @@ void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
-                                                          int rows) {
+                                                          size_t rows) {
     std::unique_ptr<Block> b;
     if (!_free_blocks.try_dequeue(b)) {
         b = block->create_same_struct_block(rows, true);

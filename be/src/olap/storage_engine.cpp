@@ -209,7 +209,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _default_rowset_type(BETA_ROWSET),
           _create_tablet_idx_lru_cache(
-                  new CreateTabletIdxCache(config::partition_disk_index_lru_size)),
+                  new CreateTabletRRIdxCache(config::partition_disk_index_lru_size)),
           _snapshot_mgr(std::make_unique<SnapshotManager>(*this)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
@@ -463,6 +463,16 @@ Status StorageEngine::_check_file_descriptor_number() {
                      << ", use default configuration instead.";
         return Status::OK();
     }
+    if (getenv("SKIP_CHECK_ULIMIT") == nullptr) {
+        LOG(INFO) << "will check 'ulimit' value.";
+    } else if (std::string(getenv("SKIP_CHECK_ULIMIT")) == "true") {
+        LOG(INFO) << "the 'ulimit' value check is skipped"
+                  << ", the SKIP_CHECK_ULIMIT env value is " << getenv("SKIP_CHECK_ULIMIT");
+        return Status::OK();
+    } else {
+        LOG(INFO) << "the SKIP_CHECK_ULIMIT env value is " << getenv("SKIP_CHECK_ULIMIT")
+                  << ", will check ulimit value.";
+    }
     if (l.rlim_cur < config::min_file_descriptor_number) {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
@@ -515,7 +525,7 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
 
 int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
                                                 TStorageMedium::type storage_medium) {
-    auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
+    auto key = CreateTabletRRIdxCache::get_key(partition_id, storage_medium);
     int curr_index = _create_tablet_idx_lru_cache->get_index(key);
     // -1, lru can't find key
     if (curr_index == -1) {
@@ -1511,7 +1521,7 @@ Status StorageEngine::_persist_broken_paths() {
     return Status::OK();
 }
 
-int CreateTabletIdxCache::get_index(const std::string& key) {
+int CreateTabletRRIdxCache::get_index(const std::string& key) {
     auto* lru_handle = lookup(key);
     if (lru_handle) {
         Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
@@ -1522,7 +1532,7 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
     return -1;
 }
 
-void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
+void CreateTabletRRIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
     auto* value = new CacheValue;
     value->idx = next_idx;

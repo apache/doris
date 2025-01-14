@@ -22,45 +22,6 @@ suite("test_time_series_compaction_polciy", "p0") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
- 
-    def trigger_cumulative_compaction_on_tablets = { tablets ->
-        for (def tablet : tablets) {
-            String tablet_id = tablet.TabletId
-            String backend_id = tablet.BackendId
-            int times = 1
-            
-            String compactionStatus;
-            do{
-                def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(1000)
-                compactionStatus = parseJson(out.trim()).status.toLowerCase();
-            } while (compactionStatus!="success" && times<=3)
-            if (compactionStatus!="success") {
-                assertTrue(compactionStatus.contains("2000"))
-                continue;
-            }
-            assertEquals("success", compactionStatus)
-        }
-    }
-
-    def wait_cumulative_compaction_done = { tablets ->
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                String backend_id = tablet.BackendId
-                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-    }
 
     def get_rowset_count = { tablets ->
         int rowsetCount = 0
@@ -109,7 +70,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """
     sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
     sql """ INSERT INTO ${tableName} VALUES (100, "andy", "andy love apple", 100); """
-    
+
     qt_sql_1 """ select count() from ${tableName} """
 
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
@@ -123,17 +84,14 @@ suite("test_time_series_compaction_polciy", "p0") {
             assert(false)
         }
     }
-    
+
     // BUCKETS = 2
     // before cumulative compaction, there are 17 * 2 = 34 rowsets.
     int rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 34 * replicaNum)
 
     // trigger cumulative compactions for all tablets in table
-    trigger_cumulative_compaction_on_tablets.call(tablets)
-
-    // wait for cumulative compaction done
-    wait_cumulative_compaction_done.call(tablets)
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     // after cumulative compaction, there is only 26 rowset.
     // 5 consecutive empty versions are merged into one empty version
@@ -142,10 +100,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     assert (rowsetCount == 26 * replicaNum)
 
     // trigger cumulative compactions for all tablets in ${tableName}
-    trigger_cumulative_compaction_on_tablets.call(tablets)
-
-    // wait for cumulative compaction done
-    wait_cumulative_compaction_done.call(tablets)
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     // after cumulative compaction, there is only 22 rowset.
     // 26 - 4 = 22
@@ -159,10 +114,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     sql """ alter table ${tableName} set ("time_series_compaction_file_count_threshold"="10")"""
     sql """sync"""
     // trigger cumulative compactions for all tablets in ${tableName}
-    trigger_cumulative_compaction_on_tablets.call(tablets)
-
-    // wait for cumulative compaction done
-    wait_cumulative_compaction_done.call(tablets)
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     // after cumulative compaction, there is only 11 rowset.
     rowsetCount = get_rowset_count.call(tablets);

@@ -17,24 +17,13 @@
 
 #pragma once
 
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/process_profile.h"
 #include "util/mem_info.h"
 
 namespace doris {
 
 class GlobalMemoryArbitrator {
 public:
-    /** jemalloc pdirty is number of pages within unused extents that are potentially
-      * dirty, and for which madvise() or similar has not been called.
-      *
-      * So they will be subtracted from RSS to make accounting more
-      * accurate, since those pages are not really RSS but a memory
-      * that can be used at anytime via jemalloc.
-      */
-    static inline int64_t vm_rss_sub_allocator_cache() {
-        return PerfCounters::get_vm_rss() - static_cast<int64_t>(MemInfo::allocator_cache_mem());
-    }
-
     static inline void reset_refresh_interval_memory_growth() {
         refresh_interval_memory_growth = 0;
     }
@@ -43,7 +32,7 @@ public:
     // equal to real process memory(vm_rss), subtract jemalloc dirty page cache,
     // add reserved memory and growth memory since the last vm_rss update.
     static inline int64_t process_memory_usage() {
-        return vm_rss_sub_allocator_cache() +
+        return PerfCounters::get_vm_rss() +
                refresh_interval_memory_growth.load(std::memory_order_relaxed) +
                process_reserved_memory();
     }
@@ -59,12 +48,9 @@ public:
 
     static std::string process_memory_used_details_str() {
         auto msg = fmt::format(
-                "process memory used {}(= {}[vm/rss] - {}[tc/jemalloc_cache] + {}[reserved] + "
-                "{}B[waiting_refresh])",
+                "process memory used {}(= {}[vm/rss] + {}[reserved] + {}B[waiting_refresh])",
                 PrettyPrinter::print(process_memory_usage(), TUnit::BYTES),
                 PerfCounters::get_vm_rss_str(),
-                PrettyPrinter::print(static_cast<uint64_t>(MemInfo::allocator_cache_mem()),
-                                     TUnit::BYTES),
                 PrettyPrinter::print(process_reserved_memory(), TUnit::BYTES),
                 refresh_interval_memory_growth);
 #ifdef ADDRESS_SANITIZER
@@ -107,7 +93,7 @@ public:
     static void release_process_reserved_memory(int64_t bytes);
 
     static inline int64_t process_reserved_memory() {
-        return _s_process_reserved_memory.load(std::memory_order_relaxed);
+        return _process_reserved_memory.load(std::memory_order_relaxed);
     }
 
     // `process_memory_usage` includes all reserved memory. if a thread has `reserved_memory`,
@@ -118,17 +104,19 @@ public:
     static int64_t sub_thread_reserve_memory(int64_t bytes);
 
     static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
-        bytes = sub_thread_reserve_memory(bytes);
-        if (bytes <= 0) {
+        if (bytes > 0 && sub_thread_reserve_memory(bytes) <= 0) {
             return false;
         }
-        return process_memory_usage() + bytes >= MemInfo::soft_mem_limit() ||
-               sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark();
+        auto rt = process_memory_usage() + bytes >= MemInfo::soft_mem_limit() ||
+                  sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark();
+        if (rt) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
+        }
+        return rt;
     }
 
     static bool is_exceed_hard_mem_limit(int64_t bytes = 0) {
-        bytes = sub_thread_reserve_memory(bytes);
-        if (bytes <= 0) {
+        if (bytes > 0 && sub_thread_reserve_memory(bytes) <= 0) {
             return false;
         }
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
@@ -139,8 +127,12 @@ public:
         // tcmalloc/jemalloc allocator cache does not participate in the mem check as part of the process physical memory.
         // because `new/malloc` will trigger mem hook when using tcmalloc/jemalloc allocator cache,
         // but it may not actually alloc physical memory, which is not expected in mem hook fail.
-        return process_memory_usage() + bytes >= MemInfo::mem_limit() ||
-               sys_mem_available() - bytes < MemInfo::sys_mem_available_low_water_mark();
+        auto rt = process_memory_usage() + bytes >= MemInfo::mem_limit() ||
+                  sys_mem_available() - bytes < MemInfo::sys_mem_available_low_water_mark();
+        if (rt) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
+        }
+        return rt;
     }
 
     static std::string process_mem_log_str() {
@@ -192,7 +184,7 @@ public:
     }
 
 private:
-    static std::atomic<int64_t> _s_process_reserved_memory;
+    static std::atomic<int64_t> _process_reserved_memory;
 };
 
 } // namespace doris

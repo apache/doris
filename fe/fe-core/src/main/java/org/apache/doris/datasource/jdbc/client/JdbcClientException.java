@@ -48,4 +48,19 @@ public class JdbcClientException extends RuntimeException {
         }
         return escapedArgs;
     }
+
+    public static String getAllExceptionMessages(Throwable throwable) {
+        StringBuilder sb = new StringBuilder();
+        while (throwable != null) {
+            String message = throwable.getMessage();
+            if (message != null && !message.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append(" | Caused by: ");
+                }
+                sb.append(message);
+            }
+            throwable = throwable.getCause();
+        }
+        return sb.toString();
+    }
 }

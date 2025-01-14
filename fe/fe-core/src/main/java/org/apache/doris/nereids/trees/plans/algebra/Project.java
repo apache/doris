@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -102,6 +103,18 @@ public interface Project {
     default boolean isAllSlots() {
         for (NamedExpression project : getProjects()) {
             if (!project.isSlot()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * project(A as B) is eventually slot project, where A is a slot
+     */
+    default boolean isEventuallyAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot() && !(project instanceof Alias && project.child(0) instanceof Slot)) {
                 return false;
             }
         }
