@@ -23,9 +23,11 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,8 +40,12 @@ import java.util.Objects;
 public class CreateTableInfo implements Writable, GsonPostProcessable {
     public static final Logger LOG = LoggerFactory.getLogger(CreateTableInfo.class);
 
+    @SerializedName(value = "ctl")
+    private String ctlName;
     @SerializedName(value = "dbName")
     private String dbName;
+    @SerializedName(value = "tbl")
+    private String tblName;
     @SerializedName(value = "table")
     private Table table;
 
@@ -47,13 +53,31 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
         // for persist
     }
 
+    // for internal table
     public CreateTableInfo(String dbName, Table table) {
+        this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
         this.dbName = dbName;
+        this.tblName = table.getName();
         this.table = table;
+    }
+
+    // for external table
+    public CreateTableInfo(String ctlName, String dbName, String tblName) {
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tblName = tblName;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
         return dbName;
+    }
+
+    public String getTblName() {
+        return tblName;
     }
 
     public Table getTable() {
@@ -106,7 +130,11 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
 
     @Override
     public String toString() {
-        return toJson();
+        // In previous versions, ctlName and tblName is not set, so it may be null.
+        return String.format("%s.%s.%s",
+                Strings.isNullOrEmpty(ctlName) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctlName,
+                dbName,
+                Strings.isNullOrEmpty(tblName) ? table.getName() : tblName);
     }
 
     @Override
