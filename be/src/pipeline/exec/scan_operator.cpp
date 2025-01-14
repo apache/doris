@@ -292,8 +292,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                     value_range.is_whole_value_range() &&
                                     conjunct_expr_root->is_rf_wrapper();
                             Defer mark_runtime_filter_flag {[&]() {
-                                // rf is always appended to the end of conjuncts.
-                                // If it is not a whole range, it means that the column has other regular predicates, so it cannot be marked as rf predicate.
+                                // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
+                                // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
+                                // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
                                 if (need_set_mark_runtime_filter_predicate) {
                                     value_range.mark_runtime_filter_predicate(true);
                                 }

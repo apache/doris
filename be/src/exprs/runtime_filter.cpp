@@ -503,15 +503,9 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (!_context->hybrid_set) {
-                set_ignored();
-                return Status::OK();
-            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                set_ignored();
-                // release in filter
-                _context->hybrid_set.reset();
+                set_disabled();
             }
             break;
         }
