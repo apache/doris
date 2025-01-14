@@ -176,6 +176,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     if (inner_sink_state) {
         build_block = inner_sink_state->_build_side_mutable_block.to_block();
         block_old_mem = build_block.allocated_bytes();
+        RETURN_IF_ERROR(inner_sink_state->disable_runtime_filters(
+                _shared_state->inner_runtime_state.get()));
     }
 
     if (build_block.rows() <= 1) {
