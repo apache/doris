@@ -46,6 +46,15 @@ public interface ExternalMetadataOps {
     void dropDb(DropDbStmt stmt) throws DdlException;
 
     /**
+     * drop db in external metastore for nereids
+     * @param dbName
+     * @param ifExists
+     * @param force
+     * @throws DdlException
+     */
+    void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
+
+    /**
      *
      * @param stmt
      * @return if set isExists is true, return true if table exists, otherwise return false

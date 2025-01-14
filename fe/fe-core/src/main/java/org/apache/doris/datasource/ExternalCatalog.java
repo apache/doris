@@ -934,13 +934,18 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDb not implemented");
             return;
         }
         try {
-            metadataOps.dropDb(stmt);
+            metadataOps.dropDb(dbName, ifExists, force);
         } catch (Exception e) {
             LOG.warn("Failed to drop a database.", e);
             throw e;
