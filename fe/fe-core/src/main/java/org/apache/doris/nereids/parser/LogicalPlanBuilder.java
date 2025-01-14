@@ -5480,7 +5480,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int connectionId = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         return new KillConnectionCommand(connectionId);
     }
-  
+
     public LogicalPlan visitDropDatabase(DropDatabaseContext ctx) {
         boolean ifExists = ctx.EXISTS() != null;
         List<String> databaseNameParts = visitMultipartIdentifier(ctx.name);
