@@ -41,8 +41,6 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
     if (range.table_format_params.paimon_params.__isset.row_count) {
         _remaining_table_level_row_count = range.table_format_params.paimon_params.row_count;
-    } else {
-        _remaining_table_level_row_count = -1;
     }
 }
 
@@ -52,9 +50,6 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         return Status::OK();
     }
 
-    // set push down agg type to NONE because we can not do count push down opt
-    // if there are delete files.
-    _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
@@ -106,7 +101,12 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
             }
         }
         COUNTER_UPDATE(_paimon_profile.num_delete_rows, _delete_rows.size());
-        set_delete_rows();
+        if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+            // if the push down agg type is count, we need to update the remaining row count
+            _remaining_table_level_row_count -= _delete_rows.size();
+        } else {
+            set_delete_rows();
+        }
     }
     return Status::OK();
 }
