@@ -750,8 +750,9 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         auto build_side_pipe = _build_pipeline(parallelism, _pipelines.front().get());
 
         DataSinkOperatorPtr sink;
-        sink.reset(new HashJoinBuildSinkOperatorX(_obj_pool.get(), _next_sink_op_id(), join_node,
-                                                  *desc));
+        sink.reset(new HashJoinBuildSinkOperatorX(
+                _obj_pool.get(), _next_sink_op_id(),
+                _pipelines.front()->operators().back()->operator_id(), join_node, *desc));
         EXPECT_EQ(sink->init(join_node, _runtime_state.back().get()), Status::OK());
         EXPECT_EQ(build_side_pipe->set_sink(sink), Status::OK());
 

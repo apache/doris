@@ -1353,11 +1353,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             DataSinkOperatorPtr sink;
             if (enable_spill) {
-                sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(), tnode,
-                                                           descs, _require_bucket_distribution));
+                sink.reset(new PartitionedAggSinkOperatorX(pool, next_sink_operator_id(),
+                                                           op->operator_id(), tnode, descs,
+                                                           _require_bucket_distribution));
             } else {
-                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                _require_bucket_distribution));
+                sink.reset(new AggSinkOperatorX(pool, next_sink_operator_id(), op->operator_id(),
+                                                tnode, descs, _require_bucket_distribution));
             }
             sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
             _require_bucket_distribution =
@@ -1379,7 +1380,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
             auto inner_sink_operator =
-                    std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, tnode_, descs);
+                    std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode_, descs);
 
             RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
             RETURN_IF_ERROR(inner_sink_operator->init(tnode_, _runtime_state.get()));
@@ -1399,7 +1400,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), tnode_, descs, partition_count);
+                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs,
+                    partition_count);
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
             DataSinkOperatorPtr sink = std::move(sink_operator);
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
@@ -1422,7 +1424,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
             DataSinkOperatorPtr sink;
-            sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+            sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(),
+                                                      op->operator_id(), tnode, descs));
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
 
@@ -1448,8 +1451,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorPtr sink;
-        sink.reset(
-                new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(),
+                                                        op->operator_id(), tnode, descs));
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
@@ -1501,11 +1504,11 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
         DataSinkOperatorPtr sink;
         if (should_spill) {
-            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                  _require_bucket_distribution));
+            sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), op->operator_id(),
+                                                  tnode, descs, _require_bucket_distribution));
         } else {
-            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                             _require_bucket_distribution));
+            sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), op->operator_id(),
+                                             tnode, descs, _require_bucket_distribution));
         }
         sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         _require_bucket_distribution =
@@ -1527,7 +1530,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorPtr sink;
-        sink.reset(new PartitionSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new PartitionSortSinkOperatorX(pool, next_sink_operator_id(), op->operator_id(),
+                                                  tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
@@ -1545,8 +1549,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorPtr sink;
-        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                             _require_bucket_distribution));
+        sink.reset(new AnalyticSinkOperatorX(pool, next_sink_operator_id(), op->operator_id(),
+                                             tnode, descs, _require_bucket_distribution));
         sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         _require_bucket_distribution =
                 _require_bucket_distribution || sink->require_data_distribution();
