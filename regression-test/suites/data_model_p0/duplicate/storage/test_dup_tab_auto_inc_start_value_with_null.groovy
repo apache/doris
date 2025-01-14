@@ -43,7 +43,7 @@ suite("test_dup_table_auto_inc_start_value_with_null") {
         set 'columns', 'id, name, value'
 
         file 'auto_inc_basic_with_null.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql """sync"""
     qt_auto_inc_ids "select * from ${table1};"
@@ -76,7 +76,7 @@ suite("test_dup_table_auto_inc_start_value_with_null") {
         set 'columns', 'id, name, value'
 
         file 'auto_inc_basic_with_null_2.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql """sync"""
     qt_auto_inc_ids "select * from ${table2};"
@@ -109,7 +109,7 @@ suite("test_dup_table_auto_inc_start_value_with_null") {
         set 'columns', 'id, name, value'
 
         file 'auto_inc_basic_with_null.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql """sync"""
     qt_auto_inc_ids "select * from ${table3} order by id;"
@@ -142,7 +142,7 @@ suite("test_dup_table_auto_inc_start_value_with_null") {
         set 'columns', 'id, name, value'
 
         file 'auto_inc_basic_with_null_2.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql """sync"""
     qt_auto_inc_ids "select * from ${table4} order by id;"

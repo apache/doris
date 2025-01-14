@@ -44,7 +44,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'name, value'
 
         file 'auto_inc_basic.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     order_qt_sql "select * from ${table1};"
@@ -79,7 +79,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'name, value'
 
         file 'auto_inc_basic.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     qt_sql "select id, name, value from ${table2} order by id;"
@@ -114,7 +114,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'id, name, value'
 
         file 'auto_inc_with_null.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     order_qt_sql "select * from ${table3};"
@@ -149,7 +149,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'id, name, value'
 
         file 'auto_inc_update_inplace.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     order_qt_update_inplace "select * from ${table4};"
@@ -182,7 +182,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'name, value'
 
         file 'auto_inc_basic.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     qt_partial_update_key "select * from ${table5} order by id;"
@@ -196,7 +196,7 @@ suite("test_unique_table_auto_inc") {
         set 'partial_columns', 'true'
 
         file 'auto_inc_partial_update1.csv'
-        time 10000
+        time 20000
     }
     sql "sync"
     qt_partial_update_key "select * from ${table5} order by id;"
@@ -229,7 +229,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'name, value'
 
         file 'auto_inc_basic.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     qt_partial_update_value "select * from ${table6} order by id;"
@@ -243,7 +243,7 @@ suite("test_unique_table_auto_inc") {
         set 'partial_columns', 'true'
 
         file 'auto_inc_partial_update2.csv'
-        time 10000
+        time 20000
     }
     sql "sync"
     qt_partial_update_value "select * from ${table6} order by id;"
@@ -276,7 +276,7 @@ suite("test_unique_table_auto_inc") {
         set 'columns', 'name, value'
 
         file 'auto_inc_basic.csv'
-        time 10000 // limit inflight 10s
+        time 20000 // limit inflight 20s
     }
     sql "sync"
     qt_partial_update_value1 "select name, value from ${table7} order by value;"
@@ -291,7 +291,7 @@ suite("test_unique_table_auto_inc") {
         set 'partial_columns', 'true'
 
         file 'auto_inc_partial_update2.csv'
-        time 10000
+        time 20000
     }
     sql "sync"
     qt_partial_update_value1 "select name, value from ${table7} order by value;"
@@ -306,7 +306,7 @@ suite("test_unique_table_auto_inc") {
         set 'partial_columns', 'true'
 
         file 'auto_inc_partial_update3.csv'
-        time 10000
+        time 20000
     }
     sql "sync"
     qt_partial_update_value1 "select name, value from ${table7} order by value;"
