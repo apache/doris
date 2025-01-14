@@ -74,7 +74,8 @@ public:
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeProfile::HighWaterMarkCounter* counter,
                      RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile);
+                     int num_senders, bool is_merging, RuntimeProfile* profile,
+                     size_t data_queue_capacity);
 
     ~VDataStreamRecvr() override;
 
@@ -142,7 +143,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
-    size_t _sender_queue_mem_limit;
+    const size_t _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 

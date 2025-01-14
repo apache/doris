@@ -155,21 +155,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean fore) throws DdlException {
         try {
             preExecutionAuthenticator.execute(() -> {
-                preformDropDb(stmt);
+                preformDropDb(dbName, ifExists);
                 return null;
             });
         } catch (Exception e) {
             throw new DdlException(
-                "Failed to drop database: " + stmt.getDbName() + ", error message is:" + e.getMessage(), e);
+                "Failed to drop database: " + dbName + ", error message is:" + e.getMessage(), e);
         }
     }
 
-    private void preformDropDb(DropDbStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
+    private void preformDropDb(String dbName, boolean ifExists) throws DdlException {
         if (!databaseExist(dbName)) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 return;
             } else {

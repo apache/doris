@@ -125,6 +125,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         closure_pair.second.stop();
         _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
     }
+    DCHECK(block->empty());
     block->swap(*next_block);
     *eos = false;
     return Status::OK();
@@ -312,7 +313,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
                                    RuntimeProfile::HighWaterMarkCounter* memory_used_counter,
                                    RuntimeState* state, const RowDescriptor& row_desc,
                                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                                   int num_senders, bool is_merging, RuntimeProfile* profile)
+                                   int num_senders, bool is_merging, RuntimeProfile* profile,
+                                   size_t data_queue_capacity)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
           _memory_used_counter(memory_used_counter),
@@ -323,6 +325,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
           _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),
+          _sender_queue_mem_limit(data_queue_capacity),
           _profile(profile) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
@@ -338,7 +341,6 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
     }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
-    _sender_queue_mem_limit = std::max(20480, config::exchg_node_buffer_size_bytes / num_queues);
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
         queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile,

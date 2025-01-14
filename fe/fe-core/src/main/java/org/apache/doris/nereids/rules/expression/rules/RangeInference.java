@@ -110,7 +110,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     @Override
     public ValueDesc visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         // only handle `NumericType` and `DateLikeType`
-        if (ExpressionUtils.isAllNonNullLiteral(inPredicate.getOptions())
+        if (inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
+                && ExpressionUtils.isAllNonNullLiteral(inPredicate.getOptions())
                 && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
                 || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
             return ValueDesc.discrete(context, inPredicate);

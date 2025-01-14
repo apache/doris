@@ -3264,13 +3264,17 @@ public class Env {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropDb(String catalogName, String dbName, boolean ifExists, boolean force) throws DdlException {
         CatalogIf<?> catalogIf;
-        if (StringUtils.isEmpty(stmt.getCtlName())) {
+        if (StringUtils.isEmpty(catalogName)) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+            catalogIf = catalogMgr.getCatalog(catalogName);
         }
-        catalogIf.dropDb(stmt);
+        catalogIf.dropDb(dbName, ifExists, force);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -5225,7 +5229,8 @@ public class Env {
         }
 
         // 5. modify sequence map col
-        if (table.hasSequenceCol() && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
+        if (table.hasSequenceCol() && table.getSequenceMapCol() != null
+                && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
             table.setSequenceMapCol(newColName);
         }
 
