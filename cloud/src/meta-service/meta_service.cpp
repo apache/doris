@@ -1851,17 +1851,26 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 4. Update delete bitmap for curent txn
-    size_t total_key = 0;
-    size_t total_size = 0;
+    size_t current_key_count = 0;
+    size_t current_value_count = 0;
+    size_t total_key_count = 0;
+    size_t total_value_count = 0;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         auto& key = delete_bitmap_keys.delete_bitmap_keys(i);
         auto& val = request->segment_delete_bitmaps(i);
 
         // Split into multiple fdb transactions, because the size of one fdb
         // transaction can't exceed 10MB.
-        if (fdb_txn_size + key.size() + val.size() > 9 * 1024 * 1024) {
-            LOG(INFO) << "fdb txn size more than 9MB, current size: " << fdb_txn_size
-                      << " lock_id=" << request->lock_id();
+        if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
+            LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
+                      << ", current size: " << txn->approximate_bytes() << " lock_id=" << request->lock_id();
+            LOG(INFO) << "update delete bitmap tablet_id=" << tablet_id
+                      << " lock_id=" << request->lock_id()
+                      << " delete_bitmap_key=" << current_key_count
+                      << " delete_bitmap_value=" << current_value_count
+                      << " put_size=" << txn->put_bytes()
+                      << " num_put_keys=" << txn->num_put_keys()
+                      << " txn_size=" << txn->approximate_bytes();
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
@@ -1869,7 +1878,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 msg = ss.str();
                 return;
             }
-            fdb_txn_size = 0;
+            current_key_count = 0;
+            current_value_count = 0;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::CREATE>(err);
@@ -1888,14 +1898,21 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         }
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn.get(), key, val, 0);
-        fdb_txn_size = fdb_txn_size + key.size() + val.size();
-        total_key++;
-        total_size += key.size() + val.size();
+        current_key_count++;
+        current_value_count += val.size();
+        total_key_count++;
+        total_value_count += val.size();
         VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
                    << " lock_id=" << request->lock_id() << " key_size: " << key.size()
                    << " value_size: " << val.size();
     }
-
+    LOG(INFO) << "update delete bitmap tablet_id=" << tablet_id
+              << " lock_id=" << request->lock_id()
+              << " delete_bitmap_key=" << current_key_count
+              << " delete_bitmap_value=" << current_value_count
+              << " put_size=" << txn->put_bytes()
+              << " num_put_keys=" << txn->num_put_keys()
+              << " txn_size=" << txn->approximate_bytes();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1903,9 +1920,11 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         msg = ss.str();
         return;
     }
-    LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
-              << " rowset_num=" << request->rowset_ids_size() << " total_key=" << total_key
-              << " total_size=" << total_size << " unlock=" << unlock;
+    LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id
+              << " lock_id=" << request->lock_id()
+              << " rowset_num=" << request->rowset_ids_size()
+              << " total_key_count=" << total_key_count
+              << " total_value_count=" << total_value_count << " unlock=" << unlock;
 }
 
 void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* controller,
