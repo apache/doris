@@ -51,16 +51,16 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
 
     private final ImmutableMap<Long, Backend> currentClusterBackends;
 
-    public BackendDistributedPlanWorkerManager() throws UserException {
-        this.currentClusterBackends = checkAndInitClusterBackends();
+    public BackendDistributedPlanWorkerManager(ConnectContext context) throws UserException {
+        this.currentClusterBackends = checkAndInitClusterBackends(context);
     }
 
-    private ImmutableMap<Long, Backend> checkAndInitClusterBackends() throws UserException {
+    private ImmutableMap<Long, Backend> checkAndInitClusterBackends(ConnectContext context) throws UserException {
         if (!Config.isCloudMode()) {
             return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
         }
 
-        checkCluster();
+        checkCluster(context);
         ImmutableMap<Long, Backend> clusterBackend
                 = Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
         if (clusterBackend == null || clusterBackend.isEmpty()) {
@@ -73,8 +73,7 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         return clusterBackend;
     }
 
-    private void checkCluster() throws UserException {
-        ConnectContext context = ConnectContext.get();
+    private void checkCluster(ConnectContext context) throws UserException {
         String cluster;
         if (context != null) {
             if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
