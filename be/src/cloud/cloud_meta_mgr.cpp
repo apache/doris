@@ -1047,7 +1047,12 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::COMMIT);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    return retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    auto st = retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "txn conflict when commit tablet job {}", job.ShortDebugString());
+    }
+    return st;
 }
 
 Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
@@ -1182,6 +1187,17 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    if (res.status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "txn conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.table_id(), lock_id, initiator);
+    } else if (res.status().code() == MetaServiceCode::LOCK_CONFLICT) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "lock conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.table_id(), lock_id, initiator);
+    }
     return st;
 }
 
