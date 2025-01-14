@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <string>
+#include <unordered_map>
 
 namespace doris {
 struct RowsetId;
@@ -28,6 +29,9 @@ namespace segment_v2 {
 
 class InvertedIndexDescriptor {
 public:
+    static const std::unordered_map<std::string, int32_t> index_file_info_map;
+    static const std::unordered_map<std::string, int32_t> normal_file_info_map;
+
     static constexpr std::string_view segment_suffix = ".dat";
     static constexpr std::string_view index_suffix = ".idx";
     static std::string get_temporary_index_path(std::string_view tmp_dir_path,

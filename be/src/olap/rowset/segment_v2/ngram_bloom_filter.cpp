@@ -26,8 +26,6 @@
 namespace doris {
 namespace segment_v2 {
 
-static constexpr uint64_t SEED_GEN = 217728422;
-
 NGramBloomFilter::NGramBloomFilter(size_t size)
         : _size(size),
           words((size + sizeof(UnderType) - 1) / sizeof(UnderType)),

@@ -110,7 +110,7 @@ public abstract class ExternalCatalog
     public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
 
-    public static final String FOUND_CONFLICTING  = "Found conflicting";
+    public static final String FOUND_CONFLICTING = "Found conflicting";
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
 
     // Properties that should not be shown in the `show create catalog` result
@@ -628,7 +628,7 @@ public abstract class ExternalCatalog
         if (useMetaCache.get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 catalogs have the same db name, the id will be the same.
-            return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
+            return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));
@@ -723,7 +723,7 @@ public abstract class ExternalCatalog
 
     public void replayInitCatalog(InitCatalogLog log) {
         // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()) {
+        if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -746,6 +746,7 @@ public abstract class ExternalCatalog
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
+            LOG.info("Synchronized database (refresh): [Name: {}, ID: {}]", db.get().getFullName(), db.get().getId());
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
             ExternalDatabase<? extends ExternalTable> db =
@@ -754,6 +755,8 @@ public abstract class ExternalCatalog
             if (db != null) {
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
+                LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
+                        db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
             }
         }
         dbNameToId = tmpDbNameToId;
@@ -931,13 +934,18 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDb not implemented");
             return;
         }
         try {
-            metadataOps.dropDb(stmt);
+            metadataOps.dropDb(dbName, ifExists, force);
         } catch (Exception e) {
             LOG.warn("Failed to drop a database.", e);
             throw e;
@@ -1076,10 +1084,6 @@ public abstract class ExternalCatalog
             LOG.warn("Failed to drop a table", e);
             throw e;
         }
-    }
-
-    public String getQualifiedName(String dbName) {
-        return String.join(".", name, dbName);
     }
 
     public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {

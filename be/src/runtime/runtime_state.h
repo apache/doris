@@ -403,20 +403,6 @@ public:
 
     bool enable_page_cache() const;
 
-    int partitioned_hash_join_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_join_rows_threshold;
-    }
-
-    int partitioned_hash_agg_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_agg_rows_threshold;
-    }
-
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -590,6 +576,11 @@ public:
     bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
+    }
+
+    bool fuzzy_disable_runtime_filter_in_be() const {
+        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
+               _query_options.fuzzy_disable_runtime_filter_in_be;
     }
 
     int64_t min_revocable_mem() const {

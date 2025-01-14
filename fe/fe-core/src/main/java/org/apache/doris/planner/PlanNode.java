@@ -34,6 +34,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.NotImplementedException;
@@ -59,6 +60,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -89,6 +92,7 @@ import java.util.stream.Collectors;
  * its children (= are bound by tupleIds).
  */
 public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
+    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
 
@@ -207,6 +211,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.tblRefIds = Lists.newArrayList(node.tblRefIds);
         this.nullableTupleIds = Sets.newHashSet(node.nullableTupleIds);
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
+
         this.cardinality = -1;
         this.compactData = node.compactData;
         this.planNodeName = "V" + planNodeName;
@@ -314,13 +319,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void setOffset(long offset) {
-        this.offset = offset;
-    }
-
-    /**
-     * Used by new optimizer only.
-     */
-    public void setOffSetDirectly(long offset) {
         this.offset = offset;
     }
 
@@ -676,15 +674,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         toThrift(msg);
         container.addToNodes(msg);
 
-        // legacy planner set outputTuple and projections inside join node
-        if (!(this instanceof JoinNodeBase) || !(((JoinNodeBase) this).isUseSpecificProjections())) {
-            if (outputTupleDesc != null) {
-                msg.setOutputTupleId(outputTupleDesc.getId().asInt());
-            }
-            if (projectList != null) {
-                for (Expr expr : projectList) {
-                    msg.addToProjections(expr.treeToThrift());
-                }
+        if (outputTupleDesc != null) {
+            msg.setOutputTupleId(outputTupleDesc.getId().asInt());
+        }
+        if (projectList != null) {
+            for (Expr expr : projectList) {
+                msg.addToProjections(expr.treeToThrift());
             }
         }
 
@@ -806,6 +801,21 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
         createDefaultSmap(analyzer);
+        castConjuncts();
+    }
+
+    private void castConjuncts() throws AnalysisException {
+        for (int i = 0; i < conjuncts.size(); ++i) {
+            Expr expr = conjuncts.get(i);
+            if (!expr.getType().isBoolean()) {
+                try {
+                    conjuncts.set(i, expr.castTo(Type.BOOLEAN));
+                } catch (AnalysisException e) {
+                    LOG.warn("{} is not boolean and can not be cast to boolean", expr.toSql(), e);
+                    throw new AnalysisException("conjuncts " + expr.toSql() + " is not boolean");
+                }
+            }
+        }
     }
 
     /**

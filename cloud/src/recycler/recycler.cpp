@@ -1449,6 +1449,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
+    // (resource_id, tablet_id, rowset_id)
+    std::vector<std::tuple<std::string, int64_t, std::string>> rowsets_delete_by_prefix;
 
     for (const auto& rs : rowsets) {
         {
@@ -1519,6 +1521,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             index_format = index_info.first;
             index_ids = std::move(index_info.second);
         }
+        if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+            // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
+            // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
+            rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
+            continue;
+        }
         for (int64_t i = 0; i < num_segments; ++i) {
             file_paths.push_back(segment_path(tablet_id, rowset_id, i));
             if (index_format == InvertedIndexStorageFormatPB::V1) {
@@ -1541,6 +1549,14 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor);
             return accessor->delete_files(*paths);
         });
+    }
+    for (const auto& [resource_id, tablet_id, rowset_id] : rowsets_delete_by_prefix) {
+        LOG_INFO(
+                "delete rowset {} by prefix because it's in BEGIN_PARTIAL_UPDATE state, "
+                "resource_id={}, tablet_id={}, instance_id={}",
+                rowset_id, resource_id, tablet_id, instance_id_);
+        concurrent_delete_executor.add(
+                [&]() -> int { return delete_rowset_data(resource_id, tablet_id, rowset_id); });
     }
     bool finished = true;
     std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
@@ -2877,9 +2893,9 @@ int InstanceRecycler::recycle_expired_stage_objects() {
     int ret = 0;
     for (const auto& stage : instance_info_.stages()) {
         std::stringstream ss;
-        ss << "instance_id=" << instance_id_ << ", stage_id=" << stage.stage_id()
-           << ", user_name=" << stage.mysql_user_name().at(0)
-           << ", user_id=" << stage.mysql_user_id().at(0)
+        ss << "instance_id=" << instance_id_ << ", stage_id=" << stage.stage_id() << ", user_name="
+           << (stage.mysql_user_name().empty() ? "null" : stage.mysql_user_name().at(0))
+           << ", user_id=" << (stage.mysql_user_id().empty() ? "null" : stage.mysql_user_id().at(0))
            << ", prefix=" << stage.obj_info().prefix();
 
         if (stopped()) break;
@@ -2901,7 +2917,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
 
         s3_conf->prefix = stage.obj_info().prefix();
         std::shared_ptr<S3Accessor> accessor;
-        int ret1 = S3Accessor::create(std::move(*s3_conf), &accessor);
+        int ret1 = S3Accessor::create(*s3_conf, &accessor);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to init s3 accessor ret=" << ret1 << " " << ss.str();
             ret = -1;
