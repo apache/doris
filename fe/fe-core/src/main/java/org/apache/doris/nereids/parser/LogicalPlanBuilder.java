@@ -604,6 +604,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -4954,6 +4955,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAdminDiagnoseTablet(AdminDiagnoseTabletContext ctx) {
         long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new ShowDiagnoseTabletCommand(tabletId);
+    }
+
+    @Override
+    public LogicalPlan visitShowTabletId(DorisParser.ShowTabletIdContext ctx) {
+        long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
+        return new ShowTabletIdCommand(tabletId);
     }
 
     @Override

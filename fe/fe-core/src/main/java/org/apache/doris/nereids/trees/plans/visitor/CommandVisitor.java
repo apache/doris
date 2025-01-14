@@ -137,6 +137,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -735,6 +736,10 @@ public interface CommandVisitor<R, C> {
     default R visitShowTabletStorageFormatCommand(ShowTabletStorageFormatCommand showTabletStorageFormatCommand,
                                                   C context) {
         return visitCommand(showTabletStorageFormatCommand, context);
+    }
+
+    default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
+        return visitCommand(showTabletIdCommand, context);
     }
 
     default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
