@@ -284,15 +284,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
     if (config::is_cloud_mode()) {
         int64_t duration_ns = 0;
-        SCOPED_RAW_TIMER(&duration_ns);
-        std::vector<std::function<Status()>> tasks;
-        tasks.reserve(_scan_ranges.size());
-        for (auto&& [tablet, version] : tablets) {
-            tasks.emplace_back([tablet, version]() {
-                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
-            });
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            std::vector<std::function<Status()>> tasks;
+            tasks.reserve(_scan_ranges.size());
+            for (auto&& [tablet, version] : tablets) {
+                tasks.emplace_back([tablet, version]() {
+                    return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+                });
+            }
+            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
-        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         _sync_rowset_timer->update(duration_ns);
     }
 
