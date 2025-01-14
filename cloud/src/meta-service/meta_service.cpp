@@ -1860,7 +1860,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         auto& val = request->segment_delete_bitmaps(i);
 
         // Split into multiple fdb transactions, because the size of one fdb
-        // transaction can't exceed 10MB.
+        // transaction can't exceed 10MB.In my test, when txn->approximate_bytes()
+        // bigger than 8.3MB, it will meet Transaction exceeds byte limit error.
         if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
             LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
                       << ", current size: " << txn->approximate_bytes() << " lock_id=" << request->lock_id();
