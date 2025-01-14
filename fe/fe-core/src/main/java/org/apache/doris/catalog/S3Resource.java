@@ -119,9 +119,8 @@ public class S3Resource extends Resource {
 
     private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
             Map<String, String> properties) throws DdlException {
-        String bucket = "s3://" + bucketName + "/";
         S3FileSystem fileSystem = new S3FileSystem(properties);
-        String testFile = bucket + rootPath + "/test-object-valid.txt";
+        String testFile = "s3://" + bucketName + "/" + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         if (FeConstants.runningUnitTest) {
             return;
