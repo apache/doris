@@ -229,6 +229,13 @@ CONF_mInt64(max_s3_client_retry, "10");
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
 
+// Max byte txn commit when updating delete bitmap, default is 7MB.
+// Because the size of one fdb transaction can't exceed 10MB, and
+// fdb does not have an accurate way to estimate the size of txn.
+// In my test, when txn->approximate_bytes() bigger than 8MB,
+// it may meet Transaction exceeds byte limit error. We'd better
+// reserve 1MB of buffer, so setting the default value to 7MB is
+// more reasonable.
 CONF_mInt64(max_txn_commit_byte, "7340032");
 
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
