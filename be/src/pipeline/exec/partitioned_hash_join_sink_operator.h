@@ -51,6 +51,7 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     void update_memory_usage();
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -67,11 +68,18 @@ protected:
 
     Status _finish_spilling();
 
+    Status _setup_runtime_filters(RuntimeState* state);
+    Status _setup_runtime_filters_for_spilling(RuntimeState* state);
+
     friend class PartitionedHashJoinSinkOperatorX;
 
     bool _child_eos {false};
 
+    vectorized::VExprContextSPtrs _build_expr_ctxs;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
+    std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
@@ -80,6 +88,9 @@ protected:
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
     RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
+    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
@@ -143,6 +154,7 @@ private:
     const TJoinDistributionType::type _join_distribution;
 
     std::vector<TExpr> _build_exprs;
+    vectorized::VExprContextSPtrs _build_expr_ctxs;
 
     std::shared_ptr<HashJoinBuildSinkOperatorX> _inner_sink_operator;
     std::shared_ptr<HashJoinProbeOperatorX> _inner_probe_operator;

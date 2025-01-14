@@ -24,6 +24,7 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -31,6 +32,7 @@
 #include "util/mem_info.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/spill/spill_stream.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -48,11 +50,19 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
 
     _rows_in_partitions.assign(p._partition_count, 0);
 
+    _build_expr_ctxs.resize(p._build_expr_ctxs.size());
+    for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
+    }
+
+    _finish_dependency = std::make_shared<CountedFinishDependency>(
+            p.operator_id(), p.node_id(), p.get_name() + "_FINISH_DEPENDENCY");
+
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "HashJoinBuildSpillDependency", true);
     state->get_task()->add_spill_dependency(_spill_dependency.get());
 
-    _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
+    _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
     _partition_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionTime", 1);
     _partition_shuffle_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionShuffleTime", 1);
@@ -61,6 +71,15 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     _memory_usage_reserved =
             ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
 
+    _runtime_filter_init_timer = ADD_TIMER_WITH_LEVEL(profile(), "RuntimeFilterInitTime", 1);
+    _publish_runtime_filter_timer = ADD_TIMER_WITH_LEVEL(profile(), "PublishRuntimeFilterTime", 1);
+    _runtime_filter_compute_timer = ADD_TIMER_WITH_LEVEL(profile(), "BuildRuntimeFilterTime", 1);
+
+    _runtime_filters.resize(p._runtime_filter_descs.size());
+    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
+                                                                &_runtime_filters[i]));
+    }
     return Status::OK();
 }
 
@@ -87,6 +106,36 @@ Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec
         return Status::OK();
     }
     dec_running_big_mem_op_num(state);
+
+    if (_runtime_filters.empty() || _shared_state->need_to_spill || !_runtime_filter_slots) {
+        return PipelineXSpillSinkLocalState::close(state, exec_status);
+    }
+
+    HashJoinBuildSinkLocalState* inner_sink_state = nullptr;
+    size_t build_rows = 0;
+    vectorized::Block* build_block = nullptr;
+    if (_shared_state->inner_runtime_state) {
+        if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
+            inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
+            build_block = inner_sink_state->_shared_state->build_block.get();
+            build_rows = build_block != nullptr ? build_block->rows() : 0;
+        }
+    }
+
+    {
+        SCOPED_TIMER(_runtime_filter_init_timer);
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_filter_slots->init_filters(state, build_rows));
+        RETURN_IF_ERROR(_runtime_filter_slots->disable_meaningless_filters(state));
+    }
+
+    if (build_rows > 1) {
+        SCOPED_TIMER(_runtime_filter_compute_timer);
+        _runtime_filter_slots->insert(build_block);
+    }
+
+    SCOPED_TIMER(_publish_runtime_filter_timer);
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_filter_slots->publish(state, false));
+
     return PipelineXSpillSinkLocalState::close(state, exec_status);
 }
 
@@ -115,6 +164,43 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
         }
     }
     return mem_size;
+}
+
+Status PartitionedHashJoinSinkLocalState::_setup_runtime_filters(RuntimeState* state) {
+    if (_runtime_filters.empty()) {
+        return Status::OK();
+    }
+
+    DCHECK(_child_eos);
+    DCHECK(!_shared_state->need_to_spill);
+
+    size_t build_rows = 0;
+    if (!_shared_state->need_to_spill && _shared_state->inner_runtime_state) {
+        HashJoinBuildSinkLocalState* inner_sink_state = nullptr;
+        if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
+            inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
+            auto* build_block = inner_sink_state->_shared_state->build_block.get();
+            build_rows = build_block != nullptr ? build_block->rows() : 0;
+            _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+                    inner_sink_state->_build_expr_ctxs, _runtime_filters);
+        }
+    }
+
+    RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, build_rows, _finish_dependency));
+    return Status::OK();
+}
+
+Status PartitionedHashJoinSinkLocalState::_setup_runtime_filters_for_spilling(RuntimeState* state) {
+    if (_runtime_filters.empty() || _runtime_filter_slots) {
+        return Status::OK();
+    }
+
+    DCHECK(_shared_state->need_to_spill);
+    _runtime_filter_slots =
+            std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, _runtime_filters);
+    RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
+    RETURN_IF_ERROR(_runtime_filter_slots->disable_all_filters());
+    return _runtime_filter_slots->publish(state, false);
 }
 
 void PartitionedHashJoinSinkLocalState::update_memory_usage() {
@@ -480,7 +566,27 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
         _build_exprs.emplace_back(eq_join_conjunct.right);
         partition_exprs.emplace_back(eq_join_conjunct.right);
+
+        vectorized::VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
+        {
+            // for type check
+            vectorized::VExprContextSPtr probe_ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
+            auto build_side_expr_type = build_ctx->root()->data_type();
+            auto probe_side_expr_type = probe_ctx->root()->data_type();
+            if (!vectorized::make_nullable(build_side_expr_type)
+                         ->equals(*vectorized::make_nullable(probe_side_expr_type))) {
+                return Status::InternalError(
+                        "build side type {}, not match probe side type {} , node info "
+                        "{}",
+                        build_side_expr_type->get_name(), probe_side_expr_type->get_name(),
+                        this->debug_string(0));
+            }
+        }
+        _build_expr_ctxs.push_back(build_ctx);
     }
+
     _partitioner = std::make_unique<SpillPartitionerType>(_partition_count);
     RETURN_IF_ERROR(_partitioner->init(_build_exprs));
 
@@ -492,6 +598,8 @@ Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
     RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::open(_build_expr_ctxs, state));
     return _inner_sink_operator->open(state);
 }
 
@@ -575,6 +683,17 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 PrettyPrinter::print_bytes(revocable_size));
     }
 
+    Defer rf_defer {[&]() {
+        if (local_state._shared_state->need_to_spill) {
+            if (auto st = local_state._setup_runtime_filters_for_spilling(state); !st.ok()) {
+                LOG(WARNING) << fmt::format(
+                        "Query:{}, hash join sink:{}, task:{}, setup_runtime_filters_for_spilling "
+                        "failed:{}",
+                        print_id(state->query_id()), node_id(), state->task_id(), st.to_string());
+            }
+        }
+    }};
+
     if (rows == 0) {
         if (eos) {
             if (need_to_spill) {
@@ -608,6 +727,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                         print_id(state->query_id()), node_id(), state->task_id(),
                         _inner_sink_operator->get_memory_usage_debug_str(
                                 local_state._shared_state->inner_runtime_state.get()));
+                RETURN_IF_ERROR(local_state._setup_runtime_filters(state));
             }
 
             std::for_each(local_state._shared_state->partitioned_build_blocks.begin(),
@@ -625,9 +745,8 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (need_to_spill) {
         RETURN_IF_ERROR(local_state._partition_block(state, in_block, 0, rows));
-        if (eos) {
-            return revoke_memory(state, nullptr);
-        } else if (revocable_mem_size(state) > vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+        if (eos ||
+            revocable_mem_size(state) >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
             return revoke_memory(state, nullptr);
         }
     } else {
@@ -654,11 +773,10 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         local_state.update_memory_usage();
         if (eos) {
             LOG(INFO) << fmt::format(
-                    "Query:{}, hash join sink:{}, task:{}, eos, set_ready_to_read, nonspill memory "
-                    "usage:{}",
-                    print_id(state->query_id()), node_id(), state->task_id(),
-                    _inner_sink_operator->get_memory_usage_debug_str(
-                            local_state._shared_state->inner_runtime_state.get()));
+                    "Query:{}, hash join sink:{}, task:{}, eos, set_ready_to_read, non-spill",
+                    print_id(state->query_id()), node_id(), state->task_id());
+
+            RETURN_IF_ERROR(local_state._setup_runtime_filters(state));
             local_state._dependency->set_ready_to_read();
         }
     }

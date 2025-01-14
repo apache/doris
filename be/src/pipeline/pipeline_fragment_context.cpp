@@ -1376,7 +1376,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         const auto enable_spill = _runtime_state->enable_spill();
         if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
-            /// TODO: support rf in partitioned hash join
             tnode_.runtime_filters.clear();
             uint32_t partition_count = _runtime_state->spill_hash_join_partition_count();
             auto inner_probe_operator =
@@ -1402,12 +1401,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), tnode_, descs, partition_count);
+                    pool, next_sink_operator_id(), tnode, descs, partition_count);
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
             DataSinkOperatorPtr sink = std::move(sink_operator);
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
-            RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode_, _runtime_state.get()));
+            RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
 
             _pipeline_parent_map.push(op->node_id(), cur_pipe);
             _pipeline_parent_map.push(op->node_id(), build_side_pipe);
