@@ -1267,9 +1267,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             new_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(new_pipe->id());
 
-            DataSinkOperatorPtr cache_sink(
-                    new CacheSinkOperatorX(next_sink_operator_id(), cache_source_id));
-            cache_sink->set_dests_id({op->operator_id()});
+            DataSinkOperatorPtr cache_sink(new CacheSinkOperatorX(
+                    next_sink_operator_id(), cache_source_id, op->operator_id()));
             RETURN_IF_ERROR(new_pipe->set_sink(cache_sink));
             return Status::OK();
         };
@@ -1363,7 +1362,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
             _require_bucket_distribution =
                     _require_bucket_distribution || sink->require_data_distribution();
-            sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         }
@@ -1404,7 +1402,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                     pool, next_sink_operator_id(), tnode_, descs, partition_count);
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
             DataSinkOperatorPtr sink = std::move(sink_operator);
-            sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode_, _runtime_state.get()));
 
@@ -1426,7 +1423,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             DataSinkOperatorPtr sink;
             sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
-            sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
 
@@ -1454,7 +1450,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorPtr sink;
         sink.reset(
                 new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
-        sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
         _pipeline_parent_map.push(op->node_id(), cur_pipe);
@@ -1476,9 +1471,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
             DataSinkOperatorPtr sink;
-            sink.reset(new UnionSinkOperatorX(i, next_sink_operator_id(), pool, tnode, descs));
+            sink.reset(new UnionSinkOperatorX(i, next_sink_operator_id(), op->operator_id(), pool,
+                                              tnode, descs));
             sink->set_followed_by_shuffled_operator(_require_bucket_distribution);
-            sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
             // preset children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
@@ -1515,7 +1510,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         _require_bucket_distribution =
                 _require_bucket_distribution || sink->require_data_distribution();
-        sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
@@ -1534,7 +1528,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
         DataSinkOperatorPtr sink;
         sink.reset(new PartitionSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
-        sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
@@ -1557,7 +1550,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         sink->set_followed_by_shuffled_operator(followed_by_shuffled_operator);
         _require_bucket_distribution =
                 _require_bucket_distribution || sink->require_data_distribution();
-        sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
@@ -1657,13 +1649,12 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
 
         DataSinkOperatorPtr sink;
         if (child_id == 0) {
-            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(), pool,
-                                                          tnode, descs));
+            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(),
+                                                          op->operator_id(), pool, tnode, descs));
         } else {
-            sink.reset(new SetProbeSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(),
-                                                               pool, tnode, descs));
+            sink.reset(new SetProbeSinkOperatorX<is_intersect>(
+                    child_id, next_sink_operator_id(), op->operator_id(), pool, tnode, descs));
         }
-        sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(probe_side_pipe->sink()->init(tnode, _runtime_state.get()));
         // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
