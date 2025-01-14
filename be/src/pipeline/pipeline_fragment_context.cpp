@@ -499,8 +499,13 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
             if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
                 auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 DCHECK(pipeline_id_to_profile[pip_idx]);
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
-                        local_params, request.fragment.output_sink, _query_ctx.get()));
+                std::vector<TScanRangeParams> scan_ranges;
+                scan_ranges = find_with_default(local_params.per_node_scan_ranges,
+                                                _pipelines[pip_idx]->operators().front()->node_id(),
+                                                scan_ranges);
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                        task->prepare(scan_ranges, local_params.sender_id,
+                                      request.fragment.output_sink, _query_ctx.get()));
             }
         }
         {
@@ -852,6 +857,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     RETURN_IF_ERROR(source_op->set_child(new_pip->operators().back()));
     RETURN_IF_ERROR(source_op->init(data_distribution.distribution_type));
     if (!operators.empty()) {
+        RETURN_IF_ERROR(operators.front()->set_child(nullptr));
         RETURN_IF_ERROR(operators.front()->set_child(source_op));
     }
     operators.insert(operators.begin(), source_op);
@@ -888,6 +894,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     cur_pipe->set_children(new_children);
     _dag[downstream_pipeline_id] = edges_with_source;
     RETURN_IF_ERROR(new_pip->sink()->set_child(new_pip->operators().back()));
+    RETURN_IF_ERROR(cur_pipe->sink()->set_child(nullptr));
     RETURN_IF_ERROR(cur_pipe->sink()->set_child(cur_pipe->operators().back()));
 
     // 7. Inherit properties from current pipeline.
@@ -947,8 +954,6 @@ Status PipelineFragmentContext::_plan_local_exchange(
             for (auto& child : _pipelines[pip_idx]->children()) {
                 if (child->sink()->node_id() ==
                     _pipelines[pip_idx]->operators().front()->node_id()) {
-                    RETURN_IF_ERROR(_pipelines[pip_idx]->operators().front()->set_child(
-                            child->operators().back()));
                     _pipelines[pip_idx]->set_data_distribution(child->data_distribution());
                 }
             }

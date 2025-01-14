@@ -340,6 +340,8 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, RemoveDeleteBitmapUpdateLockRequest>) {
         return fmt::format(" table_id={}, tablet_id={}, lock_id={}", req.table_id(),
                            req.tablet_id(), req.lock_id());
+    } else if constexpr (is_any_v<Request, GetDeleteBitmapRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -373,7 +375,11 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
         brpc::Controller cntl;
-        cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
+        if (op_name == "get delete bitmap") {
+            cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
+        } else {
+            cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
+        }
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         (stub.get()->*method)(&cntl, &req, res, nullptr);
@@ -714,41 +720,12 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
 
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
 
-    int retry_times = 0;
-    MetaServiceProxy* proxy;
-    RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
     auto start = std::chrono::high_resolution_clock::now();
-    while (true) {
-        std::shared_ptr<MetaService_Stub> stub;
-        RETURN_IF_ERROR(proxy->get(&stub));
-        // When there are many delete bitmaps that need to be synchronized, it
-        // may take a longer time, especially when loading the tablet for the
-        // first time, so set a relatively long timeout time.
-        brpc::Controller cntl;
-        cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
-        cntl.set_max_retry(kBrpcRetryTimes);
-        res.Clear();
-        stub->get_delete_bitmap(&cntl, &req, &res, nullptr);
-        if (cntl.Failed()) [[unlikely]] {
-            LOG_INFO("failed to get delete bitmap")
-                    .tag("reason", cntl.ErrorText())
-                    .tag("tablet_id", tablet->tablet_id())
-                    .tag("partition_id", tablet->partition_id())
-                    .tag("tried", retry_times);
-            proxy->set_unhealthy();
-        } else {
-            break;
-        }
-
-        if (++retry_times > config::delete_bitmap_rpc_retry_times) {
-            if (cntl.Failed()) {
-                return Status::RpcError("failed to get delete bitmap, tablet={} err={}",
-                                        tablet->tablet_id(), cntl.ErrorText());
-            }
-            break;
-        }
-    }
+    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
     auto end = std::chrono::high_resolution_clock::now();
+    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
+        return st;
+    }
 
     if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
         return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
@@ -1070,7 +1047,12 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::COMMIT);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    return retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    auto st = retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "txn conflict when commit tablet job {}", job.ShortDebugString());
+    }
+    return st;
 }
 
 Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
@@ -1205,6 +1187,17 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    if (res.status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "txn conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.table_id(), lock_id, initiator);
+    } else if (res.status().code() == MetaServiceCode::LOCK_CONFLICT) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "lock conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.table_id(), lock_id, initiator);
+    }
     return st;
 }
 

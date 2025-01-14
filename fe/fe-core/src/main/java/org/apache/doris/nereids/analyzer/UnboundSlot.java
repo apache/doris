@@ -117,7 +117,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return nameParts.hashCode();
     }
 

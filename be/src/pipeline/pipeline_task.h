@@ -54,8 +54,8 @@ public:
                          le_state_map,
                  int task_idx);
 
-    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
-                   QueryContext* query_ctx);
+    Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
+                   const TDataSink& tsink, QueryContext* query_ctx);
 
     Status execute(bool* eos);
 

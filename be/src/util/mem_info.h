@@ -107,6 +107,8 @@ public:
         size_t value_size = sizeof(T);
         if (jemallctl(name.c_str(), &value, &value_size, nullptr, 0) == 0) {
             return value;
+        } else {
+            LOG(WARNING) << fmt::format("Failed, jemallctl get {}", name);
         }
 #endif
         return 0;
@@ -123,9 +125,6 @@ public:
             if (err) {
                 LOG(WARNING) << fmt::format("Failed, jemallctl value for {} set to {} (old {})",
                                             name, value, old_value);
-            } else {
-                LOG(INFO) << fmt::format("Successfully, jemallctl value for {} set to {} (old {})",
-                                         name, value, old_value);
             }
         } catch (...) {
             LOG(WARNING) << fmt::format("Exception, jemallctl value for {} set to {} (old {})",
@@ -140,8 +139,6 @@ public:
             int err = jemallctl(name.c_str(), nullptr, nullptr, nullptr, 0);
             if (err) {
                 LOG(WARNING) << fmt::format("Failed, jemallctl action {}", name);
-            } else {
-                LOG(INFO) << fmt::format("Successfully, jemallctl action {}", name);
             }
         } catch (...) {
             LOG(WARNING) << fmt::format("Exception, jemallctl action {}", name);
@@ -181,8 +178,12 @@ public:
         // Each time this interface is set, all currently unused dirty pages are considered
         // to have fully decayed, which causes immediate purging of all unused dirty pages unless
         // the decay time is set to -1
-        set_jemallctl_value<ssize_t>(fmt::format("arena.{}.dirty_decay_ms", MALLCTL_ARENAS_ALL),
-                                     dirty_decay_ms);
+        //
+        // NOTE: Using "arena.MALLCTL_ARENAS_ALL.dirty_decay_ms" to modify all arenas will fail or even crash,
+        // which may be a bug.
+        for (unsigned i = 0; i < get_jemallctl_value<unsigned>("arenas.narenas"); i++) {
+            set_jemallctl_value<ssize_t>(fmt::format("arena.{}.dirty_decay_ms", i), dirty_decay_ms);
+        }
 #endif
     }
 

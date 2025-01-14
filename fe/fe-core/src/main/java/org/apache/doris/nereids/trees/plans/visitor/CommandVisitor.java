@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -761,5 +762,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabaseSetQuotaCommand(AlterDatabaseSetQuotaCommand alterDatabaseSetQuotaCommand, C context) {
         return visitAlterDatabaseSetQuotaCommand(alterDatabaseSetQuotaCommand, context);
+    }
+  
+    default R visitDropDatabaseCommand(DropDatabaseCommand dropDatabaseCommand, C context) {
+        return visitCommand(dropDatabaseCommand, context);
     }
 }

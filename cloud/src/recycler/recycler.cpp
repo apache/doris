@@ -2917,7 +2917,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
 
         s3_conf->prefix = stage.obj_info().prefix();
         std::shared_ptr<S3Accessor> accessor;
-        int ret1 = S3Accessor::create(std::move(*s3_conf), &accessor);
+        int ret1 = S3Accessor::create(*s3_conf, &accessor);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to init s3 accessor ret=" << ret1 << " " << ss.str();
             ret = -1;

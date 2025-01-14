@@ -69,6 +69,11 @@ suite("test_cumu_compaction_with_delete") {
                 break;
             }
             Thread.sleep(10000)
+
+            def duration = System.currentTimeMillis() - now
+            if(duration > 10 * 60 * 1000) {
+                assertTrue(false)
+            }
         }
         def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
@@ -108,6 +113,11 @@ suite("test_cumu_compaction_with_delete") {
                 break;
             }
             Thread.sleep(10000)
+
+            def duration = System.currentTimeMillis() - now
+            if(duration > 10 * 60 * 1000) {
+                assertTrue(false)
+            }
         }
         def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)

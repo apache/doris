@@ -487,8 +487,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        LOG.info("begin drop database[{}], is force : {}", dbName, stmt.isForceDrop());
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        LOG.info("begin drop database[{}], is force : {}", dbName, force);
 
         // 1. check if database exists
         if (!tryLock(false)) {
@@ -496,7 +499,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         try {
             if (!fullNameToDb.containsKey(dbName)) {
-                if (stmt.isSetIfExists()) {
+                if (ifExists) {
                     LOG.info("drop database[{}] which does not exist", dbName);
                     return;
                 } else {
@@ -509,13 +512,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLock();
             long recycleTime = 0;
             try {
-                if (!stmt.isForceDrop()) {
+                if (!force) {
                     if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException(
-                                "There are still some transactions in the COMMITTED state waiting to be completed. "
-                                        + "The database [" + dbName
-                                        + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                        + " please use \"DROP database FORCE\".");
+                            "There are still some transactions in the COMMITTED state waiting to be completed. "
+                                + "The database [" + dbName
+                                + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP database FORCE\".");
                     }
                 }
 
@@ -528,16 +531,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
-                    if (!stmt.isForceDrop()) {
+                    if (!force) {
                         for (Table table : tableList) {
                             if (table.isManagedTable()) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
-                                            + olapTable.getState() + ", cannot be dropped."
-                                            + " please cancel the operation on olap table firstly."
-                                            + " If you want to forcibly drop(cannot be recovered),"
-                                            + " please use \"DROP table FORCE\".");
+                                        + olapTable.getState() + ", cannot be dropped."
+                                        + " please cancel the operation on olap table firstly."
+                                        + " If you want to forcibly drop(cannot be recovered),"
+                                        + " please use \"DROP table FORCE\".");
                                 }
                             }
                         }
@@ -547,12 +550,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                             Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                         }
                     }
-                    unprotectDropDb(db, stmt.isForceDrop(), false, 0);
+                    unprotectDropDb(db, force, false, 0);
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
 
-                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, stmt.isForceDrop(), 0);
+                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
             } finally {
                 db.writeUnlock();
@@ -561,14 +564,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
-            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
+            DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
         } finally {
             unlock();
         }
 
-        LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
+        LOG.info("finish drop database[{}], is force : {}", dbName, force);
     }
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {

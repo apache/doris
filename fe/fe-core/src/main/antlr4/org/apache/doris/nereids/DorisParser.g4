@@ -119,7 +119,7 @@ supportedJobStatement
             |
             (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
         commentSpec?
-        DO supportedDmlStatement                                                               #createScheduledJob                                                                    
+        DO supportedDmlStatement                                                               #createScheduledJob
    | PAUSE JOB wildWhere?                                                                      #pauseJob
    | DROP JOB (IF EXISTS)? wildWhere?                                                          #dropJob
    | RESUME JOB wildWhere?                                                                     #resumeJob
@@ -181,16 +181,16 @@ supportedCreateStatement
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)? AS query                                #createView
     | CREATE FILE name=STRING_LITERAL
-        ((FROM | IN) database=identifier)? properties=propertyClause            #createFile        
+        ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
     | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
-        name=identifierOrText properties=propertyClause?                        #createWorkloadGroup          
+        name=identifierOrText properties=propertyClause?                        #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
         (WITH RESOURCE resourceName=identifier)?
-        (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog           
+        (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
@@ -204,7 +204,7 @@ supportedCreateStatement
 supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
-    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename    
+    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER ROLE role=identifier commentSpec                                                #alterRole
@@ -241,6 +241,7 @@ supportedDropStatement
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     | DROP REPOSITORY name=identifier                                           #dropRepository
+    | DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
 
     ;
 
@@ -251,7 +252,7 @@ supportedShowStatement
     | SHOW BROKER                                                                   #showBroker
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
-    | SHOW LAST INSERT                                                              #showLastInsert 
+    | SHOW LAST INSERT                                                              #showLastInsert
     | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
@@ -262,17 +263,17 @@ supportedShowStatement
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
-    | SHOW PLUGINS                                                                  #showPlugins    
+    | SHOW PLUGINS                                                                  #showPlugins
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
-        (LIKE STRING_LITERAL)?                                                      #showEncryptKeys    
+        (LIKE STRING_LITERAL)?                                                      #showEncryptKeys
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
-    | SHOW ROLES                                                                    #showRoles        
+    | SHOW ROLES                                                                    #showRoles
     | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW PRIVILEGES                                                               #showPrivileges
-    | SHOW PROC path=STRING_LITERAL                                                 #showProc       
-    | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
+    | SHOW PROC path=STRING_LITERAL                                                 #showProc
+    | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
     | SHOW CATALOG name=identifier                                                  #showCatalog
@@ -284,15 +285,15 @@ supportedShowStatement
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW DATA TYPES                                                               #showDataTypes
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView  
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWarningErrorCount
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
-    | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
+    | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
-    | SHOW FRONTENDS name=identifier?                                               #showFrontends 
+    | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
@@ -317,7 +318,7 @@ supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
     ;
 
-unsupportedOtherStatement 
+unsupportedOtherStatement
     : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
@@ -528,7 +529,7 @@ supportedAdminStatement
     | ADMIN CLEAN TRASH
         (ON LEFT_PAREN backends+=STRING_LITERAL
               (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
-    | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus    
+    | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
     ;
 
 supportedRecoverStatement
@@ -695,8 +696,7 @@ fromRollup
     ;
 
 unsupportedDropStatement
-    : DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
-    | DROP (GLOBAL | SESSION | LOCAL)? FUNCTION (IF EXISTS)?
+    : DROP (GLOBAL | SESSION | LOCAL)? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
     | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
@@ -1251,11 +1251,11 @@ hintAssignment
     : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
-    
+
 updateAssignment
     : col=multipartIdentifier EQ (expression | DEFAULT)
     ;
-    
+
 updateAssignmentSeq
     : assignments+=updateAssignment (COMMA assignments+=updateAssignment)*
     ;
@@ -1353,7 +1353,7 @@ tableAlias
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
-    
+
 // ----------------Create Table Fields----------
 simpleColumnDefs
     : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
@@ -1366,7 +1366,7 @@ simpleColumnDef
 columnDefs
     : cols+=columnDef (COMMA cols+=columnDef)*
     ;
-    
+
 columnDef
     : colName=identifier type=dataType
         KEY?
@@ -1383,23 +1383,23 @@ columnDef
 indexDefs
     : indexes+=indexDef (COMMA indexes+=indexDef)*
     ;
-    
+
 indexDef
     : INDEX (ifNotExists=IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
-    
+
 partitionsDef
     : partitions+=partitionDef (COMMA partitions+=partitionDef)*
     ;
-    
+
 partitionDef
     : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) (LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN)?
     ;
-    
+
 lessThanPartitionDef
     : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | partitionValueList)
     ;
-    
+
 fixedPartitionDef
     : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=partitionValueList COMMA upper=partitionValueList RIGHT_PAREN
     ;
@@ -1412,19 +1412,19 @@ inPartitionDef
     : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN partitionValueLists+=partitionValueList
         (COMMA partitionValueLists+=partitionValueList)* RIGHT_PAREN) | constants=partitionValueList))?
     ;
-    
+
 partitionValueList
     : LEFT_PAREN values+=partitionValueDef (COMMA values+=partitionValueDef)* RIGHT_PAREN
     ;
-    
+
 partitionValueDef
     : INTEGER_VALUE | STRING_LITERAL | MAXVALUE | NULL
     ;
-    
+
 rollupDefs
     : rollups+=rollupDef (COMMA rollups+=rollupDef)*
     ;
-    
+
 rollupDef
     : rollupName=identifier rollupCols=identifierList (DUPLICATE KEY dupKeys=identifierList)? properties=propertyClause?
     ;
@@ -1436,7 +1436,7 @@ aggTypeDef
 tabletList
     : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
-    
+
 
 inlineTable
     : VALUES rowConstructor (COMMA rowConstructor)*
@@ -1566,7 +1566,7 @@ functionCallExpression
             (OVER windowSpec)?
     ;
 
-functionIdentifier 
+functionIdentifier
     : (dbName=identifier DOT)? functionNameIdentifier
     ;
 

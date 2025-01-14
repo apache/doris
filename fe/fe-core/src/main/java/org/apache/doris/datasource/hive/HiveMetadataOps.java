@@ -139,9 +139,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         if (!databaseExist(dbName)) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 return;
             } else {
