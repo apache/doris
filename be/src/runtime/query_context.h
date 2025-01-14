@@ -311,7 +311,10 @@ public:
 
     void disable_reserve_memory() { _enable_reserve_memory = false; }
 
-    bool enable_reserve_memory() { return _enable_reserve_memory; }
+    bool enable_reserve_memory() const {
+        return _query_options.__isset.enable_reserve_memory &&
+               _query_options.enable_reserve_memory && _enable_reserve_memory;
+    }
 
     void update_paused_reason(const Status& st) {
         std::lock_guard l(_paused_mutex);

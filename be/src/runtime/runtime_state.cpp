@@ -540,9 +540,4 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
     }
     return _pipeline_id_to_profile;
 }
-
-bool RuntimeState::enable_reserve_memory() const {
-    return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory &&
-           _query_ctx->enable_reserve_memory();
-}
 } // end namespace doris
