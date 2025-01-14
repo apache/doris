@@ -131,8 +131,8 @@ void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender
 
 void QueryStatisticsRecvr::insert(QueryStatisticsPtr statistics, int sender_id) {
     if (!statistics->collected()) return;
-    if (_query_statistics.contains(sender_id)) return;
     std::lock_guard<SpinLock> l(_lock);
+    if (_query_statistics.contains(sender_id)) return;
     _query_statistics[sender_id] = statistics;
 }
 
