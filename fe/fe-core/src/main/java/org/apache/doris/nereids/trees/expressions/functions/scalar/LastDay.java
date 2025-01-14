@@ -71,68 +71,44 @@ public class LastDay extends ScalarFunction
     }
 
     @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() < 1 || arity() > 2) {
+            throw new AnalysisException("lastday function must have 1 or 2 arguments");
+        }
+        if (arity() == 2 && !child(1).isLiteral()) {
+            throw new AnalysisException("lastday function must accept a literal for the second argument");
+        }
+        if (arity() == 2) {
+            final String timeUnit = ((VarcharLiteral) getArgument(1)).getStringValue().toLowerCase();
+            if (!Lists.newArrayList("week", "month", "day", "quarter", "year")
+                    .contains(timeUnit)) {
+                throw new AnalysisException("lastday function's second argument must be one of: week, month, day, quarter, year");
+            }
+        }
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         if (getChildren().size() == 2) {
             Expression timeUnit = getChildren().get(1);
             String unit = timeUnit.toString();
             switch (unit.toLowerCase()) {
                 case "day":
-                    return calculateLastDayOfDay(visitor, context);
+                    return visitor.visitLastDayOfDay(this, context);
                 case "week":
-                    return calculateLastDayOfWeek(visitor, context);
+                    return visitor.visitLastDayOfWeek(this, context);
                 case "quarter":
-                    return calculateLastDayOfQuarter(visitor, context);
+                    return visitor.visitLastDayOfQuarter(this, context);
                 case "year":
-                    return calculateLastDayOfYear(visitor, context);
+                    return visitor.visitLastDayOfYear(this, context);
                 case "month":
-                    return calculateLastDayOfMonth(visitor, context);
+                    return visitor.visitLastDayOfMonth(this, context);
+                default:
+                    return visitor.visitLastDayOfMonth(this, context);
             }
         } else {
-
-            return calculateLastDayOfMonth(visitor, context);
+            return visitor.visitLastDayOfMonth(this, context);
         }
-    }
-
-    private <R, C> R calculateLastDayOfDay(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        return (R) new DateLiteral(currentDate.getYear(), currentDate.getMonthValue(), currentDate.getDayOfMonth());
-    }
-
-    private <R, C> R calculateLastDayOfWeek(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        int dayOfWeek = currentDate.getDayOfWeek().getValue();
-        LocalDate lastDayOfWeek = currentDate.plusDays(7 - dayOfWeek);
-        return (R) new DateLiteral(lastDayOfWeek.getYear(), lastDayOfWeek.getMonthValue(), lastDayOfWeek.getDayOfMonth());
-    }
-
-    private <R, C> R calculateLastDayOfMonth(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        LocalDate lastDayOfMonth = currentDate.withDayOfMonth(currentDate.lengthOfMonth());
-        return (R) new DateLiteral(lastDayOfMonth.getYear(), lastDayOfMonth.getMonthValue(), lastDayOfMonth.getDayOfMonth());
-    }
-
-    private <R, C> R calculateLastDayOfQuarter(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        int month = currentDate.getMonthValue();
-        int lastMonthOfQuarter = ((month - 1) / 3 + 1) * 3;
-        LocalDate lastDayOfQuarter;
-        if (lastMonthOfQuarter == 3) {
-            lastDayOfQuarter = LocalDate.of(currentDate.getYear(), 3, 31);
-        } else if (lastMonthOfQuarter == 6) {
-            lastDayOfQuarter = LocalDate.of(currentDate.getYear(), 6, 30);
-        } else if (lastMonthOfQuarter == 9) {
-            lastDayOfQuarter = LocalDate.of(currentDate.getYear(), 9, 30);
-        } else {
-            lastDayOfQuarter = LocalDate.of(currentDate.getYear(), 12, 31);
-        }
-        return (R) new DateLiteral(lastDayOfQuarter.getYear(), lastDayOfQuarter.getMonthValue(), lastDayOfQuarter.getDayOfMonth());
-    }
-
-    private <R, C> R calculateLastDayOfYear(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        LocalDate lastDayOfYear = LocalDate.of(currentDate.getYear(), 12, 31);
-        return (R) new DateLiteral(lastDayOfYear.getYear(), lastDayOfYear.getMonthValue(), lastDayOfYear.getDayOfMonth());
-    }
 
     @Override
     public List<FunctionSignature> getSignatures() {
