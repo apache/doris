@@ -3433,14 +3433,14 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * getInsertVisibleTimeoutMs.
      **/
-    public long getInsertVisibleTimeoutMs(boolean isMow) {
+    public long getInsertVisibleTimeoutMs(boolean isCloudMow) {
         long timeOutMs = 0;
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
             timeOutMs = MIN_INSERT_VISIBLE_TIMEOUT_MS;
         } else {
             timeOutMs = insertVisibleTimeoutMs;
         }
-        if (isMow) {
+        if (isCloudMow) {
             timeOutMs = timeOutMs * insertVisibleTimeoutMowMultiplier;
         }
         return timeOutMs;
