@@ -251,7 +251,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         } else if (!status.ok()) {
             // Currently, a known error status is emitted when sender
             // close recei
-            throw std::runtime_error(status.msg());
+            throw Exception(status.code(), status.msg());
         }
         return false;
     }

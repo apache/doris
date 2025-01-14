@@ -99,6 +99,8 @@ private:
     /// In pipeline engine, return false if need to read one more block from sender.
     bool next_heap(MergeSortCursor& current);
     bool has_next_block(MergeSortCursor& current);
+
+    Status _get_next_internal(Block* output_block, bool* eos);
 };
 
 } // namespace vectorized
