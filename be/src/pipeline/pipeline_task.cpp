@@ -390,7 +390,7 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
-    RETURN_IF_ERROR(get_task_queue()->push_back(this));
+    RETURN_IF_ERROR(get_task_queue()->push_back(_holder));
     return Status::OK();
 }
 
@@ -507,7 +507,7 @@ std::string PipelineTask::debug_string() {
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
                    _wake_up_early.load(),
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
-                   is_running());
+                   _holder ? false : _holder->state.load() == TaskState::RUNNING);
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finalized ? _operators[i]->debug_string(_state, i)
@@ -550,7 +550,30 @@ std::string PipelineTask::debug_string() {
 
 void PipelineTask::wake_up() {
     // call by dependency
-    static_cast<void>(get_task_queue()->push_back(this));
+    static_cast<void>(get_task_queue()->push_back(_holder));
+}
+
+void PipelineTask::clear_blocking_state() {
+    _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
+    // We use a lock to assure all dependencies are not deconstructed here.
+    std::unique_lock<std::mutex> lc(_dependency_lock);
+    if (!_finalized) {
+        _execution_dep->set_always_ready();
+        for (auto* dep : _filter_dependencies) {
+            dep->set_always_ready();
+        }
+        for (auto& deps : _read_dependencies) {
+            for (auto* dep : deps) {
+                dep->set_always_ready();
+            }
+        }
+        for (auto* dep : _write_dependencies) {
+            dep->set_always_ready();
+        }
+        for (auto* dep : _finish_dependencies) {
+            dep->set_always_ready();
+        }
+    }
 }
 
 QueryContext* PipelineTask::query_context() {
