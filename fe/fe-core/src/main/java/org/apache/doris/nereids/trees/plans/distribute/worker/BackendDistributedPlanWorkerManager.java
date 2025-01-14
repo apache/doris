@@ -65,8 +65,7 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
                 = Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
         if (clusterBackend == null || clusterBackend.isEmpty()) {
             LOG.warn("no available backends, clusterBackend {}", clusterBackend);
-            String clusterName = ConnectContext.get() != null
-                    ? ConnectContext.get().getCloudCluster() : "ctx empty cant get clusterName";
+            String clusterName = context != null ? context.getCloudCluster() : "ctx empty cant get clusterName";
             throw new UserException("no available backends, the cluster maybe not be set or been dropped clusterName = "
                     + clusterName);
         }

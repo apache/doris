@@ -247,7 +247,7 @@ public class DistributePlanner {
     }
 
     private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
-        Optional.ofNullable(ConnectContext.get())
+        Optional.ofNullable(statementContext.getConnectContext())
                 .map(ConnectContext::getExecutor)
                 .map(StmtExecutor::getSummaryProfile)
                 .ifPresent(profileAction);
