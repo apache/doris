@@ -59,11 +59,6 @@ public abstract class JoinNodeBase extends PlanNode {
     protected ExprSubstitutionMap vSrcToOutputSMap;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
 
-    // in thrift, every planNode denote its output tupelId and projections by output_tuple_id and projections
-    // but for legacy reasons, JoinNode has its specific representations: voutput_tuple_id and src_expr_list
-    // if useSpecificProjections true, set the output to its specific attributes.
-    protected boolean useSpecificProjections = true;
-
     public JoinNodeBase(PlanNodeId id, String planNodeName, StatisticalType statisticalType,
             PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, planNodeName, statisticalType);
@@ -591,13 +586,5 @@ public abstract class JoinNodeBase extends PlanNode {
             outputSmap.updateRhsExprs(newRhs);
             outputTupleDesc.computeStatAndMemLayout();
         }
-    }
-
-    public void setUseSpecificProjections(boolean useSpecificProjections) {
-        this.useSpecificProjections = useSpecificProjections;
-    }
-
-    public boolean isUseSpecificProjections() {
-        return useSpecificProjections;
     }
 }
