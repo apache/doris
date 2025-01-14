@@ -248,7 +248,8 @@ Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
     std::shared_ptr<HeartbeatServiceProcessor::TProcessor> server_processor(
             new HeartbeatServiceProcessor(handler));
     *thrift_server = std::make_unique<ThriftServer>("heartbeat", server_processor, server_port,
-                                                    worker_thread_num);
+                                                    worker_thread_num,
+                                                    ThriftServer::ServerType::THREAD_POOL);
     return Status::OK();
 }
 } // namespace doris
