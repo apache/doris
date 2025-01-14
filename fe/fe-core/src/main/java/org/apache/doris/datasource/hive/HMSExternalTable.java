@@ -464,8 +464,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
 
         String originalText = getViewOriginalText();
-        String trinoViewSql = parseTrinoViewDefinition(originalText);
-        return trinoViewSql != null ? trinoViewSql : originalText;
+        return parseTrinoViewDefinition(originalText);
     }
 
     /**
@@ -481,11 +480,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      * }
      *
      * @param originalText The original view definition text
-     * @return The parsed SQL statement, or null if parsing fails
+     * @return The parsed SQL statement, or original text if parsing fails
      */
     private String parseTrinoViewDefinition(String originalText) {
         if (originalText == null || !originalText.contains("/* Presto View: ")) {
-            return null;
+            return originalText;
         }
 
         try {
@@ -503,7 +502,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         } catch (Exception e) {
             LOG.warn("Decoding Presto view definition failed", e);
         }
-        return null;
+        return originalText;
     }
 
     public String getViewExpandedText() {
