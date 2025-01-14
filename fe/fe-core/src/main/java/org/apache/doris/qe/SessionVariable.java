@@ -3441,6 +3441,10 @@ public class SessionVariable implements Serializable, Writable {
             timeOutMs = insertVisibleTimeoutMs;
         }
         if (isCloudMow) {
+            // For Cloud mow mode, transactions are processed sequentially. In high concurrency scenarios,
+            // completing task requires more time, mainly spent on waiting for delete bitmap locks.
+            // Now delete_bitmap_lock_expiration_seconds has been set to 60s, correspondingly, insert task timeout
+            // should also be adjusted to 60s.
             timeOutMs = timeOutMs * insertVisibleTimeoutMowMultiplier;
         }
         return timeOutMs;
