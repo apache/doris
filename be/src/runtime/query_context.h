@@ -309,6 +309,13 @@ public:
 
     bool low_memory_mode() { return _low_memory_mode; }
 
+    void disable_reserve_memory() { _enable_reserve_memory = false; }
+
+    bool enable_reserve_memory() const {
+        return _query_options.__isset.enable_reserve_memory &&
+               _query_options.enable_reserve_memory && _enable_reserve_memory;
+    }
+
     void update_paused_reason(const Status& st) {
         std::lock_guard l(_paused_mutex);
         if (_paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
@@ -391,6 +398,7 @@ private:
     MonotonicStopWatch _paused_timer;
     std::atomic<int64_t> _paused_period_secs = 0;
     std::atomic<bool> _low_memory_mode = false;
+    std::atomic<bool> _enable_reserve_memory = true;
     int64_t _user_set_mem_limit = 0;
     std::atomic<int64_t> _adjusted_mem_limit = 0;
 

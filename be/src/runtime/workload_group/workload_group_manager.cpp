@@ -688,10 +688,12 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                 query_ctx->set_memory_sufficient(true);
                 return true;
             } else if (time_in_queue >= config::spill_in_paused_queue_timeout_ms) {
-                // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
+                // if cannot find any memory to release, then let the query continue to run as far as possible
+                // or cancelled by gc if memory is really not enough.
                 auto msg1 = fmt::format(
-                        "Query {} failed beause query limit is exceeded, but could "
-                        "not find memory that could release or spill to disk. Query memory usage: "
+                        "Query {} memory limit is exceeded, but could "
+                        "not find memory that could release or spill to disk, disable reserve "
+                        "memory and resume it. Query memory usage: "
                         "{}, limit: {}, reserved "
                         "size: {}, try to reserve: {}, wg info: {}.",
                         query_id, PrettyPrinter::print_bytes(memory_usage),
@@ -702,7 +704,9 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                                          doris::ProcessProfile::instance()
                                                  ->memory_profile()
                                                  ->process_memory_detail_str());
-                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
+                query_ctx->disable_reserve_memory();
+                query_ctx->set_memory_sufficient(true);
+                return true;
             } else {
                 return false;
             }
@@ -713,9 +717,12 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                 query_ctx->set_memory_sufficient(true);
                 return true;
             } else if (time_in_queue > config::spill_in_paused_queue_timeout_ms) {
+                // if cannot find any memory to release, then let the query continue to run as far as possible
+                // or cancelled by gc if memory is really not enough.
                 auto msg1 = fmt::format(
-                        "Query {} failed because workload group memory is exceeded"
-                        ", and there is no cache now. And could not find task to spill. "
+                        "Query {} workload group memory is exceeded"
+                        ", and there is no cache now. And could not find task to spill, disable "
+                        "reserve memory and resume it. "
                         "Query memory usage: {}, limit: {}, reserved "
                         "size: {}, try to reserve: {}, wg info: {}."
                         " Maybe you should set the workload group's limit to a lower value.",
@@ -727,7 +734,9 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                                          doris::ProcessProfile::instance()
                                                  ->memory_profile()
                                                  ->process_memory_detail_str());
-                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
+                query_ctx->disable_reserve_memory();
+                query_ctx->set_memory_sufficient(true);
+                return true;
             } else {
                 return false;
             }
@@ -745,9 +754,12 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                 query_ctx->set_memory_sufficient(true);
                 return true;
             } else if (time_in_queue > config::spill_in_paused_queue_timeout_ms) {
+                // if cannot find any memory to release, then let the query continue to run as far as possible
+                // or cancelled by gc if memory is really not enough.
                 auto msg1 = fmt::format(
-                        "Query {} failed because process memory is exceeded"
-                        ", and there is no cache now. And could not find task to spill. "
+                        "Query {} process memory is exceeded"
+                        ", and there is no cache now. And could not find task to spill, disable "
+                        "reserve memory and resume it. "
                         "Query memory usage: {}, limit: {}, reserved "
                         "size: {}, try to reserve: {}, wg info: {}."
                         " Maybe you should set the workload group's limit to a lower value.",
@@ -759,7 +771,8 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
                                          doris::ProcessProfile::instance()
                                                  ->memory_profile()
                                                  ->process_memory_detail_str());
-                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
+                query_ctx->disable_reserve_memory();
+                query_ctx->set_memory_sufficient(true);
             } else {
                 return false;
             }
@@ -830,6 +843,9 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         auto query_ctx = query.second.lock();
         if (!query_ctx) {
             continue;
+        }
+        if (is_low_watermark) {
+            query_ctx->set_low_memory_mode();
         }
         int64_t query_weighted_mem_limit = 0;
         int64_t expected_query_weighted_mem_limit = 0;

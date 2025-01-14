@@ -146,10 +146,8 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     if (state->get_query_ctx()->low_memory_mode()) {
-        local_state._shared_state->set_low_memory_mode(state);
-        local_state._exchanger->set_low_memory_mode();
+        set_low_memory_mode(state);
     }
-
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
             {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
@@ -162,5 +160,4 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     return Status::OK();
 }
-
 } // namespace doris::pipeline

@@ -540,5 +540,4 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
     }
     return _pipeline_id_to_profile;
 }
-
 } // end namespace doris

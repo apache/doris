@@ -262,11 +262,7 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
 }
 
 void ScannerContext::clear_free_blocks() {
-    vectorized::BlockUPtr block;
-    while (_free_blocks.try_dequeue(block)) {
-        // do nothing
-    }
-    block.reset();
+    clear_blocks(_free_blocks);
 }
 
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {

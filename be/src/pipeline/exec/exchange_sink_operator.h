@@ -199,6 +199,16 @@ public:
 
     DataDistribution required_data_distribution() const override;
     bool is_serial_operator() const override { return true; }
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
+        if (local_state._sink_buffer) {
+            local_state._sink_buffer->set_low_memory_mode();
+        }
+        if (local_state._broadcast_pb_mem_limiter) {
+            local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
+        }
+    }
 
     // For a normal shuffle scenario, if the concurrency is n,
     // there can be up to n * n RPCs in the current fragment.

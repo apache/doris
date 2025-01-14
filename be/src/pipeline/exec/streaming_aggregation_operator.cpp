@@ -497,14 +497,11 @@ Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextS
     return Status::OK();
 }
 
-void StreamingAggLocalState::set_low_memory_mode() {
-    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
-    p._spill_streaming_agg_mem_limit = 1024 * 1024;
-}
-Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
+Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, vectorized::Block* input_block,
                                           vectorized::Block* output_block) {
-    if (state()->get_query_ctx()->low_memory_mode()) {
-        set_low_memory_mode();
+    if (state->get_query_ctx()->low_memory_mode()) {
+        auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+        p.set_low_memory_mode(state);
     }
     RETURN_IF_ERROR(_pre_agg_with_serialized_key(input_block, output_block));
 
@@ -1288,7 +1285,8 @@ Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_bl
 
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state.do_pre_agg(in_block, local_state._pre_aggregated_block.get()));
+        RETURN_IF_ERROR(
+                local_state.do_pre_agg(state, in_block, local_state._pre_aggregated_block.get()));
     }
     in_block->clear_column_data(_child->row_desc().num_materialized_slots());
     return Status::OK();

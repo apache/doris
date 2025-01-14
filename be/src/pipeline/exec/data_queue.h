@@ -48,6 +48,8 @@ public:
 
     void push_free_block(std::unique_ptr<vectorized::Block> output_block, int child_idx = 0);
 
+    void clear_free_blocks();
+
     void set_finish(int child_idx = 0);
     void set_canceled(int child_idx = 0); // should set before finish
     bool is_finish(int child_idx = 0);
@@ -74,7 +76,11 @@ public:
 
     void set_max_blocks_in_sub_queue(int64_t max_blocks) { _max_blocks_in_sub_queue = max_blocks; }
 
-    void set_low_memory_mode() { _max_blocks_in_sub_queue = 1; }
+    void set_low_memory_mode() {
+        _is_low_memory_mode = true;
+        _max_blocks_in_sub_queue = 1;
+        clear_free_blocks();
+    }
 
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
@@ -99,7 +105,8 @@ private:
     // only used by streaming agg source operator
     bool _data_exhausted = false;
 
-    int64_t _max_blocks_in_sub_queue = 1;
+    std::atomic_bool _is_low_memory_mode = false;
+    std::atomic_int64_t _max_blocks_in_sub_queue = 1;
 
     //this only use to record the queue[0] for profile
     int64_t _max_bytes_in_queue = 0;

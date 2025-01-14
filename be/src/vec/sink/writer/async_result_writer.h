@@ -72,6 +72,8 @@ public:
 
     Status get_writer_status() { return _writer_status.status(); }
 
+    void clear_free_blocks();
+
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;

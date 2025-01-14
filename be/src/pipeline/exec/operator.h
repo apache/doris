@@ -118,6 +118,8 @@ public:
         return Status::OK();
     }
 
+    virtual void set_low_memory_mode(RuntimeState* state) {}
+
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_operator() const {

@@ -235,5 +235,10 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     return b;
 }
 
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks);
+void AsyncResultWriter::clear_free_blocks() {
+    clear_blocks(_free_blocks);
+}
 } // namespace vectorized
 } // namespace doris

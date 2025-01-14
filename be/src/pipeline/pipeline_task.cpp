@@ -403,12 +403,17 @@ Status PipelineTask::execute(bool* eos) {
             *eos = _pending_eos;
         } else {
             SCOPED_TIMER(_get_block_timer);
+            if (_state->get_query_ctx()->low_memory_mode()) {
+                _sink->set_low_memory_mode(_state);
+                _root->set_low_memory_mode(_state);
+            }
             DEFER_RELEASE_RESERVED();
             _get_block_counter->update(1);
             const auto reserve_size = _root->get_reserve_mem_size(_state);
             _root->reset_reserve_mem_size(_state);
 
-            if (workload_group && _state->enable_reserve_memory() && reserve_size > 0) {
+            if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
+                reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
 
                 COUNTER_UPDATE(_memory_reserve_times, 1);
@@ -441,7 +446,7 @@ Status PipelineTask::execute(bool* eos) {
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
             auto workload_group = _state->get_query_ctx()->workload_group();
-            if (_state->enable_reserve_memory() && workload_group &&
+            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
                 !(wake_up_early() || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
                 status = sink_reserve_size != 0

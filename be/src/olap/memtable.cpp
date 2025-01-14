@@ -182,7 +182,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 }
 
 Status MemTable::insert(const vectorized::Block* input_block,
-                        const std::vector<uint32_t>& row_idxs) {
+                        const DorisVector<uint32_t>& row_idxs) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _query_thread_context.query_mem_tracker->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
@@ -282,7 +282,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
 }
 Status MemTable::_put_into_output(vectorized::Block& in_block) {
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    std::vector<uint32_t> row_pos_vec;
+    DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < _row_in_blocks.size(); i++) {
@@ -343,7 +343,7 @@ Status MemTable::_sort_by_cluster_keys() {
     auto clone_block = in_block.clone_without_columns();
     _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
-    std::vector<RowInBlock*> row_in_blocks;
+    DorisVector<RowInBlock*> row_in_blocks;
     std::unique_ptr<int, std::function<void(int*)>> row_in_blocks_deleter((int*)0x01, [&](int*) {
         std::for_each(row_in_blocks.begin(), row_in_blocks.end(),
                       std::default_delete<RowInBlock>());
@@ -378,7 +378,7 @@ Status MemTable::_sort_by_cluster_keys() {
 
     in_block = mutable_block.to_block();
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    std::vector<uint32_t> row_pos_vec;
+    DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < row_in_blocks.size(); i++) {
@@ -392,7 +392,7 @@ Status MemTable::_sort_by_cluster_keys() {
                                           row_pos_vec.data() + in_block.rows(), &column_offset);
 }
 
-void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+void MemTable::_sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& tie,
                                 std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
@@ -464,7 +464,7 @@ void MemTable::_aggregate() {
             vectorized::MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
     auto& block_data = in_block.get_columns_with_type_and_name();
-    std::vector<RowInBlock*> temp_row_in_blocks;
+    DorisVector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     RowInBlock* prev_row = nullptr;
     int row_pos = -1;

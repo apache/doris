@@ -23,8 +23,11 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 namespace vectorized {
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks);
+
 class PartitionerBase;
-}
+} // namespace vectorized
 namespace pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
@@ -91,7 +94,10 @@ public:
 
     virtual std::string data_queue_debug_string(int i) = 0;
 
-    void set_low_memory_mode();
+    void set_low_memory_mode() {
+        _free_block_limit = 0;
+        clear_blocks(_free_blocks);
+    }
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -104,7 +110,7 @@ protected:
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;
-    int _free_block_limit = 0;
+    std::atomic_int _free_block_limit = 0;
     moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
 };
 

@@ -55,7 +55,7 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         return Status::OK();
     }
 
-    std::unordered_map<int64_t, std::vector<uint32_t>> tablet_to_rowidxs;
+    std::unordered_map<int64_t, DorisVector<uint32_t>> tablet_to_rowidxs;
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
     std::unordered_set<int64_t> partition_ids;
