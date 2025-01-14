@@ -21,9 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
@@ -80,7 +78,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TQueryCacheParam;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
@@ -532,10 +529,6 @@ public class NereidsPlanner extends Planner {
     protected void doDistribute(boolean canUseNereidsDistributePlanner) {
         if (!canUseNereidsDistributePlanner) {
             return;
-        }
-
-        if (handleQueryInFe(parsedPlan)) {
-
         }
 
         distributedPlans = new DistributePlanner(statementContext, fragments).plan();
