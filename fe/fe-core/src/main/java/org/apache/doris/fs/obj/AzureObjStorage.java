@@ -137,8 +137,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
-            BlobProperties properties = blobClient.getProperties();
-            LOG.info("head file {} success: {}", remotePath, properties.toString());
+            LOG.info("headObject remotePath:{} bucket:{} key:{} properties:{}",
+                    remotePath, uri.getBucket(), uri.getKey(), blobClient.getProperties());
             return Status.OK;
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
