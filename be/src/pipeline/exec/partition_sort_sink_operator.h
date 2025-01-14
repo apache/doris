@@ -58,6 +58,7 @@ private:
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
+    RuntimeProfile::Counter* _sorted_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
     RuntimeProfile::Counter* _sorted_partition_input_rows_counter = nullptr;

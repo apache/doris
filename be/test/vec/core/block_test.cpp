@@ -220,7 +220,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(),
                                                         nullable_data_type, "test_nullable");
         vectorized::Block block({type_and_name});
@@ -241,7 +241,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         vectorized::ColumnWithTypeAndName type_and_name(
                 nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
         vectorized::Block block({type_and_name});
@@ -771,7 +771,7 @@ TEST(BlockTest, dump_data) {
     auto& date_v2_data = column_vector_date_v2->get_data();
     for (int i = 0; i < 1024; ++i) {
         DateV2Value<DateV2ValueType> value;
-        value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
+        value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
         date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     }
     vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());

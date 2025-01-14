@@ -339,6 +339,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             case MINI:
                 timeout = Config.stream_load_default_timeout_second;
                 break;
+            case INGESTION:
+                timeout = Config.ingestion_load_default_timeout_second;
+                break;
             default:
                 break;
         }
@@ -867,6 +870,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             job = new MiniLoadJob();
         } else if (type == EtlJobType.COPY) {
             job = new CopyJob();
+        } else if (type == EtlJobType.INGESTION) {
+            job = new IngestionLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
@@ -1238,8 +1243,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             expireTime = Config.streaming_label_keep_max_second;
         }
 
-        LOG.info("state {}, expireTime {}, currentTimeMs {}, finishTimestamp {}",
-                state, expireTime, currentTimeMs, getFinishTimestamp());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Job ID: {}, DB ID: {}, Label: {}, State: {}, Expire Time: {}, Current Time: {}, "
+                      + "Finish Timestamp: {}", id, dbId, label, state, expireTime, currentTimeMs,
+                      getFinishTimestamp());
+        }
         return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
     }
 

@@ -477,8 +477,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
-        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }

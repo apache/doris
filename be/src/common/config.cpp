@@ -231,6 +231,7 @@ DEFINE_Int32(check_consistency_worker_count, "1");
 DEFINE_Int32(upload_worker_count, "1");
 // the count of thread to download
 DEFINE_Int32(download_worker_count, "1");
+DEFINE_Int32(num_query_ctx_map_partitions, "128");
 // the count of thread to make snapshot
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
@@ -528,7 +529,7 @@ DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
-DEFINE_Int32(webserver_num_workers, "48");
+DEFINE_Int32(webserver_num_workers, "128");
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
@@ -612,7 +613,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
-DEFINE_mString(je_dirty_pages_mem_limit_percent, "2%");
+DEFINE_mInt32(je_dirty_decay_ms, "5000");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -866,8 +867,8 @@ DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 // The default delete bitmap cache is set to 100MB,
 // which can be insufficient and cause performance issues when the amount of user data is large.
 // To mitigate the problem of an inadequate cache,
-// we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
-DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "0.5%");
+// we will take the larger of 1.0% of the total memory and 100MB as the delete bitmap cache size.
+DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "1.0%");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
@@ -914,7 +915,7 @@ DEFINE_String(rpc_load_balancer, "rr");
 
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
-DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
+DEFINE_Int32(string_type_length_soft_limit_bytes, "1048576");
 
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
@@ -990,7 +991,7 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
-DEFINE_Int32(segcompaction_batch_size, "10");
+DEFINE_mInt32(segcompaction_batch_size, "10");
 
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");

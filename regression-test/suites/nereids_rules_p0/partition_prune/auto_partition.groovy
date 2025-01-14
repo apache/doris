@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("auto_partition") {
+suite("auto_partition_in_partition_prune") {
     sql "drop table if exists one_col_range_partition_date_func"
     sql """create table one_col_range_partition_date_func (a int, dt datetime not null, d date, c varchar(100)) duplicate key(a)
     auto partition by range(date_trunc(dt,'day')) () distributed by hash(a) properties("replication_num"="1");"""

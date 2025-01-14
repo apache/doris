@@ -118,3 +118,22 @@
 2024-01-01T00:00	4
 2024-01-02T00:00	3
 
+-- !evolution2 --
+ts_day=20060	types: [DATETIMEV2]; keys: [2024-12-03 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-04 00:00:00]; 
+ts_month=657	types: [DATETIMEV2]; keys: [2024-10-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 
+ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+
+-- !evolution3 --
+ts_day=20059	types: [DATETIMEV2]; keys: [2024-12-02 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-03 00:00:00]; 
+ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+
+-- !evolution4 --
+ts_month=657	types: [DATETIMEV2]; keys: [2024-10-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 
+ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+
+-- !evolution5 --
+ts_day=20078	types: [DATETIMEV2]; keys: [2024-12-21 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-22 00:00:00]; 
+ts_hour=482139	types: [DATETIMEV2]; keys: [2025-01-01 03:00:00]; 	types: [DATETIMEV2]; keys: [2025-01-01 04:00:00]; 
+ts_month=657	types: [DATETIMEV2]; keys: [2024-10-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 
+ts_month=658	types: [DATETIMEV2]; keys: [2024-11-01 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-12-01 00:00:00]; 
+

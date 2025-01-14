@@ -27,13 +27,16 @@ import java.util.function.Predicate;
 
 /** ExpressionPattern */
 public class ExpressionPatternMatcher<E extends Expression> {
+
+    public final ExpressionRuleType expressionRuleType;
     public final Class<E> typePattern;
     public final List<Predicate<ExpressionMatchingContext<E>>> predicates;
     public final ExpressionMatchingAction<E> matchingAction;
 
-    public ExpressionPatternMatcher(Class<E> typePattern,
+    public ExpressionPatternMatcher(ExpressionRuleType expressionRuleType, Class<E> typePattern,
             List<Predicate<ExpressionMatchingContext<E>>> predicates,
             ExpressionMatchingAction<E> matchingAction) {
+        this.expressionRuleType = Objects.requireNonNull(expressionRuleType, "expressionRuleType can not be null");
         this.typePattern = Objects.requireNonNull(typePattern, "typePattern can not be null");
         this.predicates = predicates == null ? ImmutableList.of() : predicates;
         this.matchingAction = Objects.requireNonNull(matchingAction, "matchingAction can not be null");

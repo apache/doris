@@ -54,8 +54,8 @@ public:
                          le_state_map,
                  int task_idx);
 
-    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
-                   QueryContext* query_ctx);
+    Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
+                   const TDataSink& tsink, QueryContext* query_ctx);
 
     Status execute(bool* eos);
 
@@ -67,17 +67,14 @@ public:
 
     QueryContext* query_context();
 
-    int get_previous_core_id() const {
-        return _previous_schedule_id != -1 ? _previous_schedule_id
-                                           : _pipeline->_previous_schedule_id;
-    }
+    int get_core_id() const { return _core_id; }
 
-    void set_previous_core_id(int id) {
-        if (id != _previous_schedule_id) {
-            if (_previous_schedule_id != -1) {
+    void set_core_id(int id) {
+        if (id != _core_id) {
+            if (_core_id != -1) {
                 COUNTER_UPDATE(_core_change_times, 1);
             }
-            _previous_schedule_id = id;
+            _core_id = id;
         }
     }
 
@@ -175,10 +172,6 @@ public:
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
     int get_queue_level() const { return this->_queue_level; }
 
-    // 1.3 priority queue's core id
-    void set_core_id(int core_id) { this->_core_id = core_id; }
-    int get_core_id() const { return this->_core_id; }
-
     /**
      * Return true if:
      * 1. `enable_force_spill` is true which forces this task to spill data.
@@ -254,7 +247,7 @@ private:
     bool _has_exceed_timeout = false;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _previous_schedule_id = -1;
+    int _core_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
@@ -269,7 +262,6 @@ private:
     // 2 exe task
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
-    int _core_id = 0;
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;

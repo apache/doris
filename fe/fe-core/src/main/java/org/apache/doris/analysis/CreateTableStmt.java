@@ -325,6 +325,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
+            if (Objects.equals(columnDef.getType(), Type.VARIANT) && columnNameUpperCase.indexOf('.') != -1) {
+                throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
+            }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
@@ -370,16 +375,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                                 }
                                 break;
                             }
-                            if (columnDef.getType().isFloatingPointType()) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                                break;
-                            }
-                            if (columnDef.getType().isComplexType()) {
+                            if (!columnDef.getType().couldBeShortKey()) {
                                 break;
                             }
                             if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -424,7 +420,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
-                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
                             + "only be set in merge-on-write unique table.");
                 }
                 // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property

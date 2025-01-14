@@ -171,17 +171,14 @@ Status InvertedIndexFileWriter::close() {
 
 void InvertedIndexFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
     auto file_priority = [](const std::string& filename) {
-        if (filename.find("segments") != std::string::npos) {
-            return 1;
+        for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+            if (filename.find(entry.first) != std::string::npos) {
+                return entry.second;
+            }
         }
-        if (filename.find("fnm") != std::string::npos) {
-            return 2;
-        }
-        if (filename.find("tii") != std::string::npos) {
-            return 3;
-        }
-        return 4; // Other files
+        return 6; // Other files
     };
+
     std::sort(file_infos.begin(), file_infos.end(), [&](const FileInfo& a, const FileInfo& b) {
         int32_t priority_a = file_priority(a.filename);
         int32_t priority_b = file_priority(b.filename);
