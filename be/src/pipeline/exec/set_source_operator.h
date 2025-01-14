@@ -71,6 +71,10 @@ public:
     [[nodiscard]] bool is_source() const override { return true; }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status set_child(OperatorPtr child) override {
+        Base::_child = child;
+        return Status::OK();
+    }
 
 private:
     friend class SetSourceLocalState<is_intersect>;

@@ -61,21 +61,6 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE
 }
 
-// phases of an execution node
-enum TExecNodePhase {
-  PREPARE,
-  OPEN,
-  GETNEXT,
-  CLOSE,
-  INVALID
-}
-
-// what to do when hitting a debug point (TPaloQueryOptions.DEBUG_ACTION)
-enum TDebugAction {
-  WAIT,
-  FAIL
-}
-
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
@@ -537,6 +522,13 @@ struct TIcebergMetadataParams {
   4: optional string table
 }
 
+struct THudiMetadataParams {
+  1: optional Types.THudiQueryType hudi_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
+}
+
 struct TBackendsMetadataParams {
   1: optional string cluster_name
 }
@@ -597,6 +589,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
+  12: optional THudiMetadataParams hudi_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -837,12 +830,9 @@ struct THashJoinNode {
   // anything from the ON, USING or WHERE clauses that's an equi-join predicate
   2: required list<TEqJoinCondition> eq_join_conjuncts
 
-  // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
-  // equi-join predicate
+  // deprecated
   3: optional list<Exprs.TExpr> other_join_conjuncts
-
-  // If true, this join node can (but may choose not to) generate slot filters
-  // after constructing the build side that can be applied to the probe side.
+  // deprecated
   4: optional bool add_probe_filters
 
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
@@ -853,8 +843,9 @@ struct THashJoinNode {
   6: optional list<Types.TSlotId> hash_output_slot_ids
 
   // TODO: remove 7 and 8 in the version after the version include projection on ExecNode
+  // deprecated
   7: optional list<Exprs.TExpr> srcExprList
-
+  // deprecated
   8: optional Types.TTupleId voutput_tuple_id
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
@@ -865,14 +856,15 @@ struct THashJoinNode {
   12: optional TJoinDistributionType dist_type
   13: optional list<Exprs.TExpr> mark_join_conjuncts
   // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  // deprecated
   14: optional bool use_specific_projections
 }
 
 struct TNestedLoopJoinNode {
   1: required TJoinOp join_op
-  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  // deprecated
   2: optional list<Exprs.TExpr> srcExprList
-
+  // deprecated
   3: optional Types.TTupleId voutput_tuple_id
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
@@ -887,7 +879,7 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 
   9: optional list<Exprs.TExpr> mark_join_conjuncts
-  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  // deprecated
   10: optional bool use_specific_projections
 }
 

@@ -522,16 +522,18 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             Block::erase_useless_column(block, origin_column_num);
 
             if (!pre_eof) {
-                if (pre_raw_read_rows >= config::doris_scanner_row_num) {
-                    break;
-                }
                 // If continuous batches are skipped, we can cache them to skip a whole page
                 _cached_filtered_rows += pre_read_rows;
+                if (pre_raw_read_rows >= config::doris_scanner_row_num) {
+                    *read_rows = 0;
+                    _convert_dict_cols_to_string_cols(block);
+                    return Status::OK();
+                }
             } else { // pre_eof
                 // If filter_map_ptr->filter_all() and pre_eof, we can skip whole row group.
                 *read_rows = 0;
                 *batch_eof = true;
-                _lazy_read_filtered_rows += pre_read_rows;
+                _lazy_read_filtered_rows += (pre_read_rows + _cached_filtered_rows);
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
@@ -682,8 +684,8 @@ Status RowGroupReader::_fill_missing_columns(
     for (auto& kv : missing_columns) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                    (*std::move(block->get_by_name(kv.first).column)).mutate().get());
+            auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
+            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -697,8 +699,9 @@ Status RowGroupReader::_fill_missing_columns(
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                std::move(*block->get_by_position(result_column_id).column).mutate()->resize(rows);
                 auto result_column_ptr = block->get_by_position(result_column_id).column;
+                auto mutable_column = result_column_ptr->assume_mutable();
+                mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = block->get_by_name(kv.first).type;

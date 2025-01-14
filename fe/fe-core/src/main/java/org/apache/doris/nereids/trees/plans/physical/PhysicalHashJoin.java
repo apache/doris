@@ -20,11 +20,14 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -37,10 +40,12 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Physical hash join plan.
@@ -223,5 +228,137 @@ public class PhysicalHashJoin<
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
                 markJoinConjuncts, hint, markJoinSlotReference, groupExpression, null,
                 physicalProperties, statistics, left(), right());
+    }
+
+    private @Nullable Pair<Set<Slot>, Set<Slot>> extractNullRejectHashKeys() {
+        // this function is only used by computeFuncDeps, and function dependence calculation is disabled for mark join
+        // so markJoinConjuncts is not processed now
+        Set<Slot> leftKeys = new HashSet<>();
+        Set<Slot> rightKeys = new HashSet<>();
+        for (Expression expression : hashJoinConjuncts) {
+            // Note we don't support null-safe predicate right now, because we just check uniqueness for join keys
+            if (!(expression instanceof EqualTo
+                    && ((EqualTo) expression).left() instanceof Slot
+                    && ((EqualTo) expression).right() instanceof Slot)) {
+                return null;
+            }
+            Slot leftKey = (Slot) ((EqualTo) expression).left();
+            Slot rightKey = (Slot) ((EqualTo) expression).right();
+            if (left().getOutputSet().contains(leftKey)) {
+                leftKeys.add(leftKey);
+                rightKeys.add(rightKey);
+            } else {
+                leftKeys.add(rightKey);
+                rightKeys.add(leftKey);
+            }
+        }
+        return Pair.of(leftKeys, rightKeys);
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (joinType.isLeftSemiOrAntiJoin()) {
+            builder.addUniqueSlot(left().getLogicalProperties().getTrait());
+        } else if (joinType.isRightSemiOrAntiJoin()) {
+            builder.addUniqueSlot(right().getLogicalProperties().getTrait());
+        }
+        // if there is non-equal join conditions, don't propagate unique
+        if (hashJoinConjuncts.isEmpty()) {
+            return;
+        }
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
+        if (keys == null) {
+            return;
+        }
+
+        // Note here we only check whether the left is unique.
+        // So the hash condition can't be null-safe
+        // TODO: consider Null-safe hash condition when left and rigth is not nullable
+        boolean isLeftUnique = left().getLogicalProperties()
+                .getTrait().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getTrait().isUnique(keys.second);
+
+        // left/right outer join propagate left/right uniforms slots
+        // And if the right/left hash keys is unique,
+        // join can propagate left/right functional dependencies
+        if (joinType.isLeftOuterJoin() && isRightUnique) {
+            builder.addUniqueSlot(left().getLogicalProperties().getTrait());
+        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+            builder.addUniqueSlot(right().getLogicalProperties().getTrait());
+        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+            // inner join propagate uniforms slots
+            // And if the hash keys is unique, inner join can propagate all functional dependencies
+            builder.addDataTrait(left().getLogicalProperties().getTrait());
+            builder.addDataTrait(right().getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        switch (joinType) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+                builder.addUniformSlot(left().getLogicalProperties().getTrait());
+                builder.addUniformSlot(right().getLogicalProperties().getTrait());
+                break;
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                builder.addUniformSlot(left().getLogicalProperties().getTrait());
+                break;
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                builder.addUniformSlot(right().getLogicalProperties().getTrait());
+                break;
+            case LEFT_OUTER_JOIN:
+                builder.addUniformSlot(left().getLogicalProperties().getTrait());
+                builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
+                break;
+            case RIGHT_OUTER_JOIN:
+                builder.addUniformSlot(right().getLogicalProperties().getTrait());
+                builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
+                break;
+            case FULL_OUTER_JOIN:
+                builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
+                builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
+                break;
+            default:
+                break;
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addEqualSet(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addEqualSet(left().getLogicalProperties().getTrait());
+        }
+        if (joinType.isInnerJoin()) {
+            for (Expression expression : getHashJoinConjuncts()) {
+                Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+                equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+        }
     }
 }

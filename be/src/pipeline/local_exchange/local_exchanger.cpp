@@ -47,7 +47,7 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         block->ref(1);
         allocated_bytes = block->data_block.allocated_bytes();
     }
-    std::unique_lock l(_m);
+    std::unique_lock l(*_m[channel_id]);
     local_state->_shared_state->add_mem_usage(channel_id, allocated_bytes,
                                               !std::is_same_v<PartitionedBlock, BlockType> &&
                                                       !std::is_same_v<BroadcastBlock, BlockType>);
@@ -95,7 +95,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
     } else if (all_finished) {
         *eos = true;
     } else {
-        std::unique_lock l(_m);
+        std::unique_lock l(*_m[channel_id]);
         if (_data_queue[channel_id].try_dequeue(block)) {
             if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
                           std::is_same_v<BroadcastBlock, BlockType>) {

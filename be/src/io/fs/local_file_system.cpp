@@ -57,6 +57,8 @@ LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                          const FileWriterOptions* opts) {
+    VLOG_DEBUG << "create file: " << file.native()
+               << ", sync_data: " << (opts ? opts->sync_file_data : true);
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::create_file_impl",
                                       Status::IOError("inject io error"));
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
@@ -108,6 +110,8 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
 }
 
 Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
+    VLOG_DEBUG << "create directory: " << dir.native()
+               << ", failed_if_exists: " << failed_if_exists;
     bool exists = true;
     RETURN_IF_ERROR(exists_impl(dir, &exists));
     if (exists && failed_if_exists) {
@@ -124,6 +128,7 @@ Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_ex
 }
 
 Status LocalFileSystem::delete_file_impl(const Path& file) {
+    VLOG_DEBUG << "delete file: " << file.native();
     bool exists = true;
     RETURN_IF_ERROR(exists_impl(file, &exists));
     if (!exists) {
@@ -141,6 +146,7 @@ Status LocalFileSystem::delete_file_impl(const Path& file) {
 }
 
 Status LocalFileSystem::delete_directory_impl(const Path& dir) {
+    VLOG_DEBUG << "delete directory: " << dir.native();
     bool exists = true;
     RETURN_IF_ERROR(exists_impl(dir, &exists));
     if (!exists) {
@@ -249,6 +255,7 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    VLOG_DEBUG << "rename file: " << orig_name.native() << " to " << new_name.native();
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::rename",
                                       Status::IOError("inject io error"));
     std::error_code ec;
@@ -265,6 +272,7 @@ Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
 }
 
 Status LocalFileSystem::link_file_impl(const Path& src, const Path& dest) {
+    VLOG_DEBUG << "link file: " << src.native() << " to " << dest.native();
     if (::link(src.c_str(), dest.c_str()) != 0) {
         return localfs_error(errno, fmt::format("failed to create hard link from {} to {}",
                                                 src.native(), dest.native()));
@@ -364,6 +372,7 @@ Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
 }
 
 Status LocalFileSystem::copy_path_impl(const Path& src, const Path& dest) {
+    VLOG_DEBUG << "copy from " << src.native() << " to " << dest.native();
     std::error_code ec;
     std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive, ec);
     if (ec) {

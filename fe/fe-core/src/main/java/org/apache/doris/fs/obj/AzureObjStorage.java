@@ -36,6 +36,7 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.batch.BlobBatch;
 import com.azure.storage.blob.batch.BlobBatchClient;
 import com.azure.storage.blob.batch.BlobBatchClientBuilder;
+import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
@@ -53,6 +54,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -135,8 +137,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
-            BlobProperties properties = blobClient.getProperties();
-            LOG.info("head file {} success: {}", remotePath, properties.toString());
+            LOG.info("headObject remotePath:{} bucket:{} key:{} properties:{}",
+                    remotePath, uri.getBucket(), uri.getKey(), blobClient.getProperties());
             return Status.OK;
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
@@ -196,6 +198,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.info("delete file " + remotePath + " success");
             return Status.OK;
         } catch (BlobStorageException e) {
+            if (e.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+                return Status.OK;
+            }
             return new Status(
                     Status.ErrCode.COMMON_ERROR,
                     "get file from azure error: " + e.getServiceMessage());
@@ -295,7 +300,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     // It assumes the path starts with 'S3://${containerName}'
     // So here the path needs to be constructed in a format that BE can parse.
     private String constructS3Path(String fileName, String bucket) throws UserException {
-        LOG.info("the path is {}", String.format("s3://%s/%s", bucket, fileName));
+        LOG.debug("the path is {}", String.format("s3://%s/%s", bucket, fileName));
         return String.format("s3://%s/%s", bucket, fileName);
     }
 
@@ -331,31 +336,49 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.info("path pattern {}", pathPattern.toString());
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern.toString());
 
+            HashSet<String> directorySet = new HashSet<>();
             String listPrefix = getLongestPrefix(globPath);
             LOG.info("azure glob list prefix is {}", listPrefix);
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
                 roundCnt++;
-                PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
-                PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
+                PagedResponse<BlobItem> pagedResponse = getPagedBlobItems(client, options, newContinuationToken);
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
                     elementCnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
-                    if (!matcher.matches(blobPath)) {
-                        continue;
+                    boolean isPrefix = false;
+                    while (blobPath.normalize().toString().startsWith(listPrefix)) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get blob {}", blobPath.normalize().toString());
+                        }
+                        if (!matcher.matches(blobPath)) {
+                            isPrefix = true;
+                            blobPath = blobPath.getParent();
+                            continue;
+                        }
+                        if (directorySet.contains(blobPath.normalize().toString())) {
+                            break;
+                        }
+                        if (isPrefix) {
+                            directorySet.add(blobPath.normalize().toString());
+                        }
+
+                        matchCnt++;
+                        RemoteFile remoteFile = new RemoteFile(
+                                fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
+                                        uri.getBucket()),
+                                !isPrefix,
+                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond());
+                        result.add(remoteFile);
+
+                        blobPath = blobPath.getParent();
+                        isPrefix = true;
                     }
-                    matchCnt++;
-                    RemoteFile remoteFile = new RemoteFile(
-                            fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                    uri.getBucket()),
-                            !blobItem.isPrefix(),
-                            blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
-                            blobItem.getProperties().getContentLength(),
-                            blobItem.getProperties().getLastModified().getSecond());
-                    result.add(remoteFile);
                 }
                 newContinuationToken = pagedResponse.getContinuationToken();
             } while (newContinuationToken != null);
@@ -371,9 +394,15 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
             LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, matchCnt, roundCnt,
+                    remotePath, elementCnt, roundCnt, matchCnt,
                     duration / 1000);
         }
         return st;
+    }
+
+    public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
+                                                     String newContinuationToken) {
+        PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
+        return pagedBlobs.iterableByPage().iterator().next();
     }
 }

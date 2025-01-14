@@ -95,8 +95,9 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .pColumnMeta = col_meta.get()
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
+            .pColumnMeta = col_meta.get(),
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = UInt64(0),
     };
     TypeDescriptor ipv6_type_descriptor = {PrimitiveType::TYPE_IPV6};
     auto col_meta6 = std::make_shared<PColumnMeta>();
@@ -115,9 +116,9 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .pColumnMeta = col_meta6.get()
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
-    };
+            .pColumnMeta = col_meta6.get(),
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = IPv6(0)};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }
@@ -125,8 +126,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
 TEST_F(DataTypeIPTest, CreateColumnTest) {
     Field default_field_ipv4 = IPv4(0);
     Field default_field_ipv6 = IPv6(0);
-    create_column_assert(dt_ipv4, default_field_ipv4);
-    create_column_assert(dt_ipv6, default_field_ipv6);
+    create_column_assert(dt_ipv4, default_field_ipv4, 4);
+    create_column_assert(dt_ipv6, default_field_ipv6, 4);
 }
 
 TEST_F(DataTypeIPTest, GetFieldTest) {
@@ -245,6 +246,23 @@ TEST_F(DataTypeIPTest, SerdeJsonbTest) {
     DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
     CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
                                         CommonDataTypeSerdeTest::assert_jsonb_format);
+}
+
+TEST_F(DataTypeIPTest, SerdeMysqlAndArrowTest) {
+    auto serde_ipv4 = dt_ipv4->get_serde(1);
+    auto serde_ipv6 = dt_ipv6->get_serde(1);
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+
+    // insert from data csv and assert insert result
+    MutableColumns ip_cols;
+    ip_cols.push_back(column_ipv4->get_ptr());
+    ip_cols.push_back(column_ipv6->get_ptr());
+    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
+    CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
+                                        CommonDataTypeSerdeTest::assert_mysql_format);
+
+    CommonDataTypeSerdeTest::assert_arrow_format(ip_cols, serde, {dt_ipv4, dt_ipv6});
 }
 
 } // namespace doris::vectorized

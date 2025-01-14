@@ -32,12 +32,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.remote.RemoteFile;
@@ -55,7 +55,6 @@ import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
@@ -70,21 +69,16 @@ import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.utils.FileUtils;
-import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,10 +98,6 @@ import java.util.stream.Collectors;
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
-    // After hive 3, transactional table's will have file '_orc_acid_version' with value >= '2'.
-    public static final String HIVE_ORC_ACID_VERSION_FILE = "_orc_acid_version";
-
-    private static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
 
     private final HMSExternalCatalog catalog;
     private JobConf jobConf;
@@ -402,7 +392,6 @@ public class HiveMetaStoreCache {
                 URI uri = finalLocation.getPath().toUri();
                 if (uri.getScheme() != null) {
                     String scheme = uri.getScheme();
-                    updateJobConf("fs." + scheme + ".impl.disable.cache", "true");
                     if (jobConf.get("fs." + scheme + ".impl") == null) {
                         if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
                             updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
@@ -451,8 +440,6 @@ public class HiveMetaStoreCache {
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
         // disable FileSystem's cache
-        jobConf.set("fs.hdfs.impl.disable.cache", "true");
-        jobConf.set("fs.file.impl.disable.cache", "true");
     }
 
     private synchronized void updateJobConf(String key, String value) {
@@ -742,121 +729,32 @@ public class HiveMetaStoreCache {
         return partitionCache;
     }
 
-    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
-            boolean isFullAcid, boolean skipCheckingAcidVersionFile, long tableId, String bindBrokerName) {
+    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, Map<String, String> txnValidIds,
+            boolean isFullAcid, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
+            if (partitions.isEmpty()) {
+                return fileCacheValues;
+            }
+
             for (HivePartition partition : partitions) {
-                FileCacheValue fileCacheValue = new FileCacheValue();
-                AcidUtils.Directory directory;
-                if (!Strings.isNullOrEmpty(remoteUser)) {
-                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
-                    directory = ugi.doAs((PrivilegedExceptionAction<AcidUtils.Directory>) () -> AcidUtils.getAcidState(
-                            new Path(partition.getPath()), jobConf, validWriteIds, false, true));
-                } else {
-                    directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
-                            true);
-                }
-                if (directory == null) {
-                    return Collections.emptyList();
-                }
-                if (!directory.getOriginalFiles().isEmpty()) {
-                    throw new Exception("Original non-ACID files in transactional tables are not supported");
-                }
+                //Get filesystem multiple times, Reason: https://github.com/apache/doris/pull/23409.
+                RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                        new FileSystemCache.FileSystemCacheKey(
+                                LocationPath.getFSIdentity(partition.getPath(), bindBrokerName),
+                                catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
 
-                if (isFullAcid) {
-                    int acidVersion = 2;
-                    /**
-                     * From Hive version >= 3.0, delta/base files will always have file '_orc_acid_version'
-                     * with value >= '2'.
-                     */
-                    Path baseOrDeltaPath = directory.getBaseDirectory() != null ? directory.getBaseDirectory() :
-                            !directory.getCurrentDirectories().isEmpty() ? directory.getCurrentDirectories().get(0)
-                                    .getPath() : null;
-                    if (baseOrDeltaPath == null) {
-                        return Collections.emptyList();
-                    }
-                    if (!skipCheckingAcidVersionFile) {
-                        String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
-                        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                                new FileSystemCache.FileSystemCacheKey(
-                                        LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                                bindBrokerName),
-                                        catalog.getCatalogProperty().getProperties(),
-                                        bindBrokerName, jobConf));
-                        Status status = fs.exists(acidVersionPath);
-                        if (status != Status.OK) {
-                            if (status.getErrCode() == ErrCode.NOT_FOUND) {
-                                acidVersion = 0;
-                            } else {
-                                throw new Exception(String.format("Failed to check remote path {} exists.",
-                                        acidVersionPath));
-                            }
-                        }
-                        if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
-                            throw new Exception(
-                                    "Hive 2.x versioned full-acid tables need to run major compaction.");
-                        }
-                    }
-                }
+                AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(jobConf);
+                HadoopAuthenticator hadoopAuthenticator =
+                        HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
 
-                // delta directories
-                List<DeleteDeltaInfo> deleteDeltas = new ArrayList<>();
-                for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
-                    String location = delta.getPath().toString();
-                    RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(location, bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
-                    List<RemoteFile> remoteFiles = new ArrayList<>();
-                    Status status = fs.listFiles(location, false, remoteFiles);
-                    if (status.ok()) {
-                        if (delta.isDeleteDelta()) {
-                            List<String> deleteDeltaFileNames = remoteFiles.stream().map(f -> f.getName()).filter(
-                                            name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                                    .collect(Collectors.toList());
-                            deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
-                            continue;
-                        }
-                        remoteFiles.stream().filter(
-                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)).forEach(file -> {
-                                    LocationPath path = new LocationPath(file.getPath().toString(),
-                                            catalog.getProperties());
-                                    fileCacheValue.addFile(file, path);
-                                });
-                    } else {
-                        throw new RuntimeException(status.getErrMsg());
-                    }
-                }
-
-                // base
-                if (directory.getBaseDirectory() != null) {
-                    String location = directory.getBaseDirectory().toString();
-                    RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(location, bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
-                    List<RemoteFile> remoteFiles = new ArrayList<>();
-                    Status status = fs.listFiles(location, false, remoteFiles);
-                    if (status.ok()) {
-                        remoteFiles.stream().filter(
-                                        f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                                .forEach(file -> {
-                                    LocationPath path = new LocationPath(file.getPath().toString(),
-                                            catalog.getProperties());
-                                    fileCacheValue.addFile(file, path);
-                                });
-                    } else {
-                        throw new RuntimeException(status.getErrMsg());
-                    }
-                }
-                fileCacheValue.setAcidInfo(new AcidInfo(partition.getPath(), deleteDeltas));
-                fileCacheValues.add(fileCacheValue);
+                fileCacheValues.add(
+                        hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
+                        fileSystem, partition, txnValidIds, catalog.getProperties(), isFullAcid))
+                );
             }
         } catch (Exception e) {
-            throw new CacheException("failed to get input splits for write ids %s in catalog %s", e,
-                    validWriteIds.toString(), catalog.getName());
+            throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());
         }
         return fileCacheValues;
     }
