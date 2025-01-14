@@ -741,7 +741,7 @@ public:
     }
 
     void set_enable_fixed_len_to_uint32_v2() {
-        if (is_bloomfilter()) {
+        if (_context->bloom_filter_func) {
             _context->bloom_filter_func->set_enable_fixed_len_to_uint32_v2();
         }
     }
