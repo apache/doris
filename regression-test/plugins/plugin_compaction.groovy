@@ -157,20 +157,3 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
 
     assert !running: "wait compaction timeout, be host: ${be_host}"
 }
-
-Suite.metaClass.trigger_compaction_with_retry = { String table_name, String compaction_type, int max_retries=10, int delay_ms=2000, int timeout_seconds=300 ->
-    def retry_count = 0
-    while (true) {
-        try {
-            trigger_and_wait_compaction(table_name, compaction_type, timeout_seconds)
-            return // Success
-        } catch (Exception e) {
-            retry_count++
-            if (retry_count >= max_retries) {
-                throw new Exception("Failed to complete ${compaction_type} compaction after ${max_retries} attempts", e)
-            }
-            logger.warn("Compaction attempt ${retry_count} failed: ${e.getMessage()}")
-            Thread.sleep(delay_ms)
-        }
-    }
-}
