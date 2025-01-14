@@ -140,8 +140,6 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     if (state->query_options().__isset.external_agg_partition_bits) {
         _spill_partition_count_bits = state->query_options().external_agg_partition_bits;
     }
-
-    _agg_sink_operator->set_dests_id(DataSinkOperatorX<PartitionedAggSinkLocalState>::dests_id());
     RETURN_IF_ERROR(
             _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);

@@ -118,8 +118,6 @@ SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id
 Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     _name = "SPILL_SORT_SINK_OPERATOR";
-
-    _sort_sink_operator->set_dests_id(DataSinkOperatorX<LocalStateType>::dests_id());
     RETURN_IF_ERROR(_sort_sink_operator->set_child(DataSinkOperatorX<LocalStateType>::_child));
     return _sort_sink_operator->init(tnode, state);
 }
