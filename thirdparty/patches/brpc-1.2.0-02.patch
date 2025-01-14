@@ -1,0 +1,68 @@
+diff --git a/src/butil/file_util_mac.mm b/src/butil/file_util_mac.mm
+index 25a731b..02bcc70 100644
+--- a/src/butil/file_util_mac.mm
++++ b/src/butil/file_util_mac.mm
+@@ -4,6 +4,7 @@
+ 
+ #include "butil/file_util.h"
+ 
++#import <objc/NSObjCRuntime.h>
+ #import <Foundation/Foundation.h>
+ #include <copyfile.h>
+ 
+diff --git a/src/butil/mac/bundle_locations.h b/src/butil/mac/bundle_locations.h
+index 0c425f3..5c7d763 100644
+--- a/src/butil/mac/bundle_locations.h
++++ b/src/butil/mac/bundle_locations.h
+@@ -9,6 +9,7 @@
+ #include "butil/files/file_path.h"
+ 
+ #if defined(__OBJC__)
++#import <objc/NSObjCRuntime.h>
+ #import <Foundation/Foundation.h>
+ #else  // __OBJC__
+ class NSBundle;
+diff --git a/src/butil/mac/foundation_util.h b/src/butil/mac/foundation_util.h
+index 12b8e66..e206cb5 100644
+--- a/src/butil/mac/foundation_util.h
++++ b/src/butil/mac/foundation_util.h
+@@ -15,6 +15,7 @@
+ #include "butil/mac/scoped_cftyperef.h"
+ 
+ #if defined(__OBJC__)
++#import <objc/NSObjCRuntime.h>
+ #import <Foundation/Foundation.h>
+ @class NSFont;
+ @class UIFont;
+@@ -29,6 +30,7 @@ class UIFont;
+ #if defined(OS_IOS)
+ #include <CoreText/CoreText.h>
+ #else
++#include <CoreFoundation/CFAttributedString.h>
+ #include <ApplicationServices/ApplicationServices.h>
+ #endif
+ 
+diff --git a/src/butil/strings/sys_string_conversions_mac.mm b/src/butil/strings/sys_string_conversions_mac.mm
+index 804b614..f362b3b 100644
+--- a/src/butil/strings/sys_string_conversions_mac.mm
++++ b/src/butil/strings/sys_string_conversions_mac.mm
+@@ -4,6 +4,7 @@
+ 
+ #include "butil/strings/sys_string_conversions.h"
+ 
++#import <objc/NSObjCRuntime.h>
+ #import <Foundation/Foundation.h>
+ 
+ #include <vector>
+diff --git a/src/butil/threading/platform_thread_mac.mm b/src/butil/threading/platform_thread_mac.mm
+index 2291301..9a31553 100644
+--- a/src/butil/threading/platform_thread_mac.mm
++++ b/src/butil/threading/platform_thread_mac.mm
+@@ -4,6 +4,7 @@
+ 
+ #include "butil/threading/platform_thread.h"
+ 
++#import <objc/NSObjCRuntime.h>
+ #import <Foundation/Foundation.h>
+ #include <mach/mach.h>
+ #include <mach/mach_time.h>
