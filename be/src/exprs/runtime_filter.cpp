@@ -501,15 +501,9 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (!_context->hybrid_set) {
-                _context->ignored = true;
-                return Status::OK();
-            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                _context->ignored = true;
-                // release in filter
-                _context->hybrid_set.reset();
+                set_disabled();
             }
             break;
         }
@@ -1379,10 +1373,12 @@ PrimitiveType IRuntimeFilter::column_type() const {
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
 
-    _rf_state_atomic.store(RuntimeFilterState::READY);
-    if (!_filter_timer.empty()) {
-        for (auto& timer : _filter_timer) {
-            timer->call_ready();
+    if (_enable_pipeline_exec) {
+        _rf_state_atomic.store(RuntimeFilterState::READY);
+        if (!_filter_timer.empty()) {
+            for (auto& timer : _filter_timer) {
+                timer->call_ready();
+            }
         }
     } else {
         std::unique_lock lock(_inner_mutex);
