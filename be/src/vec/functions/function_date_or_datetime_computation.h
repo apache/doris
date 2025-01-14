@@ -1066,6 +1066,26 @@ struct PreviousDayImpl {
         result = date - day_seconds;
     }
 };
+struct LastDayImpl {
+    static constexpr auto name = "last_day";
+    static constexpr int64_t day_seconds = 86400;
+
+    template <typename DateType>
+    static void calculate(const DateType& date, const std::string& unit, DateType& result) {
+        if (unit == "day") {
+            result = date;
+        } else if (unit == "week") {
+            result = date - day_seconds * (date.weekday() - 6);
+        } else if (unit == "month") {
+            result = date.adjust_to_last_day_of_month();
+        } else if (unit == "quarter") {
+            result = date.adjust_to_last_day_of_quarter();
+        } else if (unit == "year") {
+            result = date.adjust_to_last_day_of_year();
+        }
+    }
+};
+
 template <typename Impl>
 struct TimestampToDateTime : IFunction {
     using ReturnType = DataTypeDateTimeV2;

@@ -25,7 +25,7 @@ using FunctionAddSecondsV2 = FunctionDateOrDateTimeComputation<AddSecondsImpl<Da
 using FunctionAddMinutesV2 = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateV2>>;
 using FunctionAddHoursV2 = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateV2>>;
 using FunctionAddDaysV2 = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateV2>>;
-using FunctionAddsV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateV2>>;
+using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateV2>>;
 using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateV2>>;
 using FunctionAddQuartersV2 = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateV2>>;
 using FunctionAddYearsV2 = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateV2>>;
@@ -34,7 +34,7 @@ using FunctionSubSecondsV2 = FunctionDateOrDateTimeComputation<SubtractSecondsIm
 using FunctionSubMinutesV2 = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDateV2>>;
 using FunctionSubHoursV2 = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDateV2>>;
 using FunctionSubDaysV2 = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateV2>>;
-using FunctionSubsV2 = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateV2>>;
+using FunctionSubWeeksV2 = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateV2>>;
 using FunctionSubMonthsV2 = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDateV2>>;
 using FunctionSubQuartersV2 =
         FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDateV2>>;
@@ -197,7 +197,6 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeV2NextDay_DateV2>();
     factory.register_function<FunctionDatetimeV2PreviousDay_DateTimeV2>();
     factory.register_function<FunctionDatetimeV2PreviousDay_DateV2>();
-
 }
 
 } // namespace doris::vectorized

@@ -65,13 +65,7 @@ public class NextDay extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return calculateNextDay(visitor, context);
-    }
-
-    private <R, C> R calculateNextDay(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        LocalDate nextDay = currentDate.plusDays(1);
-        return (R) new DateLiteral(nextDay.getYear(), nextDay.getMonthValue(), nextDay.getDayOfMonth());
+        return visitor.visitNextDay(this, context);
     }
     
     @Override

@@ -64,14 +64,19 @@ public class PreviousDay extends ScalarFunction
     }
 
     @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return calculatePreviousDay(visitor, context);
+    public void checkLegalityAfterRewrite() {
+        if (arity() != 1) {
+            throw new AnalysisException("previous_day function must have exactly one argument");
+        }
+        if (!child(0).getDataType().equals(DataType.DATEV2) && 
+            !child(0).getDataType().equals(DataType.DATETIMEV2)) {
+            throw new AnalysisException("previous_day function only accepts datev2 or datetimev2 as the argument");
+        }
     }
 
-    private <R, C> R calculatePreviousDay(ExpressionVisitor<R, C> visitor, C context) {
-        LocalDate currentDate = toJavaDateType().toLocalDate();
-        LocalDate previousDay = currentDate.minusDays(1);
-        return (R) new DateLiteral(previousDay.getYear(), previousDay.getMonthValue(), previousDay.getDayOfMonth());
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitPreviousDay(this, context);
     }
     
     @Override
