@@ -22,10 +22,8 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -67,7 +65,6 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -95,8 +92,6 @@ public class NereidsCoordinator extends Coordinator {
 
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
-
-        checkCluster(context);
     }
 
     // broker load
@@ -513,42 +508,6 @@ public class NereidsCoordinator extends Coordinator {
         } else {
             // insert statement has jobId == -1
             return new LoadProcessor(coordinatorContext, -1L);
-        }
-    }
-
-    private void checkCluster(ConnectContext context) {
-        if (Config.isNotCloudMode()) {
-            return;
-        }
-
-        try {
-            String cluster;
-            if (context != null) {
-                if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
-                    cluster = context.getSessionVariable().getCloudCluster();
-                    try {
-                        ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
-                    } catch (Exception e) {
-                        LOG.warn("get cluster by session context exception", e);
-                        throw new UserException("get cluster by session context exception", e);
-                    }
-                    LOG.debug("get cluster by session context cluster: {}", cluster);
-                } else {
-                    cluster = context.getCloudCluster();
-                    LOG.debug("get cluster by context {}", cluster);
-                }
-            } else {
-                LOG.warn("connect context is null in coordinator prepare");
-                // may cant throw exception? maybe cant get context in some scenarios
-                return;
-            }
-
-            if (Strings.isNullOrEmpty(cluster)) {
-                LOG.warn("invalid clusterName: {}", cluster);
-                throw new UserException("empty clusterName, please check cloud cluster privilege");
-            }
-        } catch (Exception e) {
-            throw new NereidsException(e.getMessage(), e);
         }
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
@@ -529,6 +530,15 @@ public class NereidsPlanner extends Planner {
     protected void doDistribute(boolean canUseNereidsDistributePlanner) {
         if (!canUseNereidsDistributePlanner) {
             return;
+        }
+
+        // if the query can compute without backend, we can skip check cluster privileges
+        if (Config.isCloudMode() && physicalPlan instanceof ComputeResultSet) {
+            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
+                    cascadesContext, Optional.empty(), physicalPlan.getOutput());
+            if (resultSet.isPresent()) {
+                return;
+            }
         }
 
         distributedPlans = new DistributePlanner(statementContext, fragments).plan();

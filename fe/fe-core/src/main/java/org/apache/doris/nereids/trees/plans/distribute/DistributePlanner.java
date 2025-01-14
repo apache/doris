@@ -77,7 +77,8 @@ public class DistributePlanner {
     public FragmentIdMapping<DistributedPlan> plan() {
         updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
         try {
-            BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager();
+            BackendDistributedPlanWorkerManager workerManager
+                    = new BackendDistributedPlanWorkerManager(statementContext.getConnectContext());
             LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(workerManager);
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
