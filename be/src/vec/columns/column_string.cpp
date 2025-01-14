@@ -413,7 +413,7 @@ size_t ColumnStr<T>::get_max_row_byte_size() const {
     size_t max_size = 0;
     size_t num_rows = offsets.size();
     for (size_t i = 0; i < num_rows; ++i) {
-        max_size = std::max(max_size, T(size_at(i)));
+        max_size = std::max(max_size, size_t(size_at(i)));
     }
 
     return max_size + sizeof(uint32_t);
