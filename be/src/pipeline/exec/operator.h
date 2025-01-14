@@ -430,7 +430,10 @@ private:
 class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
+            : OperatorBase(),
+              _operator_id(operator_id),
+              _node_id(node_id),
+              _dests_id({operator_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
