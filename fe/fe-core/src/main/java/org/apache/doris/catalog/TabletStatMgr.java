@@ -43,10 +43,20 @@ import java.util.concurrent.ForkJoinPool;
 public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
-    private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
+    private ForkJoinPool taskPool = new ForkJoinPool(Math.max(8, Runtime.getRuntime().availableProcessors()));
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
+    }
+
+    private ForkJoinPool adjustThreadPool(int backendSize) {
+        int newParallelism = Math.min(backendSize, 64);
+        newParallelism = Math.max(newParallelism, 8);
+        newParallelism = (newParallelism + 7) / 8 * 8; // Round up to the multiple of 8
+        if (taskPool == null || taskPool.getParallelism() != newParallelism) {
+            return new ForkJoinPool(newParallelism);
+        }
+        return taskPool;
     }
 
     @Override
@@ -59,9 +69,10 @@ public class TabletStatMgr extends MasterDaemon {
             return;
         }
         long start = System.currentTimeMillis();
+        taskPool = adjustThreadPool(backends.size());
         taskPool.submit(() -> {
             // no need to get tablet stat if backend is not alive
-            backends.values().stream().filter(Backend::isAlive).forEach(backend -> {
+            backends.values().parallelStream().filter(Backend::isAlive).forEach(backend -> {
                 BackendService.Client client = null;
                 TNetworkAddress address = null;
                 boolean ok = false;
