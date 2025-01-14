@@ -768,7 +768,7 @@ public interface CommandVisitor<R, C> {
     default R visitKillConnectionCommand(KillConnectionCommand killConnectionCommand, C context) {
         return visitCommand(killConnectionCommand, context);
     }
-  
+
     default R visitDropDatabaseCommand(DropDatabaseCommand dropDatabaseCommand, C context) {
         return visitCommand(dropDatabaseCommand, context);
     }
