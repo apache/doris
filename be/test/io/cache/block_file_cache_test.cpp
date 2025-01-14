@@ -2987,6 +2987,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     io::BlockFileCache cache(cache_base_path, settings);
     context.cache_type = io::FileCacheType::TTL;
     context.expiration_time = UnixSeconds() + 3600;
+    FileBlocksHolder* holder;
     auto sp = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard1;
     sp->set_call_back(
@@ -3001,7 +3002,8 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
             "BlockFileCache::recycle_deleted_blocks",
             [&](auto&&) {
                 context.cache_type = io::FileCacheType::NORMAL;
-                cache.get_or_set(key, 0, 5, context);
+                FileBlocksHolder h = cache.get_or_set(key, 0, 5, context);
+                holder = new FileBlocksHolder(std::move(h));
             },
             &guard3);
     sp->enable_processing();
@@ -3040,6 +3042,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+    delete holder;
 }
 
 TEST_F(BlockFileCacheTest, remove_directly) {
