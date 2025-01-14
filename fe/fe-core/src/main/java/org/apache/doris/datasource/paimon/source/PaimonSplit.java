@@ -36,14 +36,13 @@ public class PaimonSplit extends FileSplit {
     private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
     private Split split;
     private TableFormatType tableFormatType;
-    private Optional<DeletionFile> optDeletionFile;
-    private Optional<Long> optRowCount;
+    private Optional<DeletionFile> optDeletionFile = Optional.empty();
+    private Optional<Long> optRowCount = Optional.empty();
 
     public PaimonSplit(Split split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
-        this.optDeletionFile = Optional.empty();
 
         if (split instanceof DataSplit) {
             List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
@@ -58,7 +57,6 @@ public class PaimonSplit extends FileSplit {
             String[] hosts, List<String> partitionList) {
         super(file, start, length, fileLength, modificationTime, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
-        this.optDeletionFile = Optional.empty();
         this.selfSplitWeight = length;
     }
 
