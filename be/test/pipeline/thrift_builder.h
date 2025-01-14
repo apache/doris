@@ -54,7 +54,7 @@ public:
         return *this;
     }
     TQueryOptionsBuilder& set_enable_local_exchange(bool enable_local_exchange) {
-        _query_options.enable_local_exchange = enable_local_exchange;
+        _query_options.__set_enable_local_exchange(enable_local_exchange);
         return *this;
     }
     TQueryOptionsBuilder& set_enable_new_shuffle_hash_method(bool enable_new_shuffle_hash_method) {
@@ -62,7 +62,7 @@ public:
         return *this;
     }
     TQueryOptionsBuilder& set_enable_local_shuffle(bool enable_local_shuffle) {
-        _query_options.enable_local_shuffle = enable_local_shuffle;
+        _query_options.__set_enable_local_shuffle(enable_local_shuffle);
         return *this;
     }
     TQueryOptionsBuilder& set_runtime_filter_wait_infinitely(bool runtime_filter_wait_infinitely) {
@@ -96,16 +96,25 @@ public:
     }
 
     TPlanNodeBuilder& set_is_serial_operator(bool is_serial_operator) {
-        _plan_node.is_serial_operator = is_serial_operator;
+        _plan_node.__set_is_serial_operator(is_serial_operator);
         return *this;
     }
     TPlanNodeBuilder& set_exchange_node(TExchangeNode& node) {
-        _plan_node.exchange_node = node;
+        _plan_node.__set_exchange_node(node);
+        return *this;
+    }
+    TPlanNodeBuilder& set_hash_join_node(THashJoinNode& node) {
+        _plan_node.__set_hash_join_node(node);
         return *this;
     }
     TPlanNodeBuilder& append_row_tuples(TTupleId tuple_id, bool nullable) {
         _plan_node.row_tuples.emplace_back(tuple_id);
         _plan_node.nullable_tuples.emplace_back(nullable);
+        return *this;
+    }
+
+    TPlanNodeBuilder& set_output_tuple_id(TTupleId output_tuple_id) {
+        _plan_node.__set_output_tuple_id(output_tuple_id);
         return *this;
     }
 
@@ -123,7 +132,7 @@ public:
     explicit TExchangeNodeBuilder() : _plan_node() {}
 
     TExchangeNodeBuilder& set_partition_type(TPartitionType::type partition_type) {
-        _plan_node.partition_type = partition_type;
+        _plan_node.__set_partition_type(partition_type);
         return *this;
     }
     TExchangeNodeBuilder& append_input_row_tuples(TTupleId tuple_id) {
@@ -349,6 +358,123 @@ public:
 
 private:
     TDataPartition _partition;
+};
+
+class THashJoinNodeBuilder {
+public:
+    explicit THashJoinNodeBuilder(TJoinOp::type join_op,
+                                  std::vector<TEqJoinCondition>& eq_join_conjuncts)
+            : _plan_node() {
+        _plan_node.__set_join_op(join_op);
+        _plan_node.__set_eq_join_conjuncts(eq_join_conjuncts);
+    }
+    explicit THashJoinNodeBuilder(TJoinOp::type join_op,
+                                  std::vector<TEqJoinCondition>&& eq_join_conjuncts)
+            : _plan_node() {
+        _plan_node.__set_join_op(join_op);
+        _plan_node.__set_eq_join_conjuncts(eq_join_conjuncts);
+    }
+
+    THashJoinNodeBuilder& set_is_broadcast_join(bool is_broadcast_join) {
+        _plan_node.__set_is_broadcast_join(is_broadcast_join);
+        return *this;
+    }
+    THashJoinNodeBuilder& append_vintermediate_tuple_id_list(TTupleId vintermediate_tuple_id_list) {
+        _plan_node.vintermediate_tuple_id_list.push_back(vintermediate_tuple_id_list);
+        return *this;
+    }
+    THashJoinNodeBuilder& set_dist_type(TJoinDistributionType::type dist_type) {
+        _plan_node.__set_dist_type(dist_type);
+        return *this;
+    }
+    THashJoinNode& build() { return _plan_node; }
+    THashJoinNodeBuilder(const THashJoinNodeBuilder&) = delete;
+    void operator=(const THashJoinNodeBuilder&) = delete;
+
+private:
+    THashJoinNode _plan_node;
+};
+
+class TSlotRefBuilder {
+public:
+    explicit TSlotRefBuilder(TSlotId slot_id, TTupleId tuple_id) : _slot_ref() {
+        _slot_ref.__set_slot_id(slot_id);
+        _slot_ref.__set_tuple_id(tuple_id);
+    }
+
+    TSlotRefBuilder& set_col_unique_id(int col_unique_id) {
+        _slot_ref.__set_col_unique_id(col_unique_id);
+        return *this;
+    }
+    TSlotRef& build() { return _slot_ref; }
+    TSlotRefBuilder(const TSlotRefBuilder&) = delete;
+    void operator=(const TSlotRefBuilder&) = delete;
+
+private:
+    TSlotRef _slot_ref;
+};
+
+class TExprNodeBuilder {
+public:
+    explicit TExprNodeBuilder(TExprNodeType::type node_type, TTypeDesc& type, int num_children,
+                              TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE)
+            : _expr_node() {
+        _expr_node.__set_node_type(node_type);
+        _expr_node.__set_type(type);
+        _expr_node.__set_num_children(num_children);
+        _expr_node.__set_opcode(opcode);
+    }
+    explicit TExprNodeBuilder(TExprNodeType::type node_type, TTypeDesc&& type, int num_children,
+                              TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE)
+            : _expr_node() {
+        _expr_node.__set_node_type(node_type);
+        _expr_node.__set_type(type);
+        _expr_node.__set_num_children(num_children);
+        _expr_node.__set_opcode(opcode);
+    }
+
+    TExprNodeBuilder& set_slot_ref(TSlotRef& slot_ref) {
+        _expr_node.__set_slot_ref(slot_ref);
+        return *this;
+    }
+    TExprNode& build() { return _expr_node; }
+    TExprNodeBuilder(const TExprNodeBuilder&) = delete;
+    void operator=(const TExprNodeBuilder&) = delete;
+
+private:
+    TExprNode _expr_node;
+};
+
+class TExprBuilder {
+public:
+    explicit TExprBuilder() : _expr() {}
+    TExprBuilder& append_nodes(TExprNode& node) {
+        _expr.nodes.push_back(node);
+        return *this;
+    }
+    TExpr& build() { return _expr; }
+    TExprBuilder(const TExprBuilder&) = delete;
+    void operator=(const TExprBuilder&) = delete;
+
+private:
+    TExpr _expr;
+};
+
+class TEqJoinConditionBuilder {
+public:
+    explicit TEqJoinConditionBuilder(TExpr& left, TExpr& right,
+                                     TExprOpcode::type opcode = TExprOpcode::EQ)
+            : _eq_conjuncts() {
+        _eq_conjuncts.__set_left(left);
+        _eq_conjuncts.__set_right(right);
+        _eq_conjuncts.__set_opcode(opcode);
+    }
+    TEqJoinCondition& build() { return _eq_conjuncts; }
+    TEqJoinConditionBuilder(const TEqJoinConditionBuilder&) = delete;
+    void operator=(const TEqJoinConditionBuilder&) = delete;
+
+private:
+    TEqJoinCondition _eq_conjuncts;
 };
 
 } // namespace doris::pipeline
