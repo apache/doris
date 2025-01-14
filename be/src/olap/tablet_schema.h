@@ -41,6 +41,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -407,6 +408,12 @@ public:
     }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
+            DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
+                if (index.col_unique_ids().empty()) {
+                    throw Exception(Status::InternalError("col unique ids cannot be empty"));
+                }
+            });
+
             if (index.index_type() == IndexType::INVERTED) {
                 //if index_id == -1, ignore it.
                 if (!index.col_unique_ids().empty() && index.col_unique_ids()[0] >= 0) {
