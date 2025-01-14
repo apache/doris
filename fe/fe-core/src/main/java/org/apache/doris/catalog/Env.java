@@ -5194,7 +5194,8 @@ public class Env {
         }
 
         // 5. modify sequence map col
-        if (table.hasSequenceCol() && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
+        if (table.hasSequenceCol() && table.getSequenceMapCol() != null
+                && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
             table.setSequenceMapCol(newColName);
         }
 
