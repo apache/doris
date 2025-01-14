@@ -38,8 +38,7 @@ protected:
             : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
-    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
-                               bool keep_origin = true);
+    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block);
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     vectorized::Block _join_block;
