@@ -112,6 +112,18 @@ using FunctionDatetimeV2ToYearWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2ToWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateTimeV2>>;
+using FunctionDatetimeV2LastDay_DateTimeV2 =
+        FunctionDateOrDateTimeComputation<LastDayImpl<DataTypeDateTimeV2>>;
+using FunctionDatetimeV2LastDay_DateV2 =
+        FunctionDateOrDateTimeComputation<LastDayImpl<DataTypeDateV2>>;
+using FunctionDatetimeV2NextDay_DateTimeV2 =
+        FunctionDateOrDateTimeComputation<NextDayImpl<DataTypeDateTimeV2>>;
+using FunctionDatetimeV2NextDay_DateV2 =
+        FunctionDateOrDateTimeComputation<NextDayImpl<DataTypeDateV2>>;
+using FunctionDatetimeV2PreviousDay_DateTimeV2 =
+        FunctionDateOrDateTimeComputation<PreviousDayImpl<DataTypeDateTimeV2>>;
+using FunctionDatetimeV2PreviousDay_DateV2 =
+        FunctionDateOrDateTimeComputation<PreviousDayImpl<DataTypeDateV2>>;
 
 void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSecondsV2>();
@@ -179,6 +191,12 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionToWeekTwoArgsV2>();
     factory.register_function<FunctionDatetimeV2ToYearWeekTwoArgs>();
     factory.register_function<FunctionDatetimeV2ToWeekTwoArgs>();
+    factory.register_function<FunctionDatetimeV2LastDay_DateTimeV2>();
+    factory.register_function<FunctionDatetimeV2LastDay_DateV2>();
+    factory.register_function<FunctionDatetimeV2NextDay_DateTimeV2>();
+    factory.register_function<FunctionDatetimeV2NextDay_DateV2>();
+    factory.register_function<FunctionDatetimeV2PreviousDay_DateTimeV2>();
+    factory.register_function<FunctionDatetimeV2PreviousDay_DateV2>();
 }
 
 } // namespace doris::vectorized
