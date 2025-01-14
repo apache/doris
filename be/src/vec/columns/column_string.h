@@ -29,7 +29,6 @@
 #include <typeinfo>
 #include <vector>
 
-#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
