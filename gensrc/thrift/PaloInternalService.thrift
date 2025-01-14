@@ -339,6 +339,8 @@ struct TQueryOptions {
   139: optional i64 orc_once_max_read_bytes = 8388608;
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;
 
