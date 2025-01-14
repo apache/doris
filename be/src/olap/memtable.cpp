@@ -144,13 +144,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 
 MemTable::~MemTable() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
-    if (_is_flush_success) {
-        // If the memtable is flush success, then its memtracker's consumption should be 0
-        if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
-            LOG(FATAL) << "memtable flush success but cosumption is not 0, it is "
-                       << _mem_tracker->consumption();
-        }
-    }
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
         for (auto it = _row_in_blocks.begin(); it != _row_in_blocks.end(); it++) {
@@ -167,12 +161,21 @@ MemTable::~MemTable() {
         }
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
+    // Arena has to be destroyed after agg state, because some agg state's memory may be
+    // allocated in arena.
     _arena.reset();
     _vec_row_comparator.reset();
     _row_in_blocks.clear();
     _agg_functions.clear();
     _input_mutable_block.clear();
     _output_mutable_block.clear();
+    if (_is_flush_success) {
+        // If the memtable is flush success, then its memtracker's consumption should be 0
+        if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
+            LOG(FATAL) << "memtable flush success but cosumption is not 0, it is "
+                       << _mem_tracker->consumption();
+        }
+    }
 }
 
 int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* right) const {
@@ -629,8 +632,6 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
     _input_mutable_block.clear();
-    // After to block, all data in arena is saved in the block
-    _arena.reset();
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
     return Status::OK();
 }
