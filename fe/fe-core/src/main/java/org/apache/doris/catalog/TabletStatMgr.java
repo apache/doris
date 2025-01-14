@@ -53,7 +53,7 @@ public class TabletStatMgr extends MasterDaemon {
         int minimunParallelism = Math.max(8, Runtime.getRuntime().availableProcessors());
         int maximunParallelism = 64;
         int newParallelism = Math.min(backendSize, maximunParallelism);
-        newParallelism = Math.max(newParallelism, maximunParallelism);
+        newParallelism = Math.max(newParallelism, minimunParallelism);
         newParallelism = (newParallelism + 7) / 8 * 8; // Round up to the multiple of 8
         if (taskPool == null || taskPool.getParallelism() != newParallelism) {
             return new ForkJoinPool(newParallelism);
