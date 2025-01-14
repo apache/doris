@@ -38,7 +38,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
     _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
     _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
-    _compute_range_between_function_timer = ADD_TIMER(profile(), "ComputeOrderByFunctionTime");
+    _compute_range_between_function_timer = ADD_TIMER(profile(), "ComputeRangeBetweenTime");
     _partition_search_timer = ADD_TIMER(profile(), "PartitionSearchTime");
     _order_search_timer = ADD_TIMER(profile(), "OrderSearchTime");
     _remove_rows_timer = ADD_TIMER(profile(), "RemoveRowsTime");
@@ -640,7 +640,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.order_by_exprs,
                                                          _order_by_eq_expr_ctxs));
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
-                                                         _order_by_eq_expr_ctxs));
+                                                         _range_between_expr_ctxs));
     return Status::OK();
 }
 
