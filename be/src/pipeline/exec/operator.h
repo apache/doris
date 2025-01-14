@@ -98,7 +98,10 @@ public:
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
-        _child = std::move(child);
+        if (_child && child != nullptr) {
+            return Status::InternalError("Child is already set in node name={}", get_name());
+        }
+        _child = child;
         return Status::OK();
     }
 
@@ -608,8 +611,6 @@ public:
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-        }
-        if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor = std::make_unique<RowDescriptor>(
                     descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }

@@ -348,6 +348,7 @@ public:
 
     bool check_auth_token(const std::string& auth_token);
     void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
+    void clear_stream_mgr();
 
 private:
     ExecEnv();
