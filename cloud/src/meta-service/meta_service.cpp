@@ -1864,13 +1864,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         // bigger than 8.3MB, it will meet Transaction exceeds byte limit error.
         if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
             LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
-                      << ", current size: " << txn->approximate_bytes() << " lock_id=" << request->lock_id();
+                      << ", current size: " << txn->approximate_bytes()
+                      << " lock_id=" << request->lock_id();
             LOG(INFO) << "update delete bitmap tablet_id=" << tablet_id
                       << " lock_id=" << request->lock_id()
                       << " delete_bitmap_key=" << current_key_count
                       << " delete_bitmap_value=" << current_value_count
-                      << " put_size=" << txn->put_bytes()
-                      << " num_put_keys=" << txn->num_put_keys()
+                      << " put_size=" << txn->put_bytes() << " num_put_keys=" << txn->num_put_keys()
                       << " txn_size=" << txn->approximate_bytes();
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
@@ -1907,11 +1907,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                    << " lock_id=" << request->lock_id() << " key_size: " << key.size()
                    << " value_size: " << val.size();
     }
-    LOG(INFO) << "update delete bitmap tablet_id=" << tablet_id
-              << " lock_id=" << request->lock_id()
+    LOG(INFO) << "update delete bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
               << " delete_bitmap_key=" << current_key_count
-              << " delete_bitmap_value=" << current_value_count
-              << " put_size=" << txn->put_bytes()
+              << " delete_bitmap_value=" << current_value_count << " put_size=" << txn->put_bytes()
               << " num_put_keys=" << txn->num_put_keys()
               << " txn_size=" << txn->approximate_bytes();
     err = txn->commit();
@@ -1921,8 +1919,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         msg = ss.str();
         return;
     }
-    LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id
-              << " lock_id=" << request->lock_id()
+    LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
               << " rowset_num=" << request->rowset_ids_size()
               << " total_key_count=" << total_key_count
               << " total_value_count=" << total_value_count << " unlock=" << unlock;
