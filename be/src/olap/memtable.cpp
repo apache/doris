@@ -518,8 +518,8 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
     _input_mutable_block.clear();
-    // After to block, all data in arena is saved in the block
-    _arena.reset();
+    // DORIS-18080. Do not reset _arena here,
+    // because it is still used in ~MemTable() when releasing agg_places
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
     return Status::OK();
 }
