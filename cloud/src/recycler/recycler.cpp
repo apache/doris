@@ -532,6 +532,8 @@ int InstanceRecycler::init_storage_vault_accessors() {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
+        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
+                                 &accessor_map_, &vault);
 
         if (vault.has_hdfs_info()) {
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
@@ -545,9 +547,6 @@ int InstanceRecycler::init_storage_vault_accessors() {
 
             accessor_map_.emplace(vault.id(), std::move(accessor));
         } else if (vault.has_obj_info()) {
-#ifdef UNIT_TEST
-            auto accessor = std::make_shared<MockAccessor>();
-#else
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
@@ -563,7 +562,6 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " ret=" << ret << " s3_vault=" << vault.obj_info().DebugString();
                 continue;
             }
-#endif
 
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
@@ -1652,6 +1650,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
                 .tag("code", code);
         ret = -1;
     }
+    TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
         if (!rs_meta.has_resource_id()) {
