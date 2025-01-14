@@ -533,7 +533,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                         local_state._join_block.columns()));
             }
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                    local_state._build_output_block(&local_state._join_block, block, false));
+                    local_state._build_output_block(&local_state._join_block, block));
             local_state._reset_tuple_is_null_column();
         }
         local_state._join_block.clear_column_data(join_block_column_size);
