@@ -174,7 +174,7 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
 
     _destroy_agg_status();
     _agg_arena_pool = nullptr;
-
+    _fn_place_ptr = nullptr;
     _result_window_columns.clear();
     _agg_input_columns.clear();
     _partition_by_columns.clear();
@@ -342,10 +342,11 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
     // If the end is not greater than the start, the current window should be empty.
     _current_window_empty =
             std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
-    if (_current_window_empty) {
-        return;
-    }
+
     for (size_t i = 0; i < _agg_functions_size; ++i) {
+        if (_result_column_nullable_flags[i] && _current_window_empty) {
+            return;
+        }
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
             agg_columns.push_back(_agg_input_columns[i][j].get());
