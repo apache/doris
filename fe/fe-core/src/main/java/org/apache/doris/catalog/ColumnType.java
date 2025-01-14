@@ -184,7 +184,9 @@ public abstract class ColumnType {
             }
             return true;
         } else {
-            return false;
+            // both are string no need to check length
+            return checkType.getPrimitiveType() == PrimitiveType.STRING
+                    && other.getPrimitiveType() == PrimitiveType.STRING;
         }
     }
 
