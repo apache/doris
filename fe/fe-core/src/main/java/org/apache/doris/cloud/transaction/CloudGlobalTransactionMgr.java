@@ -559,7 +559,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             TxnCommitAttachment txnCommitAttachment) throws UserException {
         if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
             LOG.info("debug point FE.mow.commit.exception, throw e");
-            throw new UserException("debug point FE.mow.commit.exception");
+            throw new UserException(InternalErrorCode.INTERNAL_ERR, "debug point FE.mow.commit.exception");
         }
         boolean txnOperated = false;
         TransactionState txnState = null;
@@ -862,6 +862,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             int retryTime = 0;
             while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
+                    if (DebugPointUtil.isEnable("FE.mow.get_delete_bitmap_lock.timeout")) {
+                        throw new UserException("test get_delete_bitmap_lock timeout");
+                    }
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}", transactionId,
@@ -874,6 +877,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 } catch (Exception e) {
                     LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}", transactionId,
                             retryTime, e);
+                }
+                if (DebugPointUtil.isEnable("FE.mow.check.lock.release")
+                        && response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT) {
+                    throw new UserException(InternalErrorCode.INTERNAL_ERR,
+                            "check delete bitmap lock release fail,response is " + response
+                                    + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
                 }
                 // sleep random millis [20, 300] ms, avoid txn conflict
                 int randomMillis = 20 + (int) (Math.random() * (300 - 20));
@@ -1188,6 +1197,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .sorted(Comparator.comparingLong(Table::getId))
                 .collect(Collectors.toList());
         increaseWaitingLockCount(mowTableList);
+        if (!mowTableList.isEmpty() && DebugPointUtil.isEnable("FE.mow.check.lock.release")) {
+            for (int i = 0; i < mowTableList.size(); i++) {
+                if (mowTableList.get(i).getCommitLockOwner() != null) {
+                    throw new UserException(InternalErrorCode.INTERNAL_ERR,
+                            "check lock release fail,lock owner is " + mowTableList.get(i).getCommitLockOwner()
+                                    + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
+                }
+            }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.beforeCommitTransaction.sleep")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.beforeCommitTransaction.sleep");
+            int t = debugPoint.param("sleep_time", 5);
+            try {
+                Thread.sleep(t * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+            timeoutMillis = 0;
+        }
         if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             decreaseWaitingLockCount(mowTableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be

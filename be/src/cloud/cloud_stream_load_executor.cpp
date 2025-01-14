@@ -32,6 +32,7 @@ namespace doris {
 bvar::Adder<uint64_t> stream_load_commit_retry_counter;
 bvar::Window<bvar::Adder<uint64_t>> stream_load_commit_retry_counter_minute(
         &stream_load_commit_retry_counter, 60);
+bvar::Adder<uint64_t> stream_load_commit_retry_counter_for_test;
 
 enum class TxnOpParamType : int {
     ILLEGAL,
@@ -121,6 +122,8 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
                     .error(st);
             retry_times++;
             stream_load_commit_retry_counter << 1;
+            DBUG_EXECUTE_IF("CloudStreamLoadExecutor.enable_record_retry_for_test",
+                            { stream_load_commit_retry_counter_for_test << 1; });
         }
         return st;
     }
