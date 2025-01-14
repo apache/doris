@@ -50,8 +50,10 @@ public class TabletStatMgr extends MasterDaemon {
     }
 
     private ForkJoinPool adjustThreadPool(int backendSize) {
-        int newParallelism = Math.min(backendSize, 64);
-        newParallelism = Math.max(newParallelism, 8);
+        int minimunParallelism = Math.max(8, Runtime.getRuntime().availableProcessors());
+        int maximunParallelism = 64;
+        int newParallelism = Math.min(backendSize, maximunParallelism);
+        newParallelism = Math.max(newParallelism, maximunParallelism);
         newParallelism = (newParallelism + 7) / 8 * 8; // Round up to the multiple of 8
         if (taskPool == null || taskPool.getParallelism() != newParallelism) {
             return new ForkJoinPool(newParallelism);
