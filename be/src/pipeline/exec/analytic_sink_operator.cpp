@@ -345,7 +345,7 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
 
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i] && _current_window_empty) {
-            return;
+            continue;
         }
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
