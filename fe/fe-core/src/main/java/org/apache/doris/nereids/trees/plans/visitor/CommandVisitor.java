@@ -761,9 +761,9 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitAlterDatabaseSetQuotaCommand(AlterDatabaseSetQuotaCommand alterDatabaseSetQuotaCommand, C context) {
-        return visitAlterDatabaseSetQuotaCommand(alterDatabaseSetQuotaCommand, context);
+        return visitCommand(alterDatabaseSetQuotaCommand, context);
     }
-  
+
     default R visitDropDatabaseCommand(DropDatabaseCommand dropDatabaseCommand, C context) {
         return visitCommand(dropDatabaseCommand, context);
     }

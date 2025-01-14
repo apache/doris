@@ -5483,7 +5483,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return new AlterDatabaseSetQuotaCommand(databaseName, quotaType, quota);
     }
-    
+
     @Override
     public LogicalPlan visitDropDatabase(DropDatabaseContext ctx) {
         boolean ifExists = ctx.EXISTS() != null;
