@@ -152,24 +152,15 @@ public class EsTable extends Table implements GsonPostProcessable {
     }
 
     public Map<String, String> fieldsContext() throws UserException {
-        makeSureEsMetaSynced();
         return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
     public Map<String, String> docValueContext() throws UserException {
-        makeSureEsMetaSynced();
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
     public List<String> needCompatDateFields() throws UserException {
-        makeSureEsMetaSynced();
         return esMetaStateTracker.searchContext().needCompatDateFields();
-    }
-
-    private void makeSureEsMetaSynced() {
-        if (esMetaStateTracker == null) {
-            syncTableMetaData();
-        }
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -327,6 +318,8 @@ public class EsTable extends Table implements GsonPostProcessable {
         // parse httpSslEnabled before use it here.
         EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
+        // sync table metadata before use
+        syncTableMetaData();
     }
 
     @Override
@@ -361,6 +354,8 @@ public class EsTable extends Table implements GsonPostProcessable {
         // parse httpSslEnabled before use it here.
         EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
+        // sync table metadata before use
+        syncTableMetaData();
     }
 
     /**
