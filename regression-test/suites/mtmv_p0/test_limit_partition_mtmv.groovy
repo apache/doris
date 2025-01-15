@@ -302,7 +302,7 @@ suite("test_limit_partition_mtmv") {
 
     // add some conflixt partition, will be remove history partition
     sql """
-        alter table ${tableName} add partition p20380101_02 VALUES IN ("2038-01-01"),  ("2038-01-02");
+        alter table ${tableName} add partition p20380101_02 VALUES IN ("2038-01-01","2038-01-02");
         """
      sql """
         insert into ${tableName} values(1,"2038-01-02");
