@@ -68,7 +68,7 @@ public:
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
-        local_state._writer->clear_free_blocks();
+        local_state._writer->set_low_memory_mode();
     }
 
 private:
