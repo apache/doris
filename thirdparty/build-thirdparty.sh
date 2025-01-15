@@ -1250,19 +1250,16 @@ build_aws_sdk() {
     rm -rf "${BUILD_DIR}"
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
-        # Use llvm@16 to build aws-c-cal instead of llvm@15
-        USE_LLVM_16="-DCMAKE_C_COMPILER=$(brew --prefix)/opt/llvm@16/bin/clang"
+        EXTRA_CFLAGS='-DCMAKE_C_FLAGS="-DTARGET_OS_OSX=1"'
     else
-        USE_LLVM_16=''
+        EXTRA_CFLAGS=''
     fi
 
     # -Wno-nonnull gcc-11
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
-        ${USE_LLVM_16:+${USE_LLVM_16}} \
-        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations" -DCPP_STANDARD=17
+        -DBUILD_ONLY="core;s3;s3-crt;transfer" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 

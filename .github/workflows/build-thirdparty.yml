@@ -165,7 +165,6 @@ jobs:
             'maven'
             'node'
             'llvm@15'
-            'llvm@16'
           )
 
           brew install "${packages[@]}" || true
@@ -217,7 +216,6 @@ jobs:
             'maven'
             'node'
             'llvm@15'
-            'llvm@16'
           )
 
           brew install "${packages[@]}" || true
