@@ -191,7 +191,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 }
 
 Status MemTable::insert(const vectorized::Block* input_block,
-                        const std::vector<uint32_t>& row_idxs) {
+                        const DorisVector<uint32_t>& row_idxs) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _query_thread_context.query_mem_tracker->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
