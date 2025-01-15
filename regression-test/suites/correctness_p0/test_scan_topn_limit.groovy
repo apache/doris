@@ -35,6 +35,6 @@ suite("test_scan_topn_limit") {
         sql """ INSERT INTO ${tableName} values (${i}, 100-${i}) """
     }
     qt_select """ SELECT /*+ SET_VAR(experimental_enable_pipeline_engine = true,
-                            parallel_fragment_exec_instance_num = 4) */ 
+                            parallel_pipeline_task_num = 4) */
                         k1, k2 FROM ${tableName} ORDER BY k1 DESC, k2 LIMIT 10 """
 }

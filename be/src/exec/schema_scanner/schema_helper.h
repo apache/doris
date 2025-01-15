@@ -24,8 +24,6 @@
 #include "common/status.h"
 
 namespace doris {
-class TDescribeTableParams;
-class TDescribeTableResult;
 class TDescribeTablesParams;
 class TDescribeTablesResult;
 class TGetDbsParams;

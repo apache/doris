@@ -29,7 +29,7 @@ suite("ssb_sf1_q2_1_nereids") {
 
     test {
         // sql(new File(context.file.parentFile, "../sql/q2.1.sql").text)
-        sql """SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/  
+        sql """SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/
         SUM(lo_revenue), d_year, p_brand
         FROM lineorder, date, part, supplier
         WHERE lo_orderdate = d_datekey

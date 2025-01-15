@@ -202,7 +202,7 @@ See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/standard-deployment) 
+See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/cluster-deployment/standard-deployment) 
 
 ## 🧩 Components
 

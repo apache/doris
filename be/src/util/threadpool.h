@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <boost/intrusive/detail/algo_type.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
@@ -38,6 +40,9 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 #include "common/status.h"
+#include "util/interval_histogram.h"
+#include "util/metrics.h"
+#include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
 
 namespace doris {
@@ -99,7 +104,7 @@ public:
 //
 class ThreadPoolBuilder {
 public:
-    explicit ThreadPoolBuilder(std::string name);
+    explicit ThreadPoolBuilder(std::string name, std::string workload_group = "");
 
     // Note: We violate the style guide by returning mutable references here
     // in order to provide traditional Builder pattern conveniences.
@@ -132,6 +137,7 @@ public:
 private:
     friend class ThreadPool;
     const std::string _name;
+    const std::string _workload_group;
     int _min_threads;
     int _max_threads;
     int _max_queue_size;
@@ -255,6 +261,11 @@ public:
         return _total_queued_tasks;
     }
 
+    int get_max_queue_size() const {
+        std::lock_guard<std::mutex> l(_lock);
+        return _max_queue_size;
+    }
+
     std::vector<int> debug_info() const {
         std::lock_guard<std::mutex> l(_lock);
         std::vector<int> arr = {_num_threads, static_cast<int>(_threads.size()), _min_threads,
@@ -280,7 +291,7 @@ private:
         std::shared_ptr<Runnable> runnable;
 
         // Time at which the entry was submitted to the pool.
-        std::chrono::time_point<std::chrono::system_clock> submit_time;
+        MonotonicStopWatch submit_time_wather;
     };
 
     // Creates a new thread pool using a builder.
@@ -307,7 +318,11 @@ private:
     // Releases token 't' and invalidates it.
     void release_token(ThreadPoolToken* t);
 
+    //NOTE: not thread safe, caller should keep it thread-safe by using lock
+    Status try_create_thread(int thread_num, std::lock_guard<std::mutex>&);
+
     const std::string _name;
+    const std::string _workload_group;
     int _min_threads;
     int _max_threads;
     const int _max_queue_size;
@@ -392,6 +407,20 @@ private:
 
     // ExecutionMode::CONCURRENT token used by the pool for tokenless submission.
     std::unique_ptr<ThreadPoolToken> _tokenless;
+    const UniqueId _id;
+
+    std::shared_ptr<MetricEntity> _metric_entity;
+    IntGauge* thread_pool_active_threads = nullptr;
+    IntGauge* thread_pool_queue_size = nullptr;
+    IntGauge* thread_pool_max_queue_size = nullptr;
+    IntGauge* thread_pool_max_threads = nullptr;
+    IntGauge* task_execution_time_ns_avg_in_last_1000_times = nullptr;
+    IntGauge* task_wait_worker_ns_avg_in_last_1000_times = nullptr;
+
+    IntervalHistogramStat<int64_t> _task_execution_time_ns_statistic {1000};
+    IntervalHistogramStat<int64_t> _task_wait_worker_time_ns_statistic {1000};
+
+    IntCounter* thread_pool_submit_failed = nullptr;
 };
 
 // Entry point for token-based task submission and blocking for a particular

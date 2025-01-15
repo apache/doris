@@ -84,6 +84,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_has_variant_type_in_schema(in.has_has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
 }
 
@@ -136,6 +137,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
 }
 
@@ -234,6 +236,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
 }
 
@@ -287,6 +290,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
 }
 

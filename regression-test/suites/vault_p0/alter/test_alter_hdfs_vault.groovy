@@ -27,72 +27,121 @@ suite("test_alter_hdfs_vault", "nonConcurrent") {
         return
     }
 
+
+    def randomStr = UUID.randomUUID().toString().replace("-", "")
+    def hdfsVaultName = "hdfs_" + randomStr
+
     sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ${suiteName}
+        CREATE STORAGE VAULT IF NOT EXISTS ${hdfsVaultName}
         PROPERTIES (
             "type"="HDFS",
             "fs.defaultFS"="${getHmsHdfsFs()}",
-            "path_prefix" = "${suiteName}",
-            "hadoop.username" = "hadoop"
+            "path_prefix" = "${hdfsVaultName}",
+            "hadoop.username" = "${getHmsUser()}"
         );
     """
 
     expectExceptionLike({
         sql """
-            ALTER STORAGE VAULT ${suiteName}
+            ALTER STORAGE VAULT ${hdfsVaultName}
             PROPERTIES (
                 "type"="hdfs",
-                "path_prefix" = "${suiteName}"
+                "path_prefix" = "error_path"
             );
         """
     }, "Alter property")
 
     expectExceptionLike({
         sql """
-            ALTER STORAGE VAULT ${suiteName}
+            ALTER STORAGE VAULT ${hdfsVaultName}
             PROPERTIES (
                 "type"="hdfs",
-                "fs.defaultFS" = "not_exist_vault"
+                "fs.defaultFS" = "error_fs"
             );
         """
     }, "Alter property")
 
-    def vaultName = suiteName
-    String properties;
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type"="hdfs",
+                "s3.endpoint" = "error_endpoint"
+            );
+        """
+    }, "Alter property")
 
-    def vaultInfos = try_sql """show storage vault"""
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type"="hdfs",
+                "s3.region" = "error_region"
+            );
+        """
+    }, "Alter property")
 
-    for (int i = 0; i < vaultInfos.size(); i++) {
-        def name = vaultInfos[i][0]
-        if (name.equals(vaultName)) {
-            properties = vaultInfos[i][2]
-        }
-    }
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type"="hdfs",
+                "s3.access_key" = "error_access_key"
+            );
+        """
+    }, "Alter property")
 
-    def newVaultName = suiteName + "_new";
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type"="hdfs",
+                "provider" = "error_provider"
+            );
+        """
+    }, "Alter property")
+
     sql """
-        ALTER STORAGE VAULT ${vaultName}
+        CREATE TABLE ${hdfsVaultName} (
+            C_CUSTKEY     INTEGER NOT NULL,
+            C_NAME        INTEGER NOT NULL
+        )
+        DUPLICATE KEY(C_CUSTKEY, C_NAME)
+        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "storage_vault_name" = ${hdfsVaultName}
+        )
+    """
+    sql """ insert into ${hdfsVaultName} values(1, 1); """
+    sql """ sync;"""
+    def result = sql """ select * from ${hdfsVaultName}; """
+    assertEquals(result.size(), 1);
+
+    def newHdfsVaultName = hdfsVaultName + "_new";
+    sql """
+        ALTER STORAGE VAULT ${hdfsVaultName}
         PROPERTIES (
             "type"="hdfs",
-            "VAULT_NAME" = "${newVaultName}",
+            "VAULT_NAME" = "${newHdfsVaultName}",
             "hadoop.username" = "hdfs"
         );
     """
 
-    vaultInfos = sql """ SHOW STORAGE VAULT; """
-    boolean exist = false
-
+    def vaultInfos = sql """ SHOW STORAGE VAULT; """
+    boolean found = false
     for (int i = 0; i < vaultInfos.size(); i++) {
         def name = vaultInfos[i][0]
-        logger.info("name is ${name}, info ${vaultInfos[i]}")
-        if (name.equals(vaultName)) {
+        logger.info("info ${vaultInfos[i]}")
+        if (name.equals(hdfsVaultName)) {
             assertTrue(false);
         }
-        if (name.equals(newVaultName)) {
+        if (name.equals(newHdfsVaultName)) {
             assertTrue(vaultInfos[i][2].contains("""user: "hdfs" """))
-            exist = true
+            found = true
         }
     }
-    assertTrue(exist)
-    expectExceptionLike({sql """insert into ${suiteName} values("2", "2");"""}, "")
+    assertTrue(found)
+
+    expectExceptionLike({sql """insert into ${hdfsVaultName} values("2", "2");"""}, "open file failed")
 }

@@ -5479,6 +5479,15 @@ TEST(MetaServiceTest, WrongPendingBitmapTest) {
                                        const std::string& cloud_unique_id);
     auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
 
+    std::set<int64_t> real_wrong_pending_delete_bitmap_tablet_ids;
+    std::set<int64_t> expected_wrong_pending_delete_bitmap_tablet_ids;
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("commit_txn:check_pending_delete_bitmap_lock_id", [&](auto&& args) {
+        auto* tablet_id = try_any_cast<int64_t*>(args[0]);
+        real_wrong_pending_delete_bitmap_tablet_ids.insert(*tablet_id);
+    });
+    sp->enable_processing();
+
     // case: first version of rowset
     {
         int64_t txn_id = 56789;
@@ -5587,6 +5596,8 @@ TEST(MetaServiceTest, WrongPendingBitmapTest) {
             ASSERT_TRUE(pending_info.SerializeToString(&pending_val));
             txn->put(pending_key, pending_val);
             ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+            expected_wrong_pending_delete_bitmap_tablet_ids.insert(tablet_id_base);
         }
 
         // commit txn
@@ -5600,9 +5611,13 @@ TEST(MetaServiceTest, WrongPendingBitmapTest) {
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
-            ASSERT_EQ(res.status().code(), MetaServiceCode::PENDING_DELETE_BITMAP_WRONG);
+            ASSERT_EQ(expected_wrong_pending_delete_bitmap_tablet_ids,
+                      real_wrong_pending_delete_bitmap_tablet_ids);
         }
     }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest1) {

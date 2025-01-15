@@ -121,8 +121,8 @@ public class PlanUtils {
     /**
      * merge childProjects with parentProjects
      */
-    public static List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
-            List<NamedExpression> parentProjects) {
+    public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
         Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
         return ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap);
     }

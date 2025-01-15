@@ -81,7 +81,7 @@ suite("test_ngram_bloomfilter_index") {
         DISTRIBUTED BY HASH(`key_id`) BUCKETS 3
         PROPERTIES("replication_num" = "1");
         """
-        exception "bf_size should be integer and between 64 and 65535"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = invalid ngram bf index params:errCode = 2, detailMessage = 'bf_size' should be an integer between 64 and 65535."
     }
 
     def tableName3 = 'test_ngram_bloomfilter_index3'
@@ -104,10 +104,10 @@ suite("test_ngram_bloomfilter_index") {
         """
     test {
         sql """ALTER TABLE  ${tableName3} ADD INDEX idx_http_url(http_url) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="65536") COMMENT 'http_url ngram_bf index'"""
-        exception "'bf_size' should be an integer between 64 and 65535"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = 'bf_size' should be an integer between 64 and 65535."
     }
     test {
         sql """ALTER TABLE  ${tableName3} ADD INDEX idx_http_url(http_url) USING NGRAM_BF PROPERTIES("gram_size"="256", "bf_size"="65535") COMMENT 'http_url ngram_bf index'"""
-        exception "'gram_size' should be an integer between 1 and 255"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = 'gram_size' should be an integer between 1 and 255."
     }
 }

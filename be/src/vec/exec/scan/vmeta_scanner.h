@@ -66,6 +66,8 @@ private:
     Status _fetch_metadata(const TMetaScanRange& meta_scan_range);
     Status _build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
                                            TFetchSchemaTableDataRequest* request);
+    Status _build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
+                                        TFetchSchemaTableDataRequest* request);
     Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
     Status _build_frontends_metadata_request(const TMetaScanRange& meta_scan_range,

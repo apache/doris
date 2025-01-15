@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -48,10 +49,13 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
         List<ExpressionPatternMatchRule> rules = singleMappings.get(expr.getClass());
         ExpressionMatchingContext<Expression> matchingContext
                 = new ExpressionMatchingContext<>(expr, parent, context);
+        BitSet disableRules = context.cascadesContext.getConnectContext().getSessionVariable()
+                .getDisableNereidsExpressionRules();
         switch (rules.size()) {
             case 0: {
                 for (ExpressionPatternMatchRule multiMatchRule : multiMappings) {
-                    if (multiMatchRule.matchesTypeAndPredicates(matchingContext)) {
+                    if (!disableRules.get(multiMatchRule.getExpressionRuleType().type())
+                            && multiMatchRule.matchesTypeAndPredicates(matchingContext)) {
                         Expression newExpr = multiMatchRule.apply(matchingContext);
                         if (!newExpr.equals(expr)) {
                             if (context.cascadesContext.isEnableExprTrace()) {
@@ -65,7 +69,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
             }
             case 1: {
                 ExpressionPatternMatchRule rule = rules.get(0);
-                if (rule.matchesPredicates(matchingContext)) {
+                if (!disableRules.get(rule.getExpressionRuleType().type())
+                        && rule.matchesPredicates(matchingContext)) {
                     Expression newExpr = rule.apply(matchingContext);
                     if (!newExpr.equals(expr)) {
                         if (context.cascadesContext.isEnableExprTrace()) {
@@ -78,7 +83,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
             }
             default: {
                 for (ExpressionPatternMatchRule rule : rules) {
-                    if (rule.matchesPredicates(matchingContext)) {
+                    if (!disableRules.get(rule.getExpressionRuleType().type())
+                            && rule.matchesPredicates(matchingContext)) {
                         Expression newExpr = rule.apply(matchingContext);
                         if (!expr.equals(newExpr)) {
                             if (context.cascadesContext.isEnableExprTrace()) {

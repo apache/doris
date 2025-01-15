@@ -221,7 +221,6 @@ suite("test_build_index_exception_fault_injection", "nonConcurrent,p2") {
         "IndexBuilder::handle_single_rowset_support_inverted_index",
         "IndexBuilder::handle_single_rowset_index_column_writer_create_error",
         "IndexBuilder::handle_single_rowset_create_iterator_error",
-        "IndexBuilder::handle_single_rowset",
         "IndexBuilder::handle_single_rowset_iterator_next_batch_error",
         "IndexBuilder::handle_single_rowset_write_inverted_index_data_error",
         "IndexBuilder::handle_single_rowset_index_build_finish_error",

@@ -50,6 +50,10 @@ class MockRowset : public Rowset {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
+    Status get_inverted_index_size(int64_t* index_size) override {
+        return Status::NotSupported("MockRowset not support this method.");
+    }
+
     void clear_inverted_index_cache() override {}
 
     Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) override {
@@ -72,10 +76,6 @@ protected:
             : Rowset(schema, rowset_meta, "") {}
 
     Status init() override { return Status::NotSupported("MockRowset not support this method."); }
-
-    Status do_load(bool use_cache) override {
-        return Status::NotSupported("MockRowset not support this method.");
-    }
 
     void do_close() override {
         // Do nothing.

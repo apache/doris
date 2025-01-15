@@ -183,7 +183,7 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
             continue;
         }
         ss << "check cluster params failed, edit_log_port is required for frontends while "
-              "heatbeat_port is required for banckens, node : "
+              "heatbeat_port is required for banckends, node : "
            << proto_to_json(n);
         *err = ss.str();
         no_err = false;
@@ -191,19 +191,11 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     }
 
     if (check_master_num && ClusterPB::SQL == cluster.type()) {
-        no_err = false;
-        if (master_num > 0 && follower_num > 0) {
-            ss << "cluster is SQL type, and use multi follower mode, cant set master node, master "
-                  "count: "
-               << master_num << " follower count: " << follower_num;
-        } else if (!follower_num && master_num != 1) {
-            ss << "cluster is SQL type, must have only one master node, now master count: "
-               << master_num;
-        } else {
-            // followers mode
-            // 1. followers 2. observers + followers
-            no_err = true;
-            ss << "";
+        if (master_num == 0 && follower_num == 0) {
+            ss << "cluster is SQL type, but not set master and follower node, master count="
+               << master_num << " follower count=" << follower_num
+               << " so sql cluster can't get a Master node";
+            no_err = false;
         }
         *err = ss.str();
     }
@@ -229,6 +221,85 @@ bool ResourceManager::is_instance_id_registered(const std::string& instance_id) 
                      << ", code=" << format_as(c0) << ", info=" + m0;
     }
     return c0 == TxnErrorCode::TXN_OK;
+}
+
+/**
+ * Gets addr and port from NodeInfoPB
+ * @param node
+ * @return <addr, port>
+ */
+static std::pair<std::string, int32_t> get_node_endpoint_from_cluster(const ClusterPB::Type& type,
+                                                                      const NodeInfoPB& node) {
+    std::string addr = node.has_host() ? node.host() : (node.has_ip() ? node.ip() : "");
+    int32_t port = (ClusterPB::SQL == type)
+                           ? node.edit_log_port()
+                           : (ClusterPB::COMPUTE == type ? node.heartbeat_port() : -1);
+    return std::make_pair(addr, port);
+}
+
+/**
+ * Gets nodes endpoint from InstanceInfoPB which are registered
+ * @param instance
+ * @return <fe_nodes, be_nodes>
+ */
+static std::pair<std::set<std::string>, std::set<std::string>> get_nodes_endpoint_registered(
+        const InstanceInfoPB& instance) {
+    std::set<std::string> instance_sql_node_endpoints;
+    std::set<std::string> instance_compute_node_endpoints;
+    for (auto& instance_cluster : instance.clusters()) {
+        for (auto& node : instance_cluster.nodes()) {
+            const auto& [addr, port] =
+                    get_node_endpoint_from_cluster(instance_cluster.type(), node);
+            if (ClusterPB::SQL == instance_cluster.type()) {
+                instance_sql_node_endpoints.insert(addr + ":" + std::to_string(port));
+            } else if (ClusterPB::COMPUTE == instance_cluster.type()) {
+                instance_compute_node_endpoints.insert(addr + ":" + std::to_string(port));
+            }
+        }
+    }
+    return std::make_pair(instance_sql_node_endpoints, instance_compute_node_endpoints);
+}
+
+/**
+ * When add_cluster or add_node, check its node has been registered
+ * @param cluster type, for check port
+ * @param node, which node to add
+ * @param registered_fes, that fes has been registered in kv
+ * @param registered_bes, that bes has been registered in kv
+ * @return <error_code, err_msg>, if error_code == OK, check pass
+ */
+static std::pair<MetaServiceCode, std::string> check_node_has_been_registered(
+        const ClusterPB::Type& type, const NodeInfoPB& node,
+        std::set<std::string> fe_endpoints_registered,
+        std::set<std::string> be_endpoints_registered) {
+    const auto& [addr, port] = get_node_endpoint_from_cluster(type, node);
+    std::stringstream ss;
+    std::string msg;
+    if (addr == "" || port == -1) {
+        ss << "add node input args node invalid, cluster=" << proto_to_json(node);
+        LOG(WARNING) << ss.str();
+        msg = ss.str();
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    std::string node_endpoint = addr + ":" + std::to_string(port);
+
+    if (type == ClusterPB::SQL) {
+        if (fe_endpoints_registered.count(node_endpoint)) {
+            ss << "sql node endpoint has been added, registered fe node=" << node_endpoint;
+            LOG(WARNING) << ss.str();
+            msg = ss.str();
+            return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
+        }
+    } else if (type == ClusterPB::COMPUTE) {
+        if (be_endpoints_registered.count(node_endpoint)) {
+            ss << "compute node endpoint has been added, registered be node=" << node_endpoint;
+            LOG(WARNING) << ss.str();
+            msg = ss.str();
+            return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
+        }
+    }
+    return std::make_pair(MetaServiceCode::OK, "");
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::string& instance_id,
@@ -294,35 +365,49 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
         return std::make_pair(MetaServiceCode::CLUSTER_NOT_FOUND, msg);
     }
 
-    LOG(INFO) << "cluster to add json=" << proto_to_json(cluster.cluster);
+    auto& req_cluster = cluster.cluster;
+    LOG(INFO) << "cluster to add json=" << proto_to_json(req_cluster);
     LOG(INFO) << "json=" << proto_to_json(instance);
 
     // Check id and name, they need to be unique
     // One cluster id per name, name is alias of cluster id
-    for (auto& i : instance.clusters()) {
-        if (i.cluster_id() == cluster.cluster.cluster_id()) {
+    for (auto& instance_cluster : instance.clusters()) {
+        if (instance_cluster.cluster_id() == req_cluster.cluster_id()) {
             ss << "try to add a existing cluster id,"
-               << " existing_cluster_id=" << i.cluster_id();
+               << " existing_cluster_id=" << instance_cluster.cluster_id();
             msg = ss.str();
             return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
         }
 
-        if (i.cluster_name() == cluster.cluster.cluster_name()) {
+        if (instance_cluster.cluster_name() == req_cluster.cluster_name()) {
             ss << "try to add a existing cluster name,"
-               << " existing_cluster_name=" << i.cluster_name();
+               << " existing_cluster_name=" << instance_cluster.cluster_name();
             msg = ss.str();
             return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
         }
     }
 
-    // TODO(gavin): Check duplicated nodes, one node cannot deploy on multiple clusters
+    // modify cluster's node info
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
-    for (auto& n : cluster.cluster.nodes()) {
+
+    const auto& [fe_endpoints_registered, be_endpoints_registered] =
+            get_nodes_endpoint_registered(instance);
+
+    for (auto& n : req_cluster.nodes()) {
         auto& node = const_cast<std::decay_t<decltype(n)>&>(n);
         node.set_ctime(time);
         node.set_mtime(time);
+        // Check duplicated nodes, one node cannot deploy on multiple clusters
+        // diff instance_cluster's nodes and req_cluster's nodes
+        for (auto& n : req_cluster.nodes()) {
+            const auto& [c1, m1] = check_node_has_been_registered(
+                    req_cluster.type(), n, fe_endpoints_registered, be_endpoints_registered);
+            if (c1 != MetaServiceCode::OK) {
+                return std::make_pair(c1, m1);
+            }
+        }
     }
 
     auto to_add_cluster = instance.add_clusters();
@@ -356,6 +441,27 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     add_cluster_to_index(instance_id, cluster.cluster);
 
     return std::make_pair(MetaServiceCode::OK, "");
+}
+
+/**
+ * The current implementation is to add fe clusters through HTTP API, 
+ * such as follower nodes `ABC` in the cluster, and then immediately drop follower node `A`, while fe is not yet pulled up, 
+ * which may result in the formation of a multi master fe cluster
+ * This function provides a simple protection mechanism that does not allow dropping the fe node within 5 minutes after adding it through the API(add_cluster/add_node).
+ * If you bypass this protection and do the behavior described above, god bless you.
+ * @param node, which fe node to drop
+ * @return true, can drop. false , within ctime 5 mins, can't drop
+ */
+static bool is_sql_node_exceeded_safe_drop_time(const NodeInfoPB& node) {
+    int64_t ctime = node.ctime();
+    // protect time 5mins
+    int64_t exceed_time = 5 * 60;
+    TEST_SYNC_POINT_CALLBACK("resource_manager::set_safe_drop_time", &exceed_time);
+    exceed_time = ctime + exceed_time;
+    auto now_time = std::chrono::system_clock::now();
+    int64_t current_time =
+            std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
+    return current_time > exceed_time;
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
@@ -400,12 +506,27 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
 
     bool found = false;
     int idx = -1;
+    std::string cache_err_help_msg =
+            "Ms nodes memory cache may be inconsistent, pls check registry key may be contain "
+            "127.0.0.1, and call get_instance api get instance info from fdb";
     ClusterPB to_del;
-    // Check id and name, they need to be unique
+    // Check id, they need to be unique
     // One cluster id per name, name is alias of cluster id
     for (auto& i : instance.clusters()) {
         ++idx;
         if (i.cluster_id() == cluster.cluster.cluster_id()) {
+            if (i.type() == ClusterPB::SQL) {
+                for (auto& fe_node : i.nodes()) {
+                    // check drop fe cluster
+                    if (!is_sql_node_exceeded_safe_drop_time(fe_node)) {
+                        ss << "drop fe cluster not in safe time, try later, cluster="
+                           << i.DebugString();
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return std::make_pair(MetaServiceCode::CLUSTER_NOT_FOUND, msg);
+                    }
+                }
+            }
             to_del.CopyFrom(i);
             LOG(INFO) << "found a cluster to drop,"
                       << " instance_id=" << instance_id << " cluster_id=" << i.cluster_id()
@@ -418,7 +539,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
     if (!found) {
         ss << "failed to find cluster to drop,"
            << " instance_id=" << instance_id << " cluster_id=" << cluster.cluster.cluster_id()
-           << " cluster_name=" << cluster.cluster.cluster_name();
+           << " cluster_name=" << cluster.cluster.cluster_name()
+           << " help Msg=" << cache_err_help_msg;
         msg = ss.str();
         return std::make_pair(MetaServiceCode::CLUSTER_NOT_FOUND, msg);
     }
@@ -455,7 +577,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
 std::string ResourceManager::update_cluster(
         const std::string& instance_id, const ClusterInfo& cluster,
         std::function<bool(const ClusterPB&)> filter,
-        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action) {
+        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+        bool replace_if_existing_empty_target_cluster) {
     std::stringstream ss;
     std::string msg;
 
@@ -520,6 +643,33 @@ std::string ResourceManager::update_cluster(
     }
 
     auto& clusters = const_cast<std::decay_t<decltype(instance.clusters())>&>(instance.clusters());
+
+    // check cluster_name is empty cluster, if empty and replace_if_existing_empty_target_cluster == true, drop it
+    if (replace_if_existing_empty_target_cluster) {
+        auto it = cluster_names.find(cluster_name);
+        if (it != cluster_names.end()) {
+            // found it, if it's an empty cluster, drop it from instance
+            int idx = -1;
+            for (auto& cluster : instance.clusters()) {
+                idx++;
+                if (cluster.cluster_name() == cluster_name) {
+                    // Check if cluster is empty (has no nodes)
+                    if (cluster.nodes_size() == 0) {
+                        // Remove empty cluster from instance
+                        auto& clusters = const_cast<std::decay_t<decltype(instance.clusters())>&>(
+                                instance.clusters());
+                        clusters.DeleteSubrange(idx, 1);
+                        // Remove cluster name from set
+                        cluster_names.erase(cluster_name);
+                        LOG(INFO) << "remove empty cluster due to it is the target of a "
+                                     "rename_cluster, cluster_name="
+                                  << cluster_name;
+                    }
+                    break;
+                }
+            }
+        }
+    }
 
     // do update
     ClusterPB original = clusters[idx];
@@ -666,27 +816,26 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
 }
 
 // check instance pb is valid
+// check in drop nodes
+// In the mode of managing cluster nodes through SQL, FE knows the master node of the current system, so it cannot delete the current master node (SQL error)
+// However, in the mode of managing cluster nodes through HTTP, MS cannot know which node in the current FE cluster is the master node, so some SOP operations are required for cloud control
+// 1. First, check the status of the nodes in the current FE cluster
+// 2. Drop non master nodes
+// 3. If you want to drop the master node, you need to find a way to switch the master node to another follower node and then drop it again
 bool is_instance_valid(const InstanceInfoPB& instance) {
     // check has fe node
     for (auto& c : instance.clusters()) {
         if (c.has_type() && c.type() == ClusterPB::SQL) {
             int master = 0;
             int follower = 0;
-            std::string mode = "multi-followers";
             for (auto& n : c.nodes()) {
                 if (n.node_type() == NodeInfoPB::FE_MASTER) {
-                    mode = "master-observers";
                     master++;
                 } else if (n.node_type() == NodeInfoPB::FE_FOLLOWER) {
                     follower++;
                 }
             }
-            // if master/observers mode , not have master or have multi master, return false
-            if (mode == "master-observers" && master != 1) {
-                return false;
-            }
-            // if multi followers mode, not have follower, return false
-            if (mode == "multi-followers" && !follower) {
+            if (master > 1 || (master == 0 && follower == 0)) {
                 return false;
             }
             return true;
@@ -734,7 +883,24 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     }
 
     LOG(INFO) << "instance json=" << proto_to_json(instance);
-    std::vector<std::pair<ClusterPB, ClusterPB>> vec;
+    if (!to_add.empty()) {
+        // add nodes
+        // Check duplicated nodes, one node cannot deploy on multiple clusters
+        // diff instance's nodes and to_add nodes
+        const auto& [fe_endpoints_registered, be_endpoints_registered] =
+                get_nodes_endpoint_registered(instance);
+        for (auto& add_node : to_add) {
+            const ClusterPB::Type type =
+                    add_node.role == Role::SQL_SERVER ? ClusterPB::SQL : ClusterPB::COMPUTE;
+            const auto& [c1, m1] = check_node_has_been_registered(
+                    type, add_node.node_info, fe_endpoints_registered, be_endpoints_registered);
+            if (c1 != MetaServiceCode::OK) {
+                return m1;
+            }
+        }
+    }
+    // a vector save (origin_cluster , changed_cluster), to update ms mem
+    std::vector<std::pair<ClusterPB, ClusterPB>> change_from_to_clusters;
     using modify_impl_func = std::function<std::string(const ClusterPB& c, const NodeInfo& n)>;
     using check_func = std::function<std::string(const NodeInfo& n)>;
     auto modify_func = [&](const NodeInfo& node, check_func check,
@@ -764,6 +930,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return "";
     };
 
+    // check in ms mem cache
     check_func check_to_add = [&](const NodeInfo& n) -> std::string {
         std::string err;
         std::stringstream s;
@@ -787,6 +954,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return "";
     };
 
+    // modify kv
     modify_impl_func modify_to_add = [&](const ClusterPB& c, const NodeInfo& n) -> std::string {
         std::string err;
         std::stringstream s;
@@ -838,7 +1006,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         auto& change_cluster = const_cast<std::decay_t<decltype(c)>&>(c);
         change_cluster.add_nodes()->CopyFrom(node);
         copied_cluster.CopyFrom(change_cluster);
-        vec.emplace_back(std::move(copied_original_cluster), std::move(copied_cluster));
+        change_from_to_clusters.emplace_back(std::move(copied_original_cluster),
+                                             std::move(copied_cluster));
         return "";
     };
 
@@ -850,18 +1019,22 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         }
     }
 
+    std::string cache_err_help_msg =
+            "Ms nodes memory cache may be inconsistent, pls check registry key may be contain "
+            "127.0.0.1, and call get_instance api get instance info from fdb";
+
+    // check in ms mem cache
     check_func check_to_del = [&](const NodeInfo& n) -> std::string {
         std::string err;
         std::stringstream s;
         auto [start, end] = node_info_.equal_range(n.node_info.cloud_unique_id());
         if (start == node_info_.end() || start->first != n.node_info.cloud_unique_id()) {
-            s << "cloud_unique_id can not find to drop node,"
+            s << "can not find to drop nodes by cloud_unique_id=" << n.node_info.cloud_unique_id()
               << " instance_id=" << n.instance_id << " cluster_name=" << n.cluster_name
-              << " cluster_id=" << n.cluster_id
-              << " cloud_unique_id=" << n.node_info.cloud_unique_id();
+              << " cluster_id=" << n.cluster_id << " help Msg=" << cache_err_help_msg;
             err = s.str();
             LOG(WARNING) << err;
-            return err;
+            return std::string("not found ,") + err;
         }
 
         bool found = false;
@@ -905,15 +1078,16 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         if (!found) {
             s << "cloud_unique_id can not find to drop node,"
               << " instance_id=" << n.instance_id << " cluster_name=" << n.cluster_name
-              << " cluster_id=" << n.cluster_id
-              << " cloud_unique_id=" << n.node_info.cloud_unique_id();
+              << " cluster_id=" << n.cluster_id << " node_info=" << n.node_info.DebugString()
+              << " help Msg=" << cache_err_help_msg;
             err = s.str();
             LOG(WARNING) << err;
-            return err;
+            return std::string("not found ,") + err;
         }
         return "";
     };
 
+    // modify kv
     modify_impl_func modify_to_del = [&](const ClusterPB& c, const NodeInfo& n) -> std::string {
         std::string err;
         std::stringstream s;
@@ -922,7 +1096,10 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
 
         bool found = false;
         int idx = -1;
+        // ni: to drop node
         const auto& ni = n.node_info;
+        // c.nodes: cluster registered nodes
+        NodeInfoPB copy_node;
         for (auto& cn : c.nodes()) {
             idx++;
             if (cn.has_ip() && ni.has_ip()) {
@@ -937,6 +1114,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
                                                  : std::to_string(ni.edit_log_port()));
 
                 if (ni.cloud_unique_id() == cn.cloud_unique_id() && cn_endpoint == ni_endpoint) {
+                    copy_node.CopyFrom(cn);
                     found = true;
                     break;
                 }
@@ -955,6 +1133,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
 
                 if (ni.cloud_unique_id() == cn.cloud_unique_id() &&
                     cn_endpoint_host == ni_endpoint_host) {
+                    copy_node.CopyFrom(cn);
                     found = true;
                     break;
                 }
@@ -964,17 +1143,26 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         if (!found) {
             s << "failed to find node to drop,"
               << " instance_id=" << instance.instance_id() << " cluster_id=" << c.cluster_id()
-              << " cluster_name=" << c.cluster_name() << " cluster=" << proto_to_json(c);
+              << " cluster_name=" << c.cluster_name() << " cluster=" << proto_to_json(c)
+              << " help Msg =" << cache_err_help_msg;
             err = s.str();
             LOG(WARNING) << err;
-            // not found return ok.
-            return "";
+            return std::string("not found ,") + err;
+        }
+
+        // check drop fe node
+        if (ClusterPB::SQL == c.type() && !is_sql_node_exceeded_safe_drop_time(copy_node)) {
+            s << "drop fe node not in safe time, try later, node=" << copy_node.DebugString();
+            err = s.str();
+            LOG(WARNING) << err;
+            return err;
         }
         copied_original_cluster.CopyFrom(c);
         auto& change_nodes = const_cast<std::decay_t<decltype(c.nodes())>&>(c.nodes());
         change_nodes.DeleteSubrange(idx, 1); // Remove it
         copied_cluster.CopyFrom(c);
-        vec.emplace_back(std::move(copied_original_cluster), std::move(copied_cluster));
+        change_from_to_clusters.emplace_back(std::move(copied_original_cluster),
+                                             std::move(copied_cluster));
         return "";
     };
 
@@ -982,13 +1170,13 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         msg = modify_func(it, check_to_del, modify_to_del);
         if (msg != "") {
             LOG(WARNING) << msg;
-            // not found, just return OK to cloud control
-            return "";
+            return msg;
         }
     }
 
     LOG(INFO) << "instance " << instance_id << " info: " << instance.DebugString();
-    if (!to_del.empty() && !is_instance_valid(instance)) {
+    // here, instance has been changed, not save in fdb
+    if ((!to_add.empty() || !to_del.empty()) && !is_instance_valid(instance)) {
         msg = "instance invalid, cant modify, plz check";
         LOG(WARNING) << msg;
         return msg;
@@ -1014,7 +1202,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return msg;
     }
 
-    for (auto& it : vec) {
+    for (auto& it : change_from_to_clusters) {
         update_cluster_to_index(instance_id, it.first, it.second);
     }
 

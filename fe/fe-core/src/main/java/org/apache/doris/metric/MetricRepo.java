@@ -147,6 +147,8 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_SLOW_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
+    public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
+
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -554,6 +556,9 @@ public final class MetricRepo {
             MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
         HISTO_HTTP_COPY_INTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("http_copy_into_query", "latency", "ms"));
+
+        HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
 
         // init system metrics
         initSystemMetrics();

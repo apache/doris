@@ -90,7 +90,7 @@ public class MTMVRelationManager implements MTMVHookService {
                 if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
                     res.add(mtmv);
                 }
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
             }
@@ -107,7 +107,7 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
             }

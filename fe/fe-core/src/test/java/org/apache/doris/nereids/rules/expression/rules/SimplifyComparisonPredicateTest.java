@@ -566,9 +566,7 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Expression right = new DecimalV3Literal(new BigDecimal("1.2"));
         Expression expression = new EqualTo(left, right);
         Expression rewrittenExpression = executor.rewrite(expression, context);
-        Assertions.assertInstanceOf(Cast.class, rewrittenExpression.child(0));
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(2, 1),
-                rewrittenExpression.child(0).getDataType());
+        Assertions.assertEquals(expression, rewrittenExpression);
 
         // = round UNNECESSARY
         leftChild = new DecimalV3Literal(new BigDecimal("11.24"));
@@ -667,6 +665,14 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
         Assertions.assertEquals(new BigDecimal("12.35"), ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
 
+        // left's child range smaller than right literal, but cast's scale < leftChild's scale
+        leftChild = new DecimalV3Literal(new BigDecimal("12340.12"));
+        left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(10, 1));
+        right = new DecimalV3Literal(new BigDecimal("12345.12000"));
+        expression = new EqualTo(left, right);
+        rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertEquals(expression, rewrittenExpression);
+
         // left's child range smaller than right literal
         leftChild = new DecimalV3Literal(new BigDecimal("12340.12"));
         left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(10, 5));
@@ -677,6 +683,37 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 rewrittenExpression.child(0).getDataType());
         Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
         Assertions.assertEquals(new BigDecimal("12345.12"), ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
+
+        // child scale bigger than literal's scale, child precision bigger than literal's precision
+        leftChild = new DecimalV3Literal(new BigDecimal("1.23456"));
+        left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(7, 5));
+        right = new DecimalV3Literal(new BigDecimal("1.20"));
+        expression = new EqualTo(left, right);
+        rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertEquals(new EqualTo(leftChild, new DecimalV3Literal(new BigDecimal("1.20000"))),
+                rewrittenExpression);
+
+        // child scale bigger than literal's scale, child precision smaller than literal's precision,
+        // exceed data type's limit
+        leftChild = new DecimalV3Literal(new BigDecimal("1.23456"));
+        left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(7, 1));
+        right = new DecimalV3Literal(new BigDecimal("123456.7"));
+        expression = new EqualTo(left, right);
+        rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertEquals(BooleanLiteral.FALSE, rewrittenExpression);
+
+        // child scale small than literal's scale
+        leftChild = new DecimalV3Literal(new BigDecimal("1.23456"));
+        left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(10, 9));
+        right = new DecimalV3Literal(new BigDecimal("1.200000000"));
+        expression = new EqualTo(left, right);
+        rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(6, 5),
+                rewrittenExpression.child(0).getDataType());
+        Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
+        Assertions.assertEquals(new BigDecimal("1.20000"),
+                ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
     }
 
     private enum RangeLimitResult {

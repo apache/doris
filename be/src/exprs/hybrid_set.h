@@ -202,6 +202,7 @@ public:
         _contains_null |= set->_contains_null;
     }
 
+    bool empty() { return !_contains_null && size() == 0; }
     virtual int size() = 0;
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine

@@ -140,7 +140,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 "partitionPruningExpandThreshold",
                 10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
 
-        partitionPredicate = OrToIn.INSTANCE.rewriteTree(
+        partitionPredicate = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(
                 partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
             return Utils.fastToImmutableList(idToPartitions.keySet());

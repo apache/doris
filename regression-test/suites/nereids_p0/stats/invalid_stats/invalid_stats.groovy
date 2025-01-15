@@ -21,6 +21,7 @@ suite("invalid_stats") {
         SET enable_fallback_to_original_planner=false;
         set disable_nereids_rules=PRUNE_EMPTY_PARTITION;
         set ignore_shape_nodes=PhysicalProject;
+        set enable_parallel_result_sink=true;
         set runtime_filter_mode=off;
         
         drop table if exists region;

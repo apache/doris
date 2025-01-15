@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 public class JdbcExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalTable.class);
 
-    public static final String MYSQL_ROW_COUNT_SQL = "SELECT max(row_count) as rows FROM ("
+    public static final String MYSQL_ROW_COUNT_SQL = "SELECT max(row_count) as `rows` FROM ("
             + "(SELECT TABLE_ROWS AS row_count FROM INFORMATION_SCHEMA.TABLES "
             + "WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${tblName}' "
             + "AND TABLE_TYPE = 'BASE TABLE') "

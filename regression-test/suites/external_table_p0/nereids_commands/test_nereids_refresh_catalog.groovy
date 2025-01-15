@@ -48,16 +48,16 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db}");"""
         sql """switch ${catalog_name}"""
 
-        qt_database """show databases;"""
+        qt_database """show databases like "%doris_test%";"""
         sql """ use ${ex_db_name}"""
 
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
         // create database in mysql
         sql """CALL EXECUTE_STMT("${catalog_name}", "create database  ${new_mysql_db} ;");"""
-        qt_preceding_create_external_database """show databases;"""
+        qt_preceding_create_external_database """show databases like "%${new_mysql_db}%";"""
         checkNereidsExecute("refresh catalog ${catalog_name} ;")
-        qt_subsequent_create_external_database """show databases;"""
+        qt_subsequent_create_external_database """show databases like "%${new_mysql_db}%";"""
 
         checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
         sql """use ${new_mysql_db}"""
@@ -94,10 +94,10 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
         qt_subsequent_refresh_table """show create table ${new_mysql_db}.${new_mysql_table2};"""
 
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db} ;");"""
-        qt_preceding_drop_external_database """show databases;"""
+        qt_preceding_drop_external_database """show databases like "%${new_mysql_db}%";"""
 
         checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
-        qt_subsequent_drop_external_database """show databases;"""
+        qt_subsequent_drop_external_database """show databases like "%${new_mysql_db}%";"""
 
         sql """ drop catalog if exists ${catalog_name} ;"""
     }

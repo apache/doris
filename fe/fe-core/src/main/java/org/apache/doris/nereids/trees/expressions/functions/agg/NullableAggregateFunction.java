@@ -103,8 +103,8 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), alwaysNullable);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), alwaysNullable);
     }
 
 }

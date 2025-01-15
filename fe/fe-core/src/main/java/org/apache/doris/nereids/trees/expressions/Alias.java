@@ -144,7 +144,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(exprId, qualifier);
     }
 

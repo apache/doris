@@ -35,15 +35,6 @@ include "HeartbeatService.thrift"
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
 
-struct TSetSessionParams {
-    1: required string user
-}
-
-struct TAuthenticateParams {
-    1: required string user
-    2: required string passwd
-}
-
 struct TColumnDesc {
   1: required string columnName
   2: required Types.TPrimitiveType columnType
@@ -62,23 +53,6 @@ struct TColumnDesc {
 struct TColumnDef {
   1: required TColumnDesc columnDesc
   2: optional string comment
-}
-
-// Arguments to DescribeTable, which returns a list of column descriptors for a
-// given table
-struct TDescribeTableParams {
-  1: optional string db
-  2: required string table_name
-  3: optional string user   // deprecated
-  4: optional string user_ip    // deprecated
-  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
-  6: optional bool show_hidden_columns = false
-  7: optional string catalog
-}
-
-// Results of a call to describeTable()
-struct TDescribeTableResult {
-  1: required list<TColumnDef> columns
 }
 
 // Arguments to DescribeTables, which returns a list of column descriptors for
@@ -110,197 +84,6 @@ struct TShowVariableResult {
     1: required list<list<string>> variables
 }
 
-// Valid table file formats
-enum TFileFormat {
-  PARQUETFILE,
-  RCFILE,
-  SEQUENCEFILE,
-  TEXTFILE,
-}
-
-// set type
-enum TSetType {
-  OPT_DEFAULT,
-  OPT_GLOBAL,
-  OPT_SESSION,
-}
-
-// The row format specifies how to interpret the fields (columns) and lines (rows) in a
-// data file when creating a new table.
-struct TTableRowFormat {
-  // Optional terminator string used to delimit fields (columns) in the table
-  1: optional string field_terminator
-
-  // Optional terminator string used to delimit lines (rows) in a table
-  2: optional string line_terminator
-
-  // Optional string used to specify a special escape character sequence
-  3: optional string escaped_by
-}
-
-
-// Represents a single item in a partition spec (column name + value)
-struct TPartitionKeyValue {
-  // Partition column name
-  1: required string name,
-
-  // Partition value
-  2: required string value
-}
-
-// Per-client session state
-struct TSessionState {
-  // The default database, changed by USE <database> queries.
-  1: required string database
-
-  // The user who this session belongs to.
-  2: required string user
-
-  // The user who this session belongs to.
-  3: required i64 connection_id
-}
-
-struct TClientRequest {
-  // select stmt to be executed
-  1: required string stmt
-
-  // query options
-  2: required PaloInternalService.TQueryOptions queryOptions
-
-  // session state
-  3: required TSessionState sessionState;
-}
-
-
-// Parameters for SHOW DATABASES commands
-struct TExplainParams {
-  // Optional pattern to match database names. If not set, all databases are returned.
-  1: required string explain
-}
-
-struct TSetVar{
-    1: required TSetType type
-    2: required string variable
-    3: required Exprs.TExpr value
-}
-// Parameters for Set commands
-struct TSetParams {
-  // Optional pattern to match database names. If not set, all databases are returned.
-  1: required list<TSetVar> set_vars
-}
-
-struct TKillParams {
-  // Optional pattern to match database names. If not set, all databases are returned.
-  1: required bool is_kill_connection
-  2: required i64 connection_id
-}
-
-struct TCommonDdlParams {
-  //1: required Ddl.TCommonDdlType ddl_type
-  //2: optional Ddl.TCreateDbParams create_db_params
-  //3: optional Ddl.TCreateTableParams create_table_params
-  //4: optional Ddl.TLoadParams load_params
-}
-
-// Parameters for the USE db command
-struct TUseDbParams {
-  1: required string db
-}
-
-struct TResultSetMetadata {
-  1: required list<TColumnDesc> columnDescs
-}
-
-// Result of call to PaloPlanService/JniFrontend.CreateQueryRequest()
-struct TQueryExecRequest {
-  // global descriptor tbl for all fragments
-  1: optional Descriptors.TDescriptorTable desc_tbl
-
-  // fragments[i] may consume the output of fragments[j > i];
-  // fragments[0] is the root fragment and also the coordinator fragment, if
-  // it is unpartitioned.
-  2: required list<Planner.TPlanFragment> fragments
-
-  // Specifies the destination fragment of the output of each fragment.
-  // parent_fragment_idx.size() == fragments.size() - 1 and
-  // fragments[i] sends its output to fragments[dest_fragment_idx[i-1]]
-  3: optional list<i32> dest_fragment_idx
-
-  // A map from scan node ids to a list of scan range locations.
-  // The node ids refer to scan nodes in fragments[].plan_tree
-  4: optional map<Types.TPlanNodeId, list<Planner.TScanRangeLocations>>
-      per_node_scan_ranges
-
-  // Metadata of the query result set (only for select)
-  5: optional TResultSetMetadata result_set_metadata
-
-  7: required PaloInternalService.TQueryGlobals query_globals
-
-  // The statement type governs when the coordinator can judge a query to be finished.
-  // DML queries are complete after Wait(), SELECTs may not be.
-  9: required Types.TStmtType stmt_type
-
-  // The statement type governs when the coordinator can judge a query to be finished.
-  // DML queries are complete after Wait(), SELECTs may not be.
-  10: optional bool is_block_query;
-}
-
-enum TDdlType {
-  USE,
-  DESCRIBE,
-  SET,
-  EXPLAIN,
-  KILL,
-  COMMON
-}
-
-struct TDdlExecRequest {
-  1: required TDdlType ddl_type
-
-  // Parameters for USE commands
-  2: optional TUseDbParams use_db_params;
-
-  // Parameters for DESCRIBE table commands
-  3: optional TDescribeTableParams describe_table_params
-
-  10: optional TExplainParams explain_params
-
-  11: optional TSetParams set_params
-  12: optional TKillParams kill_params
-  //13: optional Ddl.TMasterDdlRequest common_params
-}
-
-// Results of an EXPLAIN
-struct TExplainResult {
-    // each line in the explain plan occupies an entry in the list
-    1: required list<Data.TResultRow> results
-}
-
-// Result of call to createExecRequest()
-struct TExecRequest {
-  1: required Types.TStmtType stmt_type;
-
-  2: optional string sql_stmt;
-
-  // Globally unique id for this request. Assigned by the planner.
-  3: required Types.TUniqueId request_id
-
-  // Copied from the corresponding TClientRequest
-  4: required PaloInternalService.TQueryOptions query_options;
-
-  // TQueryExecRequest for the backend
-  // Set iff stmt_type is QUERY or DML
-  5: optional TQueryExecRequest query_exec_request
-
-  // Set iff stmt_type is DDL
-  6: optional TDdlExecRequest ddl_exec_request
-
-  // Metadata of the query result set (not set for DML)
-  7: optional TResultSetMetadata result_set_metadata
-
-  // Result of EXPLAIN. Set iff stmt_type is EXPLAIN
-  8: optional TExplainResult explain_result
-}
 
 // Arguments to getDbNames, which returns a list of dbs that match an optional
 // pattern
@@ -1036,6 +819,7 @@ struct TMetadataTableRequestParams {
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
+  14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1717,7 +1501,6 @@ struct TFetchRunningQueriesRequest {
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
-    TDescribeTableResult describeTable(1: TDescribeTableParams params)
     TDescribeTablesResult describeTables(1: TDescribeTablesParams params)
     TShowVariableResult showVariables(1: TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)

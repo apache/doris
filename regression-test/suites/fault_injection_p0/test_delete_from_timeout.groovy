@@ -48,7 +48,7 @@ suite("test_delete_from_timeout","nonConcurrent") {
 
         GetDebugPoint().enableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
 
-        t1 = Thread.start {
+        def t1 = Thread.start {
             sleep(15000)
             GetDebugPoint().disableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
         }

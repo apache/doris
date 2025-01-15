@@ -44,8 +44,7 @@ public:
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
                                         element_count_capacity, is_lru_k));
         } else {
-            CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
-            _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
+            _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
@@ -64,8 +63,7 @@ public:
                                         cache_value_time_extractor, cache_value_check_timestamp,
                                         element_count_capacity, is_lru_k));
         } else {
-            CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
-            _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
+            _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
@@ -157,7 +155,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
-        if (_stale_sweep_time_s <= 0 || _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (_stale_sweep_time_s <= 0 || std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return;
         }
         if (exceed_prune_limit()) {
@@ -204,7 +202,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
-        if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return;
         }
         if ((force && mem_consumption() != 0) || exceed_prune_limit()) {
@@ -246,7 +244,7 @@ public:
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
         COUNTER_SET(_cost_timer, (int64_t)0);
-        if (_cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return 0;
         }
 

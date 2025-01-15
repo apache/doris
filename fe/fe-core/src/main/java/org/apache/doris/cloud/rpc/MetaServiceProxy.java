@@ -27,7 +27,10 @@ import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -41,6 +44,7 @@ public class MetaServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
     private final Map<String, MetaServiceClient> serviceMap;
+    private Queue<Long> lastConnTimeMs = new LinkedList<>();
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
@@ -50,6 +54,9 @@ public class MetaServiceProxy {
 
     public MetaServiceProxy() {
         this.serviceMap = Maps.newConcurrentMap();
+        for (int i = 0; i < 3; ++i) {
+            lastConnTimeMs.add(0L);
+        }
     }
 
     private static class SingletonHolder {
@@ -75,6 +82,16 @@ public class MetaServiceProxy {
 
     public static MetaServiceProxy getInstance() {
         return MetaServiceProxy.SingletonHolder.get();
+    }
+
+    public boolean needReconn() {
+        lock.lock();
+        try {
+            long now = System.currentTimeMillis();
+            return (now - lastConnTimeMs.element() > Config.meta_service_rpc_reconnect_interval_ms);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request)
@@ -138,6 +155,8 @@ public class MetaServiceProxy {
             if (service == null) {
                 service = new MetaServiceClient(address);
                 serviceMap.put(address, service);
+                lastConnTimeMs.add(System.currentTimeMillis());
+                lastConnTimeMs.remove();
             }
             return service;
         } finally {
@@ -150,6 +169,7 @@ public class MetaServiceProxy {
 
     public static class MetaServiceClientWrapper {
         private final MetaServiceProxy proxy;
+        private Random random = new Random();
 
         public MetaServiceClientWrapper(MetaServiceProxy proxy) {
             this.proxy = proxy;
@@ -157,18 +177,40 @@ public class MetaServiceProxy {
 
         public <Response> Response executeRequest(Function<MetaServiceClient, Response> function) throws RpcException {
             int tried = 0;
-            while (tried++ < 3) {
+            while (tried++ < Config.meta_service_rpc_retry_cnt) {
+                MetaServiceClient client = null;
                 try {
-                    MetaServiceClient client = proxy.getProxy();
+                    client = proxy.getProxy();
                     return function.apply(client);
                 } catch (StatusRuntimeException sre) {
-                    if (sre.getStatus().getCode() == Status.Code.UNAVAILABLE || tried == 3) {
+                    LOG.info("failed to request meta servive code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
+                            sre.getMessage(), tried);
+                    if (tried >= Config.meta_service_rpc_retry_cnt
+                            || (sre.getStatus().getCode() != Status.Code.UNAVAILABLE
+                                && sre.getStatus().getCode() != Status.Code.UNKNOWN)) {
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (Exception e) {
-                    throw new RpcException("", e.getMessage(), e);
+                    LOG.info("failed to request meta servive trycnt {}", tried, e);
+                    if (tried >= Config.meta_service_rpc_retry_cnt) {
+                        throw new RpcException("", e.getMessage(), e);
+                    }
                 } catch (Throwable t) {
-                    throw new RpcException("", t.getMessage());
+                    LOG.info("failed to request meta servive trycnt {}", tried, t);
+                    if (tried >= Config.meta_service_rpc_retry_cnt) {
+                        throw new RpcException("", t.getMessage());
+                    }
+                }
+
+                if (proxy.needReconn() && client != null) {
+                    client.shutdown(true);
+                }
+
+                int delay = 20 + random.nextInt(200 - 20 + 1);
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException interruptedException) {
+                    // ignore
                 }
             }
             return null; // impossible and unreachable, just make the compiler happy

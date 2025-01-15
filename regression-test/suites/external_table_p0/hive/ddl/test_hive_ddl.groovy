@@ -36,7 +36,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                  """
             test {
                 sql """ drop database `test_hive_db` """;
-                exception "java.sql.SQLException: Unexpected exception: failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_db is not empty. One or more tables exist."
+                exception "java.sql.SQLException: errCode = 2, detailMessage = failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_db is not empty. One or more tables exist."
             }
 
             sql """ DROP TABLE `test_hive_db_has_tbl` """

@@ -66,11 +66,17 @@ public:
         return filter->need_sync_filter_size() ? filter->get_synced_size() : hash_table_size;
     }
 
-    Status ignore_filters(RuntimeState* state) {
+    /**
+        Disable meaningless filters, such as filters:
+            RF1: col1 in (1, 3, 5)
+            RF2: col1 min: 1, max: 5
+        We consider RF2 is meaningless, because RF1 has already filtered out all values that RF2 can filter.
+     */
+    Status disable_meaningless_filters(RuntimeState* state) {
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto filter : _runtime_filters) {
-            if (filter->get_ignored()) {
+            if (filter->get_ignored() || filter->get_disabled()) {
                 continue;
             }
             if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
@@ -81,7 +87,7 @@ public:
                 continue;
             }
             if (has_in_filter.contains(filter->expr_order())) {
-                filter->set_ignored();
+                filter->set_disabled();
                 continue;
             }
             has_in_filter.insert(filter->expr_order());
@@ -89,14 +95,14 @@ public:
 
         // process ignore filter when it has IN_FILTER on same expr
         for (auto filter : _runtime_filters) {
-            if (filter->get_ignored()) {
+            if (filter->get_ignored() || filter->get_disabled()) {
                 continue;
             }
             if (filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
                 !has_in_filter.contains(filter->expr_order())) {
                 continue;
             }
-            filter->set_ignored();
+            filter->set_disabled();
         }
         return Status::OK();
     }
@@ -104,6 +110,13 @@ public:
     Status ignore_all_filters() {
         for (auto filter : _runtime_filters) {
             filter->set_ignored();
+        }
+        return Status::OK();
+    }
+
+    Status disable_all_filters() {
+        for (auto filter : _runtime_filters) {
+            filter->set_disabled();
         }
         return Status::OK();
     }
@@ -135,7 +148,7 @@ public:
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
             const auto& column = block->get_by_position(result_column_id).column;
             for (auto* filter : iter->second) {
-                if (filter->get_ignored()) {
+                if (filter->get_ignored() || filter->get_disabled()) {
                     continue;
                 }
                 filter->insert_batch(column, 1);

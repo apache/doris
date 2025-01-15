@@ -276,11 +276,12 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
     if (rows == 0) {
         return Status::OK();
     }
+    if (null_map.size() != rows) {
+        return Status::InternalError("null_map.size() != rows, null_map.size()={}, rows={}",
+                                     null_map.size(), rows);
+    }
 
-    null_map.resize(rows);
     auto* final_null_map = null_map.get_data().data();
-    memset(final_null_map, 0, rows);
-    filter.resize_fill(rows, 1);
     auto* final_filter_ptr = filter.data();
 
     for (const auto& conjunct : conjuncts) {
@@ -326,8 +327,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
             execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
-            // NOLINTNEXTLINE(performance-move-const-arg)
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+            block->get_by_position(col).column->assume_mutable()->clear();
         }
     } else {
         try {

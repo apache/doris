@@ -56,8 +56,15 @@ protected:
         _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+
+        // set config
         config::inverted_index_dict_path =
                 _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+        config::enable_segcompaction = false;
+        config::enable_ordered_data_compaction = false;
+        config::total_permits_for_compaction_score = 200000;
+        config::inverted_index_ram_dir_enable = true;
+        config::string_type_length_soft_limit_bytes = 10485760;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
@@ -65,10 +72,16 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
         _engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        // reset config
+
+        // restore config
         config::inverted_index_max_buffered_docs = -1;
         config::compaction_batch_size = -1;
         config::inverted_index_compaction_enable = false;
+        config::enable_segcompaction = true;
+        config::enable_ordered_data_compaction = true;
+        config::total_permits_for_compaction_score = 1000000;
+        config::inverted_index_ram_dir_enable = true;
+        config::string_type_length_soft_limit_bytes = 1048576;
     }
 
     IndexCompactionTest() = default;

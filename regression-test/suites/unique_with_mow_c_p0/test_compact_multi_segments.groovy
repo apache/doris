@@ -16,12 +16,14 @@
 // under the License.
 
 suite("test_compact_multi_segments", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_compact_multi_segments"
 
     def getTabletStatus = { rowsetNum, lastRowsetSegmentNum ->
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         logger.info("tablets: ${tablets}")
-        assertEquals(1, tablets.size())
+        assertTrue(tablets.size() >= 1)
         String compactionUrl = ""
         for (Map<String, String> tablet : tablets) {
             compactionUrl = tablet["CompactionStatus"]

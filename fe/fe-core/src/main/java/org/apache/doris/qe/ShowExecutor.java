@@ -140,6 +140,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -202,6 +204,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -254,6 +257,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.GsonBuilder;
 import org.apache.commons.collections.CollectionUtils;
@@ -1898,6 +1902,8 @@ public class ShowExecutor {
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
         } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
             handleShowMaxComputeTablePartitions(showStmt);
+        } else if (showStmt.getCatalog() instanceof IcebergExternalCatalog) {
+            handleShowIcebergTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
@@ -1978,6 +1984,40 @@ public class ShowExecutor {
             rows = rows.subList(beginIndex, endIndex);
         }
 
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowIcebergTablePartitions(ShowPartitionsStmt showStmt) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) showStmt.getCatalog();
+        String db = showStmt.getTableName().getDb();
+        String tbl = showStmt.getTableName().getTbl();
+        IcebergExternalTable icebergTable = (IcebergExternalTable) catalog.getDb(db).get().getTable(tbl).get();
+        LimitElement limit = showStmt.getLimitElement();
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        Map<String, PartitionItem> partitions = icebergTable.getAndCopyPartitionItems(Optional.empty());
+        List<List<String>> rows = new ArrayList<>();
+        for (Map.Entry<String, PartitionItem> entry : partitions.entrySet()) {
+            List<String> row = new ArrayList<>();
+            Range<PartitionKey> items = entry.getValue().getItems();
+            row.add(entry.getKey());
+            row.add(items.lowerEndpoint().toString());
+            row.add(items.upperEndpoint().toString());
+            rows.add(row);
+        }
+        // sort by partition name
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+        if (limit != null && limit.hasLimit()) {
+            int beginIndex = (int) limit.getOffset();
+            int endIndex = (int) (beginIndex + limit.getLimit());
+            if (endIndex > rows.size()) {
+                endIndex = rows.size();
+            }
+            rows = rows.subList(beginIndex, endIndex);
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
