@@ -551,8 +551,9 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info =
-                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        std::string info = "InListPredicateBase(" + type_to_string(Type) + ", " +
+                           type_to_string(PT) +
+                           ", filter_id=" + std::to_string(_values->get_filter_id()) + ")";
         return info;
     }
 
