@@ -2086,6 +2086,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (alterClause instanceof BuildIndexClause) {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
+                    if (indexDef.isInvertedIndex()) {
+                        throw new DdlException("ngram bloomfilter or bloomfilter index is not needed to build.");
+                    }
                     Index index = buildIndexClause.getIndex();
                     if (!index.isLightIndexChangeSupported() || Config.isCloudMode()) {
                         throw new DdlException("BUILD INDEX can not be used since index "
