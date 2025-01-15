@@ -67,7 +67,6 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     std::mutex _rf_locks;
-    phmap::flat_hash_set<vectorized::VExprSPtr> _rf_vexpr_set;
     RuntimeState* _state = nullptr;
 
 private:

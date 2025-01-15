@@ -503,15 +503,9 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (!_context->hybrid_set) {
-                set_ignored();
-                return Status::OK();
-            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                set_ignored();
-                // release in filter
-                _context->hybrid_set.reset();
+                set_disabled();
             }
             break;
         }
@@ -947,7 +941,13 @@ public:
 
     bool is_disabled() const { return _context->disabled; }
 
-    void set_disabled() { _context->disabled = true; }
+    void set_disabled() {
+        _context->disabled = true;
+        _context->minmax_func.reset();
+        _context->hybrid_set.reset();
+        _context->bloom_filter_func.reset();
+        _context->bitmap_filter_func.reset();
+    }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
