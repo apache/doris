@@ -49,7 +49,10 @@ public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
     private final ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(
-            Config.tablet_stat_mgr_threads_num, 256, "tablet-stat-mgr", true);
+            Config.tablet_stat_mgr_threads_num > 0
+                    ? Config.tablet_stat_mgr_threads_num
+                    : Runtime.getRuntime().availableProcessors(),
+            1024, "tablet-stat-mgr", true);
 
     private MarkedCountDownLatch<Long, Backend> updateTabletStatsLatch = null;
 
@@ -239,13 +242,13 @@ public class TabletStatMgr extends MasterDaemon {
     }
 
     public void waitForTabletStatUpdate() {
-        boolean ok = false;
+        boolean ok = true;
         try {
             if (!updateTabletStatsLatch.await(60, TimeUnit.SECONDS)) {
-                LOG.info("waiting {} update tablet stats tasks finish. {}",
-                        updateTabletStatsLatch.getCount(), this);
+                LOG.info("timeout waiting {} update tablet stats tasks finish after {} seconds.",
+                        updateTabletStatsLatch.getCount(), 60);
+                ok = false;
             }
-            ok = true;
         } catch (InterruptedException e) {
             LOG.warn("InterruptedException, {}", this, e);
         }

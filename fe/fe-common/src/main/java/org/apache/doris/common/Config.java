@@ -305,7 +305,7 @@ public class Config extends ConfigBase {
 
     @ConfField(masterOnly = true, description = {"TabletStatMgr线程数",
             "Num of thread to update tablet stat"})
-    public static int tablet_stat_mgr_threads_num = 16;
+    public static int tablet_stat_mgr_threads_num = -1;
 
     @ConfField(masterOnly = true, description = {"Agent任务线程池的线程数",
             "Num of thread to handle agent task in agent task thread-pool"})
