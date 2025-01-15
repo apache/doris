@@ -21,6 +21,7 @@ suite("test_json_load_double", "p0") {
 
     def srcTable = "stringTable"
     def dstTable = "jsonTable"
+    def dataFile = "test_json_double.csv"
 
     sql """ DROP TABLE IF EXISTS ${srcTable} """ 
     sql """ DROP TABLE IF EXISTS ${dstTable} """
@@ -54,6 +55,31 @@ suite("test_json_load_double", "p0") {
     """
 
     sql """ insert into ${dstTable} select * from ${srcTable} """
+
+    // load the json data from csv file
+    streamLoad {
+        table dstTable
+        
+        file dataFile // import csv file
+        time 10000 // limit inflight 10s
+        set 'strict_mode', 'true'
+
+        // if declared a check callback, the default check condition will ignore.
+        // So you must check all condition
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(2, json.NumberLoadedRows)
+            assertTrue(json.LoadBytes > 0)
+            log.info("url: " + json.ErrorURL)
+        }
+    }
 
     qt_sql_select_src """  select jsonb_extract(v, '\$.rebookProfit') from ${srcTable} """
     qt_sql_select_dst """  select * from ${dstTable} """
