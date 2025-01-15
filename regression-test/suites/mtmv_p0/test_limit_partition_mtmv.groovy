@@ -497,8 +497,8 @@ suite("test_limit_partition_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1',
-            'partition_sync_limit'='100',
-            'partition_sync_time_unit'='YEAR'
+            'partition_sync_limit'='10000',
+            'partition_sync_time_unit'='MONTH'
             )
             AS
             SELECT * FROM ${tableName};
