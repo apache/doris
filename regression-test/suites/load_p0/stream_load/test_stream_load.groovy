@@ -1059,7 +1059,7 @@ suite("test_stream_load", "p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO common_user""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO common_user""";
     }
 
     streamLoad {
