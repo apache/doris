@@ -152,11 +152,15 @@ public class EnvFactory {
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         if (SessionVariable.canUseNereidsDistributePlanner()) {
-            ConnectContext connectContext = new ConnectContext();
-            connectContext.setQueryId(queryId);
-            StatementContext statementContext = new StatementContext(
-                    connectContext, new OriginStatement("", 0)
-            );
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext == null) {
+                connectContext = new ConnectContext();
+                connectContext.setQueryId(queryId);
+            }
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext == null) {
+                statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+            }
             DistributePlanner distributePlanner = new DistributePlanner(statementContext, fragments);
             FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
 
