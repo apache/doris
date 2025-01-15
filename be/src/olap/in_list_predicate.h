@@ -322,6 +322,23 @@ public:
                                 sizeof(decimal12_t))) {
                         return true;
                     }
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                    const T* value = (const T*)(iter->get_value());
+                    uint24_t date_value(value->to_olap_date());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                                sizeof(uint24_t))) {
+                        return true;
+                    }
+                    // DatetimeV1 using int64_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                    const T* value = (const T*)(iter->get_value());
+                    int64_t datetime_value(value->to_olap_datetime());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                                sizeof(int64_t))) {
+                        return true;
+                    }
                 } else {
                     const T* value = (const T*)(iter->get_value());
                     if (bf->test_bytes(reinterpret_cast<const char*>(value), sizeof(*value))) {
@@ -534,8 +551,9 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info =
-                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        std::string info = "InListPredicateBase(" + type_to_string(Type) + ", " +
+                           type_to_string(PT) +
+                           ", filter_id=" + std::to_string(_values->get_filter_id()) + ")";
         return info;
     }
 

@@ -66,7 +66,9 @@ Status MemoryScratchSinkLocalState::close(RuntimeState* state, Status exec_statu
 MemoryScratchSinkOperatorX::MemoryScratchSinkOperatorX(const RowDescriptor& row_desc,
                                                        int operator_id,
                                                        const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
+        : DataSinkOperatorX(operator_id, 0, 0),
+          _row_desc(row_desc),
+          _t_output_expr(t_output_expr) {}
 
 Status MemoryScratchSinkOperatorX::init(const TDataSink& thrift_sink) {
     RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::init(thrift_sink));

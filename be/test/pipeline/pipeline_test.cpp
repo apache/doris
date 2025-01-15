@@ -114,8 +114,10 @@ private:
     }
     int _next_fragment_id() { return _fragment_id++; }
     int _next_node_id() { return _next_node_idx++; }
-    int _next_op_id() { return _next_op_idx++; }
+    int _next_op_id() { return _next_op_idx--; }
+    int _next_sink_op_id() { return _next_sink_op_idx--; }
     int _next_pipeline_id() { return _next_pipeline_idx++; }
+    int _max_operator_id() const { return _next_op_idx; }
 
     // Query level
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -135,6 +137,7 @@ private:
     TUniqueId _ins_id = TUniqueId();
     int _next_node_idx = 0;
     int _next_op_idx = 0;
+    int _next_sink_op_idx = 0;
 
     // Pipeline Level
     // Fragment0[Pipeline0 -> Pipeline1] -> Fragment1[Pipeline2 -> Pipeline3]
@@ -747,8 +750,9 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         auto build_side_pipe = _build_pipeline(parallelism, _pipelines.front().get());
 
         DataSinkOperatorPtr sink;
-        sink.reset(
-                new HashJoinBuildSinkOperatorX(_obj_pool.get(), _next_op_id(), join_node, *desc));
+        sink.reset(new HashJoinBuildSinkOperatorX(
+                _obj_pool.get(), _next_sink_op_id(),
+                _pipelines.front()->operators().back()->operator_id(), join_node, *desc));
         EXPECT_EQ(sink->init(join_node, _runtime_state.back().get()), Status::OK());
         EXPECT_EQ(build_side_pipe->set_sink(sink), Status::OK());
 
@@ -774,6 +778,8 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
 
     TDataSink tsink;
     std::vector<TUniqueId> ids;
+    auto dest_ins_id = _next_ins_id();
+    auto dest_node_id = _next_node_id();
     {
         auto cur_pipe = _pipelines.front();
         std::vector<TPlanFragmentDestination> destinations;
@@ -781,10 +787,9 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         dest0_address.hostname = LOCALHOST;
         dest0_address.port = DUMMY_PORT;
         destinations.push_back(
-                TPlanFragmentDestinationBuilder(_next_ins_id(), dest0_address, dest0_address)
-                        .build());
+                TPlanFragmentDestinationBuilder(dest_ins_id, dest0_address, dest0_address).build());
         auto stream_sink =
-                TDataStreamSinkBuilder(_next_node_id(),
+                TDataStreamSinkBuilder(dest_node_id,
                                        TDataPartitionBuilder(TPartitionType::UNPARTITIONED).build())
                         .build();
         tsink = TDataSinkBuilder(TDataSinkType::DATA_STREAM_SINK)
@@ -792,11 +797,12 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         .build();
         DataSinkOperatorPtr sink;
 
-        ids.push_back(_next_ins_id());
-        ids.push_back(_next_ins_id());
+        for (int i = 0; i < parallelism; i++) {
+            ids.push_back(_next_ins_id());
+        }
         sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
                                              _pipelines.back()->operators().back()->row_desc(),
-                                             _next_op_id(), stream_sink, destinations, ids));
+                                             _next_sink_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
         EXPECT_EQ(cur_pipe->sink()->set_child(cur_pipe->operators().back()), Status::OK());
@@ -840,6 +846,140 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         pipeline->children().clear();
         EXPECT_EQ(pipeline->prepare(_runtime_state.front().get()), Status::OK());
     }
+
+    {
+        // Build pipeline task
+        int task_id = 0;
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            EXPECT_EQ(_pipelines[i]->id(), i);
+            _pipeline_profiles[_pipelines[i]->id()] = std::make_shared<RuntimeProfile>(
+                    "Pipeline : " + std::to_string(_pipelines[i]->id()));
+            for (int j = 0; j < parallelism; j++) {
+                std::unique_ptr<RuntimeState> local_runtime_state = RuntimeState::create_unique(
+                        ids[j], _query_id, _context.back()->get_fragment_id(), _query_options,
+                        _query_ctx->query_globals, ExecEnv::GetInstance(), _query_ctx.get());
+                local_runtime_state->set_desc_tbl(desc);
+                local_runtime_state->set_per_fragment_instance_idx(j);
+                local_runtime_state->set_be_number(j);
+                local_runtime_state->set_num_per_fragment_instances(parallelism);
+                local_runtime_state->resize_op_id_to_local_state(_max_operator_id());
+                local_runtime_state->set_max_operator_id(_max_operator_id());
+                local_runtime_state->set_load_stream_per_node(0);
+                local_runtime_state->set_total_load_streams(0);
+                local_runtime_state->set_num_local_sink(0);
+                local_runtime_state->set_task_id(task_id++);
+                local_runtime_state->set_task_num(_pipelines[i]->num_tasks());
+                local_runtime_state->set_task_execution_context(
+                        std::static_pointer_cast<TaskExecutionContext>(_context.back()));
+                std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                        std::shared_ptr<Dependency>>>
+                        le_state_map;
+                auto task = std::make_unique<PipelineTask>(
+                        _pipelines[i], task_id, local_runtime_state.get(), _context.back().get(),
+                        _pipeline_profiles[_pipelines[i]->id()].get(), le_state_map, j);
+                _pipelines[i]->incr_created_tasks(j, task.get());
+                local_runtime_state->set_task(task.get());
+                task->set_task_queue(_task_queue.get());
+                _pipeline_tasks[_pipelines[i]->id()].push_back(std::move(task));
+                _runtime_states[_pipelines[i]->id()].push_back(std::move(local_runtime_state));
+            }
+        }
+    }
+    {
+        _pipeline_tasks[0][0]->inject_shared_state(_pipeline_tasks[1][0]->get_sink_shared_state());
+        _pipeline_tasks[0][1]->inject_shared_state(_pipeline_tasks[1][1]->get_sink_shared_state());
+    }
+
+    std::shared_ptr<vectorized::VDataStreamRecvr> downstream_recvr;
+    {
+        // Build downstream recvr
+        auto context = _build_fragment_context();
+        std::unique_ptr<RuntimeState> downstream_runtime_state = RuntimeState::create_unique(
+                dest_ins_id, _query_id, context->get_fragment_id(), _query_options,
+                _query_ctx->query_globals, ExecEnv::GetInstance(), _query_ctx.get());
+        downstream_runtime_state->set_task_execution_context(
+                std::static_pointer_cast<TaskExecutionContext>(context));
+
+        auto downstream_pipeline_profile = std::make_shared<RuntimeProfile>("Downstream Pipeline");
+        auto* memory_used_counter = downstream_pipeline_profile->AddHighWaterMarkCounter(
+                "MemoryUsage", TUnit::BYTES, "", 1);
+        downstream_recvr = ExecEnv::GetInstance()->_vstream_mgr->create_recvr(
+                downstream_runtime_state.get(), memory_used_counter,
+                _pipelines.front()->operators().back()->row_desc(), dest_ins_id, dest_node_id,
+                parallelism, downstream_pipeline_profile.get(), false, 20480);
+    }
+    for (size_t i = 0; i < _pipelines.size(); i++) {
+        for (int j = 0; j < parallelism; j++) {
+            std::vector<TScanRangeParams> scan_ranges;
+            EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->prepare(scan_ranges, j, tsink,
+                                                                       _query_ctx.get()),
+                      Status::OK());
+        }
+    }
+
+    // Construct input block
+    vectorized::Block block;
+    {
+        vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
+
+        auto int_col0 = vectorized::ColumnInt32::create();
+        int_col0->insert_many_vals(1, 10);
+        block.insert({std::move(int_col0), int_type, "test_int_col0"});
+    }
+    auto block_mem_usage = block.allocated_bytes();
+    EXPECT_GT(block_mem_usage - 1, 0);
+
+    {
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            for (int j = 0; j < parallelism; j++) {
+                // Blocked by execution dependency which is set by FE 2-phase trigger.
+                EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->_wait_to_start(), true);
+            }
+        }
+        EXPECT_EQ(_query_ctx->get_execution_dependency()->_blocked_task.size(),
+                  _pipelines.size() * parallelism);
+        _query_ctx->get_execution_dependency()->set_ready();
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            for (int j = 0; j < parallelism; j++) {
+                // Task is ready and be push into runnable task queue.
+                EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+            }
+        }
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            for (int j = 0; j < parallelism; j++) {
+                EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->_wait_to_start(), false);
+            }
+        }
+    }
+
+    {
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_block_queue.size(), 0);
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 2);
+    }
+
+    {
+        for (int i = _pipelines.size() - 1; i >= 0; i--) {
+            for (int j = 0; j < parallelism; j++) {
+                auto& local_state =
+                        _runtime_states[i][j]
+                                ->get_local_state(_pipelines[i]->operators().front()->operator_id())
+                                ->cast<ExchangeLocalState>();
+                local_state.stream_recvr->_sender_queues[0]->decrement_senders(0);
+
+                bool eos = false;
+                EXPECT_EQ(_pipeline_tasks[i][j]->execute(&eos), Status::OK());
+                EXPECT_EQ(_pipeline_tasks[i][j]->_is_blocked(), false);
+                EXPECT_EQ(eos, true);
+                EXPECT_EQ(_pipeline_tasks[i][j]->is_pending_finish(), false);
+                EXPECT_EQ(_pipeline_tasks[i][j]->close(Status::OK()), Status::OK());
+            }
+        }
+        {
+            EXPECT_EQ(downstream_recvr->_sender_queues[0]->_block_queue.size(), 0);
+            EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 0);
+        }
+    }
+    downstream_recvr->close();
 }
 
 } // namespace doris::pipeline

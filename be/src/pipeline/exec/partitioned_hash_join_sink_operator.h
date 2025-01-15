@@ -82,8 +82,9 @@ protected:
 class PartitionedHashJoinSinkOperatorX
         : public JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState> {
 public:
-    PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, uint32_t partition_count);
+    PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs,
+                                     uint32_t partition_count);
 
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",

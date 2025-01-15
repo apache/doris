@@ -1345,9 +1345,4 @@ public class ConnectContext {
     public byte[] getAuthPluginData() {
         return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
     }
-
-    @Override
-    public String toString() {
-        return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + qualifiedUser;
-    }
 }

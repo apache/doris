@@ -111,7 +111,8 @@ public:
             }
         }
         if (shared_state->related_op_ids.contains(_sink->dests_id().front())) {
-            DCHECK(_sink_shared_state == nullptr);
+            DCHECK_EQ(_sink_shared_state, nullptr)
+                    << " Sink: " << _sink->get_name() << " dest id: " << _sink->dests_id().front();
             _sink_shared_state = shared_state;
         }
     }
