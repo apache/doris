@@ -120,7 +120,7 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId) {
+            BackupContent content, Env env, long repoId) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
@@ -203,7 +203,7 @@ public class BackupJob extends AbstractJob {
         Map<Long, List<String>> tabletFileMap = request.getTabletFiles();
         if (tabletFileMap.isEmpty()) {
             LOG.warn("upload snapshot files failed because nothing is uploaded. be: {}. {}",
-                     task.getBackendId(), this);
+                    task.getBackendId(), this);
             return false;
         }
 
@@ -223,15 +223,15 @@ public class BackupJob extends AbstractJob {
 
             if (tabletFiles.size() != uploadedFiles.size()) {
                 LOG.warn("upload snapshot files failed because file num is wrong. "
-                        + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
-                         tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
+                                + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
+                        tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
                 return false;
             }
 
             if (!Collections2.filter(tabletFiles, Predicates.not(Predicates.in(uploadedFiles))).isEmpty()) {
                 LOG.warn("upload snapshot files failed because file is different. "
-                        + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
-                         tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
+                                + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
+                        tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
                 return false;
             }
 
@@ -317,6 +317,10 @@ public class BackupJob extends AbstractJob {
             default:
                 break;
         }
+
+        // 强制让 status = fail，走下面的 cancel 逻辑。
+        status = new Status(ErrCode.COMMON_ERROR, "force cancelled");
+        LOG.warn("backup job is forcibly cancelled: {}, state: {}", getJobId(), state.name());
 
         // we don't want to cancel the job if we already in state UPLOAD_INFO,
         // which is the final step of backup job. just retry it.
@@ -438,7 +442,7 @@ public class BackupJob extends AbstractJob {
                     }
                 }
             }
-        }  finally {
+        } finally {
             olapTable.readUnlock();
         }
     }
@@ -512,7 +516,7 @@ public class BackupJob extends AbstractJob {
     }
 
     private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
-                                                          List<Table> copiedTables) {
+            List<Table> copiedTables) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
                 : tableRef.getPartitionNames().getPartitionNames();
@@ -659,7 +663,7 @@ public class BackupJob extends AbstractJob {
                 "yyyy-MM-dd-HH-mm-ss"));
         // local job dir: backup/label__createtime/
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
-                                    label + "__" + createTimeStr).normalize();
+                label + "__" + createTimeStr).normalize();
 
         try {
             // 1. create local job dir of this backup job
@@ -714,7 +718,7 @@ public class BackupJob extends AbstractJob {
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
-                 localMetaInfoFilePath, localJobInfoFilePath, this);
+                localMetaInfoFilePath, localJobInfoFilePath, this);
     }
 
     private void releaseSnapshots() {
@@ -832,6 +836,13 @@ public class BackupJob extends AbstractJob {
         finishedTime = System.currentTimeMillis();
         state = BackupJobState.CANCELLED;
 
+        // 清理一些大的对象，防止edit log 过大
+        if (this.snapshotInfos != null) {
+            LOG.warn("try to clear snapshotInfos. size: {}, job id: {}", snapshotInfos.size(), getJobId());
+            this.snapshotInfos.clear();
+        }
+        this.backupMeta = null;
+
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
@@ -851,7 +862,7 @@ public class BackupJob extends AbstractJob {
         info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
                 e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                        Collectors.toList())));
+                Collectors.toList())));
         info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
                 + "]").collect(Collectors.toList())));
         info.add(status.toString());
