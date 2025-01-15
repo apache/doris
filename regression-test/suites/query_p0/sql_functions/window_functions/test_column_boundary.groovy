@@ -33,7 +33,7 @@ suite("test_column_boundary") {
 
     sql """ insert into test_column_boundary select number, number + random() from numbers("number" = "1000000"); """
     Integer count = 0;
-    Integer maxCount = 9;
+    Integer maxCount = 8;
     while (count < maxCount) {
         sql """  insert into test_column_boundary select * from test_column_boundary;"""
         count++
@@ -41,13 +41,14 @@ suite("test_column_boundary") {
     }
     sql """ set parallel_pipeline_task_num = 1; """
 
-    qt_sql_1 """ select count() from test_column_boundary; """
+    qt_sql_1 """ select count() from test_column_boundary; """ // 256000000 rows
     test {
         // column size is too large
-        sql """ select count() over(partition by u_city) from test_column_boundary; """
+        sql """ select sum(res) from (select count() over(partition by u_city) as res from test_column_boundary) as t; """
         exception "string column length is too large"
     }
     sql """ DROP TABLE IF EXISTS test_column_boundary """
 }
+
 
 
