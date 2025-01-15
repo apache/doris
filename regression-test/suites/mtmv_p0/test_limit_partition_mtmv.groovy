@@ -300,6 +300,24 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20200101"))
     order_qt_history_list_drop_partition "SELECT * FROM ${mvName}"
 
+    // add some conflixt partition, will be remove history partition
+    sql """
+        alter table ${tableName} add partition p20380101_02 VALUES IN ("2038-01-01"),  ("2038-01-02");
+        """
+     sql """
+        insert into ${tableName} values(1,"2038-01-02");
+        """
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380102"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+    order_qt_history_list_create_partition "SELECT * FROM ${mvName}"
+
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
