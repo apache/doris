@@ -263,10 +263,10 @@ private:
     bool _is_first_insertion;
 
     void _init_agg_functions(const vectorized::Block* block);
-    DorisVector<vectorized::AggregateFunctionPtr> _agg_functions;
-    DorisVector<size_t> _offsets_of_aggregate_states;
+    std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
+    std::vector<size_t> _offsets_of_aggregate_states;
     size_t _total_size_of_aggregate_states;
-    DorisVector<RowInBlock*> _row_in_blocks;
+    std::unique_ptr<DorisVector<RowInBlock*>> _row_in_blocks;
 
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;
