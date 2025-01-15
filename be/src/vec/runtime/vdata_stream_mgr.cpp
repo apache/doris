@@ -46,6 +46,7 @@ VDataStreamMgr::~VDataStreamMgr() {
         // Could not call close directly, because during close method, it will remove itself
         // from the map, and modify the map, it will core.
         receivers.push_back(receiver_iterator->second);
+        receiver_iterator++;
     }
     for (auto iter = receivers.begin(); iter != receivers.end(); ++iter) {
         (*iter)->close();
