@@ -590,4 +590,23 @@ suite("test_limit_partition_mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_no_partition "SELECT * FROM ${mvName}"
+
+    sql """drop materialized view if exists ${mvName};"""
+
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='1',
+            'partition_sync_time_unit'='DAY'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }

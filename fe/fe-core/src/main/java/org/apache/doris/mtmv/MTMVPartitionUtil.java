@@ -286,6 +286,9 @@ public class MTMVPartitionUtil {
         int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT))
                 ? MTMVPartitionSyncConfig.DEFAULT_SYNC_LIMIT
                 : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
+        if (syncLimit <= 0) {
+            syncLimit = MTMVPartitionSyncConfig.DEFAULT_SYNC_LIMIT;
+        }
         MTMVPartitionSyncTimeUnit timeUnit =
                 StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT))
                         ? MTMVPartitionSyncTimeUnit.DAY : MTMVPartitionSyncTimeUnit
