@@ -163,7 +163,6 @@ Status RuntimeFilterConsumer::_append_rf_into_conjuncts(
         VExprContextSPtr conjunct = VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor_ref));
         RETURN_IF_ERROR(conjunct->open(_state));
-        _rf_vexpr_set.insert(expr);
         _conjuncts_ref.emplace_back(conjunct);
     }
 
