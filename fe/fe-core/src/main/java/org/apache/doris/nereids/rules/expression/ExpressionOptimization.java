@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.rules.expression.rules.SimplifySelfComparison;
 import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
@@ -46,6 +47,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     SimplifyComparisonPredicate.INSTANCE,
                     SimplifyInPredicate.INSTANCE,
                     SimplifyRange.INSTANCE,
+                    SimplifySelfComparison.INSTANCE,
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
                     CaseWhenToIf.INSTANCE,
