@@ -32,7 +32,7 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${jdbcUser}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${jdbcUser}""";
     }
 
     sql """grant all on *.*.* to ${jdbcUser}"""
