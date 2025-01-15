@@ -185,8 +185,7 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         if (impl) {
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto* runtime_filter = typeid_cast<VRuntimeFilterWrapper*>(impl.get());
-            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
-            ctxs.emplace_back(std::make_shared<VExprContext>(filter_impl));
+            ctxs.emplace_back(std::make_shared<VExprContext>(runtime_filter->get_impl()));
         }
     }
 
@@ -195,10 +194,10 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
     std::unordered_map<SlotId, MutableColumnPtr> parititon_slot_id_to_column;
     for (auto const& partition_col_desc : _partition_col_descs) {
         auto partiton_data = std::get<0>(partition_col_desc.second);
-        auto partiton_slot_desc = std::get<1>(partition_col_desc.second);
-        MutableColumnPtr partition_value_column = ColumnString::create();
+        const auto* partiton_slot_desc = std::get<1>(partition_col_desc.second);
+        auto partition_value_column = ColumnString::create();
         partition_value_column->insert_data(partiton_data.c_str(), partiton_data.size());
-        parititon_slot_id_to_column[partiton_slot_desc->id()] = partition_value_column;
+        parititon_slot_id_to_column[partiton_slot_desc->id()] = std::move(partition_value_column);
         partition_value_column_size = partition_value_column->size();
     }
 
@@ -215,7 +214,7 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         if (parititon_slot_id_to_column.find(slot_desc->id()) !=
             parititon_slot_id_to_column.end()) {
             auto data_type = slot_desc->get_data_type_ptr();
-            auto partition_value_column = parititon_slot_id_to_column[slot_desc->id()];
+            auto partition_value_column = std::move(parititon_slot_id_to_column[slot_desc->id()]);
             if (data_type->is_nullable()) {
                 temp_block.insert(
                         {ColumnNullable::create(
