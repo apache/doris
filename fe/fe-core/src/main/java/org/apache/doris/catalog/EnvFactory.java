@@ -57,6 +57,7 @@ import org.apache.thrift.TException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // EnvFactory is responsed for create none-cloud object.
 // CloudEnvFactory is responsed for create cloud object.
@@ -152,10 +153,16 @@ public class EnvFactory {
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         if (SessionVariable.canUseNereidsDistributePlanner()) {
+            if (queryId == null) {
+                UUID taskId = UUID.randomUUID();
+                queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            }
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext == null) {
                 connectContext = new ConnectContext();
-                connectContext.setQueryId(queryId);
+                connectContext.setLoadId(queryId);
+            } else if (connectContext.getLoadId() == null) {
+                connectContext.setLoadId(queryId);
             }
             StatementContext statementContext = connectContext.getStatementContext();
             if (statementContext == null) {
