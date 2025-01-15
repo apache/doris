@@ -213,7 +213,9 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
-    Status _generate_fill_columns();
+    Status _generate_parititon_columns();
+    Status _generate_missing_columns();
+    Status _process_runtime_filters_partition_pruning(bool& is_partition_pruning);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
