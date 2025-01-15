@@ -31,7 +31,9 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
 
-// drop table for nereids
+/**
+ * drop table command
+ */
 public class DropTableCommand extends Command implements ForwardWithSync {
 
     private boolean ifExists;
