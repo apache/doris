@@ -267,11 +267,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        try {
+        if (equalTo.left() instanceof ComparableLiteral && equalTo.right() instanceof ComparableLiteral) {
             return BooleanLiteral.of(((ComparableLiteral) equalTo.left())
                     .compareTo((ComparableLiteral) equalTo.right()) == 0);
-        } catch (Exception e) {
-            // left and right maybe not comparable
+        } else {
             return BooleanLiteral.of(equalTo.left().equals(equalTo.right()));
         }
     }
@@ -283,13 +282,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        try {
-            return BooleanLiteral.of(((ComparableLiteral) greaterThan.left())
-                    .compareTo((ComparableLiteral) greaterThan.right()) > 0);
-        } catch (Exception e) {
-            // left and right maybe not comparable
-            return greaterThan;
-        }
+        return BooleanLiteral.of(((ComparableLiteral) greaterThan.left())
+                .compareTo((ComparableLiteral) greaterThan.right()) > 0);
     }
 
     @Override
@@ -299,13 +293,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        try {
-            return BooleanLiteral.of(((ComparableLiteral) greaterThanEqual.left())
-                    .compareTo((ComparableLiteral) greaterThanEqual.right()) >= 0);
-        } catch (Exception e) {
-            // left and right maybe not comparable
-            return greaterThanEqual;
-        }
+        return BooleanLiteral.of(((ComparableLiteral) greaterThanEqual.left())
+                .compareTo((ComparableLiteral) greaterThanEqual.right()) >= 0);
     }
 
     @Override
@@ -315,13 +304,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        try {
-            return BooleanLiteral.of(((ComparableLiteral) lessThan.left())
-                    .compareTo((ComparableLiteral) lessThan.right()) < 0);
-        } catch (Exception e) {
-            // left and right maybe not comparable
-            return lessThan;
-        }
+        return BooleanLiteral.of(((ComparableLiteral) lessThan.left())
+                .compareTo((ComparableLiteral) lessThan.right()) < 0);
     }
 
     @Override
@@ -331,13 +315,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        try {
-            return BooleanLiteral.of(((ComparableLiteral) lessThanEqual.left())
-                    .compareTo((ComparableLiteral) lessThanEqual.right()) <= 0);
-        } catch (Exception e) {
-            // left and right maybe not comparable
-            return lessThanEqual;
-        }
+        return BooleanLiteral.of(((ComparableLiteral) lessThanEqual.left())
+                .compareTo((ComparableLiteral) lessThanEqual.right()) <= 0);
     }
 
     @Override
@@ -352,11 +331,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (l.isNullLiteral() && r.isNullLiteral()) {
             return BooleanLiteral.TRUE;
         } else if (!l.isNullLiteral() && !r.isNullLiteral()) {
-            try {
+            if (nullSafeEqual.left() instanceof ComparableLiteral
+                    && nullSafeEqual.right() instanceof ComparableLiteral) {
                 return BooleanLiteral.of(((ComparableLiteral) nullSafeEqual.left())
                         .compareTo((ComparableLiteral) nullSafeEqual.right()) == 0);
-            } catch (Exception e) {
-                // left and right maybe not comparable
+            } else {
                 return BooleanLiteral.of(l.equals(r));
             }
         } else {
