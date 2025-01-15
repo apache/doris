@@ -48,7 +48,7 @@ suite("test_query_tvf_auth", "p0,auth,external,external_docker") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${dorisuser}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${dorisuser}""";
         }
 
         sql """grant select_priv on regression_test to ${dorisuser}"""

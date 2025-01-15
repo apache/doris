@@ -93,7 +93,7 @@ suite("test_insert_from_tvf_with_common_user", "p0,external,external_docker") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${common_user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${common_user}""";
     }
 
     connect("${common_user}", '12345', context.config.jdbcUrl) {
