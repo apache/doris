@@ -129,13 +129,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                     || cast.child().getDataType() instanceof DateTimeV2Type) {
                 // right is datetime
                 if (right instanceof DateTimeV2Literal) {
-                    try {
-                        return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
-                                cp, cast.child(), (DateTimeV2Literal) right);
-                    } catch (AnalysisException e) {
-                        // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
-                        return cp;
-                    }
+                    return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
+                            cp, cast.child(), (DateTimeV2Literal) right);
                 }
                 // right is date, not datetime
                 if (!(right instanceof DateTimeLiteral)) {
@@ -165,7 +160,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         if (toScale < rightType.getScale()) {
             if (comparisonPredicate instanceof EqualTo) {
                 long originValue = right.getMicroSecond();
-                right = right.roundCeiling(toScale);
+                right = right.roundFloor(toScale);
                 if (right.getMicroSecond() != originValue) {
                     // TODO: the ideal way is to return an If expr like:
                     // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
@@ -177,7 +172,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
                 long originValue = right.getMicroSecond();
-                right = right.roundCeiling(toScale);
+                right = right.roundFloor(toScale);
                 if (right.getMicroSecond() != originValue) {
                     return BooleanLiteral.of(false);
                 }
@@ -186,7 +181,20 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 right = right.roundFloor(toScale);
             } else if (comparisonPredicate instanceof LessThan
                     || comparisonPredicate instanceof GreaterThanEqual) {
-                right = right.roundCeiling(toScale);
+                try {
+                    right = right.roundCeiling(toScale);
+                } catch (AnalysisException e) {
+                    // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                    DateTimeLiteral newRight = right.roundFloor(toScale);
+                    if (leftType instanceof DateTimeType) {
+                        newRight = migrateToDateTime((DateTimeV2Literal) newRight);
+                    }
+                    if (comparisonPredicate instanceof LessThan) {
+                        return new LessThanEqual(left, newRight);
+                    } else {
+                        return new GreaterThan(left, newRight);
+                    }
+                }
             } else {
                 return comparisonPredicate;
             }
