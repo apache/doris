@@ -459,6 +459,14 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
     }
 
+    COUNTER_SET(_input_rows_counter, _number_input_rows);
+    COUNTER_SET(_output_rows_counter, _number_output_rows);
+    COUNTER_SET(_filtered_rows_counter,
+                _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows());
+    COUNTER_SET(_send_data_timer, _send_data_ns);
+    COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
+    COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
+
     return Status::OK();
 }
 
