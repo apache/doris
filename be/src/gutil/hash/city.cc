@@ -73,7 +73,7 @@ uint64 HashLen16(uint64 u, uint64 v) {
     const uint64 kMul = 0xc6a4a7935bd1e995ULL;
     uint64 a = (u ^ v) * kMul;
     a ^= (a >> 47);
-    uint64 b = (v ^ a) * kMul;
+    uint64 b = (u ^ a) * kMul;
     b ^= (b >> 47);
     b *= kMul;
     return b;
@@ -199,11 +199,11 @@ uint64 CityHash64(const char* s, size_t len) {
                      HashLen16(v.second, w.second) + x);
 }
 
-uint64 CityHash64WithSeed(const char* s, size_t len, uint64 seed) {
-    return CityHash64WithSeeds(s, len, k2, seed);
-}
-
 uint64 CityHash64WithSeeds(const char* s, size_t len, uint64 seed0, uint64 seed1) {
     return HashLen16(CityHash64(s, len) - seed0, seed1);
+}
+
+uint64 CityHash64WithSeed(const char* s, size_t len, uint64 seed) {
+    return CityHash64WithSeeds(s, len, k2, seed);
 }
 } // namespace util_hash

@@ -124,7 +124,7 @@ protected:
 
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
-    AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                      const DescriptorTbl& descs, bool require_bucket_distribution);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {

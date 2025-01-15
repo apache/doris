@@ -20,12 +20,15 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.util.Utils;
@@ -41,6 +44,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,7 +65,8 @@ public class SqlCacheContext {
     private volatile long latestPartitionTime = -1;
     private volatile long latestPartitionVersion = -1;
     private volatile long sumOfPartitionNum = -1;
-    private final Set<FullTableName> usedTables = Sets.newLinkedHashSet();
+    // value: version of table
+    private final Map<FullTableName, TableVersion> usedTables = Maps.newLinkedHashMap();
     // value: ddl sql
     private final Map<FullTableName, String> usedViews = Maps.newLinkedHashMap();
     // value: usedColumns
@@ -135,8 +140,13 @@ public class SqlCacheContext {
             return;
         }
 
-        usedTables.add(
-                new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName())
+        usedTables.put(
+                new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
+                new TableVersion(
+                        tableIf.getId(),
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getVisibleVersion() : 0L,
+                        tableIf.getType()
+                )
         );
     }
 
@@ -282,8 +292,8 @@ public class SqlCacheContext {
         this.cacheProxy = cacheProxy;
     }
 
-    public Set<FullTableName> getUsedTables() {
-        return ImmutableSet.copyOf(usedTables);
+    public Map<FullTableName, TableVersion> getUsedTables() {
+        return Collections.unmodifiableMap(usedTables);
     }
 
     public Map<FullTableName, String> getUsedViews() {
@@ -349,7 +359,7 @@ public class SqlCacheContext {
 
     /** doComputeCacheKeyMd5 */
     public synchronized PUniqueId doComputeCacheKeyMd5(Set<Variable> usedVariables) {
-        StringBuilder cacheKey = new StringBuilder(originSql);
+        StringBuilder cacheKey = new StringBuilder(NereidsParser.removeCommentAndTrimBlank(originSql.trim()));
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
                     .append(entry.getKey())
@@ -456,6 +466,15 @@ public class SqlCacheContext {
         public void addScanPartition(Long partitionId) {
             this.scanPartitions.add(partitionId);
         }
+    }
+
+    /** TableVersion */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class TableVersion {
+        public final long id;
+        public final long version;
+        public final TableType type;
     }
 
     /** CacheKeyType */

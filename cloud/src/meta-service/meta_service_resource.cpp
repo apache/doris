@@ -523,9 +523,18 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
-static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static bool vault_exist(const InstanceInfoPB& instance, const std::string& new_vault_name) {
+    for (auto& name : instance.storage_vault_names()) {
+        if (new_vault_name == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
                                     const StorageVaultPB& vault, MetaServiceCode& code,
-                                    std::string& msg) {
+                                    std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -591,6 +600,13 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
             msg = ss.str();
             return -1;
         }
+
+        if (vault_exist(instance, vault.alter_name())) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already existed", vault.alter_name());
+            return -1;
+        }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
@@ -623,19 +639,15 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
+    DCHECK_EQ(new_vault.id(), vault_id);
+    response->set_storage_vault_id(new_vault.id());
     return 0;
 }
 
-static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
                                   const StorageVaultPB& vault, MetaServiceCode& code,
-                                  std::string& msg) {
+                                  std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_obj_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -708,6 +720,13 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
             msg = ss.str();
             return -1;
         }
+
+        if (vault_exist(instance, vault.alter_name())) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = fmt::format("vault_name={} already existed", vault.alter_name());
+            return -1;
+        }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
@@ -747,13 +766,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
+    DCHECK_EQ(new_vault.id(), vault_id);
+    response->set_storage_vault_id(new_vault.id());
     return 0;
 }
 
@@ -1100,12 +1115,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response);
+        break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
-        alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        alter_hdfs_storage_vault(instance, txn, request->vault(), code, msg, response);
+        break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
         [[fallthrough]];
@@ -2188,6 +2203,13 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         }
     } break;
     case AlterClusterRequest::RENAME_CLUSTER: {
+        // SQL mode, cluster cluster name eq empty cluster name, need drop empty cluster first.
+        // but in http api, cloud control will drop empty cluster
+        bool replace_if_existing_empty_target_cluster =
+                request->has_replace_if_existing_empty_target_cluster()
+                        ? request->replace_if_existing_empty_target_cluster()
+                        : false;
+
         msg = resource_mgr_->update_cluster(
                 instance_id, cluster,
                 [&](const ClusterPB& i) { return i.cluster_id() == cluster.cluster.cluster_id(); },
@@ -2197,7 +2219,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     LOG(INFO) << "cluster.cluster.cluster_name(): "
                               << cluster.cluster.cluster_name();
                     for (auto itt : cluster_names) {
-                        LOG(INFO) << "itt : " << itt;
+                        LOG(INFO) << "instance's cluster name : " << itt;
                     }
                     if (it != cluster_names.end()) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2217,7 +2239,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     }
                     c.set_cluster_name(cluster.cluster.cluster_name());
                     return msg;
-                });
+                },
+                replace_if_existing_empty_target_cluster);
     } break;
     case AlterClusterRequest::UPDATE_CLUSTER_ENDPOINT: {
         msg = resource_mgr_->update_cluster(
@@ -2288,6 +2311,14 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     }
     if (!msg.empty() && code == MetaServiceCode::OK) {
         code = MetaServiceCode::UNDEFINED_ERR;
+    }
+
+    // ugly but easy to repair
+    // not change cloud.proto add err_code
+    if (request->op() == AlterClusterRequest::DROP_NODE &&
+        msg.find("not found") != std::string::npos) {
+        // see convert_ms_code_to_http_code, reuse CLUSTER_NOT_FOUND, return http status code 404
+        code = MetaServiceCode::CLUSTER_NOT_FOUND;
     }
 
     if (code != MetaServiceCode::OK) return;
@@ -2403,6 +2434,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         response->mutable_cluster()->CopyFrom(instance.clusters());
         LOG_EVERY_N(INFO, 100) << "get all cluster info, " << msg;
     } else {
+        bool is_instance_changed = false;
         for (int i = 0; i < instance.clusters_size(); ++i) {
             auto& c = instance.clusters(i);
             std::set<std::string> mysql_users;
@@ -2416,6 +2448,24 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
                 response->add_cluster()->CopyFrom(c);
                 LOG_EVERY_N(INFO, 100) << "found a cluster, instance_id=" << instance.instance_id()
                                        << " cluster=" << msg;
+            }
+        }
+        if (is_instance_changed) {
+            val = instance.SerializeAsString();
+            if (val.empty()) {
+                msg = "failed to serialize";
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                return;
+            }
+
+            txn->put(key, val);
+            LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
+                      << " json=" << proto_to_json(instance);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::COMMIT>(err);
+                msg = fmt::format("failed to commit kv txn, err={}", err);
+                LOG(WARNING) << msg;
             }
         }
     }

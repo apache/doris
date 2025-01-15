@@ -395,12 +395,12 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
 }
 
 PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* pool,
-                                                                   int operator_id,
+                                                                   int operator_id, int dest_id,
                                                                    const TPlanNode& tnode,
                                                                    const DescriptorTbl& descs,
                                                                    uint32_t partition_count)
-        : JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>(pool, operator_id, tnode,
-                                                                    descs),
+        : JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>(pool, operator_id, dest_id,
+                                                                    tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
           _distribution_partition_exprs(tnode.__isset.distribute_expr_lists

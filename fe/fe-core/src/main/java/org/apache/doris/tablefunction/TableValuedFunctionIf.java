@@ -44,7 +44,7 @@ public abstract class TableValuedFunctionIf {
 
     // All table functions should be registered here
     public static TableValuedFunctionIf getTableFunction(String funcName, Map<String, String> params)
-                                                        throws AnalysisException {
+            throws AnalysisException {
         switch (funcName.toLowerCase()) {
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);
@@ -58,6 +58,8 @@ public abstract class TableValuedFunctionIf {
                 return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
                 return new IcebergTableValuedFunction(params);
+            case HudiTableValuedFunction.NAME:
+                return new HudiTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
                 return new BackendsTableValuedFunction(params);
             case FrontendsTableValuedFunction.NAME:

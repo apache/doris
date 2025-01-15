@@ -55,7 +55,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -106,6 +105,12 @@ public class CloudInternalCatalog extends InternalCatalog {
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
+
+        if (((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(tbl.getStorageVaultId()),
+                    "Storage vault id is null or empty");
+        }
+
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
 
         LOG.info("begin create cloud partition");
@@ -128,9 +133,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         long version = partition.getVisibleVersion();
-
-        final String storageVaultName = tbl.getStorageVaultName();
-        boolean storageVaultIdSet = tbl.getStorageVaultId().isEmpty();
 
         // short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -184,29 +186,11 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
-            if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-                requestBuilder.setStorageVaultName(storageVaultName);
-            }
             requestBuilder.setDbId(dbId);
-
-            LOG.info("create tablets, dbId: {}, tableId: {}, tableName: {}, partitionId: {}, partitionName: {}, "
-                    + "indexId: {}, vault name: {}",
-                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, storageVaultName);
-            Cloud.CreateTabletsResponse resp = sendCreateTabletsRpc(requestBuilder);
-            // If the resp has no vault id set, it means the MS is running with enable_storage_vault false
-            if (resp.hasStorageVaultId() && !storageVaultIdSet) {
-                tbl.setStorageVaultId(resp.getStorageVaultId());
-                storageVaultIdSet = true;
-                if (storageVaultName.isEmpty()) {
-                    // If user doesn't specify the vault name for this table, we should set it
-                    // to make the show create table stmt return correct stmt
-                    // TODO(ByteYue): setDefaultStorageVault for vaultMgr might override user's
-                    // defualt vault, maybe we should set it using show default storage vault stmt
-                    tbl.setStorageVaultName(resp.getStorageVaultName());
-                    Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
-                            Pair.of(resp.getStorageVaultName(), resp.getStorageVaultId()));
-                }
-            }
+            LOG.info("create tablets dbId: {} tableId: {} tableName: {} partitionId: {} partitionName: {} "
+                    + "indexId: {} vaultId: {}",
+                    dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, tbl.getStorageVaultId());
+            sendCreateTabletsRpc(requestBuilder);
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
@@ -339,12 +323,17 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
         }
 
+        Map<Integer, Column> columnMap = Maps.newHashMap();
+        for (Column column : schemaColumns) {
+            columnMap.put(column.getUniqueId(), column);
+        }
         if (indexes != null) {
             for (int i = 0; i < indexes.size(); i++) {
                 Index index = indexes.get(i);
-                schemaBuilder.addIndex(index.toPb(schemaColumns));
+                schemaBuilder.addIndex(index.toPb(columnMap));
             }
         }
+
         if (rowStoreColumnUniqueIds != null) {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }

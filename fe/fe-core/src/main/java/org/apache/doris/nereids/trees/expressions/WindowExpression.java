@@ -174,7 +174,7 @@ public class WindowExpression extends Expression {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(function, partitionKeys, orderKeys, windowFrame);
     }
 
@@ -199,7 +199,7 @@ public class WindowExpression extends Expression {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(function).append(" WindowSpec(");
+        sb.append("WindowExpression(").append(function).append(" spec(");
         if (!partitionKeys.isEmpty()) {
             sb.append("PARTITION BY ").append(partitionKeys.stream()
                     .map(Expression::toString)
@@ -211,7 +211,7 @@ public class WindowExpression extends Expression {
                     .collect(Collectors.joining(", ", "", " ")));
         }
         windowFrame.ifPresent(wf -> sb.append(wf.toSql()));
-        return sb.toString().trim() + ")";
+        return sb.toString().trim() + "))";
     }
 
     @Override

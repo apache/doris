@@ -28,7 +28,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
     logger.info("changed variables: " + changed_variables.toString())
 
     boolean disableAutoCompaction = false
-  
+
     def set_be_config = { key, value ->
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
@@ -108,7 +108,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         }
     }
 
-    def insert_data = { -> 
+    def insert_data = { ->
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
         sql """ INSERT INTO ${tableName} VALUES (2, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
@@ -117,7 +117,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
     }
 
-    def run_sql = { -> 
+    def run_sql = { ->
         def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'bason'"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
@@ -255,7 +255,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         }
 
         run_sql.call()
-        
+
         if (debug_point == "compact_column_delete_tmp_path_error") {
             set_be_config.call("inverted_index_ram_dir_enable", "true")
         }
@@ -301,7 +301,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -331,7 +331,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         tableName = "test_index_compaction_exception_fault_injection_unique"
         create_and_test_table.call(tableName, "UNIQUE", debug_points_abnormal_compaction, true)
         create_and_test_table.call(tableName, "UNIQUE", debug_points_normal_compaction, false)
-       
+
     } finally {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
