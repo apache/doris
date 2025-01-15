@@ -18,6 +18,7 @@
 package org.apache.doris.common.cache;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -74,6 +75,7 @@ import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
@@ -334,11 +336,26 @@ public class NereidsSqlCacheManager {
             }
 
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableVersion = olapTable.getVisibleVersion();
-            long cacheTableVersion = tableVersion.version;
-            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableVersion != cacheTableVersion) {
+            List<Column> currentFullSchema = olapTable.getFullSchema();
+            List<SqlCacheContext.ColumnSection> cacheFullSchema = tableVersion.getColumns();
+            if (currentFullSchema.size() != cacheFullSchema.size()) {
                 return true;
+            }
+            for (int i = 0; i < currentFullSchema.size(); i++) {
+                Column currentColumn = currentFullSchema.get(i);
+                SqlCacheContext.ColumnSection cacheColumn = cacheFullSchema.get(i);
+                if (currentColumn == null) {
+                    return true;
+                }
+                if (!Objects.equals(currentColumn.hashCode(), cacheColumn.getHashCode())) {
+                    return true;
+                }
+                if (!Objects.equals(currentColumn.getName(), cacheColumn.getName())) {
+                    return true;
+                }
+                if (!Objects.equals(currentColumn.getType().toString(), cacheColumn.getType())) {
+                    return true;
+                }
             }
         }
 
@@ -353,10 +370,13 @@ public class NereidsSqlCacheManager {
             Collection<Long> partitionIds = scanTable.getScanPartitions();
             olapTable.getVersionInBatchForCloudMode(partitionIds);
 
-            for (Long scanPartitionId : scanTable.getScanPartitions()) {
-                Partition partition = olapTable.getPartition(scanPartitionId);
+            Map<Long, Long> scanPartitionIdToVersion = scanTable.scanPartitionIdToVersion;
+            for (Entry<Long, Long> entry : scanPartitionIdToVersion.entrySet()) {
+                Long scanPartitionId = entry.getKey();
+                Long cachePartitionVersion = entry.getValue();
+                Partition currentPartition = olapTable.getPartition(scanPartitionId);
                 // partition == null: is this partition truncated?
-                if (partition == null) {
+                if (currentPartition == null || currentPartition.getVisibleVersion() != cachePartitionVersion) {
                     return true;
                 }
             }
