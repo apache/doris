@@ -695,9 +695,10 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
     return Status::OK();
 }
 
-AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                   const DescriptorTbl& descs, bool require_bucket_distribution)
-        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
+AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                   const TPlanNode& tnode, const DescriptorTbl& descs,
+                                   bool require_bucket_distribution)
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id, dest_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),

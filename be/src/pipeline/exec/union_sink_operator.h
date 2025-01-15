@@ -64,8 +64,8 @@ public:
     using Base = DataSinkOperatorX<UnionSinkLocalState>;
 
     friend class UnionSinkLocalState;
-    UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                       const DescriptorTbl& descs);
+    UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                       const TPlanNode& tnode, const DescriptorTbl& descs);
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
