@@ -542,7 +542,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
             if (ret != 0) {
                 LOG(WARNING) << "failed to init hdfs accessor. instance_id=" << instance_id_
                              << " resource_id=" << vault.id() << " name=" << vault.name()
-                             << " hdfs_vault=" << vault.hdfs_info().DebugString();
+                             << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
                 continue;
             }
 
@@ -551,7 +551,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
-                             << instance_id_ << " s3_vault=" << vault.obj_info().DebugString();
+                             << instance_id_ << " s3_vault=" << vault.obj_info().ShortDebugString();
                 continue;
             }
 
@@ -560,7 +560,8 @@ int InstanceRecycler::init_storage_vault_accessors() {
             if (ret != 0) {
                 LOG(WARNING) << "failed to init s3 accessor. instance_id=" << instance_id_
                              << " resource_id=" << vault.id() << " name=" << vault.name()
-                             << " ret=" << ret << " s3_vault=" << vault.obj_info().DebugString();
+                             << " ret=" << ret
+                             << " s3_vault=" << vault.obj_info().ShortDebugString();
                 continue;
             }
 
@@ -1567,6 +1568,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor_map_.count(*rid))
                     << "uninitilized accessor, instance_id=" << instance_id_
                     << " resource_id=" << resource_id << " path[0]=" << (*paths)[0];
+            if (!accessor_map_.contains(*rid)) {
+                LOG_WARNING("delete rowset data accessor_map_ does not contains resouce id")
+                        .tag("resource_id", resource_id)
+                        .tag("instance_id", instance_id_);
+                return -1;
+            }
             auto& accessor = accessor_map_[*rid];
             return accessor->delete_files(*paths);
         });
@@ -1614,14 +1621,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     int ret = 0;
     auto start_time = steady_clock::now();
 
-    std::unique_ptr<Transaction> txn;
-    if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to delete rowset kv of tablet ")
-                .tag("tablet id", tablet_id)
-                .tag("reason", "failed to create txn");
-        ret = -1;
-    }
-
     // collect resource ids
     std::string rs_key0 = meta_rowset_key({instance_id_, tablet_id, 0});
     std::string rs_key1 = meta_rowset_key({instance_id_, tablet_id + 1, 0});
@@ -1656,6 +1655,14 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
                 .tag("ret", ret);
     });
 
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to recycle tablet ")
+                .tag("tablet id", tablet_id)
+                .tag("instance_id", instance_id_)
+                .tag("reason", "failed to create txn");
+        ret = -1;
+    }
     GetRowsetResponse resp;
     std::string msg;
     MetaServiceCode code = MetaServiceCode::OK;
@@ -1675,7 +1682,9 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     for (const auto& rs_meta : resp.rowset_meta()) {
         if (!rs_meta.has_resource_id()) {
             LOG_WARNING("rowset meta does not have a resource id, impossible!")
-                    .tag("rs_meta", rs_meta.ShortDebugString());
+                    .tag("rs_meta", rs_meta.ShortDebugString())
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id);
             return -1;
         }
         auto it = accessor_map_.find(rs_meta.resource_id());
@@ -1742,9 +1751,18 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     ret = finished ? ret : -1;
 
     if (ret != 0) { // failed recycle tablet data
+        LOG_WARNING("ret!=0").tag("finished", finished).tag("ret", ret);
         return ret;
     }
 
+    txn.reset();
+    if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to recycle tablet ")
+                .tag("tablet id", tablet_id)
+                .tag("instance_id", instance_id_)
+                .tag("reason", "failed to create txn");
+        ret = -1;
+    }
     // delete all rowset kv in this tablet
     txn->remove(rs_key0, rs_key1);
     txn->remove(recyc_rs_key0, recyc_rs_key1);
@@ -2344,7 +2362,7 @@ int InstanceRecycler::abort_timeout_txn() {
             txn_info.set_status(TxnStatusPB::TXN_STATUS_ABORTED);
             txn_info.set_finish_time(current_time);
             txn_info.set_reason("timeout");
-            VLOG_DEBUG << "txn_info=" << txn_info.DebugString();
+            VLOG_DEBUG << "txn_info=" << txn_info.ShortDebugString();
             txn_inf_val.clear();
             if (!txn_info.SerializeToString(&txn_inf_val)) {
                 LOG_WARNING("failed to serialize txn info").tag("key", hex(k));
@@ -3022,7 +3040,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         const auto& old_obj = instance_info_.obj_info()[idx - 1];
         auto s3_conf = S3Conf::from_obj_store_info(old_obj);
         if (!s3_conf) {
-            LOG(WARNING) << "failed to init s3_conf with obj_info=" << old_obj.DebugString();
+            LOG(WARNING) << "failed to init s3_conf with obj_info=" << old_obj.ShortDebugString();
             continue;
         }
 
