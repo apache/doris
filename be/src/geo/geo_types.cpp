@@ -329,7 +329,8 @@ double GeoPoint::x() const {
     double value = S2LatLng::Longitude(*_point).degrees();
     // Handle values very close to integers
     double rounded = round(value);
-    if (std::abs(value - rounded) < 1e-13) { // 使用更大的阈值
+    // Use a larger threshold
+    if (std::abs(value - rounded) < 1e-13) {
         return rounded;
     }
     return value;
@@ -339,7 +340,8 @@ double GeoPoint::y() const {
     double value = S2LatLng::Latitude(*_point).degrees();
     // Handle values very close to integers
     double rounded = round(value);
-    if (std::abs(value - rounded) < 1e-13) { // 使用更大的阈值
+    // Use a larger threshold
+    if (std::abs(value - rounded) < 1e-13) {
         return rounded;
     }
     return value;
