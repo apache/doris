@@ -20,14 +20,55 @@ package org.apache.doris.datasource.hudi;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
+/**
+ * Implementation of MvccSnapshot for Hudi tables that maintains partition values
+ * for MVCC (Multiversion Concurrency Control) operations.
+ * This class is immutable to ensure thread safety.
+ */
 public class HudiMvccSnapshot implements MvccSnapshot {
     private final TablePartitionValues tablePartitionValues;
 
+    /**
+     * Creates a new HudiMvccSnapshot with the specified partition values.
+     *
+     * @param tablePartitionValues The partition values for the snapshot
+     * @throws IllegalArgumentException if tablePartitionValues is null
+     */
     public HudiMvccSnapshot(TablePartitionValues tablePartitionValues) {
+        if (tablePartitionValues == null) {
+            throw new IllegalArgumentException("TablePartitionValues cannot be null");
+        }
         this.tablePartitionValues = tablePartitionValues;
     }
 
+    /**
+     * Gets the table partition values associated with this snapshot.
+     *
+     * @return The immutable TablePartitionValues object
+     */
     public TablePartitionValues getTablePartitionValues() {
         return tablePartitionValues;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        HudiMvccSnapshot that = (HudiMvccSnapshot) o;
+        return tablePartitionValues.equals(that.tablePartitionValues);
+    }
+
+    @Override
+    public int hashCode() {
+        return tablePartitionValues.hashCode();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("HudiMvccSnapshot{tablePartitionValues=%s}", tablePartitionValues);
     }
 }

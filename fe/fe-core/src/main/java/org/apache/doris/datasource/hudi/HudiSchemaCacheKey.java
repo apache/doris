@@ -19,14 +19,36 @@ package org.apache.doris.datasource.hudi;
 
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 
-public class HudiSchemaCacheKey extends SchemaCacheKey {
-    private long timestamp;
+import com.google.common.base.Objects;
 
+/**
+ * Cache key for Hudi table schemas that includes timestamp information.
+ * This allows for time-travel queries and ensures proper schema versioning.
+ */
+public class HudiSchemaCacheKey extends SchemaCacheKey {
+    private final long timestamp;
+
+    /**
+     * Creates a new cache key for Hudi table schemas.
+     *
+     * @param dbName The database name
+     * @param tableName The table name
+     * @param timestamp The timestamp for schema version
+     * @throws IllegalArgumentException if dbName or tableName is null or empty
+     */
     public HudiSchemaCacheKey(String dbName, String tableName, long timestamp) {
         super(dbName, tableName);
+        if (timestamp < 0) {
+            throw new IllegalArgumentException("Timestamp cannot be negative");
+        }
         this.timestamp = timestamp;
     }
 
+    /**
+     * Gets the timestamp associated with this schema version.
+     *
+     * @return the timestamp value
+     */
     public long getTimestamp() {
         return timestamp;
     }
@@ -44,14 +66,17 @@ public class HudiSchemaCacheKey extends SchemaCacheKey {
         }
 
         HudiSchemaCacheKey that = (HudiSchemaCacheKey) o;
-
         return timestamp == that.timestamp;
     }
 
     @Override
     public int hashCode() {
-        int result = super.hashCode();
-        result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-        return result;
+        return Objects.hashCode(super.hashCode(), timestamp);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("HudiSchemaCacheKey{dbName='%s', tableName='%s', timestamp=%d}",
+                getDbName(), getTblName(), timestamp);
     }
 }
