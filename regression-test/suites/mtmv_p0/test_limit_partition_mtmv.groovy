@@ -466,6 +466,9 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20210101_MAXVALUE"))
     order_qt_history_less_than_range_drop_partition "SELECT * FROM ${mvName}"
 
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
     // roll up
     sql """
         CREATE TABLE `${tableName}` (
@@ -542,4 +545,6 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20200101_20200201"))
     order_qt_rollup_drop_partial_partition "SELECT * FROM ${mvName}"
 
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }
