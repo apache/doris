@@ -202,6 +202,11 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _disk_limit_mode_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_disk_limit_mode", 0);
 
+    _storage_sync_remove_latency = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_ns");
+    _storage_async_remove_latency = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_storage_async_remove_latency_ns");
+
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
     _index_queue = LRUQueue(cache_settings.index_queue_size, cache_settings.index_queue_elements,
@@ -1315,7 +1320,10 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.meta.type = type;
         key.meta.expiration_time = expiration_time;
         if (sync) {
+            int64_t duration_ns = 0;
+            SCOPED_RAW_TIMER(&duration_ns);
             Status st = _storage->remove(key);
+            *_storage_sync_remove_latency << duration_ns;
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
             }
@@ -1326,7 +1334,10 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             bool ret = _recycle_keys.enqueue(key);
             if (!ret) {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
+                int64_t duration_ns = 0;
+                SCOPED_RAW_TIMER(&duration_ns);
                 Status st = _storage->remove(key);
+                *_storage_sync_remove_latency << duration_ns;
                 if (!st.ok()) {
                     LOG_WARNING("").error(st);
                 }
@@ -1730,7 +1741,12 @@ void BlockFileCache::run_background_gc() {
             if (batch_count >= batch_limit) {
                 break;
             }
+
+            int64_t duration_ns = 0;
+            SCOPED_RAW_TIMER(&duration_ns);
             Status st = _storage->remove(key);
+            *_storage_async_remove_latency << duration_ns;
+
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
             }

@@ -532,6 +532,9 @@ private:
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
+
+    std::shared_ptr<bvar::LatencyRecorder> _storage_sync_remove_latency;
+    std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency;
 };
 
 } // namespace doris::io
