@@ -201,6 +201,8 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void dropTable(DropTableStmt stmt) throws DdlException;
 
+    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                   boolean force) throws DdlException;
     void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
 
     /**

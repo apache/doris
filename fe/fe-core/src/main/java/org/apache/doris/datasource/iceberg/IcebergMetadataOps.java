@@ -228,23 +228,36 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
         try {
             preExecutionAuthenticator.execute(() -> {
-                performDropTable(stmt);
+                performDropTable(dbName, tableName, ifExists);
                 return null;
             });
         } catch (Exception e) {
             throw new DdlException(
-                "Failed to drop table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
+                "Failed to drop table: " + tableName + ", error message is:" + e.getMessage(), e);
         }
     }
 
     private void performDropTable(DropTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        performDropTable(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
+    }
+
+    private void performDropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("database [{}] does not exist when drop table[{}]", dbName, tableName);
                 return;
             } else {
@@ -253,7 +266,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         if (!tableExist(dbName, tableName)) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("drop table[{}] which does not exist", tableName);
                 return;
             } else {

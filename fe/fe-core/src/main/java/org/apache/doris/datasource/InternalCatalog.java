@@ -882,11 +882,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
+            stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
+                          boolean ifExists, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
-        LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
+        LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, force);
 
         // check database
         Database db = getDbOrDdlException(dbName);
@@ -900,7 +907,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Table table = db.getTableNullable(tableName);
             if (table == null) {
-                if (stmt.isSetIfExists()) {
+                if (ifExists) {
                     LOG.info("drop table[{}] which does not exist", tableName);
                     return;
                 } else {
@@ -908,55 +915,55 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             // Check if a view
-            if (stmt.isView()) {
+            if (isView) {
                 if (!(table instanceof View)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
-                            genDropHint(dbName, table));
+                        genDropHint(dbName, table));
                 }
             } else {
                 if (table instanceof View) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
-                            genDropHint(dbName, table));
+                        genDropHint(dbName, table));
                 }
             }
 
-            if (!stmt.isMaterializedView() && table instanceof MTMV) {
+            if (!isMtmv && table instanceof MTMV) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
-                        genDropHint(dbName, table));
-            } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
+                    genDropHint(dbName, table));
+            } else if (isMtmv && !(table instanceof MTMV)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
-                        genDropHint(dbName, table));
+                    genDropHint(dbName, table));
             }
 
-            if (!stmt.isForceDrop()) {
+            if (!force) {
                 if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException(
-                            "There are still some transactions in the COMMITTED state waiting to be completed. "
-                                    + "The table [" + tableName
-                                    + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                    + " please use \"DROP table FORCE\".");
+                        "There are still some transactions in the COMMITTED state waiting to be completed. "
+                            + "The table [" + tableName
+                            + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
                 }
                 watch.split();
                 costTimes.put("2:existCommittedTxns", watch.getSplitTime());
             }
 
-            if (table instanceof OlapTable && !stmt.isForceDrop()) {
+            if (table instanceof OlapTable && !force) {
                 OlapTable olapTable = (OlapTable) table;
                 if ((olapTable.getState() != OlapTableState.NORMAL)) {
                     throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                            + ", cannot be dropped. please cancel the operation on olap table firstly."
-                            + " If you want to forcibly drop(cannot be recovered),"
-                            + " please use \"DROP table FORCE\".");
+                        + ", cannot be dropped. please cancel the operation on olap table firstly."
+                        + " If you want to forcibly drop(cannot be recovered),"
+                        + " please use \"DROP table FORCE\".");
                 }
                 if (olapTable.isInAtomicRestore()) {
                     throw new DdlException("The table [" + tableName + "]'s state is in atomic restore"
-                            + ", cannot be dropped. please cancel the restore operation on olap table"
-                            + " firstly. If you want to forcibly drop(cannot be recovered),"
-                            + " please use \"DROP table FORCE\".");
+                        + ", cannot be dropped. please cancel the restore operation on olap table"
+                        + " firstly. If you want to forcibly drop(cannot be recovered),"
+                        + " please use \"DROP table FORCE\".");
                 }
             }
 
-            dropTableInternal(db, table, stmt.isView(), stmt.isForceDrop(), watch, costTimes);
+            dropTableInternal(db, table, isView, force, watch, costTimes);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
@@ -965,7 +972,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         watch.stop();
         costTimes.put("6:total", watch.getTime());
         LOG.info("finished dropping table: {} from db: {}, is view: {}, is force: {}, cost: {}",
-                tableName, dbName, stmt.isView(), stmt.isForceDrop(), costTimes);
+            tableName, dbName, isView, force, costTimes);
     }
 
     // drop table without any check.

@@ -69,6 +69,7 @@ public interface ExternalMetadataOps {
      */
     void dropTable(DropTableStmt stmt) throws DdlException;
 
+    void dropTable(String dbName, String tableName, boolean ifExists) throws DdlException;
     /**
      *
      * @param dbName
