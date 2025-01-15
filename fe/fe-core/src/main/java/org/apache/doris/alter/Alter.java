@@ -701,7 +701,7 @@ public class Alter {
         String newTblName = clause.getTblName();
         Table newTable = db.getTableOrMetaException(newTblName);
         if (newTable.getType() == TableType.MATERIALIZED_VIEW) {
-            throw new DdlException("replace table[" + newTblName + "] is not a materialized view");
+            throw new DdlException("replace table[" + newTblName + "] cannot be a materialized view");
         }
         boolean swapTable = clause.isSwapTable();
         boolean isForce = clause.isForce();

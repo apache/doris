@@ -72,8 +72,8 @@ public class AlterMTMVTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`sid`) BUCKETS 1\n"
                 + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1')");
 
-        Assertions.assertThrows(DdlException.class, () -> {
-            alterTableSync("ALTER TABLE stu1 REPLACE WITH TABLE mv_b PROPERTIES('swap' = 'true')");
-        }, "errCode = 2, detailMessage = replace table[mv_b] is not a materialized view");
+        DdlException exception = Assertions.assertThrows(DdlException.class, () ->
+                alterTableSync("ALTER TABLE stu1 REPLACE WITH TABLE mv_b PROPERTIES('swap' = 'true')"));
+        Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_b] cannot be a materialized view", exception.getMessage());
     }
 }
