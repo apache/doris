@@ -262,10 +262,17 @@ public class MTMVPartitionUtil {
                 }
             }
         } else if (mtmv.getPartitionType().equals(PartitionType.LIST)) {
-            Set<PartitionValue> inValues = Sets.newHashSet(partitionKeyDesc.getInValues().get(0));
+            Set<PartitionValue> inValues = Sets.newHashSet();
+            List<List<PartitionValue>> partitionKeyDescValues = partitionKeyDesc.getInValues();
+            for (List<PartitionValue> values : partitionKeyDescValues) {
+                // mtmv only has one partition column
+                inValues.add(values.get(0));
+            }
+
             for (PartitionKeyDesc existPartitionKeyDesc : relatedPartitionDescs) {
-                for (PartitionValue existPartitionValue : existPartitionKeyDesc.getInValues().get(0)) {
-                    if (inValues.contains(existPartitionValue)) {
+                for (List<PartitionValue> existPartitionValues : existPartitionKeyDesc.getInValues()) {
+                    // mtmv only has one partition column
+                    if (inValues.contains(existPartitionValues.get(0))) {
                         return true;
                     }
                 }
