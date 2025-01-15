@@ -21,6 +21,9 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
@@ -34,7 +37,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -43,22 +48,13 @@ import java.util.concurrent.ForkJoinPool;
 public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
-    private ForkJoinPool taskPool = new ForkJoinPool(Math.max(8, Runtime.getRuntime().availableProcessors()));
+    private final ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(
+            Config.tablet_stat_mgr_threads_num, 256, "tablet-stat-mgr", true);
+
+    private MarkedCountDownLatch<Long, Backend> updateTabletStatsLatch = null;
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
-    }
-
-    private ForkJoinPool adjustThreadPool(int backendSize) {
-        int minimunParallelism = Math.max(8, Runtime.getRuntime().availableProcessors());
-        int maximunParallelism = 64;
-        int newParallelism = Math.min(backendSize, maximunParallelism);
-        newParallelism = Math.max(newParallelism, minimunParallelism);
-        newParallelism = (newParallelism + 7) / 8 * 8; // Round up to the multiple of 8
-        if (taskPool == null || taskPool.getParallelism() != newParallelism) {
-            return new ForkJoinPool(newParallelism);
-        }
-        return taskPool;
     }
 
     @Override
@@ -71,10 +67,13 @@ public class TabletStatMgr extends MasterDaemon {
             return;
         }
         long start = System.currentTimeMillis();
-        taskPool = adjustThreadPool(backends.size());
-        taskPool.submit(() -> {
-            // no need to get tablet stat if backend is not alive
-            backends.values().parallelStream().filter(Backend::isAlive).forEach(backend -> {
+        // no need to get tablet stat if backend is not alive
+        List<Backend> aliveBackends = backends.values().stream().filter(Backend::isAlive)
+                .collect(Collectors.toList());
+        updateTabletStatsLatch = new MarkedCountDownLatch<>(aliveBackends.size());
+        aliveBackends.forEach(backend -> {
+            updateTabletStatsLatch.addMark(backend.getId(), backend);
+            executor.submit(() -> {
                 BackendService.Client client = null;
                 TNetworkAddress address = null;
                 boolean ok = false;
@@ -87,8 +86,10 @@ public class TabletStatMgr extends MasterDaemon {
                                 result.getTabletsStatsSize());
                     }
                     updateTabletStat(backend.getId(), result);
+                    updateTabletStatsLatch.markedCountDown(backend.getId(), backend);
                     ok = true;
                 } catch (Throwable e) {
+                    updateTabletStatsLatch.markedCountDownWithStatus(backend.getId(), backend, Status.CANCELLED);
                     LOG.warn("task exec error. backend[{}]", backend.getId(), e);
                 }
 
@@ -102,7 +103,9 @@ public class TabletStatMgr extends MasterDaemon {
                     LOG.warn("client pool recyle error. backend[{}]", backend.getId(), e);
                 }
             });
-        }).join();
+        });
+        waitForTabletStatUpdate();
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
                     (System.currentTimeMillis() - start));
@@ -233,6 +236,29 @@ public class TabletStatMgr extends MasterDaemon {
         }
         LOG.info("finished to update index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
+    }
+
+    public void waitForTabletStatUpdate() {
+        boolean ok = false;
+        try {
+            if (!updateTabletStatsLatch.await(60, TimeUnit.SECONDS)) {
+                LOG.info("waiting {} update tablet stats tasks finish. {}",
+                        updateTabletStatsLatch.getCount(), this);
+            }
+            ok = true;
+        } catch (InterruptedException e) {
+            LOG.warn("InterruptedException, {}", this, e);
+        }
+        if (!ok || !updateTabletStatsLatch.getStatus().ok()) {
+            List<Long> unfinishedBackendIds = updateTabletStatsLatch.getLeftMarks().stream()
+                    .map(Map.Entry::getKey).collect(Collectors.toList());
+            Status status = Status.TIMEOUT;
+            if (!updateTabletStatsLatch.getStatus().ok()) {
+                status = updateTabletStatsLatch.getStatus();
+            }
+            LOG.warn("Failed to update tablet stats reason: {}, unfinished backends: {}",
+                    status.getErrorMsg(), unfinishedBackendIds);
+        }
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {
