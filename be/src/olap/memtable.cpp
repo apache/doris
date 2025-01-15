@@ -401,7 +401,7 @@ Status MemTable::_sort_by_cluster_keys() {
                                           row_pos_vec.data() + in_block.rows(), &column_offset);
 }
 
-void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+void MemTable::_sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& tie,
                                 std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {

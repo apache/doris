@@ -252,7 +252,7 @@ private:
     //return number of same keys
     size_t _sort();
     Status _sort_by_cluster_keys();
-    void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+    void _sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& tie,
                           std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
