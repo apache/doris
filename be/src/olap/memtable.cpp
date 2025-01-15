@@ -473,7 +473,7 @@ void MemTable::_aggregate() {
             vectorized::MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
     auto& block_data = in_block.get_columns_with_type_and_name();
-    std::vector<RowInBlock*> temp_row_in_blocks;
+    DorisVector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     RowInBlock* prev_row = nullptr;
     int row_pos = -1;
