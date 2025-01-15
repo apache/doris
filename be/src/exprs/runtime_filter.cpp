@@ -959,7 +959,13 @@ public:
 
     bool is_disabled() const { return _context->disabled; }
 
-    void set_disabled() { _context->disabled = true; }
+    void set_disabled() {
+        _context->disabled = true;
+        _context->minmax_func.reset();
+        _context->hybrid_set.reset();
+        _context->bloom_filter_func.reset();
+        _context->bitmap_filter_func.reset();
+    }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
