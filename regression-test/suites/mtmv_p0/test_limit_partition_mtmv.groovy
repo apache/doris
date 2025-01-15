@@ -559,7 +559,6 @@ suite("test_limit_partition_mtmv") {
         COMMENT 'OLAP'
         PARTITION BY range(`k2`)
         (
-        PARTITION p2038 VALUES [("2038-01-01"),("2038-01-03")),
         PARTITION p2020 VALUES [("2020-01-01"),("2020-01-03"))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
@@ -576,7 +575,7 @@ suite("test_limit_partition_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1',
-            'partition_sync_limit'='100',
+            'partition_sync_limit'='1',
             'partition_sync_time_unit'='DAY'
             )
             AS
