@@ -52,6 +52,8 @@ public:
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     void update_memory_usage();
 
+    Dependency* finishdependency() override;
+
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}

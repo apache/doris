@@ -534,7 +534,9 @@ Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(_inner_probe_operator->set_child(child));
     DCHECK(_build_side_child != nullptr);
     _inner_probe_operator->set_build_side_child(_build_side_child);
+    RETURN_IF_ERROR(_inner_sink_operator->set_child(_build_side_child));
     RETURN_IF_ERROR(_inner_probe_operator->open(state));
+    RETURN_IF_ERROR(_inner_sink_operator->open(state));
     _child = std::move(child);
     RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
@@ -948,7 +950,6 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
                     local_state._shared_state->inner_runtime_state.get(), block, eos));
             if (*eos) {
                 _update_profile_from_internal_states(local_state);
-                local_state._shared_state->inner_runtime_state.reset();
             }
         }
 
