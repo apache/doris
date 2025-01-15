@@ -37,7 +37,7 @@ suite("test_select_column_auth","p0,auth") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
     sql """create database ${dbName}"""
     sql("""use ${dbName}""")
@@ -69,7 +69,7 @@ suite("test_select_column_auth","p0,auth") {
         (3, "333");
         """
     sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
-    waitingMTMVTaskFinishedByMvName(mtmv_name)
+    waitingMTMVTaskFinishedByMvName(mtmv_name, dbName)
 
     sql """grant select_priv on regression_test to ${user}"""
 
