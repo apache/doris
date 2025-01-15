@@ -272,7 +272,8 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     long address = 0;
     {
         SCOPED_RAW_TIMER(
-                &_jdbc_statistic._get_block_address_timer); // Timer for getBlockAddress call
+                &_jdbc_statistic
+                         ._read_and_fill_vector_table_timer); // Timer for getBlockAddress call
         address =
                 env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
     } // _get_block_address_timer stops here

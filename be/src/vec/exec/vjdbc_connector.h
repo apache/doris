@@ -71,7 +71,7 @@ public:
         int64_t _load_jar_timer = 0;
         int64_t _init_connector_timer = 0;
         int64_t _get_data_timer = 0;
-        int64_t _get_block_address_timer = 0;
+        int64_t _read_and_fill_vector_table_timer = 0;
         int64_t _jni_setup_timer = 0;
         int64_t _has_next_timer = 0;
         int64_t _prepare_params_timer = 0;
