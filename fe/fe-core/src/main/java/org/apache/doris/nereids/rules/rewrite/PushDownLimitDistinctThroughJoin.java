@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -42,6 +43,10 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 // limit -> distinct -> join
                 logicalLimit(logicalAggregate(logicalJoin())
                         .when(LogicalAggregate::isDistinct))
+                        .when(limit ->
+                                ConnectContext.get() != null
+                                        && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
+                                        >= limit.getLimit() + limit.getOffset())
                         .then(limit -> {
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = limit.child();
                             LogicalJoin<Plan, Plan> join = agg.child();
