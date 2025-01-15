@@ -87,10 +87,6 @@ uint32_t calc_days_in_year(uint32_t year) {
     return is_leap(year) ? 366 : 365;
 }
 
-bool is_leap(uint32_t year) {
-    return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year));
-}
-
 uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day) {
     return (day_nr + 5L + (is_sunday_first_day ? 1L : 0L)) % 7;
 }

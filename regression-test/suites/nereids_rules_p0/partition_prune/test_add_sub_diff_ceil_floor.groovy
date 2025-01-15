@@ -342,6 +342,41 @@ suite("test_add_sub_diff_ceil_floor") {
         contains("partitions=1/6 (p6)")
     }
 
+    explain {
+        sql """select * from max_t where weeks_add(dt, 1) >'2018-01-01' """
+        contains("partitions=5/6 (p2,p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where weeks_sub(dt, 10) >'2018-01-01' """
+        contains("partitions=5/6 (p1,p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where weeks_diff(dt, '2018-01-01') >=10"""
+        contains("partitions=4/6 (p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where weeks_diff('2018-01-01', dt) <=10"""
+        contains("partitions=5/6 (p2,p3,p4,p5,p6)")
+    }
+    // yearweek
+    explain {
+        sql """select * from max_t where yearweek(dt) <201902"""
+        contains("partitions=4/6 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from max_t where yearweek(dt,1) <201902"""
+        contains("partitions=4/6 (p1,p2,p3,p4)")
+    }
+    explain {
+        sql """select * from max_t where yearweek(dt,c) <20190206"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
+
+    // yearweek
+    explain {
+        sql """select * from max_t where yearweek(dt) <20190206"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
     // from_days and unix_timestamp
     explain {
         sql """select * from max_t where unix_timestamp(dt) > 1547838847 """
@@ -404,4 +439,20 @@ suite("test_add_sub_diff_ceil_floor") {
         contains("partitions=3/4 (p1,p3,p4)")
     }
 
+    explain {
+        sql """select * from max_t where year(weeks_add(dt, 1)) >2019"""
+        contains("partitions=3/6 (p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where month(weeks_add(dt, 1)) >6"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where quarter(weeks_sub(dt, 1)) >3"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
+    explain {
+        sql """select * from max_t where weeks_diff(dt, quarter(weeks_sub(dt, 1))) >'2020-01-01'"""
+        contains("partitions=6/6 (p1,p2,p3,p4,p5,p6)")
+    }
 }

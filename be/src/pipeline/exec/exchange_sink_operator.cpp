@@ -208,9 +208,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     }
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->open(state));
-        if (channels[i]->is_local()) {
-            _last_local_channel_idx = i;
-        }
     }
 
     PUniqueId id;
@@ -223,7 +220,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
-    } else if (!only_local_exchange) {
+    } else if (_last_local_channel_idx > -1) {
         size_t dep_id = 0;
         for (auto& channel : channels) {
             if (channel->is_local()) {
@@ -264,7 +261,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TUniqueId>& fragment_instance_ids)
-        : DataSinkOperatorX(operator_id, sink.dest_node_id),
+        : DataSinkOperatorX(operator_id, sink.dest_node_id, 0),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),

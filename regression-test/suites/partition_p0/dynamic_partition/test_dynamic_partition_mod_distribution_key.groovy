@@ -49,7 +49,6 @@ suite("test_dynamic_partition_mod_distribution_key") {
         """
 
         sql """ alter table ${tableName} modify column k1 comment 'new_comment_for_k1' """
-        sql """ alter table ${tableName} modify column k2 varchar(255) """
 
         sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
         sql """ alter table ${tableName} set('dynamic_partition.end'='5') """

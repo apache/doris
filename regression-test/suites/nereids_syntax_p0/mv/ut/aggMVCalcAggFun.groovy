@@ -45,6 +45,7 @@ suite ("aggMVCalcAggFun") {
     sql """insert into aggMVCalcAggFun values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggMVCalcAggFun with sync;"
+    sql """alter table aggMVCalcAggFun modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")
@@ -53,8 +54,6 @@ suite ("aggMVCalcAggFun") {
     mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
     order_qt_select_mv "select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno order by deptno;"
 
-    sql """set enable_stats=true;"""
-    sql """alter table aggMVCalcAggFun modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")\
 
     mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")

@@ -49,7 +49,7 @@ public:
     using Base = DataSinkOperatorX<CacheSinkLocalState>;
 
     friend class CacheSinkLocalState;
-    CacheSinkOperatorX(int sink_id, int child_id);
+    CacheSinkOperatorX(int sink_id, int child_id, int dest_id);
     ~CacheSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",

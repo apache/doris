@@ -386,6 +386,8 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
+    // ATTN: trick, Use stale_rowsets to temporarily increase the reference count of the rowset shared pointer in _stale_rs_version_map so that in the recycle_cached_data function, it checks if the reference count is 2.
+    std::vector<RowsetSharedPtr> stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
     std::vector<std::string> version_to_delete;
@@ -409,6 +411,7 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 auto rs_it = _stale_rs_version_map.find(v_ts->version());
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
+                    stale_rowsets.push_back(rs_it->second);
                     LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
                               << " version=" << rs_it->first.to_string();
@@ -456,7 +459,8 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
 
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
-            if (rs.use_count() >= 1) {
+            // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
+            if (rs.use_count() > 2) {
                 LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
                              << rs.use_count()
                              << " references. File Cache won't be recycled when query is using it.";
@@ -717,10 +721,42 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update() &&
         rowset_writer->num_rows() > 0) {
+        DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.update_tmp_rowset.error", {
+            return Status::InternalError<false>("injected update_tmp_rowset error.");
+        });
         const auto& rowset_meta = rowset->rowset_meta();
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
     }
 
+    RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id));
+
+    // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
+    // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
+    // delete bitmap correctness check. If we store the new_delete_bitmap, the delete bitmap correctness check will fail
+    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
+            txn_info->publish_info));
+
+    DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.enable_sleep", {
+        auto sleep_sec = dp->param<int>("sleep", 5);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
+
+    DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.injected_error", {
+        auto retry = dp->param<bool>("retry", false);
+        if (retry) { // return DELETE_BITMAP_LOCK_ERROR to let it retry
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                    "injected DELETE_BITMAP_LOCK_ERROR");
+        } else {
+            return Status::InternalError<false>("injected non-retryable error");
+        }
+    });
+
+    return Status::OK();
+}
+
+Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
+                                             DeleteBitmapPtr delete_bitmap, int64_t lock_id) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -731,18 +767,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                     iter->second);
         }
     }
-
     auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
                                                             new_delete_bitmap.get()));
-
-    // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
-    // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
-    // delete bitmap correctness check. If we store the new_delete_bitmap, the delete bitmap correctness check will fail
-    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
-            txn_info->publish_info));
-
     return Status::OK();
 }
 
@@ -869,9 +896,6 @@ Status CloudTablet::sync_meta() {
             // TODO(Lchangliang): recycle_resources_by_self();
         }
         return st;
-    }
-    if (tablet_meta->tablet_state() != TABLET_RUNNING) { // impossible
-        return Status::InternalError("invalid tablet state. tablet_id={}", tablet_id());
     }
 
     auto new_ttl_seconds = tablet_meta->ttl_seconds();

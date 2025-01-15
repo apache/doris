@@ -110,6 +110,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 `test6` datetime NULL,
                 `test7` datetime NULL,
                 `test8` datetime NULL,
+                `test9` bigint NULL,
                 `c_byte` array<tinyint(4)> NULL,
                 `c_bool` array<boolean> NULL,
                 `c_integer` array<int(11)> NULL,
@@ -149,6 +150,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 `test6` datetimev2 NULL,
                 `test7` datetimev2 NULL,
                 `test8` datetimev2 NULL,
+                `test9` bigint NULL,
                 `c_byte` array<tinyint(4)> NULL,
                 `c_bool` array<boolean> NULL,
                 `c_integer` array<int(11)> NULL,
@@ -178,6 +180,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql09 """select test1 from test_v1;"""
             order_qt_sql10 """select test2 from test_v1;"""
             order_qt_sql11 """select test6 from test_v1;"""
+            order_qt_sql12 """select test9 from test_v1;"""
             
             order_qt_sql20 """select * from test_v2 where test2='text#1'"""
             order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
@@ -185,6 +188,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql23 """select * from test_v2 where esquery(c_long, '{"term":{"c_long":"-1"}}');"""
             order_qt_sql24 """select c_person, c_user, json_extract(c_person, '\$.[0].name'), json_extract(c_user, '\$.[1].last') from test_v2;"""
             order_qt_sql25 """select test6 from test_v2;"""
+            order_qt_sql26 """select test9 from test_v2;"""
 
             sql """switch test_es_query_es5"""
             order_qt_sql_5_02 """select * from test1 where test2='text#1'"""
@@ -216,6 +220,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_28 """select * from test3_20231005;"""
             order_qt_sql_5_29 """select test1, test2 from test1 where test1 like 'string%';"""
             order_qt_sql_5_30 """select test1, test2 from test1 where test2 like 'text%';"""
+            order_qt_sql_5_31 """select test7 from test1;"""
+            order_qt_sql_5_32 """select test7 from test2;"""
 
             sql """switch test_es_query_es6"""
             // order_qt_sql_6_01 """show tables"""
@@ -248,6 +254,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_28 """select * from test3_20231005;"""
             order_qt_sql_6_29 """select test1, test2 from test1 where test1 like 'string%';"""
             order_qt_sql_6_30 """select test1, test2 from test1 where test2 like 'text%';"""
+            order_qt_sql_6_31 """select test7 from test1;"""
+            order_qt_sql_6_32 """select test7 from test2;"""
+
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
@@ -305,6 +314,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_34 """select * from composite_type_array order by name;"""
             order_qt_sql_7_35 """select test1, test2 from test1 where test1 like 'string%';"""
             order_qt_sql_7_36 """select test1, test2 from test1 where test2 like 'text%';"""
+            order_qt_sql_7_37 """select test9 from test1;"""
+            order_qt_sql_7_38 """select test9 from test2;"""
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true
@@ -362,6 +373,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_32 """select * from composite_type_array order by name;"""
             order_qt_sql_8_33 """select test1, test2 from test1 where test1 like 'string%';"""
             order_qt_sql_8_34 """select test1, test2 from test1 where test2 like 'text%';"""
+            order_qt_sql_8_35 """select test9 from test1;"""
+            order_qt_sql_8_36 """select test9 from test2;"""
 
         }
 

@@ -181,7 +181,7 @@ public class JobExecutionConfiguration {
         }
 
         // Calculate the trigger time list
-        for (long triggerTime = firstTriggerTime; triggerTime <= windowEndTimeMs; triggerTime += intervalMs) {
+        for (long triggerTime = firstTriggerTime; triggerTime < windowEndTimeMs; triggerTime += intervalMs) {
             if (null == timerDefinition.getEndTimeMs()
                     || triggerTime < timerDefinition.getEndTimeMs()) {
                 timerDefinition.setLatestSchedulerTimeMs(triggerTime);
