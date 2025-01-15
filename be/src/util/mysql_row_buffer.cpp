@@ -115,6 +115,7 @@ void MysqlRowBuffer<is_binary_format>::open_dynamic_mode() {
         // write length when dynamic mode close
         _len_pos = (_pos - _buf);
         _pos = _pos + 8;
+        _field_pos++;
     }
     _dynamic_mode++;
 }
