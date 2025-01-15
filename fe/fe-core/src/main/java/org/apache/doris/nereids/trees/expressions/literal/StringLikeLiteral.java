@@ -18,9 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
-
-import com.google.common.base.Preconditions;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Objects;
@@ -81,7 +80,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 thisBytes = getStringValue().getBytes("UTF-8");
                 otherBytes = ((Literal) other).getStringValue().getBytes("UTF-8");
             } catch (UnsupportedEncodingException e) {
-                Preconditions.checkState(false);
+                throw new AnalysisException(e.getMessage(), e);
             }
 
             int minLength = Math.min(thisBytes.length, otherBytes.length);
