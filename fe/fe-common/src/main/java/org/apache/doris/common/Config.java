@@ -3380,4 +3380,7 @@ public class Config extends ConfigBase {
     public static long meta_service_rpc_reconnect_interval_ms = 5000;
 
     public static long meta_service_rpc_retry_cnt = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"一次性发送到be的最大任务数",})
+    public static int max_send_batch_tasks_num = 1000000;
 }

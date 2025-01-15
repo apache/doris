@@ -1094,6 +1094,10 @@ public class ReportHandler extends Daemon {
                 LOG.info("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
                 ++deleteFromBackendCounter;
             }
+            if (batchTask.getTaskNum() >= Config.max_send_batch_tasks_num) {
+                LOG.info("collect {} drop replica tasks to backend", Config.max_send_batch_tasks_num);
+                break;
+            }
         } // end for backendTabletIds
 
         if (batchTask.getTaskNum() != 0) {
