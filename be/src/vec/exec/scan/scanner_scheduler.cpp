@@ -205,7 +205,7 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
     if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
         debug_msg += fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
     }
-    LOG(INFO) << debug_msg;
+    VLOG_DEBUG << debug_msg;
 
     state->get_query_ctx()->set_low_memory_mode();
 }

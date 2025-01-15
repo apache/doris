@@ -69,13 +69,13 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         // 5 upsert io throttle
         wg->upsert_scan_io_throttle(&workload_group_info);
 
-        LOG(INFO) << "[topic_publish_wg]update workload group finish, wg info="
-                  << wg->debug_string() << ", enable_cpu_hard_limit="
-                  << (_exec_env->workload_group_mgr()->enable_cpu_hard_limit() ? "true" : "false")
-                  << ", cgroup cpu_shares=" << workload_group_info.cgroup_cpu_shares
-                  << ", cgroup cpu_hard_limit=" << workload_group_info.cgroup_cpu_hard_limit
-                  << ", cgroup home path=" << config::doris_cgroup_cpu_path
-                  << ", list size=" << list_size << ", thread info=" << wg->thread_debug_info();
+        VLOG_DEBUG << "[topic_publish_wg]update workload group finish, wg info="
+                   << wg->debug_string() << ", enable_cpu_hard_limit="
+                   << (_exec_env->workload_group_mgr()->enable_cpu_hard_limit() ? "true" : "false")
+                   << ", cgroup cpu_shares=" << workload_group_info.cgroup_cpu_shares
+                   << ", cgroup cpu_hard_limit=" << workload_group_info.cgroup_cpu_hard_limit
+                   << ", cgroup home path=" << config::doris_cgroup_cpu_path
+                   << ", list size=" << list_size << ", thread info=" << wg->thread_debug_info();
     }
 
     // NOTE(wb) when is_set_workload_group_info=false, it means FE send a empty workload group list
