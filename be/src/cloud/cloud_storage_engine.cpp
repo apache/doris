@@ -837,11 +837,10 @@ void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
         tablet_mgr().get_max_tablet_delete_bitmap_score(&max_delete_bitmap_score,
                                                         &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
-            DorisMetrics::instance()->tablet_max_delete_bitmap_score->set_value(
-                    max_delete_bitmap_score);
+            _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
         }
         if (max_base_rowset_delete_bitmap_score > 0) {
-            DorisMetrics::instance()->tablet_max_base_rowset_delete_bitmap_score->set_value(
+            _tablet_max_base_rowset_delete_bitmap_score_metrics->set_value(
                     max_base_rowset_delete_bitmap_score);
         }
     }
