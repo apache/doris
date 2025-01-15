@@ -456,7 +456,7 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
 
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
-            if (rs.use_count() >= 1) {
+            if (rs.use_count() > 1) {
                 LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
                              << rs.use_count()
                              << " references. File Cache won't be recycled when query is using it.";
