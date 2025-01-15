@@ -1751,7 +1751,11 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     ret = finished ? ret : -1;
 
     if (ret != 0) { // failed recycle tablet data
-        LOG_WARNING("ret!=0").tag("finished", finished).tag("ret", ret);
+        LOG_WARNING("ret!=0")
+                .tag("finished", finished)
+                .tag("ret", ret)
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id);
         return ret;
     }
 
