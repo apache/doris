@@ -120,7 +120,7 @@ suite("test_load_and_schema_change_row_store_ck", "p0") {
         CLUSTER BY(c_datev2, c_date, c_largeint, c_tinyint, c_varchar, c_char, c_datetimev2, c_int, c_decimalv3, k1, c_decimal)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1");
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
         """
 
     wait_job_done.call(testTable)
