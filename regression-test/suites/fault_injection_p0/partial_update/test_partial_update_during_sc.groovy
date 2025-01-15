@@ -24,7 +24,11 @@ suite('test_partial_update_during_sc') {
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
         // block the alter process on BE
-        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
+        if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+        } else {
+            GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
+        }
     
         for (def use_nereids : [true, false]) {
             for (def use_row_store : [false, true]) {
