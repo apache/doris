@@ -106,6 +106,10 @@ protected:
     Status _cast_to_input_block();
     Status _convert_to_output_block(vectorized::Block* block);
     Status _init_expr_ctxes();
+    Status _convert_bitmap(vectorized::Block* block, vectorized::ColumnWithTypeAndName& arg,
+                                       uint32_t idx, vectorized::DataTypePtr return_type);
+    Status _convert_hll(vectorized::Block* block, vectorized::ColumnWithTypeAndName& arg,
+                                       uint32_t idx, vectorized::DataTypePtr return_type);
 
 private:
     bool _ready;
