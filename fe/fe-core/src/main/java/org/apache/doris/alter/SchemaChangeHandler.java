@@ -2086,10 +2086,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (alterClause instanceof BuildIndexClause) {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
-                    if (indexDef.getIndexType() == IndexDef.IndexType.NGRAM_BF
-                            || indexDef.getIndexType() == IndexDef.IndexType.BLOOMFILTER) {
-                        throw new DdlException("ngram bloomfilter or bloomfilter index is not needed to build.");
-                    }
                     Index index = buildIndexClause.getIndex();
                     if (!index.isLightIndexChangeSupported() || Config.isCloudMode()) {
                         throw new DdlException("BUILD INDEX can not be used since index "
@@ -2110,6 +2106,11 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Index existedIdx : existedIndexes) {
                         if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
                             found = true;
+                            if (!existedIdx.isLightIndexChangeSupported()) {
+                                throw new DdlException("BUILD INDEX can not be used since index "
+                                        + indexDef.getIndexName() + " with type " + indexDef.getIndexType()
+                                        + " does not support light index change.");
+                            }
                             index.setIndexId(existedIdx.getIndexId());
                             index.setColumns(existedIdx.getColumns());
                             index.setProperties(existedIdx.getProperties());
