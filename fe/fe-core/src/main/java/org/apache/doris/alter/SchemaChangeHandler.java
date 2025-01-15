@@ -2108,10 +2108,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                         + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
                                         + " does not support lightweight index changes.");
                             }
-                            index.setIndexId(existedIdx.getIndexId());
-                            index.setColumns(existedIdx.getColumns());
-                            index.setProperties(existedIdx.getProperties());
-                            index.setColumnUniqueIds(existedIdx.getColumnUniqueIds());
+                            index = existedIdx.clone();
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                             } else {
