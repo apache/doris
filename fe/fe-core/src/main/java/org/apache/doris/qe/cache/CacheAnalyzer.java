@@ -692,16 +692,21 @@ public class CacheAnalyzer {
         OlapTable olapTable = node.getOlapTable();
         cacheTable.partitionNum = node.getSelectedPartitionIds().size();
         cacheTable.table = olapTable;
-
+        List<Column> fullSchema = olapTable.getFullSchema();
+        long schemaHash = 0;
+        for (Column column : fullSchema) {
+            schemaHash = 31 * schemaHash + (column == null ? 0 : column.hashCode());
+        }
         DatabaseIf database = olapTable.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(
                 new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()),
-                olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
+                olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion(), schemaHash);
         scanTables.add(scanTable);
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             scanTable.addScanPartition(partitionId);
+            scanTable.addPartitionIdToVersionMap(partitionId, partition.getVisibleVersion());
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
@@ -713,7 +718,13 @@ public class CacheAnalyzer {
 
     private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
         CacheTable cacheTable = new CacheTable();
-        cacheTable.table = node.getTargetTable();
+        TableIf targetTable = node.getTargetTable();
+        List<Column> fullSchema = targetTable.getFullSchema();
+        long schemaHash = 0;
+        for (Column column : fullSchema) {
+            schemaHash = 31 * schemaHash + (column == null ? 0 : column.hashCode());
+        }
+        cacheTable.table = targetTable;
         cacheTable.partitionNum = node.getSelectedPartitionNum();
         cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
         TableIf tableIf = cacheTable.table;
@@ -721,7 +732,7 @@ public class CacheAnalyzer {
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
                 catalog.getName(), database.getFullName(), tableIf.getName()
-        ), cacheTable.latestPartitionTime, 0);
+        ), cacheTable.latestPartitionTime, 0, schemaHash);
         scanTables.add(scanTable);
         return cacheTable;
     }

@@ -448,10 +448,15 @@ public class SqlCacheContext {
         public final FullTableName fullTableName;
         public final long latestTimestamp;
         public final long latestVersion;
+        public final long latestSchemaHash;
         public final List<Long> scanPartitions = Lists.newArrayList();
+        public final Map<Long, Long> partitionIdToVersionMap = Maps.newHashMap();
 
         public void addScanPartition(Long partitionId) {
             this.scanPartitions.add(partitionId);
+        }
+        public void addPartitionIdToVersionMap(Long partitionId, Long version) {
+            this.partitionIdToVersionMap.put(partitionId, version);
         }
     }
 

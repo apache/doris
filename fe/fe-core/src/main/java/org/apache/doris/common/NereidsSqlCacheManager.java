@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -68,6 +69,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
@@ -294,20 +296,23 @@ public class NereidsSqlCacheManager {
                 return true;
             }
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableTime = olapTable.getVisibleVersionTime();
-            long cacheTableTime = scanTable.latestTimestamp;
-            long currentTableVersion = olapTable.getVisibleVersion();
-            long cacheTableVersion = scanTable.latestVersion;
-            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableTime > cacheTableTime
-                    || (currentTableTime == cacheTableTime && currentTableVersion > cacheTableVersion)) {
+            List<Column> fullSchema = olapTable.getFullSchema();
+            long currentSchemaHash = 0;
+            for (Column column : fullSchema) {
+                currentSchemaHash = 31 * currentSchemaHash + (column == null ? 0 : column.hashCode());
+            }
+            long cacheSchemaHash = scanTable.latestSchemaHash;
+            if (currentSchemaHash != cacheSchemaHash) {
                 return true;
             }
 
-            for (Long scanPartitionId : scanTable.getScanPartitions()) {
+            Map<Long, Long> partitionIdToVersionMap = scanTable.getPartitionIdToVersionMap();
+            for (Entry<Long, Long> entry : partitionIdToVersionMap.entrySet()) {
+                Long scanPartitionId = entry.getKey();
+                Long cachePartitionVersion = entry.getValue();
                 Partition partition = olapTable.getPartition(scanPartitionId);
                 // partition == null: is this partition truncated?
-                if (partition == null) {
+                if (partition == null || partition.getVisibleVersion() > cachePartitionVersion) {
                     return true;
                 }
             }
