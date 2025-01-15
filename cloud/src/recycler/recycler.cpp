@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -1628,12 +1629,30 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     std::string recyc_rs_key1 = recycle_rowset_key({instance_id_, tablet_id + 1, ""});
 
     std::set<std::string> resource_ids;
+    int64_t recycle_rowsets_number = 0;
+    int64_t recycle_segments_number = 0;
+    int64_t recycle_rowsets_data_size = 0;
+    int64_t recycle_rowsets_index_size = 0;
+    int64_t max_rowset_version = 0;
+    int64_t min_rowset_creation_time = INT64_MAX;
+    int64_t max_rowset_creation_time = 0;
+    int64_t min_rowset_expiration_time = INT64_MAX;
+    int64_t max_rowset_expiration_time = 0;
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG_INFO("recycle the rowsets of dropped tablet finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id)
+                .tag("recycle rowsets number", recycle_rowsets_number)
+                .tag("recycle segments number", recycle_segments_number)
+                .tag("all rowsets recycle data size", recycle_rowsets_data_size)
+                .tag("all rowsets recycle index size", recycle_rowsets_index_size)
+                .tag("max rowset version", max_rowset_version)
+                .tag("min rowset creation time", min_rowset_creation_time)
+                .tag("max rowset creation time", max_rowset_creation_time)
+                .tag("min rowset expiration time", min_rowset_expiration_time)
+                .tag("max rowset expiration time", max_rowset_expiration_time)
                 .tag("ret", ret);
     });
 
@@ -1647,14 +1666,17 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
         LOG_WARNING("failed to get rowsets of tablet when recycle tablet")
                 .tag("tablet id", tablet_id)
                 .tag("msg", msg)
-                .tag("code", code);
+                .tag("code", code)
+                .tag("instance id", instance_id_);
         ret = -1;
     }
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
         if (!rs_meta.has_resource_id()) {
-            continue;
+            LOG_WARNING("rowset meta does not have a resource id, impossible!")
+                    .tag("rs_meta", rs_meta.ShortDebugString());
+                    return -1;
         }
         auto it = accessor_map_.find(rs_meta.resource_id());
         // possible if the accessor is not initilized correctly
@@ -1665,17 +1687,29 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
                     .tag("tablet id", tablet_id)
                     .tag("instance_id", instance_id_)
                     .tag("resource_id", rs_meta.resource_id())
-                    .tag("rowset meta pb", rs_meta.DebugString());
-            continue;
+                    .tag("rowset meta pb", rs_meta.ShortDebugString());
+            return -1;
         }
+        recycle_rowsets_number += 1;
+        recycle_segments_number += rs_meta.num_segments();
+        recycle_rowsets_data_size += rs_meta.data_disk_size();
+        recycle_rowsets_index_size += rs_meta.index_disk_size();
+        max_rowset_version = std::max(max_rowset_version, rs_meta.end_version());
+        min_rowset_creation_time = std::min(min_rowset_creation_time, rs_meta.creation_time());
+        max_rowset_creation_time = std::max(max_rowset_creation_time, rs_meta.creation_time());
+        min_rowset_expiration_time = std::min(min_rowset_expiration_time, rs_meta.txn_expiration());
+        max_rowset_expiration_time = std::max(max_rowset_expiration_time, rs_meta.txn_expiration());
         resource_ids.emplace(rs_meta.resource_id());
     }
 
-    LOG_INFO("recycle tablet resource ids are")
-            .tag("", std::accumulate(resource_ids.begin(), resource_ids.end(), std::string(),
-                                     [](const std::string& a, const std::string& b) {
-                                         return a.empty() ? b : a + "," + b;
-                                     }));
+    LOG_INFO("recycle tablet start to delete object")
+            .tag("instance id", instance_id_)
+            .tag("tablet id", tablet_id)
+            .tag("recycle tablet resource ids are",
+                 std::accumulate(resource_ids.begin(), resource_ids.end(), std::string(),
+                                 [](const std::string& a, const std::string& b) {
+                                     return a.empty() ? b : a + "," + b;
+                                 }));
 
     SyncExecutor<int> concurrent_delete_executor(
             _thread_pool_group.s3_producer_pool,
