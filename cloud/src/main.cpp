@@ -261,7 +261,6 @@ int main(int argc, char** argv) {
     LOG(INFO) << "successfully init txn kv, elapsed milliseconds: "
               << duration_cast<milliseconds>(end - start_init_kv).count();
 
-
     if (init_global_encryption_key_info_map(txn_kv.get()) != 0) {
         LOG(WARNING) << "failed to init global encryption key map";
         return -1;
