@@ -2999,7 +2999,7 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
             [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; }, &guard2);
     SyncPoint::CallbackGuard guard3;
     sp->set_call_back(
-            "BlockFileCache::recycle_deleted_blocks",
+            "BlockFileCache::clear_file_cache_async",
             [&](auto&&) {
                 context.cache_type = io::FileCacheType::NORMAL;
                 FileBlocksHolder h = cache.get_or_set(key, 0, 5, context);
