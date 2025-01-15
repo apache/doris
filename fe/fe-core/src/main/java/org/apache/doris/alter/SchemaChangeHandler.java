@@ -2086,7 +2086,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (alterClause instanceof BuildIndexClause) {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
-                    if (indexDef.isInvertedIndex()) {
+                    if (indexDef.getIndexType() == IndexDef.IndexType.NGRAM_BF
+                            || indexDef.getIndexType() == IndexDef.IndexType.BLOOMFILTER) {
                         throw new DdlException("ngram bloomfilter or bloomfilter index is not needed to build.");
                     }
                     Index index = buildIndexClause.getIndex();
