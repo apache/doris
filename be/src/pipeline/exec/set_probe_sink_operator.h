@@ -75,9 +75,9 @@ public:
     using typename Base::LocalState;
 
     friend class SetProbeSinkLocalState<is_intersect>;
-    SetProbeSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                          const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id),
+    SetProbeSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                          const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, dest_id),
               _cur_child_id(child_id),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),

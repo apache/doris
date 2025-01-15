@@ -85,11 +85,11 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
-                                                                   int operator_id,
+                                                                   int operator_id, int dest_id,
                                                                    const TPlanNode& tnode,
                                                                    const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
-                                                                    descs),
+        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
+                                                                    tnode, descs),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
