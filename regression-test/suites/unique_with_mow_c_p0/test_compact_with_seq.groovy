@@ -17,11 +17,13 @@
 
 // do compaction during commit rowset
 suite("test_compact_with_seq", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_compact_with_seq"
 
     def enable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            // GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
             GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
         }
@@ -29,7 +31,7 @@ suite("test_compact_with_seq", "nonConcurrent") {
 
     def enable_block_in_publish = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            // GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
             GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
         }
@@ -66,8 +68,10 @@ suite("test_compact_with_seq", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
-    sql """ INSERT INTO ${tableName} VALUES (10, 20, 36, 39),(17, 20, 39, 46),(16, 20, 33, 44),(12, 20, 31, 49),(15, 20, 32, 39); """
-    sql """ INSERT INTO ${tableName} VALUES (13, 20, 35, 49),(11, 20, 38, 39),(12, 20, 38, 39),(13, 20, 33, 41),(14, 20, 32, 38); """
+    if (!isCloudMode()) {
+        sql """ INSERT INTO ${tableName} VALUES (10, 20, 36, 39),(17, 20, 39, 46),(16, 20, 33, 44),(12, 20, 31, 49),(15, 20, 32, 39); """
+        sql """ INSERT INTO ${tableName} VALUES (13, 20, 35, 49),(11, 20, 38, 39),(12, 20, 38, 39),(13, 20, 33, 41),(14, 20, 32, 38); """
+    }
     order_qt_select2 """ select * from ${tableName}; """
 
     // trigger compaction
@@ -102,6 +106,10 @@ suite("test_compact_with_seq", "nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllFEs()
     GetDebugPoint().clearDebugPointsForAllBEs()
+    if (isCloudMode()) {
+        sql """ INSERT INTO ${tableName} VALUES (10, 20, 36, 39),(17, 20, 39, 46),(16, 20, 33, 44),(12, 20, 31, 49),(15, 20, 32, 39); """
+        sql """ INSERT INTO ${tableName} VALUES (13, 20, 35, 49),(11, 20, 38, 39),(12, 20, 38, 39),(13, 20, 33, 41),(14, 20, 32, 38); """
+    }
     // wait for publish
     for (int i = 0; i < 30; i++) {
         def result = sql "select v4 from ${tableName} where k1 = 13;"

@@ -29,10 +29,10 @@ suite("test_mv_case") {
             "replication_allocation" = "tag.location.default: 1"
             );"""
     sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa2;"""
-    sql """create materialized view ods_zn_dnt_max1 as
+    createMV("""create materialized view ods_zn_dnt_max1 as
             select ordernum,max(dnt) as dnt from test_table_aaa2
             group by ordernum
-            ORDER BY ordernum;"""
+            ORDER BY ordernum;""")
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}' ;"""

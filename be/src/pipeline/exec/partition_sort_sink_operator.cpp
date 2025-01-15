@@ -17,6 +17,8 @@
 
 #include "partition_sort_sink_operator.h"
 
+#include <glog/logging.h>
+
 #include <cstdint>
 
 #include "common/status.h"
@@ -47,6 +49,7 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
+    _sorted_data_timer = ADD_TIMER(_profile, "SortedDataTime");
     _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
     _sorted_partition_input_rows_counter =
             ADD_COUNTER(_profile, "SortedPartitionInputRows", TUnit::UNIT);
@@ -61,13 +64,13 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 }
 
 PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                       const TPlanNode& tnode,
+                                                       int dest_id, const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : DataSinkOperatorX(operator_id, tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _limit(tnode.limit),
-          _partition_exprs_num(cast_set<int>(tnode.partition_sort_node.partition_exprs.size())),
+          _partition_exprs_num(static_cast<int>(tnode.partition_sort_node.partition_exprs.size())),
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
           _has_global_limit(tnode.partition_sort_node.has_global_limit),
           _top_n_algorithm(tnode.partition_sort_node.top_n_algorithm),
@@ -134,17 +137,23 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         //seems could free for hashtable
         local_state._agg_arena_pool.reset(nullptr);
         local_state._partitioned_data.reset(nullptr);
+        SCOPED_TIMER(local_state._sorted_data_timer);
+        for (auto& _value_place : local_state._value_places) {
+            _value_place->create_or_reset_sorter_state();
+            local_state._shared_state->partition_sorts.emplace_back(
+                    std::move(_value_place->_partition_topn_sorter));
+        }
+        // notice: need split two for loop, as maybe need check sorter early
         for (int i = 0; i < local_state._value_places.size(); ++i) {
-            local_state._value_places[i]->create_or_reset_sorter_state();
-            auto sorter = std::move(local_state._value_places[i]->_partition_topn_sorter);
-
-            //get blocks from every partition, and sorter get those data.
+            auto& sorter = local_state._shared_state->partition_sorts[i];
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
-            local_state._shared_state->partition_sorts.push_back(std::move(sorter));
+            // iff one sorter have data, then could set source ready to read
+            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            local_state._dependency->set_ready_to_read();
         }
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
@@ -154,6 +163,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         {
             std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
             local_state._shared_state->sink_eos = true;
+            // this ready is also need, as source maybe block by self in some case
             local_state._dependency->set_ready_to_read();
         }
         local_state._profile->add_info_string("HasPassThrough",

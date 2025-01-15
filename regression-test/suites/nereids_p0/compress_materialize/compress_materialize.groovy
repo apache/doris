@@ -17,6 +17,7 @@
 
 suite("compress_materialize") {
     sql """
+    set enable_compress_materialize=true;
     drop table if exists compress;
     CREATE TABLE `compress` (
     `k` varchar(5) NOT NULL,
@@ -193,6 +194,5 @@ suite("compress_materialize") {
     qt_sort "select * from compressSort order by k desc, v";
     qt_sort "select * from compressSort order by k desc nulls last";
     qt_sort "select * from compressSort order by k desc nulls last, v limit 3";
-
 }
 

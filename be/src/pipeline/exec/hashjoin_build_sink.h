@@ -109,8 +109,8 @@ protected:
 class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
-    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                               const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -201,10 +201,12 @@ struct ProcessHashTableBuild {
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
                                                                       *has_null_key);
+
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_build_raw_ptrs.size() == 1 && null_map) {
             _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
         }
+
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
@@ -213,7 +215,7 @@ struct ProcessHashTableBuild {
         if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
              JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
             with_other_conjuncts) {
-            //null aware join with other conjuncts
+            // null aware join with other conjuncts
             keep_null_key = true;
         } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
                    _parent->_shared_state->is_null_safe_eq_join[0]) {

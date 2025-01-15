@@ -16,7 +16,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.Duration
+
 suite("test_default_current_timestamp") {
+    // This case assumes that the execution will not cross 24:00 during runtime. 
+    // Therefore, if the execution time is greater than 23:59:30, it will wait until 24:00 to proceed.
+    def t = sql "select now()"
+    LocalTime currentTime = t[0][0].toLocalTime()
+    if (currentTime.isAfter(LocalTime.of(23, 59, 30))) {
+        def s = Duration.between(currentTime, LocalTime.of(23, 59, 59)).seconds + 2
+        logger.info("sleep ${s} seconds to 24:00")
+        Thread.sleep(s * 1000)
+    } 
+
     def tbName = "test_default_current_timestamp"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """

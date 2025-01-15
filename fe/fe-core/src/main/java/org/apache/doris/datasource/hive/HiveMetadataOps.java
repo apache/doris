@@ -46,6 +46,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,9 +139,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         if (!databaseExist(dbName)) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 return;
             } else {
@@ -179,6 +184,25 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     props.put("owner", ConnectContext.get().getUserIdentity().getUser());
                 }
             }
+
+            if (props.containsKey("transactional") && props.get("transactional").equalsIgnoreCase("true")) {
+                throw new UserException("Not support create hive transactional table.");
+                /*
+                    CREATE TABLE trans6(
+                      `col1` int,
+                      `col2` int
+                    )  ENGINE=hive
+                    PROPERTIES (
+                      'file_format'='orc',
+                      'compression'='zlib',
+                      'bucketing_version'='2',
+                      'transactional'='true',
+                      'transactional_properties'='default'
+                    );
+                    In hive, this table only can insert not update(not report error,but not actually updated).
+                 */
+            }
+
             String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
             Map<String, String> ddlProps = new HashMap<>();
             for (Map.Entry<String, String> entry : props.entrySet()) {
@@ -273,6 +297,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tblName, dbName);
             }
         }
+        if (AcidUtils.isTransactionalTable(client.getTable(dbName, tblName))) {
+            throw new DdlException("Not support drop hive transactional table.");
+        }
+
         try {
             client.dropTable(dbName, tblName);
             db.setUnInitialized(true);
