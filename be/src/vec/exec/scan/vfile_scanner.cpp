@@ -27,6 +27,7 @@
 #include <iterator>
 #include <map>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -176,16 +177,77 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     return Status::OK();
 }
 
-Status VFileScanner::_process_runtime_filters_partition_pruning(bool& is_partition_pruning) {
+Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
+    VExprContextSPtrs ctxs;
+
     for (auto& conjunct : _push_down_conjuncts) {
         auto impl = conjunct->root()->get_impl();
         if (impl) {
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto* runtime_filter = typeid_cast<VRuntimeFilterWrapper*>(impl.get());
             VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
-            // filter_impl->execute_runtime_fitler(VExprContext *context, Block *block, int *result_column_id, ColumnNumbers &args)
+            ctxs.emplace_back(std::make_shared<VExprContext>(filter_impl));
         }
     }
+
+    size_t partition_value_column_size = 0;
+    // 1. Get partition key values to string columns.
+    std::unordered_map<SlotId, MutableColumnPtr> parititon_slot_id_to_column;
+    for (auto const& partition_col_desc : _partition_col_descs) {
+        auto partiton_data = std::get<0>(partition_col_desc.second);
+        auto partiton_slot_desc = std::get<1>(partition_col_desc.second);
+        MutableColumnPtr partition_value_column = ColumnString::create();
+        partition_value_column->insert_data(partiton_data.c_str(), partiton_data.size());
+        parititon_slot_id_to_column[partiton_slot_desc->id()] = partition_value_column;
+        partition_value_column_size = partition_value_column->size();
+    }
+
+    // 2. Build a temp block from the partition column, then execute conjuncts and filter block.
+    // 2.1 Build a temp block from the partition column to match the conjuncts executing.
+    Block temp_block;
+    int index = 0;
+    bool first_cloumn_filled = false;
+    for (auto const* slot_desc : _real_tuple_desc->slots()) {
+        if (!slot_desc->need_materialize()) {
+            // should be ignored from reading
+            continue;
+        }
+        if (parititon_slot_id_to_column.find(slot_desc->id()) !=
+            parititon_slot_id_to_column.end()) {
+            auto data_type = slot_desc->get_data_type_ptr();
+            auto partition_value_column = parititon_slot_id_to_column[slot_desc->id()];
+            if (data_type->is_nullable()) {
+                temp_block.insert(
+                        {ColumnNullable::create(
+                                 std::move(partition_value_column),
+                                 ColumnUInt8::create(partition_value_column_size, 0)),
+                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+                         ""});
+            } else {
+                temp_block.insert({std::move(partition_value_column),
+                                   std::make_shared<DataTypeString>(), ""});
+            }
+            if (index == 0) {
+                first_cloumn_filled = true;
+            }
+        } else {
+            temp_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+                                                    slot_desc->get_data_type_ptr(),
+                                                    slot_desc->col_name()));
+        }
+        index++;
+    }
+
+    // 2.2 Execute conjuncts.
+    if (!first_cloumn_filled) {
+        // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
+        // The following process may be tricky and time-consuming, but we have no other way.
+        temp_block.get_by_position(0).column->assume_mutable()->resize(partition_value_column_size);
+    }
+    IColumn::Filter result_filter(temp_block.rows(), 1);
+    RETURN_IF_ERROR(VExprContext::execute_conjuncts(ctxs, nullptr, &temp_block, &result_filter,
+                                                    &can_filter_all));
+    return Status::OK();
 }
 
 Status VFileScanner::_process_conjuncts_for_dict_filter() {
@@ -769,9 +831,9 @@ Status VFileScanner::_get_next_reader() {
         // runtime filter partition pruning
         // so we need get partition columns first
         RETURN_IF_ERROR(_generate_parititon_columns());
-        bool is_partition_pruning = false;
-        RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(is_partition_pruning));
-        if (is_partition_pruning) {
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(can_filter_all));
+        if (can_filter_all) {
             _cur_reader = EmptyBlockReader::create_unique();
             return Status::OK();
         }
