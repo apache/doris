@@ -419,4 +419,59 @@ void CloudTabletMgr::get_tablet_info(int64_t num_tablets, std::vector<TabletInfo
     }
 }
 
+void CloudTabletMgr::get_max_tablet_delete_bitmap_score(
+        uint64_t* max_delete_bitmap_score, uint64_t* max_base_rowset_delete_bitmap_score) {
+    auto weak_tablets = get_weak_tablets();
+    int64_t max_delete_bitmap_score_tablet_id = 0;
+    int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
+    for (auto& weak_tablet : weak_tablets) {
+        auto t = weak_tablet.lock();
+        if (t == nullptr) {
+            continue;
+        }
+        uint64_t delete_bitmap_count =
+                t.get()->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+        if (delete_bitmap_count > *max_delete_bitmap_score) {
+            max_delete_bitmap_score_tablet_id = t->tablet_id();
+            *max_delete_bitmap_score = delete_bitmap_count;
+        }
+        //get base rowset delete bitmap count
+        std::vector<RowsetSharedPtr> rowsets_;
+        std::string base_rowset_id_str;
+        {
+            std::shared_lock rowset_ldlock(t->get_header_lock());
+            for (const auto& it : t->rowset_map()) {
+                rowsets_.emplace_back(it.second);
+            }
+        }
+        std::sort(rowsets_.begin(), rowsets_.end(), Rowset::comparator);
+        if (!rowsets_.empty()) {
+            for (auto& rowset : rowsets_) {
+                if (rowset->rowset_meta()->total_disk_size() == 0) {
+                    continue;
+                }
+                base_rowset_id_str = rowset->rowset_id().to_string();
+                break;
+            }
+        }
+        if (!base_rowset_id_str.empty()) {
+            DeleteBitmap subset_map(t->tablet_id());
+            RowsetId base_rowset_id;
+            base_rowset_id.init(base_rowset_id_str);
+            t.get()->tablet_meta()->delete_bitmap().subset(
+                    {base_rowset_id, 0, 0}, {base_rowset_id, UINT32_MAX, UINT64_MAX}, &subset_map);
+            uint64_t base_rowset_delete_bitmap_count = subset_map.get_delete_bitmap_count();
+            if (base_rowset_delete_bitmap_count > *max_base_rowset_delete_bitmap_score) {
+                *max_base_rowset_delete_bitmap_score = base_rowset_delete_bitmap_count;
+                max_base_rowset_delete_bitmap_score_tablet_id = t->tablet_id();
+            }
+        }
+    }
+    LOG(INFO) << "max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ",max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id;
+}
+
 } // namespace doris

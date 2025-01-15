@@ -226,6 +226,9 @@ public:
     IntCounter* scanner_cnt = nullptr;
     IntCounter* scanner_task_cnt = nullptr;
 
+    //delete bitmap metrics
+    IntGauge* tablet_max_delete_bitmap_score = nullptr;
+    IntGauge* tablet_max_base_rowset_delete_bitmap_score = nullptr;
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

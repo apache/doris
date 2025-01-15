@@ -59,6 +59,8 @@ DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
 DEFINE_mInt32(schedule_sync_tablets_interval_s, "600");
 
 DEFINE_mInt32(mow_stream_load_commit_retry_times, "10");
+DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "30");
+DEFINE_mBool(check_tablet_delete_bitmap_score_enable, "true");
 
 DEFINE_mBool(save_load_error_log_to_s3, "false");
 

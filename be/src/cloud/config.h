@@ -92,6 +92,8 @@ DECLARE_mInt32(schedule_sync_tablets_interval_s);
 
 // Cloud mow
 DECLARE_mInt32(mow_stream_load_commit_retry_times);
+DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
+DECLARE_mBool(check_tablet_delete_bitmap_score_enable);
 
 DECLARE_mBool(save_load_error_log_to_s3);
 

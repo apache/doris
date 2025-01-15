@@ -156,6 +156,7 @@ private:
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
     void _lease_compaction_thread_callback();
+    void _check_tablet_delete_bitmap_score_callback();
 
     std::atomic_bool _stopped {false};
 
