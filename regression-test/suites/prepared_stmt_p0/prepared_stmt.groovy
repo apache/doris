@@ -89,6 +89,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read2.close()
 
         sql "DROP TABLE IF EXISTS mytable1"
+        sql "DROP TABLE IF EXISTS mytable2"
         sql """
           CREATE TABLE mytable1
           (
@@ -255,5 +256,58 @@ suite("test_prepared_stmt", "nonConcurrent") {
         sql """set enable_server_side_prepared_statement = false"""
         def stmt_insert = prepareStatement "insert into mytable1 values(?, ?, ?, ?)"  
         assertEquals(stmt_insert.class, com.mysql.cj.jdbc.ClientPreparedStatement);
+
+        // test prepared with between, test placeholder equal
+        sql """insert into mytable2 values(3,1,'user1',10);"""
+        stmt_read = prepareStatement "SELECT COUNT() from mytable2 WHERE siteid between ? and ?"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        stmt_read.setInt(1, 0)
+        stmt_read.setInt(2, 3)
+        qe_select17 stmt_read
+
+
+        // test array1
+        stmt_read = prepareStatement """SELECT 1, [1, 2, 3], null, ["1"], null, null, [1.111]"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select18 stmt_read
+
+        // test array2
+        stmt_read = prepareStatement "SELECT 1, [1, 2, 3], null"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select18_1 stmt_read
+
+        // test array3
+        stmt_read = prepareStatement """SELECT 1, [1, null, 3], null, [null], null, null, [null, null]"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select18_2 stmt_read
+
+        // test map
+        stmt_read = prepareStatement """SELECT 1, {"a" : 1}, null"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select19 stmt_read
+
+        // test struct
+        stmt_read = prepareStatement """SELECT 1, struct('a', 1, 'doris', 'aaaaa', 1.32), null"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select20 stmt_read
+
+        // test nested array
+        stmt_read = prepareStatement("""SELECT 1, [[1, 2], [3, 4]], null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select21 stmt_read
+
+        // test nested map
+        stmt_read = prepareStatement("""SELECT 1, {"a": {"b": 2}}, null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select22 stmt_read
+
+        // test struct with array
+        stmt_read = prepareStatement("""SELECT 1, struct('name', 'doris', 'values', [1, 2, 3]), null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select23 stmt_read
+
+        stmt_read = prepareStatement("""SELECT 1, null, [{'id': 1, 'name' : 'doris'}, {'id': 2, 'name': 'apache'}, null], null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select24 stmt_read
     }
 }
