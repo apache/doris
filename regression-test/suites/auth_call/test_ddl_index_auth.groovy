@@ -58,7 +58,7 @@ suite("test_ddl_index_auth","p0,auth_call") {
         logger.info("cluster:" + clusters)
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
     sql """create database ${dbName}"""
     sql """
