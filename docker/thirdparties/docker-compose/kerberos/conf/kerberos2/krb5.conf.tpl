@@ -16,19 +16,20 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -euo pipefail
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
+ admin_server = FILE:/var/log/kadmind.log
 
-if test $# -gt 0; then
-    echo "$0 does not accept arguments" >&2
-    exit 32
-fi
+[libdefaults]
+ default_realm = OTHERREALM.COM
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ forwardable = true
+ allow_weak_crypto = true
 
-set -x
-
-HEALTH_D=${HEALTH_D:-/etc/health.d/}
-
-if test -d "${HEALTH_D}"; then
-    for health_script in "${HEALTH_D}"/*; do
-        "${health_script}" &>> /var/log/container-health.log || exit 1
-    done
-fi
+[realms]
+ OTHERREALM.COM = {
+  kdc = ${HOST}:${KDC_PORT1}
+  admin_server = ${HOST}:${KADMIND_PORT1}
+ }
