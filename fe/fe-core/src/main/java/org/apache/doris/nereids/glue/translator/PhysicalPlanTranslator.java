@@ -959,7 +959,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
         ArrayList<Expr> execGroupingExpressions = groupByExpressions.stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
+                .map(e -> {
+                    Expr result = ExpressionTranslator.translate(e, context);
+                    if (result == null) {
+                        throw new RuntimeException("translate " + e + " failed");
+                    }
+                    return result;
+                })
                 .collect(Collectors.toCollection(ArrayList::new));
         // 2. collect agg expressions and generate agg function to slot reference map
         List<Slot> aggFunctionOutput = Lists.newArrayList();
