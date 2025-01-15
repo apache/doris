@@ -172,7 +172,7 @@ MemTable::~MemTable() {
         // allocated in arena.
         _arena.reset();
         _vec_row_comparator.reset();
-        _row_in_blocks->reset();
+        _row_in_blocks.reset();
         _agg_functions.clear();
         _input_mutable_block.clear();
         _output_mutable_block.clear();
