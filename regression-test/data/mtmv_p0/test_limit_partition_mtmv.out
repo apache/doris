@@ -65,3 +65,6 @@
 
 -- !no_partition --
 
+-- !default_sync_limit --
+2	2020-01-02
+
