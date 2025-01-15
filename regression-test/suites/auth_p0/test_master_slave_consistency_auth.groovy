@@ -110,7 +110,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
         }
 
         logger.info("url_tmp1:" + url_tmp1)
