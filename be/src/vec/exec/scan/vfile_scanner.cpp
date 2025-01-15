@@ -32,6 +32,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -52,6 +53,7 @@
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/empty_block_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
@@ -172,6 +174,18 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
                                                   std::vector<bool>({false})));
 
     return Status::OK();
+}
+
+Status VFileScanner::_process_runtime_filters_partition_pruning(bool& is_partition_pruning) {
+    for (auto& conjunct : _push_down_conjuncts) {
+        auto impl = conjunct->root()->get_impl();
+        if (impl) {
+            // If impl is not null, which means this a conjuncts from runtime filter.
+            auto* runtime_filter = typeid_cast<VRuntimeFilterWrapper*>(impl.get());
+            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
+            // filter_impl->execute_runtime_fitler(VExprContext *context, Block *block, int *result_column_id, ColumnNumbers &args)
+        }
+    }
 }
 
 Status VFileScanner::_process_conjuncts_for_dict_filter() {
@@ -752,6 +766,16 @@ Status VFileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
+        // runtime filter partition pruning
+        // so we need get partition columns first
+        RETURN_IF_ERROR(_generate_parititon_columns());
+        bool is_partition_pruning = false;
+        RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(is_partition_pruning));
+        if (is_partition_pruning) {
+            _cur_reader = EmptyBlockReader::create_unique();
+            return Status::OK();
+        }
+
         // create reader for specific format
         Status init_status;
         // for compatibility, if format_type is not set in range, use the format type of params
@@ -858,7 +882,7 @@ Status VFileScanner::_get_next_reader() {
                         &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonParquetReader> paimon_reader =
                         PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
-                                                           *_params);
+                                                           _state, *_params, range);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(paimon_reader);
             } else {
@@ -920,8 +944,8 @@ Status VFileScanner::_get_next_reader() {
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
-                std::unique_ptr<PaimonOrcReader> paimon_reader =
-                        PaimonOrcReader::create_unique(std::move(orc_reader), _profile, *_params);
+                std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
+                        std::move(orc_reader), _profile, _state, *_params, range);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(paimon_reader);
             } else {
@@ -1012,7 +1036,8 @@ Status VFileScanner::_get_next_reader() {
         _missing_cols.clear();
         RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
-        RETURN_IF_ERROR(_generate_fill_columns());
+        RETURN_IF_ERROR(_generate_missing_columns());
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
             for (auto& col : _missing_cols) {
@@ -1042,10 +1067,8 @@ Status VFileScanner::_get_next_reader() {
     return Status::OK();
 }
 
-Status VFileScanner::_generate_fill_columns() {
+Status VFileScanner::_generate_parititon_columns() {
     _partition_col_descs.clear();
-    _missing_col_descs.clear();
-
     const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
@@ -1066,7 +1089,11 @@ Status VFileScanner::_generate_fill_columns() {
             }
         }
     }
+    return Status::OK();
+}
 
+Status VFileScanner::_generate_missing_columns() {
+    _missing_col_descs.clear();
     if (!_missing_cols.empty()) {
         for (auto slot_desc : _real_tuple_desc->slots()) {
             if (!slot_desc->is_materialized()) {
@@ -1084,8 +1111,7 @@ Status VFileScanner::_generate_fill_columns() {
             _missing_col_descs.emplace(slot_desc->col_name(), it->second);
         }
     }
-
-    return _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs);
+    return Status::OK();
 }
 
 Status VFileScanner::_init_expr_ctxes() {
