@@ -300,7 +300,9 @@ public:
                 number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
                                                                &result);
                 if (result != StringParser::PARSE_SUCCESS) {
-                    number = 0;
+                    err_ = JsonbErrType::E_INVALID_NUMBER;
+                    LOG(WARNING) << "invalid number, raw string is: " << raw_string;
+                    return;
                 }
             }
 
