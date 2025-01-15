@@ -1387,6 +1387,11 @@ public class SchemaChangeHandler extends AlterHandler {
             List<String> oriRowStoreColumns = olapTable.getTableProperty().getCopiedRowStoreColumns();
             if ((oriRowStoreColumns != null && !oriRowStoreColumns.equals(rsColumns))
                     || storeRowColumn != olapTable.storeRowColumn()) {
+                // only support mow and duplicate model
+                if (!(olapTable.getKeysType() == KeysType.DUP_KEYS
+                        || olapTable.getEnableUniqueKeyMergeOnWrite())) {
+                    throw new DdlException("`store_row_column` only support duplicate model or mow model");
+                }
                 hasRowStoreChanged = true;
             }
         }
