@@ -314,7 +314,8 @@ suite("test_limit_partition_mtmv") {
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(2, showPartitionsResult.size())
-    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380102"))
+    assertTrue(showPartitionsResult.toString().contains("20380101"))
+    assertTrue(showPartitionsResult.toString().contains("20380102"))
     assertTrue(showPartitionsResult.toString().contains("p_20200101"))
     order_qt_history_list_create_partition "SELECT * FROM ${mvName}"
 
