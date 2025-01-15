@@ -593,20 +593,47 @@ suite("test_limit_partition_mtmv") {
 
     sql """drop materialized view if exists ${mvName};"""
 
-
+    // test large num
+    test {
+        sql """
+                CREATE MATERIALIZED VIEW ${mvName}
+                    BUILD DEFERRED REFRESH AUTO ON MANUAL
+                    partition by(`k2`)
+                    DISTRIBUTED BY RANDOM BUCKETS 2
+                    PROPERTIES (
+                    'replication_num' = '1',
+                    'partition_sync_limit'='2147483648',
+                    'partition_sync_time_unit'='DAY'
+                    )
+                    AS
+                    SELECT * FROM ${tableName};
+            """
+        exception "valid partition_sync_limit"
+    }
+    // Negative numbers are equivalent to not being set
     sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by(`k2`)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1',
-            'partition_sync_limit'='1',
-            'partition_sync_time_unit'='DAY'
-            )
-            AS
-            SELECT * FROM ${tableName};
-    """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by(`k2`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1',
+                'partition_sync_limit'='-2',
+                'partition_sync_time_unit'='DAY'
+                )
+                AS
+                SELECT * FROM ${tableName};
+        """
+
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_default_sync_limit "SELECT * FROM ${mvName}"
+
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }
