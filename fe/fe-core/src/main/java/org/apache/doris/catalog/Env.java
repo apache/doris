@@ -4172,13 +4172,13 @@ public class Env {
             throw new DdlException("DropTableStmt is null");
         }
         dropTable(stmt.getCatalogName(), stmt.getDbName(), stmt.getTableName(), stmt.isView(),
-            stmt.isMaterializedView(), stmt.isSetIfExists(), stmt.isForceDrop());
+                stmt.isMaterializedView(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
                           boolean ifExists, boolean force) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
-            catalog -> new DdlException(("Unknown catalog " + catalog)));
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
     }
 

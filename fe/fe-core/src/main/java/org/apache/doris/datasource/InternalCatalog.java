@@ -886,7 +886,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("DropTableStmt is null");
         }
         dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
-            stmt.isSetIfExists(), stmt.isForceDrop());
+                stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
@@ -918,21 +918,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (isView) {
                 if (!(table instanceof View)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
-                        genDropHint(dbName, table));
+                            genDropHint(dbName, table));
                 }
             } else {
                 if (table instanceof View) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
-                        genDropHint(dbName, table));
+                            genDropHint(dbName, table));
                 }
             }
 
             if (!isMtmv && table instanceof MTMV) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
-                    genDropHint(dbName, table));
+                        genDropHint(dbName, table));
             } else if (isMtmv && !(table instanceof MTMV)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
-                    genDropHint(dbName, table));
+                        genDropHint(dbName, table));
             }
 
             if (!force) {
@@ -972,7 +972,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         watch.stop();
         costTimes.put("6:total", watch.getTime());
         LOG.info("finished dropping table: {} from db: {}, is view: {}, is force: {}, cost: {}",
-            tableName, dbName, isView, force, costTimes);
+                tableName, dbName, isView, force, costTimes);
     }
 
     // drop table without any check.

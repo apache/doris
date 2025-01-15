@@ -637,8 +637,8 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createRoleCommand, context);
     }
 
-    default R visitDropTableCommand(DropTableCommand DropTableCommand, C context) {
-        return visitCommand(DropTableCommand, context);
+    default R visitDropTableCommand(DropTableCommand dropTableCommand, C context) {
+        return visitCommand(dropTableCommand, context);
     }
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {

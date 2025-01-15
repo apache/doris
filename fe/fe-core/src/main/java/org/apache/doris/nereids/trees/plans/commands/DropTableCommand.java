@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.base.Strings;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
@@ -31,6 +29,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Strings;
+
+// drop table for nereids
 public class DropTableCommand extends Command implements ForwardWithSync {
 
     private boolean ifExists;
@@ -60,7 +61,6 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         return visitor.visitDropTableCommand(this, context);
     }
 
-
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
@@ -70,12 +70,12 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ctx);
         // check access
         if (!Env.getCurrentEnv().getAccessManager()
-            .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
         Env.getCurrentEnv().dropTable(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), isView,
-            isMaterializedView, ifExists, forceDrop);
+                isMaterializedView, ifExists, forceDrop);
     }
 
     @Override
