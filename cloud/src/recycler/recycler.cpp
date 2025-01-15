@@ -1676,7 +1676,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
         if (!rs_meta.has_resource_id()) {
             LOG_WARNING("rowset meta does not have a resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString());
-                    return -1;
+            return -1;
         }
         auto it = accessor_map_.find(rs_meta.resource_id());
         // possible if the accessor is not initilized correctly
