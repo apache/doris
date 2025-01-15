@@ -543,7 +543,7 @@ private:
 
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
 
-    // thread to produce both base and cumulative compaction tasks
+    // thread to check tablet delete bitmap count tasks
     scoped_refptr<Thread> _check_delete_bitmap_score_thread;
 };
 
