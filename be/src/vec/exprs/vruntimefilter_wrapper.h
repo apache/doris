@@ -78,6 +78,8 @@ public:
         }
     }
 
+    bool is_rf_wrapper() const override { return true; }
+
 private:
     VExprSPtr _impl;
 
