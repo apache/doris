@@ -38,13 +38,23 @@ suite("test_left_join_with", "query") {
          """
 
     sql """insert into ${tbName} values (1,'a',10),(2,'b',20),(3,'c',30);"""
+	qt_select """
+				with t1 as (select 1 id)
+				select a.id,a.name,a.age
+				from ${tbName} a
+				join (select id from ${tbName} where id = (select * from t1)) b on a.id = b.id
+				; 
+				"""
+	sql "set global runtime_filter_type='IN';"
 
-    qt_select """
-                with t1 as (select 1 id)
-                select a.id,a.name,a.age
-                from ${tbName} a
-                join (select id from ${tbName} where id = (select * from t1)) b on a.id = b.id
-                ; 
-              """
+	sql "set global runtime_filter_max_in_num=1;"
+
+	qt_select """
+				with t1 as (select 1 id)
+				select a.id,a.name,a.age
+				from ${tbName} a
+				join (select id from ${tbName} where id = (select * from t1)) b on a.id = b.id
+				; 
+				"""
 
 }

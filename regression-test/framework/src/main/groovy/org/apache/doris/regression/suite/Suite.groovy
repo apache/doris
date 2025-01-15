@@ -460,7 +460,7 @@ class Suite implements GroovyInterceptable {
         // get all column names as list
         List<String> columnNames = new ArrayList<>()
         for (int i = 0; i < meta.getColumnCount(); i++) {
-            columnNames.add(meta.getColumnName(i + 1))
+            columnNames.add(meta.getColumnLabel(i + 1))
         }
 
         // add result to res map list, each row is a map with key is column name

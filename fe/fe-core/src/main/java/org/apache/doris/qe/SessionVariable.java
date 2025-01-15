@@ -938,7 +938,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
     public int batchSize = 4064;
 
     // 16352 + 16 + 16 = 16384
@@ -2471,74 +2471,69 @@ public class SessionVariable implements Serializable, Writable {
                 break;
         }
         */
-        // pull_request_id default value is 0. When it is 0, use default (global) session variable.
-        if (Config.pull_request_id > 0) {
-            switch (Config.pull_request_id % 4) {
-                case 0:
-                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                case 1:
-                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                case 2:
-                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                case 3:
-                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                default:
-                    break;
-            }
+        switch (random.nextInt(4)) {
+            case 0:
+                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                break;
+            case 1:
+                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                break;
+            case 2:
+                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                break;
+            case 3:
+                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                break;
+            default:
+                break;
+        }
 
-            switch (Config.pull_request_id % 3) {
-                case 0:
-                    this.fragmentTransmissionCompressionCodec = "snappy";
-                    this.runtimeFilterWaitTimeMs = 10;
-                    break;
-                case 1:
-                    this.fragmentTransmissionCompressionCodec = "lz4";
-                    break;
-                default:
-                    this.fragmentTransmissionCompressionCodec = "none";
-            }
+        switch (random.nextInt(3)) {
+            case 0:
+                this.fragmentTransmissionCompressionCodec = "snappy";
+                this.runtimeFilterWaitTimeMs = 10;
+                break;
+            case 1:
+                this.fragmentTransmissionCompressionCodec = "lz4";
+                break;
+            default:
+                this.fragmentTransmissionCompressionCodec = "none";
+        }
 
-            this.runtimeFilterType = 1 << randomInt;
-            this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
-            this.enableRuntimeFilterPrune = (randomInt % 2) == 0;
+        this.runtimeFilterType = 1 << randomInt;
+        this.enableParallelScan = random.nextInt(2) == 0;
+        this.enableRuntimeFilterPrune = (randomInt % 2) == 0;
 
-            switch (randomInt) {
-                case 0:
-                    this.parallelScanMaxScannersCount = 32;
-                    this.parallelScanMinRowsPerScanner = 64;
-                    this.runtimeFilterMaxInNum = 10;
-                    break;
-                case 1:
-                    this.parallelScanMaxScannersCount = 16;
-                    this.parallelScanMinRowsPerScanner = 128;
-                    this.runtimeFilterMaxInNum = 0;
-                    break;
-                case 2:
-                    this.parallelScanMaxScannersCount = 8;
-                    this.parallelScanMinRowsPerScanner = 256;
-                    break;
-                case 3:
-                default:
-                    break;
-            }
+        switch (randomInt) {
+            case 0:
+                this.parallelScanMaxScannersCount = 32;
+                this.parallelScanMinRowsPerScanner = 64;
+                this.runtimeFilterMaxInNum = 10;
+                break;
+            case 1:
+                this.parallelScanMaxScannersCount = 16;
+                this.parallelScanMinRowsPerScanner = 128;
+                this.runtimeFilterMaxInNum = 0;
+                break;
+            case 2:
+                this.parallelScanMaxScannersCount = 8;
+                this.parallelScanMinRowsPerScanner = 256;
+                break;
+            case 3:
+            default:
+                break;
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
-            if (Config.pull_request_id > 0) {
-                if (Config.pull_request_id % 2 == 1) {
-                    this.batchSize = 4064;
-                    this.enableFoldConstantByBe = true;
-                } else {
-                    this.batchSize = 1024;
-                    this.enableFoldConstantByBe = false;
-                }
-
-                this.fuzzyDisableRuntimeFilterInBE = true;
+            if (random.nextInt(2) == 1) {
+                this.batchSize = 4064;
+                this.enableFoldConstantByBe = true;
+            } else {
+                this.batchSize = 1024;
+                this.enableFoldConstantByBe = false;
             }
+
+            this.fuzzyDisableRuntimeFilterInBE = true;
         }
 
         // set random 1, 10, 100, 1000, 10000

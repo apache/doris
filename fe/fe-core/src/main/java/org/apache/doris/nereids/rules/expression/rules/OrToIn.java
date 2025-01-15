@@ -31,11 +31,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -68,8 +66,6 @@ public class OrToIn {
 
     public static final OrToIn EXTRACT_MODE_INSTANCE = new OrToIn(Mode.extractMode);
     public static final OrToIn REPLACE_MODE_INSTANCE = new OrToIn(Mode.replaceMode);
-
-    public static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
 
     private final Mode mode;
 
@@ -196,18 +192,9 @@ public class OrToIn {
     }
 
     private Expression candidatesToFinalResult(Map<Expression, Set<Literal>> candidates) {
-        List<Expression> conjuncts = new ArrayList<>();
-        for (Expression key : candidates.keySet()) {
-            Set<Literal> literals = candidates.get(key);
-            if (literals.size() < REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
-                for (Literal literal : literals) {
-                    conjuncts.add(new EqualTo(key, literal));
-                }
-            } else {
-                conjuncts.add(new InPredicate(key, ImmutableList.copyOf(literals)));
-            }
-        }
-        return ExpressionUtils.and(conjuncts);
+        return ExpressionUtils.and(candidates.entrySet().stream()
+                .map(entry -> ExpressionUtils.toInPredicateOrEqualTo(entry.getKey(), entry.getValue()))
+                .collect(Collectors.toList()));
     }
 
     /*
