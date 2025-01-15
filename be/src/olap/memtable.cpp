@@ -401,7 +401,7 @@ Status MemTable::_sort_by_cluster_keys() {
                                           row_pos_vec.data() + in_block.rows(), &column_offset);
 }
 
-void MemTable::_sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& tie,
+void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                                 std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
@@ -473,7 +473,7 @@ void MemTable::_aggregate() {
             vectorized::MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
     auto& block_data = in_block.get_columns_with_type_and_name();
-    DorisVector<RowInBlock*> temp_row_in_blocks;
+    std::vector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     RowInBlock* prev_row = nullptr;
     int row_pos = -1;
