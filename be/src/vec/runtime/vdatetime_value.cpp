@@ -192,15 +192,78 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             break;
         }
 
-        if (field_idx == 2 && *ptr == 'T') {
-            // YYYYMMDDTHHMMDD, skip 'T' and continue
-            ptr++;
-            field_idx++;
-            continue;
+        // escape separator
+        if (((1 << field_idx) & allow_space_mask) == 0) {
+            if (check_space(*ptr)) {
+                return false;
+            }
+        } else {
+            while(ptr < end && check_space(*ptr)) {
+                ptr++;
+            }
+        }
+
+        if (ptr < end) {
+            if (field_idx == 2 && *ptr == 'T') {
+                // YYYYMMDDTHHMMDD, skip 'T' and continue
+                ptr++;
+                while(ptr < end && check_space(*ptr)) {
+                    ptr++;
+                }
+                if (ptr == end || !isdigit(*ptr)) {
+                    return false;
+                }
+            } else if (check_date_punct(*ptr)) {
+                switch(field_idx) {
+                case 0:
+                case 1:
+                    if (*ptr == '-') {
+                        has_bar = true;
+                        ptr++;
+                        if (ptr == end || !isdigit(*ptr)) {
+                            return false;
+                        }
+                        break;
+                    } else {
+                        return false;
+                    }
+                case 3:
+                case 4:
+                    if (*ptr == ':') {
+                        ptr++;
+                        if (ptr == end || !isdigit(*ptr)) {
+                            return false;
+                        }
+                        break;
+                    } else {
+                        return false;
+                    }
+                case 5:
+                    if (*ptr == '.') {
+                        // Second part will handle ptr++;
+                        break;
+                    } else {
+                        return false;
+                    }
+                default:
+                    return false;
+                }
+            }
+        }
+
+        // escape separator
+        if (ptr < end && ((1 << field_idx) & allow_space_mask) == 0) {
+            if (check_space(*ptr)) {
+                return false;
+            }
+        } else {
+            while(ptr < end && check_space(*ptr)) {
+                ptr++;
+            }
         }
 
         // Second part
-        if (field_idx == 5) {
+        if (field_idx == 5 && ptr < end) {
             if (*ptr == '.') {
                 ptr++;
                 field_len = 6;
@@ -210,18 +273,6 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             }
             field_idx++;
             continue;
-        }
-        // escape separator
-        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
-            if (check_space(*ptr)) {
-                if (((1 << field_idx) & allow_space_mask) == 0) {
-                    return false;
-                }
-            }
-            if (*ptr == '-') {
-                has_bar = true;
-            }
-            ptr++;
         }
         field_idx++;
     }
@@ -2114,15 +2165,78 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             break;
         }
 
-        if (field_idx == 2 && *ptr == 'T') {
-            // YYYYMMDDTHHMMDD, skip 'T' and continue
-            ptr++;
-            field_idx++;
-            continue;
+        // escape separator
+        if (((1 << field_idx) & allow_space_mask) == 0) {
+            if (check_space(*ptr)) {
+                return false;
+            }
+        } else {
+            while(ptr < end && check_space(*ptr)) {
+                ptr++;
+            }
         }
 
+        if (ptr < end) {
+            if (field_idx == 2 && *ptr == 'T') {
+                // YYYYMMDDTHHMMDD, skip 'T' and continue
+                ptr++;
+                while(ptr < end && check_space(*ptr)) {
+                    ptr++;
+                }
+                if (ptr == end || !isdigit(*ptr)) {
+                    return false;
+                }
+            } else if (check_date_punct(*ptr)) {
+                switch(field_idx) {
+                case 0:
+                case 1:
+                    if (*ptr == '-') {
+                        has_bar = true;
+                        ptr++;
+                        if (ptr == end || !isdigit(*ptr)) {
+                            return false;
+                        }
+                        break;
+                    } else {
+                        return false;
+                    }
+                case 3:
+                case 4:
+                    if (*ptr == ':') {
+                        ptr++;
+                        if (ptr == end || !isdigit(*ptr)) {
+                            return false;
+                        }
+                        break;
+                    } else {
+                        return false;
+                    }
+                case 5:
+                    if (*ptr == '.') {
+                        // Second part will handle ptr++;
+                        break;
+                    } else {
+                        return false;
+                    }
+                default:
+                    return false;
+                }
+            }
+        }
+
+        // escape separator
+        if (ptr < end && ((1 << field_idx) & allow_space_mask) == 0) {
+            if (check_space(*ptr)) {
+                return false;
+            }
+        } else {
+            while(ptr < end && check_space(*ptr)) {
+                ptr++;
+            }
+         }
+
         // Second part
-        if (field_idx == 5) {
+        if (field_idx == 5 && ptr < end) {
             if (*ptr == '.') {
                 ptr++;
                 // for datetime, we need to discard the fraction part
@@ -2139,18 +2253,6 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             }
             field_idx++;
             continue;
-        }
-        // escape separator
-        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
-            if (check_space(*ptr)) {
-                if (((1 << field_idx) & allow_space_mask) == 0) {
-                    return false;
-                }
-            }
-            if (*ptr == '-') {
-                has_bar = true;
-            }
-            ptr++;
         }
         field_idx++;
     }
