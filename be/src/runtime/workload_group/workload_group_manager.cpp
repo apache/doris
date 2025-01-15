@@ -317,6 +317,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
 
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
     bool has_revoked_from_other_group = false;
+    bool has_query_exceed_process_memlimit = false;
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
         const auto& wg = it->first;
@@ -448,21 +449,22 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     }
                 }
             } else {
+                has_query_exceed_process_memlimit = true;
                 // If wg's memlimit not exceed, but process memory exceed, it means cache or other metadata
                 // used too much memory. Should clean all cache here.
                 // 1. Check cache used, if cache is larger than > 0, then just return and wait for it to 0 to release some memory.
                 if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted >
-                            0.001 &&
+                            0.05 &&
                     doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted >
-                            0.001) {
+                            0.05) {
                     doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted =
-                            0;
+                            0.04;
                     doris::GlobalMemoryArbitrator::notify_cache_adjust_capacity();
                     LOG(INFO) << "There are some queries need process memory, so that set cache "
                                  "capacity "
                                  "to 0 now";
                 }
-                if (query_it->cache_ratio_ < 0.001) {
+                if (query_it->cache_ratio_ < 0.05) {
                     // 1. Check if could revoke some memory from memtable
                     if (flushed_memtable_bytes <= 0) {
                         flushed_memtable_bytes =
@@ -504,8 +506,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     }
                 }
                 if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted <
-                            0.001 &&
-                    query_it->cache_ratio_ > 0.001) {
+                            0.05 &&
+                    query_it->cache_ratio_ > 0.05) {
                     LOG(INFO) << "Query: " << print_id(query_ctx->query_id())
                               << " will be resume after cache adjust.";
                     query_ctx->set_memory_sufficient(true);
@@ -527,6 +529,11 @@ void WorkloadGroupMgr::handle_paused_queries() {
             // Finished deal with one workload group, and should deal with next one.
             ++it;
         }
+    }
+
+    if (has_query_exceed_process_memlimit) {
+        // No query failed due to process exceed limit, so that enable cache now.
+        doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted = 1;
     }
 }
 
