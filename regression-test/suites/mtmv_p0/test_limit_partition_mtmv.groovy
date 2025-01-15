@@ -565,7 +565,7 @@ suite("test_limit_partition_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"2038-01-02"),(2,"2020-01-02");
+        insert into ${tableName} values(2,"2020-01-02");
         """
 
     sql """
