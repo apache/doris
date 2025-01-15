@@ -230,7 +230,7 @@ int main(int argc, char** argv) {
         std::get<0>(args.args()[ARG_RECYCLER]) = true;
         LOG(INFO) << "meta_service and recycler are both not specified, "
                      "run doris_cloud as meta_service and recycler by default";
-        std::cout << "run doris_cloud as meta_service and recycler by default" << std::endl;
+        std::cout << "try to start meta_service, recycler" << std::endl;
     }
 
     brpc::Server server;
@@ -283,7 +283,7 @@ int main(int argc, char** argv) {
             std::cerr << msg << std::endl;
             return ret;
         }
-        msg = "meta-service started";
+        msg = "MetaService has been started successfully";
         LOG(INFO) << msg;
         std::cout << msg << std::endl;
     }
@@ -296,7 +296,7 @@ int main(int argc, char** argv) {
             std::cerr << msg << std::endl;
             return ret;
         }
-        msg = "recycler started";
+        msg = "Recycler has been started successfully";
         LOG(INFO) << msg;
         std::cout << msg << std::endl;
         auto periodiccally_log = [&]() {
