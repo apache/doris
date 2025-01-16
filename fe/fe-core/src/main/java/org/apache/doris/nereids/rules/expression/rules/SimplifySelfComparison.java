@@ -54,7 +54,7 @@ public class SimplifySelfComparison implements ExpressionPatternRuleFactory {
 
     private Expression rewrite(ComparisonPredicate comparison) {
         Expression left = comparison.left();
-        if (left.equals(comparison.right())) {
+        if (left.isDeterministic() && left.equals(comparison.right())) {
             if (comparison instanceof EqualTo
                     || comparison instanceof GreaterThanEqual
                     || comparison instanceof LessThanEqual) {
