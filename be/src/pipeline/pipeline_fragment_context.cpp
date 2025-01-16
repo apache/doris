@@ -363,6 +363,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
     _runtime_filter_states.resize(target_size);
+    _runtime_filter_mgr_map.resize(target_size);
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
         _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
@@ -510,7 +511,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         }
         {
             std::lock_guard<std::mutex> l(_state_map_lock);
-            _runtime_filter_mgr_map[fragment_instance_id] = std::move(runtime_filter_mgr);
+            _runtime_filter_mgr_map[i] = std::move(runtime_filter_mgr);
         }
         return Status::OK();
     };
