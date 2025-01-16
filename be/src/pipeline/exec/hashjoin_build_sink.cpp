@@ -110,7 +110,7 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 #ifndef NDEBUG
     if (state->fuzzy_disable_runtime_filter_in_be()) {
         if ((_parent->operator_id() + random()) % 2 == 0) {
-            RETURN_IF_ERROR(disable_runtime_filters(state));
+            RETURN_IF_ERROR(_disable_runtime_filters(state));
         }
     }
 #endif
@@ -145,10 +145,14 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos ||
-        _runtime_filters_disabled) {
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos) {
         return Base::close(state, exec_status);
     }
+#ifndef NDEBUG
+    if (_runtime_filters_disabled) {
+        return Base::close(state, exec_status);
+    }
+#endif
 
     try {
         if (state->get_task()->wake_up_early()) {
@@ -190,7 +194,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     return Base::close(state, exec_status);
 }
 
-Status HashJoinBuildSinkLocalState::disable_runtime_filters(RuntimeState* state) {
+#ifndef NDEBUG
+Status HashJoinBuildSinkLocalState::_disable_runtime_filters(RuntimeState* state) {
     if (_runtime_filters_disabled) {
         return Status::OK();
     }
@@ -216,10 +221,7 @@ Status HashJoinBuildSinkLocalState::disable_runtime_filters(RuntimeState* state)
     SCOPED_TIMER(_publish_runtime_filter_timer);
     return _runtime_filter_slots->publish(state, !_should_build_hash_table);
 }
-
-bool HashJoinBuildSinkLocalState::build_unique() const {
-    return _parent->cast<HashJoinBuildSinkOperatorX>()._build_unique;
-}
+#endif
 
 void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
@@ -547,11 +549,13 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
+#ifndef NDEBUG
         if (!local_state._runtime_filters_disabled) {
             RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
                     state, local_state._shared_state->build_block->rows(),
                     local_state._finish_dependency));
         }
+#endif
 
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));

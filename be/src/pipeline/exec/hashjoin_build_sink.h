@@ -40,23 +40,17 @@ public:
 
     void init_short_circuit_for_probe();
 
-    bool build_unique() const;
     std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
-
-    void add_hash_buckets_info(const std::string& info) const {
-        _profile->add_info_string("HashTableBuckets", info);
-    }
-    void add_hash_buckets_filled_info(const std::string& info) const {
-        _profile->add_info_string("HashTableFilledBuckets", info);
-    }
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status disable_runtime_filters(RuntimeState* state);
-
-protected:
+private:
+#ifndef NDEBUG
+    Status _disable_runtime_filters(RuntimeState* state);
+    bool _runtime_filters_disabled = false;
+#endif
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
                                               const std::vector<int>& res_col_ids);
@@ -77,8 +71,6 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
-
-    bool _runtime_filters_disabled = false;
 
     size_t _build_side_rows = 0;
 
