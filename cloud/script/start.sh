@@ -141,7 +141,7 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
         echo "${process} may not start successfully please check process log for more details"
         exit 1
     fi
-    echo "${process} start successfully"
+    tail -n12 "${out_file}"
     exit 0
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
