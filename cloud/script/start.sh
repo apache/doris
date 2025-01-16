@@ -135,7 +135,7 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup "${bin}" "$@" >>"${out_file}" 2>&1 &
     echo "wait and check ${process} start successfully"
     sleep 3
-    tail -n10 "${out_file}" | grep 'successfully started brpc'
+    tail -n10 "${out_file}" | grep 'successfully started service'
     ret=$?
     if [[ ${ret} -ne 0 ]]; then
         echo "${process} may not start successfully please check process log for more details"

@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
 
     // We can invoke glog from now on
     std::string msg;
-    LOG(INFO) << "try to start doris_cloud";
+    LOG(INFO) << "try to start " << process_name;
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
 
@@ -324,7 +324,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     end = steady_clock::now();
-    msg = "successfully started brpc listening on port=" + std::to_string(port) +
+    msg = "successfully started service listening on port=" + std::to_string(port) +
           " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
     LOG(INFO) << msg;
     std::cout << msg << std::endl;
