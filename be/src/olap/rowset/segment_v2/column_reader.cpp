@@ -174,6 +174,7 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
     std::unique_ptr<ColumnReader> struct_reader(
             new ColumnReader(opts, meta, num_rows, file_reader));
     struct_reader->_sub_readers.reserve(meta.children_columns_size());
+    // now we support struct column can add the children columns according to the schema-change behavior
     for (size_t i = 0; i < meta.children_columns_size(); i++) {
         std::unique_ptr<ColumnReader> sub_reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
@@ -714,7 +715,7 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     return Status::OK();
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column) {
     if (is_empty()) {
         *iterator = new EmptyFileColumnIterator();
         return Status::OK();
@@ -729,13 +730,13 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             return new_agg_state_iterator(iterator);
         }
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-            return new_struct_iterator(iterator);
+            return new_struct_iterator(iterator, tablet_column);
         }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            return new_array_iterator(iterator);
+            return new_array_iterator(iterator, tablet_column);
         }
         case FieldType::OLAP_FIELD_TYPE_MAP: {
-            return new_map_iterator(iterator);
+            return new_map_iterator(iterator, tablet_column);
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
             *iterator = new VariantRootColumnIterator(new FileColumnIterator(this));
@@ -753,55 +754,71 @@ Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_array_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_array_iterator(ColumnIterator** iterator,
+                                        const TabletColumn* tablet_column) {
     ColumnIterator* item_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&item_iterator));
+    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
+            &item_iterator, tablet_column ? &tablet_column->get_sub_column(0) : nullptr));
 
     ColumnIterator* offset_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator));
+    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, tablet_column));
     auto* ofcIter =
             new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offset_iterator));
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator));
+        RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator, tablet_column));
     }
     *iterator = new ArrayFileColumnIterator(this, ofcIter, item_iterator, null_iterator);
     return Status::OK();
 }
 
-Status ColumnReader::new_map_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_map_iterator(ColumnIterator** iterator,
+                                      const TabletColumn* tablet_column) {
     ColumnIterator* key_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&key_iterator));
+    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
+            &key_iterator, tablet_column ? &tablet_column->get_sub_column(0) : nullptr));
     ColumnIterator* val_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&val_iterator));
+    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(
+            &val_iterator, tablet_column ? &tablet_column->get_sub_column(1) : nullptr));
     ColumnIterator* offsets_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator));
+    RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator, nullptr));
     auto* ofcIter =
             new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offsets_iterator));
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[3]->new_iterator(&null_iterator));
+        RETURN_IF_ERROR(_sub_readers[3]->new_iterator(&null_iterator, nullptr));
     }
     *iterator = new MapFileColumnIterator(this, null_iterator, ofcIter, key_iterator, val_iterator);
     return Status::OK();
 }
 
-Status ColumnReader::new_struct_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
+                                         const TabletColumn* tablet_column) {
     std::vector<ColumnIterator*> sub_column_iterators;
     size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
+    size_t tablet_column_size = tablet_column ? tablet_column->get_sub_columns().size() : 0;
     sub_column_iterators.reserve(child_size);
 
     ColumnIterator* sub_column_iterator;
     for (size_t i = 0; i < child_size; i++) {
-        RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator));
+        RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
+                &sub_column_iterator, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
         sub_column_iterators.push_back(sub_column_iterator);
+    }
+
+    // create default_iterator for schema-change behavior which increase column
+    for (size_t i = child_size; i < tablet_column_size; i++) {
+        TabletColumn column = tablet_column->get_sub_column(i);
+        std::unique_ptr<ColumnIterator>* it = new std::unique_ptr<ColumnIterator>();
+        RETURN_IF_ERROR(Segment::new_default_iterator(column, it));
+        sub_column_iterators.push_back(it->get());
     }
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator));
+        RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator, nullptr));
     }
     *iterator = new StructFileColumnIterator(this, null_iterator, sub_column_iterators);
     return Status::OK();

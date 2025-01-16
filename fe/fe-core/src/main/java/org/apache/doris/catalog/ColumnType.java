@@ -196,10 +196,14 @@ public abstract class ColumnType {
         if (checkType.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;
-            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
-                throw new DdlException("Cannot change struct type with different field size");
+            if (thisStructType.getFields().size() > otherStructType.getFields().size()) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
             }
             for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                // do not support struct same position field name change
+                if (!thisStructType.getFields().get(i).getName().equals(otherStructType.getFields().get(i).getName())) {
+                    throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+                }
                 checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
                         otherStructType.getFields().get(i).getType(), true);
             }
