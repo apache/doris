@@ -198,7 +198,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return false;
             }
         } else {
-            while(ptr < end && check_space(*ptr)) {
+            while (ptr < end && check_space(*ptr)) {
                 ptr++;
             }
         }
@@ -207,14 +207,14 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             if (field_idx == 2 && *ptr == 'T') {
                 // YYYYMMDDTHHMMDD, skip 'T' and continue
                 ptr++;
-                while(ptr < end && check_space(*ptr)) {
+                while (ptr < end && check_space(*ptr)) {
                     ptr++;
                 }
                 if (ptr == end || !isdigit(*ptr)) {
                     return false;
                 }
             } else if (check_date_punct(*ptr)) {
-                switch(field_idx) {
+                switch (field_idx) {
                 case 0:
                 case 1:
                     if (*ptr == '-') {
@@ -245,6 +245,11 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                     } else {
                         return false;
                     }
+                case 6:
+                    if (!*ptr == '+' && *ptr != '-') {
+                        return false;
+                    }
+                    break;
                 default:
                     return false;
                 }
@@ -257,7 +262,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return false;
             }
         } else {
-            while(ptr < end && check_space(*ptr)) {
+            while (ptr < end && check_space(*ptr)) {
                 ptr++;
             }
         }
@@ -2171,7 +2176,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return false;
             }
         } else {
-            while(ptr < end && check_space(*ptr)) {
+            while (ptr < end && check_space(*ptr)) {
                 ptr++;
             }
         }
@@ -2180,14 +2185,14 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             if (field_idx == 2 && *ptr == 'T') {
                 // YYYYMMDDTHHMMDD, skip 'T' and continue
                 ptr++;
-                while(ptr < end && check_space(*ptr)) {
+                while (ptr < end && check_space(*ptr)) {
                     ptr++;
                 }
                 if (ptr == end || !isdigit(*ptr)) {
                     return false;
                 }
             } else if (check_date_punct(*ptr)) {
-                switch(field_idx) {
+                switch (field_idx) {
                 case 0:
                 case 1:
                     if (*ptr == '-') {
@@ -2218,6 +2223,11 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                     } else {
                         return false;
                     }
+                case 6:
+                    if (!*ptr == '+' && *ptr != '-') {
+                        return false;
+                    }
+                    break;
                 default:
                     return false;
                 }
@@ -2230,10 +2240,10 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return false;
             }
         } else {
-            while(ptr < end && check_space(*ptr)) {
+            while (ptr < end && check_space(*ptr)) {
                 ptr++;
             }
-         }
+        }
 
         // Second part
         if (field_idx == 5 && ptr < end) {
