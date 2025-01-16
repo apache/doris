@@ -1310,11 +1310,6 @@ under the License.
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-aws-bundle</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-core</artifactId>
                 <version>${maxcompute.version}</version>

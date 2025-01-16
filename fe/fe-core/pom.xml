@@ -495,10 +495,10 @@ under the License.
             <artifactId>s3</artifactId>
             <version>${awssdk.version}</version>
             <exclusions>
-                <exclusion>
+                <!--exclusion>
                     <groupId>software.amazon.awssdk</groupId>
                     <artifactId>apache-client</artifactId>
-                </exclusion>
+                </exclusion-->
             </exclusions>
         </dependency>
         <!-- tencent cloud sts -->
