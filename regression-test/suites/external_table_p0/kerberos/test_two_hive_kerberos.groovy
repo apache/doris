@@ -44,7 +44,7 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/hive-presto-master.keytab",
                 "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
+                "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM"
             );
         """
 
@@ -60,7 +60,7 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/other-hive-presto-master.keytab",
                 "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
+                "hive.metastore.kerberos.principal" = "hive/hadoop-master-2@OTHERREALM.COM",
                 "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
                                                   RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                                   DEFAULT"
