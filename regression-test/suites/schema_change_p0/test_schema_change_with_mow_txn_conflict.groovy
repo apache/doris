@@ -18,7 +18,7 @@
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_schema_change_with_mow_txn_conflict", "p0") {
+suite("test_schema_change_with_mow_txn_conflict", "nonConcurrent") {
     def customFeConfig = [
             schema_change_max_retry_time: 10
     ]
