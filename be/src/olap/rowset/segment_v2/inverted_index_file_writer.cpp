@@ -129,9 +129,7 @@ Status InvertedIndexFileWriter::add_into_searcher_cache() {
         auto inverted_index_file_reader =
                 std::make_shared<InvertedIndexFileReader>(_fs, _index_path_prefix, _storage_format);
         InvertedIndexCacheHandle inverted_index_cache_handle;
-        bool open_idx_file_cache = true;
-        auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                   open_idx_file_cache);
+        auto st = inverted_index_file_reader->init();
         if (!st.ok()) {
             if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
                 //StreamSinkFileWriter not found file is normal.
