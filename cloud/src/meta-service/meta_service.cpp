@@ -1867,6 +1867,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 code = cast_as<ErrCategory::COMMIT>(err);
                 ss << "failed to update delete bitmap, err=" << err;
                 msg = ss.str();
+                g_bvar_update_delete_bitmap_fail_counter << 1;
                 return;
             }
             fdb_txn_size = 0;
@@ -1901,6 +1902,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update delete bitmap, err=" << err;
         msg = ss.str();
+        g_bvar_update_delete_bitmap_fail_counter << 1;
         return;
     }
     LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
@@ -2008,6 +2010,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 ss << "internal error, failed to get delete bitmap, internal round=" << round
                    << ", ret=" << err;
                 msg = ss.str();
+                g_bvar_get_delete_bitmap_fail_counter << 1;
                 return;
             }
 
@@ -2051,6 +2054,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                    << ",exceed max byte";
                 msg = ss.str();
                 LOG(WARNING) << msg;
+                g_bvar_get_delete_bitmap_fail_counter << 1;
                 return;
             }
             round++;
