@@ -397,8 +397,8 @@ Status FixedReadPlan::fill_missing_columns(
 
             bool should_use_default = use_default_or_null_flag[idx];
             if (!should_use_default) {
-                bool old_row_delete_sign = (delete_sign_column_data != nullptr &&
-                                            delete_sign_column_data[pos_in_old_block] != 0);
+                bool old_row_delete_sign =
+                        (old_delete_signs != nullptr && old_delete_signs[pos_in_old_block] != 0);
                 if (old_row_delete_sign) {
                     if (!tablet_schema.has_sequence_col()) {
                         should_use_default = true;
@@ -995,7 +995,7 @@ Status BlockAggregator::fill_sequence_column(vectorized::Block* block, size_t nu
     auto tmp_block = _tablet_schema.create_block_by_cids(cids);
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _writer._rsid_to_rowset,
-                                                   seq_col_block, &read_index));
+                                                   seq_col_block, &read_index, false));
 
     auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assume_mutable();
     const auto& old_seq_col_ptr = *seq_col_block.get_by_position(0).column;
