@@ -48,7 +48,7 @@ import java.util.Set;
  * - To abstract out the specific details of HMS table operations, making the code more modular and maintainable.
  */
 public abstract class HMSDlaTable implements MTMVBaseTableIf {
-    HMSExternalTable hmsTable;
+    protected HMSExternalTable hmsTable;
 
     public HMSDlaTable(HMSExternalTable table) {
         this.hmsTable = table;
