@@ -594,6 +594,9 @@ start_kerberos() {
         envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf
         envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf
     done
+    sudo chmod a+w /etc/hosts
+    sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
+    sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
     sudo cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
@@ -607,9 +610,6 @@ start_kerberos() {
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
-        sudo chmod a+w /etc/hosts
-        echo "${IP_HOST} hadoop-master" >> /etc/hosts
-        echo "${IP_HOST} hadoop-master-2" >> /etc/hosts
         sleep 2
     fi
 }
