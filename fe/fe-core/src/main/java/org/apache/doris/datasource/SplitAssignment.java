@@ -54,7 +54,7 @@ public class SplitAssignment {
     private final List<String> pathPartitionKeys;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
-    private final AtomicBoolean isStop = new AtomicBoolean(false);
+    private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
     private UserException exception = null;
@@ -90,7 +90,7 @@ public class SplitAssignment {
     }
 
     private boolean waitFirstSplit() {
-        return !scheduleFinished.get() && !isStop.get() && exception == null;
+        return !scheduleFinished.get() && !isStopped.get() && exception == null;
     }
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
@@ -155,7 +155,7 @@ public class SplitAssignment {
         }
         BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
                 be -> new LinkedBlockingQueue<>());
-        if (scheduleFinished.get() && splits.isEmpty() || isStop.get()) {
+        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
         }
         return splits;
@@ -175,7 +175,7 @@ public class SplitAssignment {
         if (isStop()) {
             return;
         }
-        isStop.set(true);
+        isStopped.set(true);
         closeableResources.forEach((closeable) -> {
             try {
                 closeable.close();
@@ -188,7 +188,7 @@ public class SplitAssignment {
     }
 
     public boolean isStop() {
-        return isStop.get();
+        return isStopped.get();
     }
 
     public void addCloseable(Closeable resource) {

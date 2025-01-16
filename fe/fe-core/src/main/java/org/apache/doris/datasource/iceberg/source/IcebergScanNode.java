@@ -216,15 +216,20 @@ public class IcebergScanNode extends FileQueryScanNode {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
             try {
-                CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                // 1. this task should stop when all splits are assigned
-                // 2. if we want to stop this plan, we can close the fileScanTasks to stop
-                splitAssignment.addCloseable(fileScanTasks);
+                preExecutionAuthenticator.execute(
+                        () -> {
+                            CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
 
-                fileScanTasks.forEach(fileScanTask -> {
-                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask)));
-                });
+                            // 1. this task should stop when all splits are assigned
+                            // 2. if we want to stop this plan, we can close the fileScanTasks to stop
+                            splitAssignment.addCloseable(fileScanTasks);
 
+                            fileScanTasks.forEach(fileScanTask ->
+                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask))));
+
+                            return null;
+                        }
+                );
                 splitAssignment.finishSchedule();
             } catch (Exception e) {
                 splitAssignment.setException(new UserException(e.getMessage(), e));
@@ -259,7 +264,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         return scan;
     }
 
-    public CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
+    private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
         long targetSplitSize = getRealFileSplitSize(0);
         CloseableIterable<FileScanTask> splitFiles;
         try {
