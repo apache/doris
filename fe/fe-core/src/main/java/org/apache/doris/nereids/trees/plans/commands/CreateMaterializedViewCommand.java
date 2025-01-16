@@ -478,23 +478,19 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private void setKeyForSelectItems(List<MVColumnItem> selectItems, ValidateContext ctx) {
             if (ctx.orderByExprs != null) {
-                int nonAggNumber = 0;
-                for (MVColumnItem mvColumnItem : selectItems) {
-                    if (mvColumnItem.getAggregationType() != null) {
-                        break;
-                    }
-                    nonAggNumber++;
-                }
                 int size = ctx.orderByExprs.size();
-                if (size != nonAggNumber) {
-                    throw new AnalysisException("The number of columns in order clause must be equal with the number of"
-                            + " non-agg columns in select clause");
-                }
                 for (int i = 0; i < size; ++i) {
                     MVColumnItem mvColumnItem = selectItems.get(i);
                     Preconditions.checkState(mvColumnItem.getAggregationType() == null, String.format(
                             "key column's agg type should be null, but it's %s", mvColumnItem.getAggregationType()));
                     selectItems.get(i).setIsKey(true);
+                }
+                for (int i = size; i < selectItems.size(); ++i) {
+                    MVColumnItem mvColumnItem = selectItems.get(i);
+                    if (mvColumnItem.getAggregationType() != null) {
+                        break;
+                    }
+                    mvColumnItem.setAggregationType(AggregateType.NONE, true);
                 }
             } else {
                 /*
