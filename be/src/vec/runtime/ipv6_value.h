@@ -43,6 +43,17 @@ public:
 
     bool from_string(const std::string& ipv6_str) { return from_string(_value, ipv6_str); }
 
+    static bool from_uint128_string(IPv6& value, const char* ipv6_str, size_t len) {
+        value = 0;
+        for (size_t i = 0; i < len; ++i) {
+            if (ipv6_str[i] < '0' || ipv6_str[i] > '9') {
+                return false; // illegal character for uint128
+            }
+            value = value * 10 + (ipv6_str[i] - '0');
+        }
+        return true;
+    }
+
     static bool from_string(IPv6& value, const char* ipv6_str, size_t len) {
         if (len == 0) {
             return false;
