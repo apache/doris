@@ -140,6 +140,7 @@ if [[ "${RUN_VERSION}" -ne 0 ]]; then
 fi
 
 mkdir -p "${DORIS_HOME}/log"
+echo "$(date +'%F %T') start with args: $*"
 out_file=${DORIS_HOME}/log/${process}.out
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     # append 10 blank lines to ensure the following tail -n10 works correctly
@@ -158,7 +159,6 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     exit 0
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
-    date
     "${bin}" "$@" 2>&1
 else
     "${bin}" "$@"
