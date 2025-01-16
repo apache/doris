@@ -263,7 +263,7 @@ under the License.
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
-        <commons-io.version>2.7</commons-io.version>
+        <commons-io.version>2.18.0</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
@@ -275,7 +275,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.110.Final</netty-all.version>
+        <netty-all.version>4.1.117.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -284,7 +284,7 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.63.0</grpc.version>
         <check.freamework.version>3.43.0</check.freamework.version>
-        <protobuf.version>3.24.3</protobuf.version>
+        <protobuf.version>3.25.5</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -356,7 +356,7 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.56.v20240826</jetty.version>
+        <jetty.version>9.4.57.v20241219</jetty.version>
         <immutables.version>2.9.3</immutables.version>
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>75.1</icu4j.version>
@@ -372,10 +372,11 @@ under the License.
         <flatbuffers.version>1.12.0</flatbuffers.version>
         <jacoco.version>0.8.10</jacoco.version>
         <trino.version>435</trino.version>
+        <nimbusds.version>10.0.1</nimbusds.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.2.29</azure.sdk.version>
+        <azure.sdk.version>1.2.30</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
@@ -619,6 +620,11 @@ under the License.
                         <artifactId>hadoop-yarn-api</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-client-api</artifactId>
+                <version>${hadoop.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop.thirdparty</groupId>
@@ -1642,6 +1648,11 @@ under the License.
                         <groupId>io.trino</groupId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbusds.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.annotation</groupId>
