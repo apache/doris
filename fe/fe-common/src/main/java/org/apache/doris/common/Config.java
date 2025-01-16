@@ -3383,5 +3383,5 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"一次收集的最大agent任务数",
             "max number of agent tasks to collect at a time"})
-    public static int max_collect_agent_task_num = 1000000;
+    public static int max_collect_drop_replica_task_num = 1000000;
 }
