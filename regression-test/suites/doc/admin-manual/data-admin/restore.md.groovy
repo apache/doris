@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Assertions;
 suite("docs/admin-manual/data-admin/restore.md") {
     if (isCloudMode()) {
         logger.info("skip this case, because not supported in cloud mode")
+        return
     }
     try {
         def uuid = UUID.randomUUID().hashCode().abs()
