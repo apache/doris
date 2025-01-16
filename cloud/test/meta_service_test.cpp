@@ -5911,6 +5911,105 @@ TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest3) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, RemoveDeleteBitmapUpdateLockTest) {
+    auto meta_service = get_meta_service();
+    SyncPoint::get_instance()->enable_processing();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+
+    // get delete bitmap update lock
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest get_lock_req;
+    GetDeleteBitmapUpdateLockResponse get_lock_res;
+    get_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+    get_lock_req.set_table_id(100);
+    get_lock_req.add_partition_ids(123);
+    get_lock_req.set_expiration(5);
+    get_lock_req.set_lock_id(888);
+    get_lock_req.set_initiator(-1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
+            &get_lock_res, nullptr);
+    ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+
+    RemoveDeleteBitmapUpdateLockRequest remove_lock_req;
+    remove_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+    remove_lock_req.set_table_id(100);
+    remove_lock_req.set_lock_id(888);
+    remove_lock_req.set_initiator(-1);
+
+    {
+        // case1: remove lock: retry 4 times, code is KV_TXN_CONFLICT
+        SyncPoint::get_instance()->set_call_back(
+                "remove_delete_bitmap_update_lock_err", [&](auto&& args) {
+                    auto* test = try_any_cast<bool*>(args[0]);
+                    *test = true;
+                    auto* retry_times = try_any_cast<int32_t*>(args[1]);
+                    *try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_CONFLICT;
+                    LOG(INFO) << "remove_delete_bitmap_update_lock_err 1, retry_times="
+                              << *retry_times << ", code=" << TxnErrorCode::TXN_CONFLICT;
+                });
+
+        RemoveDeleteBitmapUpdateLockResponse remove_lock_res;
+        meta_service->remove_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+                &remove_lock_res, nullptr);
+        ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::KV_TXN_CONFLICT);
+    }
+
+    {
+        // case2: remove lock: retry 2 times, code is KV_TXN_CONFLICT;
+        //                     retry the third time, code is TXN_TOO_OLD
+        SyncPoint::get_instance()->set_call_back(
+                "remove_delete_bitmap_update_lock_err", [&](auto&& args) {
+                    auto* test = try_any_cast<bool*>(args[0]);
+                    *test = true;
+                    auto* retry_times = try_any_cast<int32_t*>(args[1]);
+                    *try_any_cast<TxnErrorCode*>(args[2]) = *retry_times < 2
+                                                                    ? TxnErrorCode::TXN_CONFLICT
+                                                                    : TxnErrorCode::TXN_TOO_OLD;
+                    LOG(INFO) << "remove_delete_bitmap_update_lock_err 2, retry_times="
+                              << *retry_times << ", code=" << *try_any_cast<TxnErrorCode*>(args[2]);
+                });
+        RemoveDeleteBitmapUpdateLockResponse remove_lock_res;
+        meta_service->remove_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+                &remove_lock_res, nullptr);
+        ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::KV_TXN_TOO_OLD);
+    }
+
+    {
+        // case3: remove lock: retry 2 times, code is KV_TXN_CONFLICT;
+        //                                    retry the third time, code is TXN_OK
+        SyncPoint::get_instance()->set_call_back(
+                "remove_delete_bitmap_update_lock_err", [&](auto&& args) {
+                    auto* test = try_any_cast<bool*>(args[0]);
+                    *test = true;
+                    auto* retry_times = try_any_cast<int32_t*>(args[1]);
+                    *try_any_cast<TxnErrorCode*>(args[2]) =
+                            *retry_times < 2 ? TxnErrorCode::TXN_CONFLICT : TxnErrorCode::TXN_OK;
+                    LOG(INFO) << "remove_delete_bitmap_update_lock_err 3, retry_times="
+                              << *retry_times << ", code=" << *try_any_cast<TxnErrorCode*>(args[2]);
+                });
+        RemoveDeleteBitmapUpdateLockResponse remove_lock_res;
+        meta_service->remove_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+                &remove_lock_res, nullptr);
+        ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        // case4
+        LOG(INFO) << "remove_delete_bitmap_update_lock_err 4";
+        SyncPoint::get_instance()->clear_all_call_backs();
+        RemoveDeleteBitmapUpdateLockResponse remove_lock_res;
+        meta_service->remove_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+                &remove_lock_res, nullptr);
+        ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
+    }
+}
+
 TEST(MetaServiceTest, GetVersion) {
     auto service = get_meta_service();
 
