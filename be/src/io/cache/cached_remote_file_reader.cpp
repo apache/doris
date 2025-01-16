@@ -126,8 +126,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     ReadStatistics stats;
     auto defer_func = [&](int*) {
         if (io_ctx->file_cache_stats) {
-            _update_state(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
-            io::FileCacheProfile::instance().update(io_ctx->file_cache_stats);
+            // update stats in io_ctx, for query profile
+            _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
+            // update stats increment in this reading procedure for file cache metrics
+            FileCacheStatistics fcache_stats_increment;
+            _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
+            io::FileCacheProfile::instance().update(&fcache_stats_increment);
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
@@ -316,7 +320,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     return Status::OK();
 }
 
-void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
+void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                            FileCacheStatistics* statis,
                                            bool is_inverted_index) const {
     if (statis == nullptr) {
