@@ -119,7 +119,7 @@ suite("test_load_and_schema_change_row_store", "p0") {
         UNIQUE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1");
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
         """
 
     wait_job_done.call("tbl_scalar_types_dup")
@@ -162,4 +162,37 @@ suite("test_load_and_schema_change_row_store", "p0") {
     }
     qt_sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
     sql "set enable_short_circuit_query_access_column_store = true"
+
+
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_uk_not_mow"
+    sql """
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_uk_not_mow (
+            `k1` bigint(11) NULL,
+            `c_string` text NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
+        """
+    test {
+        sql """alter table tbl_scalar_types_uk_not_mow set ("store_row_column" = "true")"""    
+        exception("`store_row_column` only support duplicate model or mow model")
+    }
+
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_agg"
+    sql """
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_agg(
+            `k1` bigint(11) NULL,
+            `c_string` text REPLACE_IF_NOT_NULL 
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+    test {
+        sql """alter table tbl_scalar_types_agg set ("store_row_column" = "true")"""    
+        exception("`store_row_column` only support duplicate model or mow model")
+    }
 }
