@@ -38,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -87,7 +88,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         Preconditions.checkState(catalogId == table.getCatalog().getId());
         TablePartitionValues partitionValues = new TablePartitionValues();
         Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
-        if (!partitionColumns.isPresent()) {
+        if (!partitionColumns.isPresent() || partitionColumns.get().length == 0) {
             return partitionValues;
         }
         HoodieTimeline timeline = tableMetaClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
@@ -101,9 +102,12 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         }
         List<String> partitionNameAndValues = getPartitionNamesBeforeOrEquals(timeline, timestamp);
         List<String> partitionNames = Arrays.asList(partitionColumns.get());
+        // we don't support auto refresh hudi mtmv currently,
+        // so the list `partitionLastUpdateTimestamp` is full of 0L.
         partitionValues.addPartitions(partitionNameAndValues,
                 partitionNameAndValues.stream().map(p -> parsePartitionValues(partitionNames, p))
-                        .collect(Collectors.toList()), table.getHudiPartitionColumnTypes(Long.parseLong(timestamp)));
+                        .collect(Collectors.toList()), table.getHudiPartitionColumnTypes(Long.parseLong(timestamp)),
+                Collections.nCopies(partitionNameAndValues.size(), 0L));
         partitionValues.setLastUpdateTimestamp(Long.parseLong(timestamp));
         return partitionValues;
     }
@@ -114,7 +118,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         Preconditions.checkState(catalogId == table.getCatalog().getId());
         TablePartitionValues partitionValues = new TablePartitionValues();
         Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
-        if (!partitionColumns.isPresent()) {
+        if (!partitionColumns.isPresent() || partitionColumns.get().length == 0) {
             return partitionValues;
         }
         HoodieTimeline timeline = tableMetaClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
@@ -162,7 +166,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 partitionValues.cleanPartitions();
                 partitionValues.addPartitions(partitionNames,
                         partitionNames.stream().map(p -> parsePartitionValues(partitionColumnsList, p))
-                                .collect(Collectors.toList()), table.getHudiPartitionColumnTypes(lastTimestamp));
+                                .collect(Collectors.toList()), table.getHudiPartitionColumnTypes(lastTimestamp),
+                        Collections.nCopies(partitionNames.size(), 0L));
                 partitionValues.setLastUpdateTimestamp(lastTimestamp);
                 return partitionValues;
             } finally {

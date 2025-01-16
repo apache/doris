@@ -207,9 +207,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             } else {
                 if (supportedIcebergTable()) {
                     dlaType = DLAType.ICEBERG;
+                    dlaTable = new HiveDlaTable(this);
                 } else if (supportedHoodieTable()) {
                     dlaType = DLAType.HUDI;
-                    dlaTable = new HiveDlaTable(this);
+                    dlaTable = new HudiDlaTable(this);
                 } else if (supportedHiveTable()) {
                     dlaType = DLAType.HIVE;
                     dlaTable = new HiveDlaTable(this);
@@ -308,7 +309,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         makeSureInitialized();
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         if (getDlaType() == DLAType.HUDI) {
-            return ((HiveDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
+            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
                     .getSchema();
         }
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(dbName, name);
@@ -318,7 +319,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public List<Type> getPartitionColumnTypes(Optional<MvccSnapshot> snapshot) {
         makeSureInitialized();
         if (getDlaType() == DLAType.HUDI) {
-            return ((HiveDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getPartitionColTypes();
+            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getPartitionColTypes();
         }
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(value -> ((HMSSchemaCacheValue) value).getPartitionColTypes())

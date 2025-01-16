@@ -22,14 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.SchemaCacheValue;
-import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
-import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
-import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -65,9 +58,6 @@ public class HiveDlaTable extends HMSDlaTable {
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        if (hmsTable.getDlaType() == DLAType.HUDI) {
-            return getHudiSchemaCacheValue(snapshot).getPartitionColumns();
-        }
         Optional<SchemaCacheValue> schemaCacheValue = hmsTable.getSchemaCacheValue();
         return schemaCacheValue.map(value -> ((HMSSchemaCacheValue) value).getPartitionColumns())
                 .orElse(Collections.emptyList());
@@ -142,30 +132,6 @@ public class HiveDlaTable extends HMSDlaTable {
             throw new AnalysisException("can not find partition: " + partitionId);
         }
         return partition;
-    }
-
-    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
-        TablePartitionValues snapshotCacheValue = getOrFetchHudiSnapshotCacheValue(snapshot);
-        return getHudiSchemaCacheValue(snapshotCacheValue.getLastUpdateTimestamp());
-    }
-
-    private HMSSchemaCacheValue getHudiSchemaCacheValue(long timestamp) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new HudiSchemaCacheKey(hmsTable.getDbName(), hmsTable.getName(), timestamp));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                    null, hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), timestamp);
-        }
-        return (HMSSchemaCacheValue) schemaCacheValue.get();
-    }
-
-    private TablePartitionValues getOrFetchHudiSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
-        if (snapshot.isPresent()) {
-            return ((HudiMvccSnapshot) snapshot.get()).getTablePartitionValues();
-        } else {
-            return HudiUtils.getPartitionValues(Optional.empty(), hmsTable);
-        }
     }
 
     @Override
