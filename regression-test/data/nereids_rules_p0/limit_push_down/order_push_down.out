@@ -195,16 +195,16 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t1]
 
 -- !limit_sort_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
 --------PhysicalDeferMaterializeOlapScan[t1]
 
 -- !limit_offset_sort_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
 --------PhysicalDeferMaterializeOlapScan[t1]
 
@@ -275,16 +275,18 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t1]
 
 -- !limit_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+>>>>>>> e482b0f726 (fix regression tpcds shape)
 ------filter((t1.id = 1))
 --------PhysicalDeferMaterializeOlapScan[t1]
 
 -- !limit_offset_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+>>>>>>> e482b0f726 (fix regression tpcds shape)
 ------filter((t1.id = 1))
 --------PhysicalDeferMaterializeOlapScan[t1]
 

@@ -82,4 +82,9 @@ public class MakeDate extends ScalarFunction
             return new MakeDate(child(0), literal);
         }
     }
+
+    @Override
+    public boolean isStrictlyMonotonic() {
+        return false;
+    }
 }

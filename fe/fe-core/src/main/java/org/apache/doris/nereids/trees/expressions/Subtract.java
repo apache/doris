@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -31,7 +33,7 @@ import java.util.List;
 /**
  * Subtract Expression. BinaryExpression.
  */
-public class Subtract extends BinaryArithmetic implements PropagateNullable {
+public class Subtract extends BinaryArithmetic implements PropagateNullable, Monotonic {
 
     public Subtract(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.SUBTRACT);
@@ -62,5 +64,32 @@ public class Subtract extends BinaryArithmetic implements PropagateNullable {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSubtract(this, context);
+    }
+
+    @Override
+    public boolean isMonotonic(Literal lower, Literal upper) {
+        return !(child(0) instanceof Literal) && child(1) instanceof Literal
+                || child(0) instanceof Literal && !(child(1) instanceof Literal);
+    }
+
+    @Override
+    public boolean isPositive() {
+        return child(1) instanceof Literal;
+    }
+
+    @Override
+    public int getMonotonicFunctionChildIndex() {
+        return child(1) instanceof Literal ? 0 : 1;
+    }
+
+    @Override
+    public boolean isStrictlyMonotonic() {
+        return isMonotonic(null, null);
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return child(1) instanceof Literal ? new Subtract(literal, child(1))
+                : new Subtract(child(0), literal);
     }
 }
