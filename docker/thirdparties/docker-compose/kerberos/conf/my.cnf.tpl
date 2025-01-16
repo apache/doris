@@ -16,19 +16,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -euo pipefail
+[mysqld]
+port=${MYSQL_PORT}
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+# Disabling symbolic-links is recommended to prevent assorted security risks
+symbolic-links=0
+# Settings user and group are ignored when systemd is used.
+# If you need to run mysqld under a different user or group,
+# customize your systemd unit file for mariadb according to the
+# instructions in http://fedoraproject.org/wiki/Systemd
 
-if test $# -gt 0; then
-    echo "$0 does not accept arguments" >&2
-    exit 32
-fi
+[mysqld_safe]
+log-error=/var/log/mariadb/mariadb.log
+pid-file=/var/run/mariadb/mariadb.pid
 
-set -x
+#
+# include all files from the config directory
+#
+!includedir /etc/my.cnf.d
 
-HEALTH_D=${HEALTH_D:-/etc/health.d/}
-
-if test -d "${HEALTH_D}"; then
-    for health_script in "${HEALTH_D}"/*; do
-        "${health_script}" &>> /var/log/container-health.log || exit 1
-    done
-fi
