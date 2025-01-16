@@ -48,6 +48,12 @@ for arg; do
     [[ "${arg}" = "--recycler" ]] && RUN_RECYCLYER=1 && continue
     set -- "$@" "${arg}"
 done
+if [[ ${RUN_METASERVICE} -eq 1 ]]; then
+    set -- "$@" "--meta-service"
+fi
+if [[ ${RUN_RECYCLYER} -eq 1 ]]; then
+    set -- "$@" "--recycler"
+fi
 # echo "$@" "daemonized=${daemonized}"}
 
 # export env variables from doris_cloud.conf
