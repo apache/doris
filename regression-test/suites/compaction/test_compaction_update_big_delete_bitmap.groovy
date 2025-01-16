@@ -219,7 +219,7 @@ suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
                 assertTrue(ms_delete_bitmap_cardinality == 7)
             }
         }
-        
+
     } finally {
         reset_be_param("compaction_promotion_version_count")
         reset_be_param("cumulative_compaction_max_deltas")
