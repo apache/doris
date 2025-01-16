@@ -25,6 +25,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
     println "Docker containers:"
     println output
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_single_hive_kerberos"
         sql """drop catalog if exists hms_kerberos;"""
@@ -32,8 +33,8 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
             CREATE CATALOG IF NOT EXISTS hms_kerberos
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
@@ -56,8 +57,8 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err1
                 PROPERTIES (
                     "type" = "hms",
-                    "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                    "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                     "hadoop.security.authentication" = "kerberos",
                     "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                     "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab"
@@ -79,8 +80,8 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 PROPERTIES (
                     "type" = "hms",
                     "hive.metastore.sasl.enabled " = "true",
-                    "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                    "fs.defaultFS" = "hdfs://172.31.71.25:8020"
+                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520"
                 );
             """
             sql """ switch hms_kerberos_hadoop_err2 """
@@ -95,8 +96,8 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         //                CREATE CATALOG IF NOT EXISTS hms_keberos_ccache
         //                PROPERTIES (
         //                    "type" = "hms",
-        //                    "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-        //                    "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+        //                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+        //                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
         //                    "hadoop.security.authentication" = "kerberos",
         //                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
         //                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",

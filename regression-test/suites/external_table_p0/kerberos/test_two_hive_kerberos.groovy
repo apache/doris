@@ -29,6 +29,7 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
     println "Docker containers:"
     println output
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_two_hive_kerberos"
         sql """drop catalog if exists ${hms_catalog_name};"""
@@ -36,8 +37,8 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
             PROPERTIES ( 
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
@@ -52,8 +53,8 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.26:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.26:8020",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9683",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8620",
                 "hadoop.kerberos.min.seconds.before.relogin" = "5",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@OTHERREALM.COM",
