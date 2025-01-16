@@ -1114,7 +1114,7 @@ DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
-DECLARE_Bool(enable_write_index_searcher_cache);
+DECLARE_mBool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
