@@ -38,6 +38,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -132,12 +133,17 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerPreFilterTimer", 1);
     _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
                                                           "FileScannerConvertOuputBlockTime", 1);
+    _runtime_filter_partition_pruning_timer = ADD_TIMER_WITH_LEVEL(
+            _local_state->scanner_profile(), "FileScannerRuntimeFilterPartitionPruningTime", 1);
     _empty_file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
     _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
     _file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
+    _runtime_filter_partition_pruned_range_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                   "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -177,6 +183,7 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
 }
 
 Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
+    SCOPED_TIMER(_runtime_filter_partition_pruning_timer);
     if (_conjuncts.empty() || _partition_col_descs.empty()) {
         return Status::OK();
     }
@@ -837,6 +844,7 @@ Status VFileScanner::_get_next_reader() {
         if (can_filter_all) {
             // this range can be filtered out by runtime filter partition pruning
             // so we need to skip this range
+            COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
             continue;
         }
 
