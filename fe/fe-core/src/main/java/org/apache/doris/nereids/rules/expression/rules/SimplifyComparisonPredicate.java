@@ -216,7 +216,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 upMicroSecond = 10 * upMicroSecond + 9;
             }
             upMicroSecond *= (int) Math.pow(10, 6 - toScale);
-            upMicroSecond += right.getMicroSecond();
+            upMicroSecond += lowBound.getMicroSecond();
             // left must be a datetimev2
             DateTimeV2Literal upBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
                     right.getYear(), right.getMonth(), right.getDay(),
