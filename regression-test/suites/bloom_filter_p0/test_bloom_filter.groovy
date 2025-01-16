@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_bloom_filter") {
+suite("test_bloom_filter","nonConcurrent") {
     // todo: test bloom filter, such alter table bloom filter, create table with bloom filter
     sql "SHOW ALTER TABLE COLUMN"
 
