@@ -22,12 +22,15 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "dummy_task_queue.h"
+#include "exprs/bloom_filter_func.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/task_queue.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "thrift_builder.h"
@@ -45,10 +48,13 @@ class PipelineTest : public testing::Test {
 public:
     PipelineTest()
             : _obj_pool(new ObjectPool()),
-              _mgr(std::make_unique<doris::vectorized::VDataStreamMgr>()) {
+              _mgr(std::make_unique<doris::vectorized::VDataStreamMgr>()) {}
+    ~PipelineTest() override = default;
+    void SetUp() override {
         _query_options = TQueryOptionsBuilder()
                                  .set_enable_local_exchange(true)
                                  .set_enable_local_shuffle(true)
+                                 .set_runtime_filter_max_in_num(15)
                                  .build();
         auto fe_address = TNetworkAddress();
         fe_address.hostname = LOCALHOST;
@@ -56,10 +62,12 @@ public:
         _query_ctx = QueryContext::create_shared(_query_id, ExecEnv::GetInstance(), _query_options,
                                                  fe_address, true, fe_address,
                                                  QuerySource::INTERNAL_FRONTEND);
+        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                TRuntimeFilterParamsBuilder().build());
         ExecEnv::GetInstance()->set_stream_mgr(_mgr.get());
-        _task_queue = std::make_unique<MultiCoreTaskQueue>(1);
+        _task_queue = std::make_unique<DummyTaskQueue>(1);
     }
-    ~PipelineTest() override = default;
+    void TearDown() override {}
 
 private:
     std::shared_ptr<Pipeline> _build_pipeline(int num_instances, Pipeline* parent = nullptr) {
@@ -111,11 +119,14 @@ private:
         _pipeline_profiles.clear();
         _pipeline_tasks.clear();
         _runtime_states.clear();
+        _runtime_filter_mgrs.clear();
     }
     int _next_fragment_id() { return _fragment_id++; }
     int _next_node_id() { return _next_node_idx++; }
-    int _next_op_id() { return _next_op_idx++; }
+    int _next_op_id() { return _next_op_idx--; }
+    int _next_sink_op_id() { return _next_sink_op_idx--; }
     int _next_pipeline_id() { return _next_pipeline_idx++; }
+    int _max_operator_id() const { return _next_op_idx; }
 
     // Query level
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -123,7 +134,7 @@ private:
     std::shared_ptr<QueryContext> _query_ctx;
     TUniqueId _query_id = TUniqueId();
     TQueryOptions _query_options;
-    std::unique_ptr<MultiCoreTaskQueue> _task_queue;
+    std::unique_ptr<DummyTaskQueue> _task_queue;
 
     // Fragment level
     // Fragment0 -> Fragment1
@@ -135,6 +146,7 @@ private:
     TUniqueId _ins_id = TUniqueId();
     int _next_node_idx = 0;
     int _next_op_idx = 0;
+    int _next_sink_op_idx = 0;
 
     // Pipeline Level
     // Fragment0[Pipeline0 -> Pipeline1] -> Fragment1[Pipeline2 -> Pipeline3]
@@ -145,6 +157,9 @@ private:
     // Fragment0[Pipeline0[Task0] -> Pipeline1[Task0]] -> Fragment1[Pipeline2[Task0] -> Pipeline3[Task0]]
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _pipeline_tasks;
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _runtime_states;
+
+    // Instance level
+    std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgrs;
 
     const std::string LOCALHOST = BackendOptions::get_localhost();
     const int DUMMY_PORT = config::brpc_port;
@@ -181,7 +196,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                                                            .set_scalar_type(TPrimitiveType::INT)
                                                            .build())
                                         .build())
-                        .set_nullIndicatorBit(0)
+                        .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
                         .set_isMaterialized(true)
@@ -486,7 +501,7 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
                                                            .set_scalar_type(TPrimitiveType::INT)
                                                            .build())
                                         .build())
-                        .set_nullIndicatorBit(0)
+                        .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
                         .set_isMaterialized(true)
@@ -582,7 +597,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                                            .set_scalar_type(TPrimitiveType::INT)
                                                            .build())
                                         .build())
-                        .set_nullIndicatorBit(0)
+                        .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
                         .set_isMaterialized(true)
@@ -601,7 +616,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                                            .set_scalar_type(TPrimitiveType::INT)
                                                            .build())
                                         .build())
-                        .set_nullIndicatorBit(0)
+                        .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
                         .set_isMaterialized(true)
@@ -620,7 +635,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                                            .set_scalar_type(TPrimitiveType::INT)
                                                            .build())
                                         .build())
-                        .set_nullIndicatorBit(0)
+                        .set_nullIndicatorBit(-1)
                         .set_byteOffset(0)
                         .set_slotIdx(0)
                         .set_isMaterialized(true)
@@ -637,7 +652,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                                            .set_scalar_type(TPrimitiveType::INT)
                                                            .build())
                                         .build())
-                        .set_nullIndicatorBit(0)
+                        .set_nullIndicatorBit(-1)
                         .set_byteOffset(4)
                         .set_slotIdx(1)
                         .set_isMaterialized(true)
@@ -717,6 +732,73 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                     .append_vintermediate_tuple_id_list(1)
                                     .build())
                     .append_row_tuples(2, false)
+                    .append_projections(
+                            TExprBuilder()
+                                    .append_nodes(
+                                            TExprNodeBuilder(
+                                                    TExprNodeType::SLOT_REF,
+                                                    TTypeDescBuilder()
+                                                            .set_types(
+                                                                    TTypeNodeBuilder()
+                                                                            .set_type(
+                                                                                    TTypeNodeType::
+                                                                                            SCALAR)
+                                                                            .set_scalar_type(
+                                                                                    TPrimitiveType::
+                                                                                            INT)
+                                                                            .build())
+                                                            .build(),
+                                                    0)
+                                                    .set_slot_ref(TSlotRefBuilder(0, 0).build())
+                                                    .build())
+                                    .build())
+                    .append_projections(
+                            TExprBuilder()
+                                    .append_nodes(
+                                            TExprNodeBuilder(
+                                                    TExprNodeType::SLOT_REF,
+                                                    TTypeDescBuilder()
+                                                            .set_types(
+                                                                    TTypeNodeBuilder()
+                                                                            .set_type(
+                                                                                    TTypeNodeType::
+                                                                                            SCALAR)
+                                                                            .set_scalar_type(
+                                                                                    TPrimitiveType::
+                                                                                            INT)
+                                                                            .build())
+                                                            .build(),
+                                                    0)
+                                                    .set_slot_ref(TSlotRefBuilder(1, 1).build())
+                                                    .build())
+                                    .build())
+                    .append_runtime_filters(
+                            TRuntimeFilterDescBuilder(
+                                    0,
+                                    TExprBuilder()
+                                            .append_nodes(
+                                                    TExprNodeBuilder(
+                                                            TExprNodeType::SLOT_REF,
+                                                            TTypeDescBuilder()
+                                                                    .set_types(
+                                                                            TTypeNodeBuilder()
+                                                                                    .set_type(
+                                                                                            TTypeNodeType::
+                                                                                                    SCALAR)
+                                                                                    .set_scalar_type(
+                                                                                            TPrimitiveType::
+                                                                                                    INT)
+                                                                                    .build())
+                                                                    .build(),
+                                                            0)
+                                                            .set_slot_ref(
+                                                                    TSlotRefBuilder(1, 1).build())
+                                                            .build())
+                                            .build(),
+                                    0, std::map<TPlanNodeId, TExpr> {})
+                                    .set_bloom_filter_size_bytes(1048576)
+                                    .set_build_bf_exactly(false)
+                                    .build())
                     .build();
 
     {
@@ -747,8 +829,9 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         auto build_side_pipe = _build_pipeline(parallelism, _pipelines.front().get());
 
         DataSinkOperatorPtr sink;
-        sink.reset(
-                new HashJoinBuildSinkOperatorX(_obj_pool.get(), _next_op_id(), join_node, *desc));
+        sink.reset(new HashJoinBuildSinkOperatorX(
+                _obj_pool.get(), _next_sink_op_id(),
+                _pipelines.front()->operators().back()->operator_id(), join_node, *desc));
         EXPECT_EQ(sink->init(join_node, _runtime_state.back().get()), Status::OK());
         EXPECT_EQ(build_side_pipe->set_sink(sink), Status::OK());
 
@@ -774,6 +857,8 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
 
     TDataSink tsink;
     std::vector<TUniqueId> ids;
+    auto dest_ins_id = _next_ins_id();
+    auto dest_node_id = _next_node_id();
     {
         auto cur_pipe = _pipelines.front();
         std::vector<TPlanFragmentDestination> destinations;
@@ -781,10 +866,9 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         dest0_address.hostname = LOCALHOST;
         dest0_address.port = DUMMY_PORT;
         destinations.push_back(
-                TPlanFragmentDestinationBuilder(_next_ins_id(), dest0_address, dest0_address)
-                        .build());
+                TPlanFragmentDestinationBuilder(dest_ins_id, dest0_address, dest0_address).build());
         auto stream_sink =
-                TDataStreamSinkBuilder(_next_node_id(),
+                TDataStreamSinkBuilder(dest_node_id,
                                        TDataPartitionBuilder(TPartitionType::UNPARTITIONED).build())
                         .build();
         tsink = TDataSinkBuilder(TDataSinkType::DATA_STREAM_SINK)
@@ -792,11 +876,12 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                         .build();
         DataSinkOperatorPtr sink;
 
-        ids.push_back(_next_ins_id());
-        ids.push_back(_next_ins_id());
+        for (int i = 0; i < parallelism; i++) {
+            ids.push_back(_next_ins_id());
+        }
         sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
                                              _pipelines.back()->operators().back()->row_desc(),
-                                             _next_op_id(), stream_sink, destinations, ids));
+                                             _next_sink_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
         EXPECT_EQ(cur_pipe->sink()->set_child(cur_pipe->operators().back()), Status::OK());
@@ -840,6 +925,265 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         pipeline->children().clear();
         EXPECT_EQ(pipeline->prepare(_runtime_state.front().get()), Status::OK());
     }
+
+    {
+        // Build pipeline task
+        int task_id = 0;
+        _runtime_filter_mgrs.resize(parallelism);
+        for (int j = 0; j < parallelism; j++) {
+            auto runtime_filter_state = RuntimeFilterParamsContext::create(_query_ctx.get());
+            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(
+                    _query_id, runtime_filter_state, _query_ctx->query_mem_tracker, false);
+        }
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            EXPECT_EQ(_pipelines[i]->id(), i);
+            _pipeline_profiles[_pipelines[i]->id()] = std::make_shared<RuntimeProfile>(
+                    "Pipeline : " + std::to_string(_pipelines[i]->id()));
+            for (int j = 0; j < parallelism; j++) {
+                std::unique_ptr<RuntimeState> local_runtime_state = RuntimeState::create_unique(
+                        ids[j], _query_id, _context.back()->get_fragment_id(), _query_options,
+                        _query_ctx->query_globals, ExecEnv::GetInstance(), _query_ctx.get());
+                local_runtime_state->set_desc_tbl(desc);
+                local_runtime_state->set_per_fragment_instance_idx(j);
+                local_runtime_state->set_be_number(j);
+                local_runtime_state->set_num_per_fragment_instances(parallelism);
+                local_runtime_state->resize_op_id_to_local_state(_max_operator_id());
+                local_runtime_state->set_max_operator_id(_max_operator_id());
+                local_runtime_state->set_load_stream_per_node(0);
+                local_runtime_state->set_total_load_streams(0);
+                local_runtime_state->set_num_local_sink(0);
+                local_runtime_state->set_task_id(task_id++);
+                local_runtime_state->set_task_num(_pipelines[i]->num_tasks());
+                local_runtime_state->set_task_execution_context(
+                        std::static_pointer_cast<TaskExecutionContext>(_context.back()));
+                local_runtime_state->set_runtime_filter_mgr(_runtime_filter_mgrs[j].get());
+                _runtime_filter_mgrs[j]->_state->set_state(local_runtime_state.get());
+                std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                        std::shared_ptr<Dependency>>>
+                        le_state_map;
+                auto task = std::make_unique<PipelineTask>(
+                        _pipelines[i], task_id, local_runtime_state.get(), _context.back().get(),
+                        _pipeline_profiles[_pipelines[i]->id()].get(), le_state_map, j);
+                _pipelines[i]->incr_created_tasks(j, task.get());
+                local_runtime_state->set_task(task.get());
+                task->set_task_queue(_task_queue.get());
+                _pipeline_tasks[_pipelines[i]->id()].push_back(std::move(task));
+                _runtime_states[_pipelines[i]->id()].push_back(std::move(local_runtime_state));
+            }
+        }
+    }
+    {
+        _pipeline_tasks[0][0]->inject_shared_state(_pipeline_tasks[1][0]->get_sink_shared_state());
+        _pipeline_tasks[0][1]->inject_shared_state(_pipeline_tasks[1][1]->get_sink_shared_state());
+    }
+
+    std::shared_ptr<vectorized::VDataStreamRecvr> downstream_recvr;
+    auto downstream_pipeline_profile = std::make_shared<RuntimeProfile>("Downstream Pipeline");
+    {
+        // Build downstream recvr
+        auto context = _build_fragment_context();
+        std::unique_ptr<RuntimeState> downstream_runtime_state = RuntimeState::create_unique(
+                dest_ins_id, _query_id, context->get_fragment_id(), _query_options,
+                _query_ctx->query_globals, ExecEnv::GetInstance(), _query_ctx.get());
+        downstream_runtime_state->set_task_execution_context(
+                std::static_pointer_cast<TaskExecutionContext>(context));
+
+        auto* memory_used_counter = downstream_pipeline_profile->AddHighWaterMarkCounter(
+                "MemoryUsage", TUnit::BYTES, "", 1);
+        downstream_recvr = ExecEnv::GetInstance()->_vstream_mgr->create_recvr(
+                downstream_runtime_state.get(), memory_used_counter,
+                _pipelines.front()->operators().back()->row_desc(), dest_ins_id, dest_node_id,
+                parallelism, downstream_pipeline_profile.get(), false, 2048000);
+    }
+    for (size_t i = 0; i < _pipelines.size(); i++) {
+        for (int j = 0; j < parallelism; j++) {
+            std::vector<TScanRangeParams> scan_ranges;
+            EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->prepare(scan_ranges, j, tsink,
+                                                                       _query_ctx.get()),
+                      Status::OK());
+            if (i == 1) {
+                auto& local_state = _runtime_states[i][j]
+                                            ->get_sink_local_state()
+                                            ->cast<HashJoinBuildSinkLocalState>();
+                EXPECT_EQ(local_state._runtime_filters.size(), 1);
+                EXPECT_EQ(local_state._should_build_hash_table, true);
+            }
+        }
+    }
+
+    {
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            for (int j = 0; j < parallelism; j++) {
+                // Blocked by execution dependency which is set by FE 2-phase trigger.
+                EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->_wait_to_start(), true);
+            }
+        }
+        EXPECT_EQ(_query_ctx->get_execution_dependency()->_blocked_task.size(),
+                  _pipelines.size() * parallelism);
+        _query_ctx->get_execution_dependency()->set_ready();
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            for (int j = 0; j < parallelism; j++) {
+                // Task is ready and be push into runnable task queue.
+                EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+            }
+        }
+        for (size_t i = 0; i < _pipelines.size(); i++) {
+            for (int j = 0; j < parallelism; j++) {
+                EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->_wait_to_start(), false);
+            }
+        }
+    }
+
+    {
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_block_queue.size(), 0);
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 2);
+    }
+
+    {
+        for (int i = _pipelines.size() - 1; i >= 0; i--) {
+            for (int j = 0; j < parallelism; j++) {
+                bool eos = false;
+                EXPECT_EQ(_pipeline_tasks[i][j]->execute(&eos), Status::OK());
+                EXPECT_EQ(_pipeline_tasks[i][j]->_opened, true);
+                EXPECT_EQ(eos, false);
+            }
+        }
+    }
+    for (int i = _pipelines.size() - 1; i >= 0; i--) {
+        for (int j = 0; j < parallelism; j++) {
+            {
+                vectorized::Block block;
+                {
+                    vectorized::DataTypePtr int_type =
+                            std::make_shared<vectorized::DataTypeInt32>();
+
+                    auto int_col0 = vectorized::ColumnInt32::create();
+                    if (j == 0 || i == 0) {
+                        int_col0->insert_many_vals(j, 10);
+                    } else {
+                        size_t ndv = 16;
+                        for (size_t n = 0; n < ndv; n++) {
+                            int_col0->insert_many_vals(n, 1);
+                        }
+                    }
+
+                    block.insert({std::move(int_col0), int_type, "test_int_col0"});
+                }
+                auto& local_state =
+                        _runtime_states[i][j]
+                                ->get_local_state(_pipelines[i]->operators().front()->operator_id())
+                                ->cast<ExchangeLocalState>();
+                EXPECT_EQ(local_state.stream_recvr->_sender_queues[0]->_source_dependency->ready(),
+                          false);
+                EXPECT_EQ(local_state.stream_recvr->_sender_queues[0]
+                                  ->_source_dependency->_blocked_task.size(),
+                          i == 1 ? 1 : 0);
+                local_state.stream_recvr->_sender_queues[0]->add_block(&block, true);
+            }
+        }
+    }
+    {
+        // Pipeline 1 is blocked by exchange dependency so tasks are ready after data reached.
+        // Pipeline 0 is blocked by hash join dependency and is still waiting for upstream tasks done.
+        for (int j = 0; j < parallelism; j++) {
+            // Task is ready and be push into runnable task queue.
+            EXPECT_EQ(_task_queue->take(0) != nullptr, true);
+        }
+        EXPECT_EQ(_task_queue->take(0), nullptr);
+        for (int j = 0; j < parallelism; j++) {
+            EXPECT_EQ(_pipeline_tasks[1][j]->_is_blocked(), false);
+        }
+    }
+    {
+        // Pipeline 1 ran first and build hash table in join build operator.
+        for (int j = 0; j < parallelism; j++) {
+            bool eos = false;
+            EXPECT_EQ(_pipeline_tasks[1][j]->execute(&eos), Status::OK());
+            EXPECT_EQ(eos, false);
+        }
+        for (int j = 0; j < parallelism; j++) {
+            auto& local_state =
+                    _runtime_states[1][j]
+                            ->get_local_state(_pipelines[1]->operators().front()->operator_id())
+                            ->cast<ExchangeLocalState>();
+            local_state.stream_recvr->_sender_queues[0]->decrement_senders(0);
+
+            bool eos = false;
+            EXPECT_EQ(_pipeline_tasks[1][j]->execute(&eos), Status::OK());
+            EXPECT_EQ(_pipeline_tasks[1][j]->_is_blocked(), false);
+            EXPECT_EQ(eos, true);
+            auto& sink_local_state = _runtime_states[1][j]
+                                             ->get_sink_local_state()
+                                             ->cast<HashJoinBuildSinkLocalState>();
+            EXPECT_EQ(sink_local_state._runtime_filters_disabled, false);
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters.size(), 1);
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                              ->need_sync_filter_size(),
+                      false);
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                              ->_runtime_filter_type,
+                      RuntimeFilterType::IN_OR_BLOOM_FILTER);
+            EXPECT_EQ(_pipeline_tasks[1][j]->is_pending_finish(), false);
+            EXPECT_EQ(_pipeline_tasks[1][j]->close(Status::OK()), Status::OK());
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]->get_real_type(),
+                      j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
+                    << "  " << j << " "
+                    << IRuntimeFilter::to_string(
+                               sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                       ->get_real_type());
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                              ->_wrapper->is_ignored(),
+                      false);
+            if (j == 0) {
+                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                  ->_wrapper->_context->hybrid_set->size(),
+                          1);
+            } else {
+                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                  ->_wrapper->_context->bloom_filter_func->_build_bf_exactly,
+                          false);
+
+                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                  ->_wrapper->_context->bloom_filter_func->_bloom_filter_length,
+                          1048576);
+            }
+        }
+    }
+    {
+        // Pipeline 0 ran once hash table is built.
+        for (int j = 0; j < parallelism; j++) {
+            EXPECT_EQ(_pipeline_tasks[0][j]->_is_blocked(), false);
+        }
+        for (int j = 0; j < parallelism; j++) {
+            bool eos = false;
+            EXPECT_EQ(_pipeline_tasks[0][j]->execute(&eos), Status::OK());
+            EXPECT_EQ(eos, false);
+        }
+        for (int j = 0; j < parallelism; j++) {
+            auto& local_state =
+                    _runtime_states[0][j]
+                            ->get_local_state(_pipelines[0]->operators().front()->operator_id())
+                            ->cast<ExchangeLocalState>();
+            local_state.stream_recvr->_sender_queues[0]->decrement_senders(0);
+
+            bool eos = false;
+            EXPECT_EQ(_pipeline_tasks[0][j]->execute(&eos), Status::OK());
+            EXPECT_EQ(_pipeline_tasks[0][j]->_is_blocked(), false);
+            EXPECT_EQ(eos, true);
+            EXPECT_EQ(_pipeline_tasks[0][j]->is_pending_finish(), false);
+            EXPECT_EQ(_pipeline_tasks[0][j]->close(Status::OK()), Status::OK());
+        }
+    }
+    {
+        // [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] join [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] produces 100 rows in instance 0.
+        // [2, 2, 2, 2, 2, 2, 2, 2, 2, 2] join [2, 2, 2, 2, 2, 2, 2, 2, 2, 2] produces 100 rows in instance 1.
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_block_queue.size(), 2);
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_block_queue.front()._block->rows(),
+                  10 * 10);
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_block_queue.back()._block->rows(), 10);
+        EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 0);
+    }
+    downstream_recvr->close();
 }
 
 } // namespace doris::pipeline

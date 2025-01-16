@@ -70,7 +70,7 @@ suite ("test_dup_mv_schema_change") {
             """
 
         //add materialized view
-        createMV("create materialized view mv1 as select date, user_id, city, age from ${tableName};")
+        create_sync_mv(context.dbName, tableName, "mv1", """select date, user_id, city, age from ${tableName}""")
 
         // alter and test light schema change
         if (!isCloudMode()) {
@@ -78,7 +78,7 @@ suite ("test_dup_mv_schema_change") {
         }
 
         //add materialized view
-        createMV("create materialized view mv2 as select date, user_id, city, age, cost from ${tableName};")
+        create_sync_mv(context.dbName, tableName, "mv2", """select date, user_id, city, age, cost from ${tableName}""")
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

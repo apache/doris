@@ -224,6 +224,8 @@ supportedAlterStatement
         dropRollupClause (COMMA dropRollupClause)*                                          #alterTableDropRollup
     | ALTER TABLE name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterTableProperties
+    | ALTER DATABASE name=identifier SET (DATA | REPLICA | TRANSACTION)
+            QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     ;
 
@@ -598,8 +600,6 @@ privilegeList
 
 unsupportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                #alterSystem
-    | ALTER DATABASE name=identifier SET (DATA |REPLICA | TRANSACTION)
-        QUOTA INTEGER_VALUE identifier?                                             #alterDatabaseSetQuota
     | ALTER DATABASE name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
     | ALTER CATALOG name=identifier SET PROPERTIES

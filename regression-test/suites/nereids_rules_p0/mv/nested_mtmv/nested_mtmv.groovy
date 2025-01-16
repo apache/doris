@@ -742,10 +742,12 @@ suite("nested_mtmv") {
     mv_rewrite_any_success(sql_2, [mv_1, mv_2])
     compare_res(sql_2 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-    mv_rewrite_any_success(sql_3, [mv_3, mv_4])
+    // level 1 maybe use mv_1 and mv_2, this also meets expectation
+    mv_rewrite_any_success(sql_3, [mv_3, mv_4, mv_1, mv_2])
     compare_res(sql_3 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-    mv_rewrite_any_success(sql_4, [mv_3, mv_4])
+    // level 1 maybe use mv_1 and mv_2, this also meets expectation
+    mv_rewrite_any_success(sql_4, [mv_3, mv_4, mv_1, mv_2])
     compare_res(sql_4 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
     mv_rewrite_any_success(sql_5, [mv_3, mv_4, mv_5])
