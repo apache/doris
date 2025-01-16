@@ -3381,6 +3381,7 @@ public class Config extends ConfigBase {
 
     public static long meta_service_rpc_retry_cnt = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"一次收集的最大agent任务数",})
+    @ConfField(mutable = true, masterOnly = true, description = {"一次收集的最大agent任务数",
+            "max number of agent tasks to collect at a time"})
     public static int max_collect_agent_task_num = 1000000;
 }
