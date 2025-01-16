@@ -54,7 +54,6 @@
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
-#include "vec/exec/format/empty_block_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
@@ -831,14 +830,14 @@ Status VFileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
-        // runtime filter partition pruning
-        // so we need get partition columns first
+        // we need get partition columns first for runtime filter partition pruning
         RETURN_IF_ERROR(_generate_parititon_columns());
         bool can_filter_all = false;
         RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(can_filter_all));
         if (can_filter_all) {
-            _cur_reader = EmptyBlockReader::create_unique();
-            return Status::OK();
+            // this range can be filtered out by runtime filter partition pruning
+            // so we need to skip this range
+            continue;
         }
 
         // create reader for specific format
