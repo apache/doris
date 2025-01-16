@@ -62,7 +62,7 @@ under the License.
 
 ## 如果发现了一个 Bug 或问题
 
-如果发现了一个 Bug 或问题，您可以直接通过 GitHub 的 [Issues](https://github.com/apache/doris/issues/new/choose) 提一个新的 Issue，我们会有人定期处理。
+如果发现了一个 Bug 或问题，您可以直接通过 GitHub 的 [Issues](https://github.com/apache/doris/issues/new/choose) 创建一个新的 Issue，我们会有人定期处理。
 
 您也可以通过阅读分析代码自己修复（当然在这之前最好能和我们交流下，或许已经有人在修复同样的问题了），然后提交一个 [Pull Request](./docs/zh-CN/community/how-to-contribute/pull-request.md)。
 
