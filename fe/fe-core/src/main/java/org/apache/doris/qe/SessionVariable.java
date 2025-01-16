@@ -143,6 +143,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
+    public static final String ENABLE_GROUP_COMMIT_FULL_PREPARE = "enable_group_commit_full_prepare";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -568,6 +569,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
+    public static final String FUZZY_DISABLE_RUNTIME_FILTER_IN_BE = "fuzzy_disable_runtime_filter_in_be";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -925,7 +928,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
     public int batchSize = 4064;
 
     // 16352 + 16 + 16 = 16384
@@ -1236,7 +1239,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = WAIT_FULL_BLOCK_SCHEDULE_TIMES)
     public int waitFullBlockScheduleTimes = 2;
 
-    @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT)
+    @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
     public int getBeNumberForTest() {
@@ -1612,6 +1615,9 @@ public class SessionVariable implements Serializable, Writable {
                 "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
     public int maxPreparedStmtCount = 100000;
 
+    @VariableMgr.VarAttr(name = ENABLE_GROUP_COMMIT_FULL_PREPARE)
+    public boolean enableGroupCommitFullPrepare = true;
+
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST, varType = VariableAnnotation.DEPRECATED)
@@ -1682,7 +1688,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean showUserDefaultRole = false;
 
     // Default value is -1, which means not fix replica
-    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
+    @VariableMgr.VarAttr(name = USE_FIX_REPLICA, needForward = true)
     public int useFixReplica = -1;
 
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
@@ -2223,6 +2229,13 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, fuzzy = true)
     public long dataQueueMaxBlocks = 1;
 
+    @VariableMgr.VarAttr(
+            name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
+            description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
+                    "Disable the runtime filter on the BE for testing purposes."},
+            needForward = true, fuzzy = false)
+    public boolean fuzzyDisableRuntimeFilterInBE = false;
+
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M
     public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 2097152;
@@ -2471,6 +2484,8 @@ public class SessionVariable implements Serializable, Writable {
                     this.batchSize = 1024;
                     this.enableFoldConstantByBe = false;
                 }
+
+                this.fuzzyDisableRuntimeFilterInBE = true;
             }
         }
 
@@ -3949,6 +3964,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);

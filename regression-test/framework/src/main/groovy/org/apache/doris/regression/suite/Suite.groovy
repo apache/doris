@@ -49,6 +49,7 @@ import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
+import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
@@ -1262,7 +1263,7 @@ class Suite implements GroovyInterceptable {
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
                 } else if (tag.contains("master_sql")) {
-                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (String) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
@@ -1295,6 +1296,8 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (PreparedStatement) arg)
+                } else if (tag.contains("master_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (PreparedStatement) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
                 }
@@ -1308,6 +1311,8 @@ class Suite implements GroovyInterceptable {
                             (String) ("USE ${context.dbName};" + (String) arg))
                 } else if (tag.contains("target_sql")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+                } else if (tag.contains("master_sql")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (String) arg)
                 } else {
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
                 }
@@ -2739,4 +2744,103 @@ class Suite implements GroovyInterceptable {
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
+
+    def check_fold_consistency = { test_sql ->
+        def re_fe = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
+        def re_be = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
+        def re_no_fold = order_sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
+        logger.info("check sql: ${test_sql}")
+        assertEquals(re_fe, re_be)
+        assertEquals(re_fe, re_no_fold)
+    }
+
+    def backendIdToHost = { ->
+        def spb = sql_return_maparray """SHOW BACKENDS"""
+        def beIdToHost = [:]
+        spb.each {
+            beIdToHost[it.BackendId] = it.Host
+        }
+        beIdToHost 
+    }
+
+    def getTabletAndBeHostFromBe = { bes ->
+        def ret = [:]
+        bes.each { be ->
+            // {"msg":"OK","code":0,"data":{"host":"128.2.51.2","tablets":[{"tablet_id":10560},{"tablet_id":10554},{"tablet_id":10552}]},"count":3}
+            def data = Http.GET("http://${be.host}:${be.httpPort}/tablets_json?limit=all", true).data
+            def tablets = data.tablets.collect { it.tablet_id as String }
+            tablets.each{
+                ret[it] = data.host
+            }
+        }
+        ret
+    }
+
+    def getTabletAndBeHostFromFe = { table ->
+        def result = sql_return_maparray """SHOW TABLETS FROM $table"""
+        def bes = backendIdToHost.call()
+        // tablet : [backendId, host]
+        def ret = [:]
+        result.each {
+            ret[it.TabletId] = [it.BackendId, bes[it.BackendId]]
+        }
+        ret
+    }
+
+    // get rowset_id segment_id from ms
+    // curl '175.40.101.1:5000/MetaService/http/get_value?token=greedisgood9999&unicode&key_type=MetaRowsetKey&instance_id=default_instance_id&tablet_id=27700&version=2'
+    def getSegmentFilesFromMs = { msHttpPort, tabletId, version, check_func ->
+        httpTest {
+            endpoint msHttpPort
+            op "get"
+            uri "/MetaService/http/get_value?token=greedisgood9999&unicode&key_type=MetaRowsetKey&instance_id=default_instance_id&tablet_id=${tabletId}&version=${version}"
+            check check_func
+        }
+    }
+
+    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version -> 
+        def hashValues = []
+        def segmentFiles = []
+        getSegmentFilesFromMs(msHttpPort, tabletId, version) {
+            respCode, body ->
+                def json = parseJson(body)
+                logger.info("get tablet {} version {} from ms, response {}", tabletId, version, json)
+                // {"rowset_id":"0","partition_id":"27695","tablet_id":"27700","txn_id":"7057526525952","tablet_schema_hash":0,"rowset_type":"BETA_ROWSET","rowset_state":"COMMITTED","start_version":"3","end_version":"3","version_hash":"0","num_rows":"1","total_disk_size":"895","data_disk_size":"895","index_disk_size":"0","empty":false,"load_id":{"hi":"-1646598626735601581","lo":"-6677682539881484579"},"delete_flag":false,"creation_time":"1736153402","num_segments":"1","rowset_id_v2":"0200000000000004694889e84c76391cfd52ec7db0a483ba","resource_id":"1","newest_write_timestamp":"1736153402","segments_key_bounds":[{"min_key":"AoAAAAAAAAAC","max_key":"AoAAAAAAAAAC"}],"txn_expiration":"1736167802","segments_overlap_pb":"NONOVERLAPPING","compaction_level":"0","segments_file_size":["895"],"index_id":"27697","schema_version":0,"enable_segments_file_size":true,"has_variant_type_in_schema":false,"enable_inverted_index_file_info":false}
+                def segmentNum = json.num_segments as int
+                def rowsetId = json.rowset_id_v2 as String
+                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.dat" }
+        }
+
+        segmentFiles.each {
+            // curl '175.40.51.3:8040/api/file_cache?op=hash&value=0200000000000004694889e84c76391cfd52ec7db0a483ba_0.dat'
+            def data = Http.GET("http://${beHttpPort}/api/file_cache?op=hash&value=${it}", true)
+            // {"hash":"2b79c649a1766dad371054ee168f0574"}
+            logger.info("get tablet {} segmentFile {}, response {}", tabletId, it, data)
+            hashValues << data.hash
+        }
+        hashValues
+    }
+
+    // get table's tablet file cache
+    def getTabletFileCacheDirFromBe = { msHttpPort, table, version ->
+        // beHost HashFile
+        def beHostToHashFile = [:]
+
+        def getTabletsAndHostFromFe = getTabletAndBeHostFromFe(table)
+        getTabletsAndHostFromFe.each {
+            def beHost = it.Value[1]
+            def tabletId = it.Key
+            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version)
+            hashRet.each {
+                def hashFile = it
+                if (beHostToHashFile.containsKey(beHost)) {
+                    beHostToHashFile[beHost].add(hashFile)
+                } else {
+                    beHostToHashFile[beHost] = [hashFile]
+                }
+            }
+        }
+        beHostToHashFile
+    }
+
 }

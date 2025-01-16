@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace doris {
 
@@ -29,7 +30,12 @@ class WorkloadGroup;
 
 template <typename T>
 class AtomicCounter;
-using IntAtomicCounter = AtomicCounter<int64_t>;
+using IntCounter = AtomicCounter<int64_t>;
+
+template <typename T>
+class AtomicGauge;
+using IntGuage = AtomicGauge<int64_t>;
+
 class MetricEntity;
 struct MetricPrototype;
 
@@ -58,19 +64,11 @@ public:
     int64_t get_memory_used();
 
 private:
-    std::unique_ptr<doris::MetricPrototype> _cpu_time_metric {nullptr};
-    std::unique_ptr<doris::MetricPrototype> _mem_used_bytes_metric {nullptr};
-    std::unique_ptr<doris::MetricPrototype> _local_scan_bytes_metric {nullptr};
-    std::unique_ptr<doris::MetricPrototype> _remote_scan_bytes_metric {nullptr};
-    // NOTE: _local_scan_bytes_metric is sum of all disk's IO
-    std::unordered_multimap<std::string, std::unique_ptr<doris::MetricPrototype>>
-            _local_scan_bytes_metric_map;
-
-    IntAtomicCounter* _cpu_time_counter {nullptr};          // used for metric
-    IntAtomicCounter* _mem_used_bytes_counter {nullptr};    // used for metric
-    IntAtomicCounter* _local_scan_bytes_counter {nullptr};  // used for metric
-    IntAtomicCounter* _remote_scan_bytes_counter {nullptr}; // used for metric
-    std::unordered_multimap<std::string, IntAtomicCounter*>
+    IntCounter* workload_group_cpu_time_sec {nullptr};           // used for metric
+    IntGuage* workload_group_mem_used_bytes {nullptr};           // used for metric
+    IntCounter* workload_group_remote_scan_bytes {nullptr};      // used for metric
+    IntCounter* workload_group_total_local_scan_bytes {nullptr}; // used for metric
+    std::unordered_multimap<std::string, IntCounter*>
             _local_scan_bytes_counter_map; // used for metric
 
     std::atomic<uint64_t> _cpu_time_nanos {0};
@@ -86,6 +84,7 @@ private:
     std::atomic<uint64_t> _memory_used {0};
 
     std::shared_ptr<MetricEntity> _entity {nullptr};
+    std::vector<std::shared_ptr<MetricEntity>> _io_entity_list;
 };
 
 } // namespace doris

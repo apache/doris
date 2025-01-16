@@ -476,9 +476,15 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (wrapper->is_ignored()) {
+        if (wrapper->is_disabled()) {
+            set_disabled();
             return Status::OK();
         }
+
+        if (wrapper->is_ignored() || is_disabled()) {
+            return Status::OK();
+        }
+
         _context->ignored = false;
 
         bool can_not_merge_in_or_bloom =
@@ -497,15 +503,9 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            if (!_context->hybrid_set) {
-                set_ignored();
-                return Status::OK();
-            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
-                set_ignored();
-                // release in filter
-                _context->hybrid_set.reset();
+                set_disabled();
             }
             break;
         }
@@ -939,6 +939,16 @@ public:
 
     void set_ignored() { _context->ignored = true; }
 
+    bool is_disabled() const { return _context->disabled; }
+
+    void set_disabled() {
+        _context->disabled = true;
+        _context->minmax_func.reset();
+        _context->hybrid_set.reset();
+        _context->bloom_filter_func.reset();
+        _context->bitmap_filter_func.reset();
+    }
+
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                           PColumnValue&)) {
@@ -982,11 +992,10 @@ private:
 
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
-                              int node_id, std::shared_ptr<IRuntimeFilter>* res,
-                              bool build_bf_exactly) {
+                              int node_id, std::shared_ptr<IRuntimeFilter>* res) {
     *res = std::make_shared<IRuntimeFilter>(state, desc);
     (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
+    return (*res)->init_with_desc(desc, query_options, node_id);
 }
 
 RuntimeFilterContextSPtr& IRuntimeFilter::get_shared_context_ref() {
@@ -1219,9 +1228,10 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
         merge_filter_callback->cntl_->ignore_eovercrowded();
     }
 
-    if (get_ignored()) {
+    if (get_ignored() || get_disabled()) {
         merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
-        merge_filter_request->set_ignored(true);
+        merge_filter_request->set_ignored(get_ignored());
+        merge_filter_request->set_disabled(get_disabled());
     } else {
         RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
     }
@@ -1243,7 +1253,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
     auto origin_size = push_exprs.size();
-    if (!_wrapper->is_ignored()) {
+    if (!_wrapper->is_ignored() && !_wrapper->is_disabled()) {
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
@@ -1339,16 +1349,25 @@ bool IRuntimeFilter::get_ignored() {
     return _wrapper->is_ignored();
 }
 
+void IRuntimeFilter::set_disabled() {
+    _wrapper->set_disabled();
+}
+
+bool IRuntimeFilter::get_disabled() const {
+    return _wrapper->is_disabled();
+}
+
 std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
             "[Id = {}, IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
-            "HasLocalTarget = {}, Ignored = {}]",
+            "HasLocalTarget = {}, Ignored = {}, Disabled = {}, Type = {}, WaitTimeMS = {}]",
             _filter_id, _is_push_down, _get_explain_state_string(), _has_remote_target,
-            _has_local_target, _wrapper->_context->ignored);
+            _has_local_target, _wrapper->_context->ignored, _wrapper->_context->disabled,
+            _wrapper->get_real_type(), wait_time_ms());
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                                      int node_id, bool build_bf_exactly) {
+                                      int node_id) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -1370,20 +1389,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
                                                    ? options->runtime_bloom_filter_max_size
                                                    : 0;
-    auto sync_filter_size = desc->__isset.sync_filter_size && desc->sync_filter_size;
-    // We build runtime filter by exact distinct count iff three conditions are met:
-    // 1. Only 1 join key
-    // 2. Bloom filter
-    // 3. Size of all bloom filters will be same (size will be sync or this is a broadcast join).
-    params.build_bf_exactly =
-            build_bf_exactly && (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-                                 _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
 
+    params.build_bf_exactly = desc->__isset.build_bf_exactly && desc->build_bf_exactly;
     params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
-
-    if (!sync_filter_size) {
-        params.build_bf_exactly &= !_is_broadcast_join;
-    }
 
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
@@ -1451,6 +1459,11 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     *wrapper = std::make_shared<RuntimePredicateWrapper>(column_type, get_type(filter_type),
                                                          param->request->filter_id());
 
+    if (param->request->has_disabled() && param->request->disabled()) {
+        (*wrapper)->set_disabled();
+        return Status::OK();
+    }
+
     if (param->request->has_ignored() && param->request->ignored()) {
         (*wrapper)->set_ignored();
         return Status::OK();
@@ -1496,6 +1509,11 @@ Status IRuntimeFilter::_create_wrapper(const T* param,
     PrimitiveType column_type = to_primitive_type(param->request->column_type());
     *wrapper = std::make_unique<RuntimePredicateWrapper>(column_type, get_type(filter_type),
                                                          param->request->filter_id());
+
+    if (param->request->has_disabled() && param->request->disabled()) {
+        (*wrapper)->set_disabled();
+        return Status::OK();
+    }
 
     if (param->request->has_ignored() && param->request->ignored()) {
         (*wrapper)->set_ignored();

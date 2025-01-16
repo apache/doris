@@ -39,6 +39,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/binary_cast.hpp"
+#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
@@ -126,6 +127,14 @@ public:
             tcounters.push_back(std::move(counter));
         }
 
+        virtual void pretty_print(std::ostream* s, const std::string& prefix,
+                                  const std::string& name) const {
+            std::ostream& stream = *s;
+            stream << prefix << "   - " << name << ": "
+                   << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type())
+                   << std::endl;
+        }
+
         TUnit::type type() const { return _type; }
 
         virtual int64_t level() { return _level; }
@@ -142,14 +151,48 @@ public:
     /// as value()) and the current value.
     class HighWaterMarkCounter : public Counter {
     public:
-        HighWaterMarkCounter(TUnit::type unit, int64_t level = 2)
-                : Counter(unit, 0, level), current_value_(0) {}
+        HighWaterMarkCounter(TUnit::type unit, int64_t level, const std::string& parent_name)
+                : Counter(unit, 0, level), current_value_(0), _parent_name(parent_name) {}
 
-        virtual void add(int64_t delta) {
+        void add(int64_t delta) {
             current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
                 UpdateMax(current_value_);
             }
+        }
+        virtual void update(int64_t delta) override { add(delta); }
+
+        virtual void to_thrift(
+                const std::string& name, std::vector<TCounter>& tcounters,
+                std::map<std::string, std::set<std::string>>& child_counters_map) override {
+            {
+                TCounter counter;
+                counter.name = name;
+                counter.value = this->current_value();
+                counter.type = this->type();
+                counter.__set_level(this->level());
+                tcounters.push_back(std::move(counter));
+            }
+            {
+                TCounter counter;
+                std::string peak_name = name + "Peak";
+                counter.name = peak_name;
+                counter.value = this->value();
+                counter.type = this->type();
+                counter.__set_level(this->level());
+                tcounters.push_back(std::move(counter));
+                child_counters_map[_parent_name].insert(peak_name);
+            }
+        }
+
+        virtual void pretty_print(std::ostream* s, const std::string& prefix,
+                                  const std::string& name) const override {
+            std::ostream& stream = *s;
+            stream << prefix << "   - " << name << ": "
+                   << PrettyPrinter::print(current_value(), type()) << std::endl;
+            stream << prefix << "      - " << name << "Peak: "
+                   << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type())
+                   << std::endl;
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
@@ -194,6 +237,8 @@ public:
         /// The current value of the counter. _value in the super class represents
         /// the high water mark.
         std::atomic<int64_t> current_value_;
+
+        const std::string _parent_name;
     };
 
     using DerivedCounterFunction = std::function<int64_t()>;
@@ -561,10 +606,6 @@ private:
     static void print_child_counters(const std::string& prefix, const std::string& counter_name,
                                      const CounterMap& counter_map,
                                      const ChildCounterMap& child_counter_map, std::ostream* s);
-
-    static std::string print_counter(Counter* counter) {
-        return PrettyPrinter::print(counter->value(), counter->type());
-    }
 };
 
 // Utility class to update the counter at object construction and destruction.

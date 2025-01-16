@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
@@ -60,6 +61,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -310,6 +312,36 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     public boolean isExternalTableSink() {
         return !(logicalQuery instanceof UnboundTableSink);
+    }
+
+    /**
+     * get the target table of the insert command
+     */
+    public TableIf getTable(ConnectContext ctx) throws Exception {
+        TableIf targetTableIf = InsertUtils.getTargetTable(originalLogicalQuery, ctx);
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
+                        targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                        PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
+        }
+        return targetTableIf;
+    }
+
+    /**
+     * get the target columns of the insert command
+     */
+    public List<String> getTargetColumns() {
+        if (originalLogicalQuery instanceof UnboundTableSink) {
+            UnboundLogicalSink<? extends Plan> unboundTableSink
+                    = (UnboundTableSink<? extends Plan>) originalLogicalQuery;
+            return CollectionUtils.isEmpty(unboundTableSink.getColNames()) ? null : unboundTableSink.getColNames();
+        } else {
+            throw new AnalysisException(
+                    "the root of plan should be [UnboundTableSink], but it is " + originalLogicalQuery.getType());
+        }
     }
 
     @Override

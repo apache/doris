@@ -87,7 +87,7 @@ suite("test_inverted_index_file_size", "nonConcurrent"){
 
         qt_sql """ select count() from ${tableName} where clientip match '17.0.0.0' and request match 'GET' and status match '200' and size > 200 """
         qt_sql """ select count() from ${tableName} where clientip match_phrase '17.0.0.0' and request match_phrase 'GET' and status match '200' and size > 200 """
-        trigger_and_wait_compaction.call(tableName, "full")
+        trigger_and_wait_compaction(tableName, "full")
         qt_sql """ select count() from ${tableName} where clientip match '17.0.0.0' and request match 'GET' and status match '200' and size > 200 """
         qt_sql """ select count() from ${tableName} where clientip match_phrase '17.0.0.0' and request match_phrase 'GET' and status match '200' and size > 200 """
 

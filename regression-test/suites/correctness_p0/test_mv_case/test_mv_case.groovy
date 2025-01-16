@@ -108,7 +108,7 @@ suite("test_mv_case") {
         "enable_nondeterministic_function" = "true"
         ) AS
         select
-        /*+ SET_VAR(enable_force_spill = true) */
+        /*+ SET_VAR(enable_force_spill = false) */
         cast(a.id as bigint) info_id,
         map_infos
         from

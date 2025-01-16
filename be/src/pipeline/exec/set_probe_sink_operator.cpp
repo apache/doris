@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "vec/common/hash_table/hash_table_set_probe.h"
 
 namespace doris {
@@ -69,7 +70,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    auto probe_rows = in_block->rows();
+    const auto probe_rows = in_block->rows();
     if (probe_rows > 0) {
         {
             SCOPED_TIMER(local_state._extract_probe_data_timer);
@@ -92,7 +93,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 *local_state._shared_state->hash_table_variants));
     }
 
-    if (eos) {
+    if (eos && !state->get_task()->wake_up_early()) {
         _finalize_probe(local_state);
     }
     return Status::OK();

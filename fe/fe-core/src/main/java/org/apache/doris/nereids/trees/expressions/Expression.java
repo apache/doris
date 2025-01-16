@@ -71,6 +71,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
     private final int fastChildrenHashCode;
     private final Supplier<String> toSqlCache = Suppliers.memoize(this::computeToSql);
+    private final Supplier<Integer> hashCodeCache = Suppliers.memoize(this::computeHashCode);
 
     protected Expression(Expression... children) {
         super(children);
@@ -456,6 +457,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     @Override
     public int hashCode() {
+        return hashCodeCache.get();
+    }
+
+    protected int computeHashCode() {
         return getClass().hashCode() + fastChildrenHashCode();
     }
 

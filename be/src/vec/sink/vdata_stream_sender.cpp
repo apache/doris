@@ -253,12 +253,10 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
                                               bool* serialized, bool eos,
                                               const std::vector<uint32_t>* rows) {
     if (_mutable_block == nullptr) {
-        SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     {
-        SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
             if (!rows->empty()) {
                 const auto* begin = rows->data();

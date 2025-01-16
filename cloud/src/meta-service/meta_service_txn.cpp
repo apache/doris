@@ -1252,12 +1252,12 @@ void commit_txn_immediately(
                     return;
                 }
                 if (pending_info.has_lock_id() && pending_info.lock_id() != lock_id) {
-                    code = MetaServiceCode::PENDING_DELETE_BITMAP_WRONG;
-                    msg = fmt::format(
+                    TEST_SYNC_POINT_CALLBACK("commit_txn:check_pending_delete_bitmap_lock_id",
+                                             &tablet_id);
+                    LOG_WARNING(
                             "wrong lock_id in pending delete bitmap infos, expect lock_id={}, but "
                             "found {} tablet_id={} instance_id={}",
                             lock_id, pending_info.lock_id(), tablet_id, instance_id);
-                    return;
                 }
 
                 txn->remove(pending_key);

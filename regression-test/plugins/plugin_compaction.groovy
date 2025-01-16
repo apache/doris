@@ -57,8 +57,7 @@ Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, S
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
-
-Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300 ->
+Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[] ->
     if (!(compaction_type in ["cumulative", "base", "full"])) {
         throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
@@ -102,12 +101,15 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
         def trigger_status = parseJson(stdout.trim())
         if (trigger_status.status.toLowerCase() != "success") {
-            if (trigger_status.status.toLowerCase() == "already_exist") {
+            def status_lower = trigger_status.status.toLowerCase()
+            if (status_lower == "already_exist") {
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (trigger_status.status.contains("E-2000")) {
+            } else if (status_lower.contains("e-2000")) {
                 // ignore this tablet compaction.
+            } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
+                // ignore this tablet compaction if the error is in the ignored_errors list
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
             }

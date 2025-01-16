@@ -156,6 +156,7 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         if (request.block) {
             RETURN_IF_ERROR(
                     BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
+            COUNTER_UPDATE(_parent->memory_used_counter(), request.block->ByteSizeLong());
         }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
@@ -291,6 +292,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         }
         if (request.block) {
             static_cast<void>(brpc_request->release_block());
+            COUNTER_UPDATE(_parent->memory_used_counter(), -request.block->ByteSizeLong());
         }
         q.pop();
         _total_queue_size--;
@@ -416,12 +418,24 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     _turn_off_channel(id, lock);
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
+    for (; !broadcast_q.empty(); broadcast_q.pop()) {
+        if (broadcast_q.front().block_holder->get_block()) {
+            COUNTER_UPDATE(_parent->memory_used_counter(),
+                           -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
+        }
+    }
     {
         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
         swap(empty, broadcast_q);
     }
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
+    for (; !q.empty(); q.pop()) {
+        if (q.front().block) {
+            COUNTER_UPDATE(_parent->memory_used_counter(), -q.front().block->ByteSizeLong());
+        }
+    }
+
     {
         std::queue<TransmitInfo, std::list<TransmitInfo>> empty;
         swap(empty, q);
