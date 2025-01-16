@@ -33,4 +33,8 @@ void materialize_block_inplace(Block& block) {
     }
 }
 
+void materialize_data_column(Block& block, size_t idx) {
+    block.replace_by_position_if_const(idx);
+}
+
 } // namespace doris::vectorized

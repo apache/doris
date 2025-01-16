@@ -365,6 +365,16 @@ struct PercentileState {
         }
     }
 
+    void add(T source, const Float64& quantile) {
+        if (!inited_flag) {
+            vec_counts.resize(1);
+            vec_quantile.resize(1, -1);
+            inited_flag = true;
+            vec_quantile[0] = quantile;
+        }
+        vec_counts[0].increment(source);
+    }
+
     void add_batch(const PaddedPODArray<T>& source, const Float64& q) {
         if (!inited_flag) {
             inited_flag = true;
@@ -420,6 +430,7 @@ public:
 
     String get_name() const override { return "percentile"; }
 
+    AggregateConstArgs get_const_args() const override { return {1}; }
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -427,9 +438,9 @@ public:
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
-                                                     quantile.get_data(), 1);
+                                                     quantile.template get_value<Float64>());
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
@@ -437,10 +448,10 @@ public:
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         DCHECK_EQ(sources.get_data().size(), batch_size);
         AggregateFunctionPercentile::data(place).add_batch(sources.get_data(),
-                                                           quantile.get_data()[0]);
+                                                           quantile.template get_value<Float64>());
     }
 
     void reset(AggregateDataPtr __restrict place) const override {
@@ -483,12 +494,14 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
     }
 
+    AggregateConstArgs get_const_args() const override { return {1}; }
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& quantile_array =
-                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        const auto& quantile_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*columns[1])
+                        .get_data_column());
         const auto& offset_column_data = quantile_array.get_offsets();
         const auto& nested_column = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                             quantile_array.get_data())
@@ -496,9 +509,9 @@ public:
         const auto& nested_column_data =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(nested_column);
 
-        AggregateFunctionPercentileArray::data(place).add(
-                sources.get_int(row_num), nested_column_data.get_data(),
-                offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
+        AggregateFunctionPercentileArray::data(place).add(sources.get_int(row_num),
+                                                          nested_column_data.get_data(),
+                                                          offset_column_data.data()[0]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {

@@ -74,6 +74,14 @@ public class PercentileArray extends NotNullableAggregateFunction
         super("percentile_array", distinct, arg0, arg1);
     }
 
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException(
+                    "percentile requires second parameter must be a constant : " + this.toSql());
+        }
+    }
+
     /**
      * withDistinctAndChildren.
      */

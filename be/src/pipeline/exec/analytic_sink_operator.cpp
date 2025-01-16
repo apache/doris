@@ -56,8 +56,13 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
         }
 
         for (size_t j = 0; j < _agg_expr_ctxs[i].size(); ++j) {
-            _shared_state->agg_input_columns[i][j] =
-                    _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
+            if (p._agg_functions[i]->function()->get_const_args().contains(j)) {
+                _shared_state->agg_input_columns[i][j] = vectorized::ColumnConst::create(
+                        _agg_expr_ctxs[i][j]->root()->data_type()->create_column(), 0, true);
+            } else {
+                _shared_state->agg_input_columns[i][j] =
+                        _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
+            }
         }
     }
     _partition_by_eq_expr_ctxs.resize(p._partition_by_eq_expr_ctxs.size());
@@ -202,7 +207,9 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, 
           _require_bucket_distribution(require_bucket_distribution),
           _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
                                    ? tnode.distribute_expr_lists[0]
-                                   : tnode.analytic_node.partition_exprs) {
+                                   : tnode.analytic_node.partition_exprs),
+          _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
+          _output_tuple_id(tnode.analytic_node.output_tuple_id) {
     _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
 }
 
@@ -212,7 +219,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     size_t agg_size = analytic_node.analytic_functions.size();
     _agg_expr_ctxs.resize(agg_size);
     _num_agg_input.resize(agg_size);
-    for (int i = 0; i < agg_size; ++i) {
+    for (size_t i = 0; i < agg_size; ++i) {
         const TExpr& desc = analytic_node.analytic_functions[i];
         _num_agg_input[i] = desc.nodes[0].num_children;
         int node_idx = 0;
@@ -231,6 +238,18 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.order_by_exprs,
                                                          _order_by_eq_expr_ctxs));
     _agg_functions_size = agg_size;
+
+    for (size_t i = 0; i < agg_size; ++i) {
+        vectorized::AggFnEvaluator* evaluator = nullptr;
+        // Window function treats all NullableAggregateFunction as AlwaysNullable.
+        // Its behavior is same with executed without group by key.
+        // https://github.com/apache/doris/pull/40693
+        RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(state->obj_pool(),
+                                                           analytic_node.analytic_functions[i], {},
+                                                           /*wihout_key*/ true, &evaluator));
+        _agg_functions.emplace_back(evaluator);
+    }
+
     return Status::OK();
 }
 
@@ -257,6 +276,19 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         RETURN_IF_ERROR(vectorized::VExpr::open(_agg_expr_ctxs[i], state));
+    }
+    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
+    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+    for (size_t i = 0; i < _agg_functions.size(); ++i) {
+        SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
+        SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
+                                                   intermediate_slot_desc, output_slot_desc));
+        _agg_functions[i]->set_version(state->be_exec_version());
+    }
+
+    for (auto* agg_function : _agg_functions) {
+        RETURN_IF_ERROR(agg_function->open(state));
     }
     return Status::OK();
 }
@@ -291,12 +323,13 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
 
     {
         SCOPED_TIMER(local_state._compute_agg_data_timer);
-        for (size_t i = 0; i < _agg_functions_size;
-             ++i) { //insert _agg_input_columns, execute calculate for its
+        for (size_t i = 0; i < _agg_functions_size; ++i) {
+            //insert _agg_input_columns, execute calculate for its
             for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
                 RETURN_IF_ERROR(_insert_range_column(
                         input_block, local_state._agg_expr_ctxs[i][j],
-                        local_state._shared_state->agg_input_columns[i][j].get(), block_rows));
+                        local_state._shared_state->agg_input_columns[i][j].get(), block_rows,
+                        _agg_functions[i]->function()->get_const_args().contains(j)));
             }
         }
     }
@@ -337,12 +370,26 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
 
 Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
                                                    const vectorized::VExprContextSPtr& expr,
-                                                   vectorized::IColumn* dst_column, size_t length) {
+                                                   vectorized::IColumn* dst_column, size_t length,
+                                                   bool is_const_arg) {
     int result_col_id = -1;
     RETURN_IF_ERROR(expr->execute(block, &result_col_id));
     DCHECK_GE(result_col_id, 0);
-    auto column = block->get_by_position(result_col_id).column->convert_to_full_column_if_const();
-    dst_column->insert_range_from(*column, 0, length);
+    if (is_const_arg) {
+        if (dst_column->empty()) {
+            auto& col =
+                    assert_cast<vectorized::ColumnConst&, TypeCheckOnRelease::DISABLE>(*dst_column);
+            auto& input_col =
+                    assert_cast<const vectorized::ColumnConst&, TypeCheckOnRelease::DISABLE>(
+                            *block->get_by_position(result_col_id).column);
+            col.get_data_column().insert(input_col.get_field());
+            col.insert_many_defaults(block->get_by_position(result_col_id).column->size());
+        }
+    } else {
+        auto column =
+                block->get_by_position(result_col_id).column->convert_to_full_column_if_const();
+        dst_column->insert_range_from(*column, 0, length);
+    }
     return Status::OK();
 }
 

@@ -95,7 +95,7 @@ public:
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
-                                vectorized::IColumn* dst_column, size_t length);
+                                vectorized::IColumn* dst_column, size_t length, bool is_const_arg);
 
     friend class AnalyticSinkLocalState;
 
@@ -111,6 +111,11 @@ private:
     const bool _is_colocate;
     const bool _require_bucket_distribution;
     const std::vector<TExpr> _partition_exprs;
+    std::vector<vectorized::AggFnEvaluator*> _agg_functions;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
+    TupleDescriptor* _output_tuple_desc = nullptr;
+    TupleId _intermediate_tuple_id;
+    TupleId _output_tuple_id;
 };
 
 } // namespace pipeline
