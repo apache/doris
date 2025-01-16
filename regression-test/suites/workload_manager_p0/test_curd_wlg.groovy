@@ -348,7 +348,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wlg_user""";
     }
 
     connect('test_wlg_user', '12345', context.config.jdbcUrl) {
@@ -739,7 +739,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wg_priv_user2""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wg_priv_user2""";
     }
     connect('test_wg_priv_user2', '', context.config.jdbcUrl) {
         qt_select_wgp_11 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "

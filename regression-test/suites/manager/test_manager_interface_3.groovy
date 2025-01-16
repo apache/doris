@@ -89,8 +89,8 @@ suite('test_manager_interface_3',"p0") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user2}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user2}""";
         }
 
         connect(user1, "${pwd}", url) {
@@ -412,7 +412,7 @@ suite('test_manager_interface_3',"p0") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
         }
         
         List<List<Object>> result = sql  """ show resources """
@@ -609,7 +609,7 @@ suite('test_manager_interface_3',"p0") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
         }
         
         connect(user, "${pwd}", url) { 

@@ -17,13 +17,22 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/admin-manual/data-admin/backup.md", "p0,nonConcurrent") {
+suite("docs/admin-manual/data-admin/backup.md", "backup_restore") {
+    if (isCloudMode()) {
+        logger.info("skip this case, because not supported in cloud mode")
+        return
+    }
+    if (!enableHdfs()) {
+        logger.info("skip this case, because hdfs is not enable")
+        return
+    }
     try {
+        def uuid = UUID.randomUUID().hashCode().abs()
         multi_sql """
-            CREATE DATABASE IF NOT EXISTS example_db;
-            USE example_db;
+            CREATE DATABASE IF NOT EXISTS example_db${uuid};
+            USE example_db${uuid};
             DROP TABLE IF EXISTS example_tbl;
-            CREATE TABLE IF NOT EXISTS example_db.example_tbl(
+            CREATE TABLE IF NOT EXISTS example_db${uuid}.example_tbl(
                 a INT
             ) PARTITION BY RANGE(a) (
                 PARTITION p1 VALUES LESS THAN (1),
@@ -38,7 +47,6 @@ suite("docs/admin-manual/data-admin/backup.md", "p0,nonConcurrent") {
             INSERT INTO example_tbl2 SELECT * FROM example_tbl;
         """
 
-        def uuid = UUID.randomUUID().hashCode().abs()
         def syncer = getSyncer()
         /*
          CREATE REPOSITORY `example_repo`
@@ -50,7 +58,7 @@ suite("docs/admin-manual/data-admin/backup.md", "p0,nonConcurrent") {
          "hadoop.username" = "hadoop"
          );
          */
-        syncer.createHdfsRepository("example_repo")
+        syncer.createHdfsRepository("example_repo${uuid}")
 
         /*
         CREATE REPOSITORY `s3_repo`
@@ -64,28 +72,28 @@ suite("docs/admin-manual/data-admin/backup.md", "p0,nonConcurrent") {
             "AWS_REGION" = "xxx"
         );
          */
-        syncer.createS3Repository("s3_repo")
+        syncer.createS3Repository("s3_repo${uuid}")
         sql """
-            BACKUP SNAPSHOT example_db.snapshot_label1${uuid}
-            TO example_repo
+            BACKUP SNAPSHOT example_db${uuid}.snapshot_label1${uuid}
+            TO example_repo${uuid}
             ON (example_tbl)
             PROPERTIES ("type" = "full");
         """
-        syncer.waitSnapshotFinish("example_db")
+        syncer.waitSnapshotFinish("example_db${uuid}")
 
         sql """
-            BACKUP SNAPSHOT example_db.snapshot_label2${uuid}
-            TO example_repo
+            BACKUP SNAPSHOT example_db${uuid}.snapshot_label2${uuid}
+            TO example_repo${uuid}
             ON
             (
                example_tbl PARTITION (p1,p2),
                example_tbl2
             );
         """
-        syncer.waitSnapshotFinish("example_db")
+        syncer.waitSnapshotFinish("example_db${uuid}")
 
         sql """show BACKUP"""
-        sql """SHOW SNAPSHOT ON example_repo WHERE SNAPSHOT = "snapshot_label1${uuid}";"""
+        sql """SHOW SNAPSHOT ON example_repo${uuid} WHERE SNAPSHOT = "snapshot_label1${uuid}";"""
 
     } catch (Throwable t) {
         Assertions.fail("examples in docs/admin-manual/data-admin/backup.md failed to exec, please fix it", t)

@@ -1166,7 +1166,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         executeCommitTxnRequest(commitTxnRequest, transactionId, false, null);
     }
 
-    // add some log and get commit lock, mainly used for mow tables
+    private List<Table> getTablesNeedCommitLock(List<Table> tableList) {
+        if (Config.enable_commit_lock_for_all_tables) {
+            // If enabled, lock all tables
+            return tableList.stream()
+                    .sorted(Comparator.comparingLong(Table::getId))
+                    .collect(Collectors.toList());
+        } else {
+            // If disabled, only lock MOW tables
+            return tableList.stream()
+                    .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                    .sorted(Comparator.comparingLong(Table::getId))
+                    .collect(Collectors.toList());
+        }
+    }
+
     private void beforeCommitTransaction(List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
         for (int i = 0; i < tableList.size(); i++) {
@@ -1180,29 +1194,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        // Get tables that require commit lock - only MOW tables need this:
-        // 1. Filter to keep only OlapTables with MOW enabled
-        // 2. Sort by table ID to maintain consistent locking order and prevent deadlocks
-        List<Table> mowTableList = tableList.stream()
-                .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
-                .sorted(Comparator.comparingLong(Table::getId))
-                .collect(Collectors.toList());
-        increaseWaitingLockCount(mowTableList);
-        if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseWaitingLockCount(mowTableList);
+        List<Table> tablesToLock = getTablesNeedCommitLock(tableList);
+        increaseWaitingLockCount(tablesToLock);
+        if (!MetaLockUtils.tryCommitLockTables(tablesToLock, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingLockCount(tablesToLock);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
-                            + StringUtils.join(mowTableList, ",") + ")");
+                            + StringUtils.join(tablesToLock, ",") + ")");
         }
     }
 
     private void afterCommitTransaction(List<Table> tableList) {
-        List<Table> mowTableList = tableList.stream()
-                .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
-                .collect(Collectors.toList());
-        decreaseWaitingLockCount(mowTableList);
-        MetaLockUtils.commitUnlockTables(mowTableList);
+        List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
+        decreaseWaitingLockCount(tablesToUnlock);
+        MetaLockUtils.commitUnlockTables(tablesToUnlock);
     }
 
     @Override
