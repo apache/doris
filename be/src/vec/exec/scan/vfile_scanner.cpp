@@ -22,6 +22,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
 
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
@@ -182,20 +183,26 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     return Status::OK();
 }
 
-Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
-    SCOPED_TIMER(_runtime_filter_partition_pruning_timer);
-    if (_conjuncts.empty() || _partition_col_descs.empty()) {
-        return Status::OK();
-    }
-    VExprContextSPtrs ctxs;
+void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
+    _runtime_filter_partition_pruning_ctxs.clear();
     for (auto& conjunct : _conjuncts) {
         auto impl = conjunct->root()->get_impl();
         if (impl) {
             // If impl is not null, which means this a conjuncts from runtime filter.
-            ctxs.emplace_back(conjunct);
+            DCHECK(impl->get_num_children() > 0 && impl->get_child(0)->is_slot_ref());
+            const auto* slot_ref = static_cast<const VSlotRef*>(impl->get_child(0).get());
+            if (_partition_slot_index_map.find(slot_ref->slot_id()) !=
+                _partition_slot_index_map.end()) {
+                // If the slot is partition column, add it to runtime filter partition pruning ctxs.
+                _runtime_filter_partition_pruning_ctxs.emplace_back(conjunct);
+            }
         }
     }
-    if (ctxs.empty()) {
+}
+
+Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
+    SCOPED_TIMER(_runtime_filter_partition_pruning_timer);
+    if (_runtime_filter_partition_pruning_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
     }
     size_t partition_value_column_size = 0;
@@ -254,8 +261,8 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         temp_block.get_by_position(0).column->assume_mutable()->resize(partition_value_column_size);
     }
     IColumn::Filter result_filter(temp_block.rows(), 1);
-    RETURN_IF_ERROR(VExprContext::execute_conjuncts(ctxs, nullptr, &temp_block, &result_filter,
-                                                    &can_filter_all));
+    RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_pruning_ctxs, nullptr,
+                                                    &temp_block, &result_filter, &can_filter_all));
     return Status::OK();
 }
 
@@ -322,6 +329,7 @@ Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
+        _init_runtime_filter_partition_pruning_ctxs();
     } else {
         // there's no scan range in split source. stop scanner directly.
         _scanner_eof = true;
@@ -839,6 +847,11 @@ Status VFileScanner::_get_next_reader() {
 
         // we need get partition columns first for runtime filter partition pruning
         RETURN_IF_ERROR(_generate_parititon_columns());
+        if (_push_down_conjuncts.size() < _conjuncts.size()) {
+            // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
+            _init_runtime_filter_partition_pruning_ctxs();
+        }
+
         bool can_filter_all = false;
         RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(can_filter_all));
         if (can_filter_all) {
