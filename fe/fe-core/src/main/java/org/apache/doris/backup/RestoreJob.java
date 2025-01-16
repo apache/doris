@@ -1659,6 +1659,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             state = RestoreJobState.DOWNLOAD;
 
             env.getEditLog().logRestoreJob(this);
+            for (ColocatePersistInfo info : colocatePersistInfos) {
+                env.getEditLog().logColocateAddTable(info);
+            }
             LOG.info("finished making snapshots. {}", this);
             return;
         }
@@ -2132,7 +2135,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             state = RestoreJobState.FINISHED;
 
             env.getEditLog().logRestoreJob(this);
-            colocatePersistInfos.clear();
         }
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
@@ -2405,6 +2407,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             state = RestoreJobState.CANCELLED;
             // log
             env.getEditLog().logRestoreJob(this);
+            for (ColocatePersistInfo info : colocatePersistInfos) {
+                Env.getCurrentColocateIndex().removeTable(info.getTableId());
+                env.getEditLog().logColocateRemoveTable(info);
+            }
             colocatePersistInfos.clear();
 
             LOG.info("finished to cancel restore job. current state: {}. is replay: {}. {}",
