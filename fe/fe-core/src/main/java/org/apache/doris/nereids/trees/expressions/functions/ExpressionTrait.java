@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -96,5 +97,22 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      */
     default boolean containsNondeterministic() {
         return anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic());
+    }
+
+    /** strictlyMonotonic */
+    default boolean strictlyMonotonic() {
+        // 先序遍历
+        if (this instanceof Slot) {
+            return true;
+        }
+        if (!(this instanceof Monotonic)) {
+            return false;
+        }
+        Monotonic monotonic = (Monotonic) this;
+        if (!monotonic.isStrictlyMonotonic()) {
+            return false;
+        }
+        int childIdx = monotonic.getMonotonicFunctionChildIndex();
+        return this.child(childIdx).strictlyMonotonic();
     }
 }

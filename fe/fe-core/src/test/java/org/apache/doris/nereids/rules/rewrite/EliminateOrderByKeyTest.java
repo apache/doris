@@ -141,10 +141,10 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     @Test
     void testEliminateByUniformTopN() {
         PlanChecker.from(connectContext)
-                .analyze("select 1 as c1,a,b,c from eliminate_order_by_constant_t where a=1 order by a,'abc',c1 limit 5")
+                .analyze("select 1 as c1,a,b,c from eliminate_order_by_constant_t where a=1 order by a,'abc',b,c1 limit 5")
                 .rewrite()
                 .printlnTree()
-                .nonMatch(logicalTopN());
+                .matches(logicalTopN().when(sort -> sort.getOrderKeys().size() == 1));
     }
 
     @Test
@@ -508,5 +508,131 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .rewrite()
                 .printlnTree()
                 .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 2));
+    }
+
+    @Test
+    void testEliminateByMonotonicBasic() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by a+1,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by 1+a,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by a-1,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by 1-a,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by 3*a,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by a*3,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+    }
+
+    @Test
+    void testPositiveNegative() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by positive(a),4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by negative(a),4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+    }
+
+    @Test
+    void testEliminateByMonotonicComplex() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t2 order by a+1,1-a,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t2 order by 1-a,1+a,a,a,1+a,a-1,4,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t2 order by 1+a-1-a,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t2 order by a-1+a-a,b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t2 order by 1-(1+a),b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 2));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t2 order by 2-(1+3*a),2+(3*a+100),b,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 2));
+    }
+
+    @Test
+    void testMonotonicDateFunction() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by cast(d as datetime) ,d;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by cast(dt as datetimev2(6)) ,dt")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by days_add(dt,3) ,dt;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by days_sub(dt,3) ,dt;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by months_sub(dt,3) ,dt;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by convert_tz(dt,'Europe/Paris','Asia/ShangHai') ,dt;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by years_add(convert_tz(dt,'Europe/Paris','Asia/ShangHai'),3) ,dt;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t order by years_add(convert_tz(dt,'Europe/Paris','Asia/ShangHai'),3) ,convert_tz(dt,'Europe/Paris','Asia/ShangHai'),dt;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
     }
 }

@@ -36,4 +36,9 @@ public interface DateDiffMonotonic extends Monotonic {
     default int getMonotonicFunctionChildIndex() {
         return child(1) instanceof Literal ? 0 : 1;
     }
+
+    @Override
+    default boolean isStrictlyMonotonic() {
+        return isMonotonic(null, null);
+    }
 }

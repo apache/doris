@@ -23,7 +23,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -141,6 +147,30 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // Both upward and downward casting of date types satisfy monotonicity.
         if (child().getDataType() instanceof DateLikeType && targetType instanceof DateLikeType) {
             return true;
+        }
+        return isCastToHigherIntegralType();
+    }
+
+    @Override
+    public boolean isStrictlyMonotonic() {
+        if ((child().getDataType() instanceof DateType || child().getDataType() instanceof DateV2Type)
+                && (targetType instanceof DateTimeType || targetType instanceof DateTimeV2Type)) {
+            return true;
+        }
+        if (child().getDataType() instanceof DateTimeType && targetType instanceof DateTimeV2Type) {
+            return true;
+        }
+        if (child().getDataType() instanceof DateTimeV2Type && targetType instanceof DateTimeV2Type) {
+            return ((DateTimeV2Type) child().getDataType()).getScale() <= ((DateTimeV2Type) targetType).getScale();
+        }
+        return isCastToHigherIntegralType();
+    }
+
+    private boolean isCastToHigherIntegralType() {
+        if (child().getDataType() instanceof IntegralType && targetType instanceof IntegralType) {
+            int ordinalChild = TypeCoercionUtils.NUMERIC_PRECEDENCE.indexOf(child().getDataType());
+            int ordinalTarget = TypeCoercionUtils.NUMERIC_PRECEDENCE.indexOf(targetType);
+            return ordinalChild >= ordinalTarget;
         }
         return false;
     }

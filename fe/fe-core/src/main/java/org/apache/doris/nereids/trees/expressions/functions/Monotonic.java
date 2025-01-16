@@ -26,6 +26,12 @@ public interface Monotonic extends ExpressionTrait {
         return true;
     }
 
+    // strictly monotonic means : if x1 > x2, then we have f(x1) > f(x2) or if x1 < x2, then we have f(x1) < f(x2)
+    // if x1 > x2, we have f(x1) >= f(x2), then the function f(x) is not strictly monotonic
+    default boolean isStrictlyMonotonic() {
+        return false;
+    }
+
     // true means that the function is an increasing function
     boolean isPositive();
 
