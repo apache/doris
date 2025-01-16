@@ -371,11 +371,8 @@ public:
     }
 
     bool get_build_bf_cardinality() const {
-        if (_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-            _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-            return _context->bloom_filter_func->get_build_bf_cardinality();
-        }
-        return false;
+        return _context->bloom_filter_func &&
+               _context->bloom_filter_func->get_build_bf_cardinality();
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -1560,11 +1557,14 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, "
-            "build_bf_cardinality: {}, ignored: {},  error_msg: {}",
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, disabled: {}, "
+            "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
+            "has_remote_target: {}, error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality(), _wrapper->is_ignored(),
-            _wrapper->_context->err_msg);
+            _wrapper->_context->ignored, _wrapper->_context->disabled,
+            _wrapper->get_build_bf_cardinality(),
+            _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
+            _has_remote_target, _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
