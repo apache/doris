@@ -18,6 +18,12 @@
 import org.junit.jupiter.api.Assertions;
 
 suite("docs/admin-manual/data-admin/backup.md", "backup_restore") {
+    if (isCloudMode()) {
+        logger.info("skip this case, because not supported in cloud mode")
+    }
+    if (!enableHdfs()) {
+        logger.info("skip this case, because hdfs is not enable")
+    }
     try {
         def uuid = UUID.randomUUID().hashCode().abs()
         multi_sql """
