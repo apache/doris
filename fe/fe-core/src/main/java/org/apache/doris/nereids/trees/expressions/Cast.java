@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -31,7 +34,7 @@ import java.util.Objects;
 /**
  * cast function.
  */
-public class Cast extends Expression implements UnaryExpression {
+public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     // CAST can be from SQL Query or Type Coercion.
     private final boolean isExplicitType;
@@ -95,7 +98,7 @@ public class Cast extends Expression implements UnaryExpression {
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         return "cast(" + child().toSql() + " as " + targetType.toSql() + ")";
     }
 
@@ -114,7 +117,31 @@ public class Cast extends Expression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), targetType);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), targetType);
+    }
+
+    @Override
+    public boolean isPositive() {
+        return true;
+    }
+
+    @Override
+    public int getMonotonicFunctionChildIndex() {
+        return 0;
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return new Cast(literal, targetType, isExplicitType);
+    }
+
+    @Override
+    public boolean isMonotonic(Literal lower, Literal upper) {
+        // Both upward and downward casting of date types satisfy monotonicity.
+        if (child().getDataType() instanceof DateLikeType && targetType instanceof DateLikeType) {
+            return true;
+        }
+        return false;
     }
 }

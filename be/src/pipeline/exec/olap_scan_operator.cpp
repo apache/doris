@@ -40,6 +40,7 @@
 #include "vec/functions/in.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
@@ -149,6 +150,47 @@ Status OlapScanLocalState::_init_profile() {
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
     _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
     _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
+
+    _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
+    _tablet_reader_capture_rs_readers_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
+    _tablet_reader_init_return_columns_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitReturnColumnsTimer");
+    _tablet_reader_init_keys_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitKeysParamTimer");
+    _tablet_reader_init_orderby_keys_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitOrderbyKeysParamTimer");
+    _tablet_reader_init_conditions_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitConditionsParamTimer");
+    _tablet_reader_init_delete_condition_param_timer =
+            ADD_TIMER(_scanner_profile, "TabletReaderInitDeleteConditionParamTimer");
+    _block_reader_vcollect_iter_init_timer =
+            ADD_TIMER(_scanner_profile, "BlockReaderVcollectIterInitTimer");
+    _block_reader_rs_readers_init_timer =
+            ADD_TIMER(_scanner_profile, "BlockReaderRsReadersInitTimer");
+    _block_reader_build_heap_init_timer =
+            ADD_TIMER(_scanner_profile, "BlockReaderBuildHeapInitTimer");
+
+    _rowset_reader_get_segment_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_create_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer");
+    _rowset_reader_init_iterators_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderInitIteratorsTimer");
+    _rowset_reader_load_segments_timer =
+            ADD_TIMER(_scanner_profile, "RowsetReaderLoadSegmentsTimer");
+
+    _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
+    _segment_iterator_init_return_column_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
+    _segment_iterator_init_bitmap_index_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitBitmapIndexIteratorsTimer");
+    _segment_iterator_init_inverted_index_iterators_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitInvertedIndexIteratorsTimer");
+
+    _segment_create_column_readers_timer =
+            ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
+    _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
     return Status::OK();
 }
 
@@ -204,9 +246,8 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
             DCHECK(children[1 - i]->type().is_string_type());
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const vectorized::ColumnConst* const_column =
-                        check_and_get_column<vectorized::ColumnConst>(
-                                const_col_wrapper->column_ptr)) {
+            if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
+                        const_col_wrapper->column_ptr.get())) {
                 *constant_str = const_column->get_data_at(0);
             } else {
                 pdt = PushDownType::UNACCEPTABLE;
@@ -281,15 +322,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
     if (config::is_cloud_mode()) {
         int64_t duration_ns = 0;
-        SCOPED_RAW_TIMER(&duration_ns);
-        std::vector<std::function<Status()>> tasks;
-        tasks.reserve(_scan_ranges.size());
-        for (auto&& [tablet, version] : tablets) {
-            tasks.emplace_back([tablet, version]() {
-                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
-            });
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            std::vector<std::function<Status()>> tasks;
+            tasks.reserve(_scan_ranges.size());
+            for (auto&& [tablet, version] : tablets) {
+                tasks.emplace_back([tablet, version]() {
+                    return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+                });
+            }
+            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
-        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         _sync_rowset_timer->update(duration_ns);
     }
 
@@ -347,13 +390,13 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         int ranges_per_scanner =
                 std::max(1, (int)ranges->size() /
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
-        int num_ranges = ranges->size();
-        for (int i = 0; i < num_ranges;) {
+        int64_t num_ranges = ranges->size();
+        for (int64_t i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
             scanner_ranges.push_back((*ranges)[i].get());
             ++i;
-            for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
-                            (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
+            for (int64_t j = 1; i < num_ranges && j < ranges_per_scanner &&
+                                (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
@@ -587,4 +630,5 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

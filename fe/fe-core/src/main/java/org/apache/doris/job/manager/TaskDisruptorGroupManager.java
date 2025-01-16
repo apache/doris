@@ -22,13 +22,10 @@ import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.disruptor.ExecuteTaskEvent;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.disruptor.TimerJobEvent;
-import org.apache.doris.job.executor.DefaultTaskExecutorHandler;
 import org.apache.doris.job.executor.DispatchTaskHandler;
-import org.apache.doris.job.extensions.insert.InsertTask;
-import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.executor.TaskProcessor;
 import org.apache.doris.job.task.AbstractTask;
 
 import com.lmax.disruptor.EventFactory;
@@ -44,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
-    private final Map<JobType, TaskDisruptor<T>> disruptorMap = new EnumMap<>(JobType.class);
+    private final Map<JobType, TaskProcessor> disruptorMap = new EnumMap<>(JobType.class);
 
     @Getter
     private TaskDisruptor<TimerJobEvent<AbstractJob>> dispatchDisruptor;
@@ -92,44 +89,27 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     }
 
     private void registerInsertDisruptor() {
-        EventFactory<ExecuteTaskEvent<InsertTask>> insertEventFactory = ExecuteTaskEvent.factory();
         ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-task-execute");
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_INSERT_THREAD_NUM];
-        for (int i = 0; i < DISPATCH_INSERT_THREAD_NUM; i++) {
-            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
-        }
-        EventTranslatorVararg<ExecuteTaskEvent<InsertTask>> eventTranslator =
-                (event, sequence, args) -> {
-                    event.setTask((InsertTask) args[0]);
-                    event.setJobConfig((JobExecutionConfiguration) args[1]);
-                };
-        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
-                insertTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
-                insertTaskExecutorHandlers, eventTranslator);
-        disruptorMap.put(JobType.INSERT, insertDisruptor);
+
+
+        TaskProcessor insertTaskProcessor = new TaskProcessor(DISPATCH_INSERT_THREAD_NUM,
+                DISPATCH_INSERT_TASK_QUEUE_SIZE, insertTaskThreadFactory);
+        disruptorMap.put(JobType.INSERT, insertTaskProcessor);
     }
 
     private void registerMTMVDisruptor() {
-        EventFactory<ExecuteTaskEvent<MTMVTask>> mtmvEventFactory = ExecuteTaskEvent.factory();
+
         ThreadFactory mtmvTaskThreadFactory = new CustomThreadFactory("mtmv-task-execute");
-        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_MTMV_THREAD_NUM];
-        for (int i = 0; i < DISPATCH_MTMV_THREAD_NUM; i++) {
-            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<MTMVTask>();
-        }
-        EventTranslatorVararg<ExecuteTaskEvent<MTMVTask>> eventTranslator =
-                (event, sequence, args) -> {
-                    event.setTask((MTMVTask) args[0]);
-                    event.setJobConfig((JobExecutionConfiguration) args[1]);
-                };
-        TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
-                mtmvTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
-                insertTaskExecutorHandlers, eventTranslator);
-        disruptorMap.put(JobType.MV, mtmvDisruptor);
+        TaskProcessor mtmvTaskProcessor = new TaskProcessor(DISPATCH_MTMV_THREAD_NUM,
+                DISPATCH_MTMV_TASK_QUEUE_SIZE, mtmvTaskThreadFactory);
+        disruptorMap.put(JobType.MV, mtmvTaskProcessor);
     }
 
     public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
                                        JobExecutionConfiguration jobExecutionConfiguration) {
-        return disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
+
+
+        return disruptorMap.get(jobType).addTask(task);
     }
 
 

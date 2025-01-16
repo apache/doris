@@ -67,10 +67,11 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
         file "baseall.txt"
     }
 
-    def load_with_injection = { injection, error_msg->
+    def load_with_injection = { injection, error_msg, success=false->
         try {
             GetDebugPoint().enableDebugPointForAllBEs(injection)
             sql "insert into test select * from baseall where k1 <= 3"
+            assertTrue(success, String.format("expected Exception '%s', actual success", error_msg))
         } catch(Exception e) {
             logger.info(e.getMessage())
             assertTrue(e.getMessage().contains(error_msg),
@@ -88,7 +89,7 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
     // VTabletWriterV2 node_info is null
     load_with_injection("VTabletWriterV2._open_streams_to_backend.node_info_null", "failed to open streams to any BE")
     // VTabletWriterV2 do not get tablet schema on open_streams
-    load_with_injection("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams", "success")
+    load_with_injection("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams", "success", true)
     // VTabletWriterV2 tablet_location is null
     load_with_injection("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null", "unknown tablet location")
     // VTabletWriterV2 location is null

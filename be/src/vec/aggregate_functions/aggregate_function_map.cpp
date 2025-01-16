@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename K>
 AggregateFunctionPtr create_agg_function_map_agg(const DataTypes& argument_types,

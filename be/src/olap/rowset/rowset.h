@@ -33,6 +33,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -116,10 +117,8 @@ private:
     RowsetState _rowset_state;
 };
 
-class Rowset : public std::enable_shared_from_this<Rowset> {
+class Rowset : public std::enable_shared_from_this<Rowset>, public MetadataAdder<Rowset> {
 public:
-    virtual ~Rowset();
-
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
     //
@@ -148,9 +147,9 @@ public:
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
     int64_t end_version() const { return rowset_meta()->version().second; }
-    size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
-    size_t data_disk_size() const { return rowset_meta()->data_disk_size(); }
-    size_t total_disk_size() const { return rowset_meta()->total_disk_size(); }
+    int64_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
+    int64_t data_disk_size() const { return rowset_meta()->data_disk_size(); }
+    int64_t total_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
     bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
     size_t num_rows() const { return rowset_meta()->num_rows(); }
@@ -210,6 +209,8 @@ public:
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,
                                  std::set<int64_t>* without_index_uids = nullptr) = 0;
+
+    virtual Status get_inverted_index_size(int64_t* index_size) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -321,9 +322,6 @@ protected:
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;
-
-    // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual Status do_load(bool use_cache) = 0;
 
     // release resources in this api
     virtual void do_close() = 0;

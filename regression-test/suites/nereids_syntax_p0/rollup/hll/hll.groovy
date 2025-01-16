@@ -36,6 +36,8 @@ suite("hll", "rollup") {
     qt_sql "desc test_materialized_view_hll1 all";
 
     sql "analyze table test_materialized_view_hll1 with sync;"
+    sql """alter table test_materialized_view_hll1 modify column record_id set stats ('row_count'='2');"""
+
     sql """set enable_stats=false;"""
 
     explain {

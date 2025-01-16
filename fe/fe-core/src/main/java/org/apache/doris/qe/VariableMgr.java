@@ -34,6 +34,8 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
+import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -457,21 +459,21 @@ public class VariableMgr {
             }
             variablesToRead.readFields(in);
             GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
-            replayGlobalVariableV2(info);
+            replayGlobalVariableV2(info, true);
         } finally {
             wlock.unlock();
         }
     }
 
     // this method is used to replace the `replayGlobalVariable()`
-    public static void replayGlobalVariableV2(GlobalVarPersistInfo info) throws DdlException {
+    public static void replayGlobalVariableV2(GlobalVarPersistInfo info, boolean fromImage) throws DdlException {
         wlock.lock();
         try {
             String json = info.getPersistJsonString();
             JSONObject root = (JSONObject) JSONValue.parse(json);
             // if not variable version, we set it to 0 to ensure we could force set global variable.
             boolean hasVariableVersion = root.containsKey(GlobalVariable.VARIABLE_VERSION);
-            if (!hasVariableVersion) {
+            if (fromImage && !hasVariableVersion) {
                 GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_0;
             }
             for (Object varName : root.keySet()) {
@@ -983,6 +985,20 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables("update variable version",
                     SessionVariable.ENABLE_PIPELINE_X_ENGINE,
                     String.valueOf(true));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
+            if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
+                    < StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD));
+            }
+            if (StatisticsUtil.getTableStatsHealthThreshold()
+                    < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.TABLE_STATS_HEALTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD));
+            }
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_200) {
             // update from 3.0.2 or below to 3.0.3 or higher

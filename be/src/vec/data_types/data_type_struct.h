@@ -103,12 +103,10 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return !elems.empty(); }
     bool is_comparable() const override;
     bool text_can_contain_only_valid_utf8() const override;
     bool have_maximum_size_of_value() const override;
-    size_t get_maximum_size_of_value_in_memory() const override;
     size_t get_size_of_value_in_memory() const override;
 
     const DataTypePtr& get_element(size_t i) const { return elems[i]; }

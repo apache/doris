@@ -43,6 +43,8 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -446,7 +448,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         sql = "use a";
         plan = nereidsParser.parseSingle(sql);
-        Assertions.assertEquals(plan.stmtType(), StmtType.OTHER);
+        Assertions.assertEquals(plan.stmtType(), StmtType.USE);
 
         sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
         plan = nereidsParser.parseSingle(sql);
@@ -461,10 +463,12 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseUse() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "use db";
-        nereidsParser.parseSingle(sql);
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(logicalPlan.stmtType(), StmtType.USE);
 
         sql = "use catalog.db";
-        nereidsParser.parseSingle(sql);
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(logicalPlan1.stmtType(), StmtType.USE);
     }
 
     @Test
@@ -702,6 +706,40 @@ public class NereidsParserTest extends ParserTestBase {
 
         for (String sql : sqls) {
             nereidsParser.parseSingle(sql);
+        }
+    }
+
+    @Test
+    public void testBlockSqlAst() {
+        String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+
+        Config.block_sql_ast_names = "ReplayCommand";
+        StmtExecutor.initBlockSqlAstNames();
+        StmtExecutor stmtExecutor = new StmtExecutor(new ConnectContext(), "");
+        try {
+            stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
+            Assertions.fail();
+        } catch (Exception ignore) {
+            // do nothing
+        }
+
+        Config.block_sql_ast_names = "CreatePolicyCommand, ReplayCommand";
+        StmtExecutor.initBlockSqlAstNames();
+        try {
+            stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
+            Assertions.fail();
+        } catch (Exception ignore) {
+            // do nothing
+        }
+
+        Config.block_sql_ast_names = "";
+        StmtExecutor.initBlockSqlAstNames();
+        try {
+            stmtExecutor.checkSqlBlocked(logicalPlan.getClass());
+        } catch (Exception ex) {
+            Assertions.fail(ex);
         }
     }
 }

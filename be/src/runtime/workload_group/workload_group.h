@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -54,9 +53,13 @@ class TaskScheduler;
 class WorkloadGroup;
 struct WorkloadGroupInfo;
 struct TrackerLimiterGroup;
+class WorkloadGroupMetrics;
+
 class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
+
+    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_query_thread_pool);
 
     int64_t version() const { return _version; }
 
@@ -92,11 +95,11 @@ public:
 
     void do_sweep();
 
-    int spill_threshold_low_water_mark() const {
-        return _spill_low_watermark.load(std::memory_order_relaxed);
+    int memory_low_watermark() const {
+        return _memory_low_watermark.load(std::memory_order_relaxed);
     }
-    int spill_threashold_high_water_mark() const {
-        return _spill_high_watermark.load(std::memory_order_relaxed);
+    int memory_high_watermark() const {
+        return _memory_high_watermark.load(std::memory_order_relaxed);
     }
 
     void set_weighted_memory_ratio(double ratio);
@@ -105,7 +108,7 @@ public:
                 _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
         if ((realtime_total_mem_used >
              ((double)_weighted_memory_limit *
-              _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+              _memory_high_watermark.load(std::memory_order_relaxed) / 100))) {
             return false;
         } else {
             _wg_refresh_interval_memory_growth.fetch_add(size);
@@ -120,10 +123,10 @@ public:
         auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
         *is_low_wartermark = (realtime_total_mem_used >
                               ((double)_weighted_memory_limit *
-                               _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+                               _memory_low_watermark.load(std::memory_order_relaxed) / 100));
         *is_high_wartermark = (realtime_total_mem_used >
                                ((double)_weighted_memory_limit *
-                                _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+                                _memory_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
     std::string debug_string() const;
@@ -165,7 +168,7 @@ public:
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
 
-    void upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env);
+    void upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
@@ -187,29 +190,33 @@ public:
 
     void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
 
-    void update_cpu_adder(int64_t delta_cpu_time);
+    void update_cpu_time(int64_t delta_cpu_time);
 
-    void update_total_local_scan_io_adder(size_t scan_bytes);
+    void update_local_scan_io(std::string path, size_t scan_bytes);
 
-    int64_t get_mem_used() { return _mem_used_status->get_value(); }
-    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
-    int64_t get_local_scan_bytes_per_second() {
-        return _total_local_scan_io_per_second->get_value();
-    }
-    int64_t get_remote_scan_bytes_per_second();
+    void update_remote_scan_io(size_t scan_bytes);
 
-    CgroupCpuCtl* get_cgroup_cpu_ctl_ptr() {
-        std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
-        return _cgroup_cpu_ctl.get();
-    }
+    int64_t get_mem_used();
 
     ThreadPool* get_memtable_flush_pool_ptr() {
         // no lock here because this is called by memtable flush,
         // to avoid lock competition with the workload thread pool's update
         return _memtable_flush_pool.get();
     }
+    void create_cgroup_cpu_ctl();
+
+    std::weak_ptr<CgroupCpuCtl> get_cgroup_cpu_ctl_wptr();
+
+    std::shared_ptr<WorkloadGroupMetrics> get_metrics() { return _wg_metrics; }
+
+    friend class WorkloadGroupMetrics;
 
 private:
+    void create_cgroup_cpu_ctl_no_lock();
+    void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
+    void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                    std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
@@ -228,8 +235,8 @@ private:
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
-    std::atomic<int> _spill_low_watermark;
-    std::atomic<int> _spill_high_watermark;
+    std::atomic<int> _memory_low_watermark;
+    std::atomic<int> _memory_high_watermark;
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
 
@@ -240,7 +247,10 @@ private:
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
+    // _cgroup_cpu_ctl not only used by threadpool which managed by WorkloadGroup,
+    // but also some global background threadpool which not owned by WorkloadGroup,
+    // so it should be shared ptr;
+    std::shared_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
@@ -249,12 +259,10 @@ private:
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
 
-    // bvar metric
-    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
-    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
-    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
+    // for some background workload, it doesn't need to create query thread pool
+    const bool _need_create_query_thread_pool;
+
+    std::shared_ptr<WorkloadGroupMetrics> _wg_metrics {nullptr};
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
@@ -271,8 +279,8 @@ struct WorkloadGroupInfo {
     const int scan_thread_num = 0;
     const int max_remote_scan_thread_num = 0;
     const int min_remote_scan_thread_num = 0;
-    const int spill_low_watermark = 0;
-    const int spill_high_watermark = 0;
+    const int memory_low_watermark = 0;
+    const int memory_high_watermark = 0;
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
     // log cgroup cpu info

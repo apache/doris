@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -138,7 +139,7 @@ public class KeysDesc implements Writable {
                 break;
             }
         }
-        if (sameKey) {
+        if (sameKey && !Config.random_add_cluster_keys_for_mow) {
             throw new AnalysisException("Unique keys and cluster keys should be different.");
         }
         // check that cluster key column exists

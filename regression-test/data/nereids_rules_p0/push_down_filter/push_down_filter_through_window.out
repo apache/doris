@@ -20,7 +20,7 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalPartitionTopN
 ----------PhysicalProject
-------------filter(((t.id > 1) OR (t.value1 > 2)))
+------------filter(OR[(t.id > 1),(t.value1 > 2)])
 --------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
 
 -- !multi_column_or_predicate_push_down_window --

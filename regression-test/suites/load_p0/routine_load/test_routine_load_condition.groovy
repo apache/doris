@@ -157,7 +157,7 @@ suite("test_routine_load_condition","p0") {
                 }
                 log.info("reason of state changed: ${res[0][11].toString()}".toString())
                 def json = parseJson(res[0][11])
-                assertEquals("(`k12` >= date_sub(curdate(), INTERVAL 2 DAY))", json.whereExpr.toString())
+                assertEquals("(k12 >= CAST(days_sub(current_date(), 2) AS datetimev2(0)))", json.whereExpr.toString())
                 break;
             }
             while (true) {

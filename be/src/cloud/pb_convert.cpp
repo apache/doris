@@ -84,6 +84,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_has_variant_type_in_schema(in.has_has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
 }
 
@@ -136,6 +137,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
 }
 
@@ -234,6 +236,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
 }
 
@@ -287,6 +290,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
+    out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
 }
 
@@ -324,12 +328,13 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_store_row_column(in.store_row_column());
     out->set_enable_single_replica_compaction(in.enable_single_replica_compaction());
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
-    out->mutable_cluster_key_idxes()->CopyFrom(in.cluster_key_idxes());
+    out->mutable_cluster_key_uids()->CopyFrom(in.cluster_key_uids());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
+    out->set_storage_page_size(in.storage_page_size());
 }
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
@@ -352,12 +357,13 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_store_row_column(in.store_row_column());
     out->set_enable_single_replica_compaction(in.enable_single_replica_compaction());
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
-    out->mutable_cluster_key_idxes()->Swap(in.mutable_cluster_key_idxes());
+    out->mutable_cluster_key_uids()->Swap(in.mutable_cluster_key_uids());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
+    out->set_storage_page_size(in.storage_page_size());
 }
 
 TabletSchemaPB cloud_tablet_schema_to_doris(const TabletSchemaCloudPB& in) {
@@ -393,12 +399,13 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_store_row_column(in.store_row_column());
     out->set_enable_single_replica_compaction(in.enable_single_replica_compaction());
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
-    out->mutable_cluster_key_idxes()->CopyFrom(in.cluster_key_idxes());
+    out->mutable_cluster_key_uids()->CopyFrom(in.cluster_key_uids());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
+    out->set_storage_page_size(in.storage_page_size());
 }
 
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
@@ -422,12 +429,13 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_store_row_column(in.store_row_column());
     out->set_enable_single_replica_compaction(in.enable_single_replica_compaction());
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
-    out->mutable_cluster_key_idxes()->Swap(in.mutable_cluster_key_idxes());
+    out->mutable_cluster_key_uids()->Swap(in.mutable_cluster_key_uids());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
+    out->set_storage_page_size(in.storage_page_size());
 }
 
 TabletMetaCloudPB doris_tablet_meta_to_cloud(const TabletMetaPB& in) {

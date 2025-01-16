@@ -18,11 +18,13 @@
 #include <gtest/gtest.h>
 
 #include "olap/comparison_predicate.h"
+#include "olap/in_list_predicate.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/storage_engine.h"
+#include "runtime/define_primitive_type.h"
 #include "util/date_func.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -59,7 +61,7 @@ protected:
 
         construct_column(schema_pb.add_column(), 0, "DATE", "date_column");
         construct_column(schema_pb.add_column(), 1, "DATETIME", "datetime_column");
-
+        schema_pb.set_bf_fpp(0.05);
         _tablet_schema.reset(new TabletSchema);
         _tablet_schema->init_from_pb(schema_pb);
 
@@ -155,8 +157,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         const auto& reader = segment->_column_readers[0];
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true).ok());
-        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter, nullptr).ok());
         std::unique_ptr<BloomFilter> bf;
         EXPECT_TRUE(bf_iter->read_bloom_filter(0, &bf).ok());
         auto test = [&](const std::string& query_string, bool result) {
@@ -174,8 +176,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         const auto& reader = segment->_column_readers[1];
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true).ok());
-        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter, nullptr).ok());
         std::unique_ptr<BloomFilter> bf;
         EXPECT_TRUE(bf_iter->read_bloom_filter(0, &bf).ok());
         auto test = [&](const std::string& query_string, bool result) {
@@ -189,4 +191,142 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         test("2024-11-20 09:00:00", false);
     }
 }
+
+TEST_F(DateBloomFilterTest, in_list_predicate_test) {
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    RowsetSharedPtr rowset;
+    const auto& res =
+            RowsetFactory::create_rowset_writer(*_engine_ref, rowset_writer_context(), false);
+    EXPECT_TRUE(res.has_value()) << res.error();
+    const auto& rowset_writer = res.value();
+
+    Block block = _tablet_schema->create_block();
+    auto columns = block.mutate_columns();
+
+    // Insert test data
+    auto date = timestamp_from_date("2024-11-08");
+    auto datetime = timestamp_from_datetime("2024-11-08 09:00:00");
+    uint24_t olap_date_value(date.to_olap_date());
+    uint64_t olap_datetime_value(datetime.to_olap_datetime());
+    columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
+    columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+
+    date = timestamp_from_date("2024-11-09");
+    datetime = timestamp_from_datetime("2024-11-09 09:00:00");
+    olap_date_value = date.to_olap_date();
+    olap_datetime_value = datetime.to_olap_datetime();
+    columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
+    columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+
+    EXPECT_TRUE(rowset_writer->add_block(&block).ok());
+    EXPECT_TRUE(rowset_writer->flush().ok());
+    EXPECT_TRUE(rowset_writer->build(rowset).ok());
+    EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+
+    segment_v2::SegmentSharedPtr segment;
+    EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, &segment).ok());
+    auto st = segment->_create_column_readers(*(segment->_footer_pb));
+    EXPECT_TRUE(st.ok());
+
+    // Test DATE column with IN predicate
+    {
+        const auto& reader = segment->_column_readers[0];
+        std::unique_ptr<BloomFilterIndexIterator> bf_iter;
+        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter, nullptr).ok());
+        std::unique_ptr<BloomFilter> bf;
+        EXPECT_TRUE(bf_iter->read_bloom_filter(0, &bf).ok());
+
+        // Test positive cases
+        auto test_positive = [&](const std::vector<std::string>& values, bool result) {
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>();
+            for (const auto& value : values) {
+                auto v = timestamp_from_date(value);
+                hybrid_set->insert(&v);
+            }
+            std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST,
+                                                HybridSet<PrimitiveType::TYPE_DATE>>>
+                    date_pred(new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST,
+                                                      HybridSet<PrimitiveType::TYPE_DATE>>(
+                            0, hybrid_set));
+            EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
+        };
+
+        test_positive({"2024-11-08", "2024-11-09"}, true);
+        test_positive({"2024-11-08"}, true);
+        test_positive({"2024-11-09"}, true);
+
+        auto test_negative = [&](const std::vector<std::string>& values, bool result) {
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>();
+
+            for (const auto& value : values) {
+                auto v = timestamp_from_date(value);
+                hybrid_set->insert(&v);
+            }
+
+            std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST,
+                                                HybridSet<PrimitiveType::TYPE_DATE>>>
+                    date_pred(new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST,
+                                                      HybridSet<PrimitiveType::TYPE_DATE>>(
+                            0, hybrid_set));
+
+            EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
+        };
+
+        test_negative({"2024-11-20"}, false);
+        test_negative({"2024-11-08", "2024-11-20"}, true);
+        test_negative({"2024-11-20", "2024-11-21"}, false);
+    }
+
+    // Test DATETIME column with IN predicate
+    {
+        const auto& reader = segment->_column_readers[1];
+        std::unique_ptr<BloomFilterIndexIterator> bf_iter;
+        EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
+        EXPECT_TRUE(reader->_bloom_filter_index->new_iterator(&bf_iter, nullptr).ok());
+        std::unique_ptr<BloomFilter> bf;
+        EXPECT_TRUE(bf_iter->read_bloom_filter(0, &bf).ok());
+
+        // Test positive cases
+        auto test_positive = [&](const std::vector<std::string>& values, bool result) {
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>();
+            for (const auto& value : values) {
+                auto v = timestamp_from_datetime(value);
+                hybrid_set->insert(&v);
+            }
+            std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST,
+                                                HybridSet<PrimitiveType::TYPE_DATETIME>>>
+                    datetime_pred(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST,
+                                                          HybridSet<PrimitiveType::TYPE_DATETIME>>(
+                            0, hybrid_set));
+            EXPECT_EQ(datetime_pred->evaluate_and(bf.get()), result);
+        };
+
+        test_positive({"2024-11-08 09:00:00", "2024-11-09 09:00:00"}, true);
+        test_positive({"2024-11-08 09:00:00"}, true);
+        test_positive({"2024-11-09 09:00:00"}, true);
+
+        // Test negative cases
+        auto test_negative = [&](const std::vector<std::string>& values, bool result) {
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>();
+            for (const auto& value : values) {
+                auto v = timestamp_from_datetime(value);
+                hybrid_set->insert(&v);
+            }
+            std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST,
+                                                HybridSet<PrimitiveType::TYPE_DATETIME>>>
+                    datetime_pred(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST,
+                                                          HybridSet<PrimitiveType::TYPE_DATETIME>>(
+                            0, hybrid_set));
+            EXPECT_EQ(datetime_pred->evaluate_and(bf.get()), result);
+        };
+
+        test_negative({"2024-11-20 09:00:00"}, false);
+        test_negative({"2024-11-08 09:00:00", "2024-11-20 09:00:00"}, true);
+        test_negative({"2024-11-20 09:00:00", "2024-11-21 09:00:00"}, false);
+    }
+}
+
 } // namespace doris

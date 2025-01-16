@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
@@ -60,16 +61,10 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     }
 
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-            SelectedPartitions selectedPartitions,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                selectedPartitions, tableSample, tableSnapshot);
-    }
-
-    public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-                           Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                SelectedPartitions.NOT_PRUNED, tableSample, tableSnapshot);
+                table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
+                tableSample, tableSnapshot);
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -147,9 +142,9 @@ public class LogicalFileScan extends LogicalCatalogRelation {
          */
         public final long totalPartitionNum;
         /**
-         * partition id -> partition item
+         * partition name -> partition item
          */
-        public final Map<Long, PartitionItem> selectedPartitions;
+        public final Map<String, PartitionItem> selectedPartitions;
         /**
          * true means the result is after partition pruning
          * false means the partition pruning is not processed.
@@ -159,7 +154,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         /**
          * Constructor for SelectedPartitions.
          */
-        public SelectedPartitions(long totalPartitionNum, Map<Long, PartitionItem> selectedPartitions,
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,

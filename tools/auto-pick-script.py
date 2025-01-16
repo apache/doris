@@ -97,7 +97,7 @@ try:
 
         # Create a new PR for the cherry-picked changes
         new_pr = repo.create_pull(
-            title=f"{TARGET_BRANCH}: {pr.title}",  # Prefix with branch name
+            title=f"{TARGET_BRANCH}: {pr.title} #{pr.number}",  # Prefix with branch name
             body=f"Cherry-picked from #{pr.number}",  # Keep the original PR body
             head=new_branch_name,
             base=TARGET_BRANCH
@@ -111,3 +111,6 @@ except subprocess.CalledProcessError:
     # Add conflict label
     pr.add_to_labels(CONFLICT_LABEL)
     print(f"Added label '{CONFLICT_LABEL}' to PR #{pr.number} due to conflict.")
+    subprocess.run(["git", "checkout", "master", "-f"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "branch", "-D", new_branch_name], cwd=repo_dir)
+    subprocess.run(["git", "push", "origin", "--delete", new_branch_name], cwd=repo_dir)

@@ -98,6 +98,8 @@ suite ("mv_ssb_q_3_1") {
 
     sql """analyze table lineorder_flat with sync;"""
 
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='2');"""
+
     mv_rewrite_success("""SELECT
                 C_NATION,
                 S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,

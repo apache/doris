@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType.RuleTypeClass;
@@ -73,7 +72,7 @@ public abstract class Rule {
         return getRuleType().toString();
     }
 
-    public abstract List<Plan> transform(Plan node, CascadesContext context) throws TransformException;
+    public abstract List<Plan> transform(Plan node, CascadesContext context);
 
     /** callback this function when the traverse framework accept a new plan which produce by this rule */
     public void acceptPlan(Plan plan) {

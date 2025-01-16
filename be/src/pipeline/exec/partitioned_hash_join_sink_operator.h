@@ -28,6 +28,7 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -81,8 +82,8 @@ protected:
 class PartitionedHashJoinSinkOperatorX
         : public JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState> {
 public:
-    PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, bool use_global_rf,
+    PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs,
                                      uint32_t partition_count);
 
     Status init(const TDataSink& tsink) override {
@@ -149,4 +150,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -44,8 +44,9 @@ suite ("dup_mv_plus") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_plus with sync;"
-    sql """set enable_stats=false;"""
+    sql """alter table dup_mv_plus modify column k1 set stats ('row_count'='4');"""
 
+    sql """set enable_stats=false;"""
 
     order_qt_select_star "select * from dup_mv_plus order by k1;"
 

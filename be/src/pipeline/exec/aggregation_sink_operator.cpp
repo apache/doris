@@ -231,7 +231,6 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
 
                            COUNTER_SET(_memory_used_counter,
                                        arena_memory_usage + hash_table_memory_usage);
-                           COUNTER_SET(_peak_memory_usage_counter, _memory_used_counter->value());
 
                            COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
                            COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
@@ -415,7 +414,6 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
 void AggSinkLocalState::_update_memusage_without_key() {
     int64_t arena_memory_usage = _agg_arena_pool->size();
     COUNTER_SET(_memory_used_counter, arena_memory_usage);
-    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
     COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
@@ -697,9 +695,10 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
     return Status::OK();
 }
 
-AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                   const DescriptorTbl& descs, bool require_bucket_distribution)
-        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
+AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                   const TPlanNode& tnode, const DescriptorTbl& descs,
+                                   bool require_bucket_distribution)
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id, dest_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),

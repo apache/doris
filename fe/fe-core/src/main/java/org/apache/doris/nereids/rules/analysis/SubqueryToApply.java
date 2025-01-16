@@ -27,7 +27,7 @@ import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithM
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -42,9 +42,9 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -424,9 +424,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     Map<Expression, Expression> replaceMap = new HashMap<>();
                     NamedExpression agg = ((ScalarSubquery) subquery).getTopLevelScalarAggFunction().get();
                     if (agg instanceof Alias) {
-                        if (((Alias) agg).child() instanceof AlwaysNotNullable) {
-                            AlwaysNotNullable notNullableAggFunc =
-                                    (AlwaysNotNullable) ((Alias) agg).child();
+                        if (((Alias) agg).child() instanceof NotNullableAggregateFunction) {
+                            NotNullableAggregateFunction notNullableAggFunc =
+                                    (NotNullableAggregateFunction) ((Alias) agg).child();
                             if (subquery.getQueryPlan() instanceof LogicalProject) {
                                 LogicalProject logicalProject =
                                         (LogicalProject) subquery.getQueryPlan();
@@ -589,17 +589,19 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitBinaryOperator(BinaryOperator binaryOperator, SubqueryContext context) {
+        public Expression visitCompoundPredicate(CompoundPredicate compound, SubqueryContext context) {
             // update isMarkJoin flag
-            isMarkJoin =
-                    isMarkJoin || ((binaryOperator.left().anyMatch(SubqueryExpr.class::isInstance)
-                            || binaryOperator.right().anyMatch(SubqueryExpr.class::isInstance))
-                            && (binaryOperator instanceof Or));
-
-            Expression left = replace(binaryOperator.left(), context);
-            Expression right = replace(binaryOperator.right(), context);
-
-            return binaryOperator.withChildren(left, right);
+            if (compound instanceof Or) {
+                for (Expression child : compound.children()) {
+                    if (child.anyMatch(SubqueryExpr.class::isInstance)) {
+                        isMarkJoin = true;
+                        break;
+                    }
+                }
+            }
+            return compound.withChildren(
+                    compound.children().stream().map(c -> replace(c, context)).collect(Collectors.toList())
+            );
         }
     }
 

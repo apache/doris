@@ -28,6 +28,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
@@ -35,13 +36,15 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
+        : DataSinkOperatorX(operator_id, 0, 0),
+          _row_desc(row_desc),
+          _t_output_expr(t_output_expr) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
-        : DataSinkOperatorX(operator_id, 0),
+        : DataSinkOperatorX(operator_id, 0, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
@@ -72,9 +75,8 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (state->query_options().enable_parallel_outfile) {
-        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->query_id(), _buf_size, &_sender, state->execution_timeout(),
-                state->batch_size()));
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->query_id(), _buf_size,
+                                                                       &_sender, state));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
@@ -92,8 +94,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _sender = _parent->cast<ResultFileSinkOperatorX>()._sender;
     } else {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout(),
-                state->batch_size()));
+                state->fragment_instance_id(), p._buf_size, &_sender, state));
     }
     _sender->set_dependency(state->fragment_instance_id(), _dependency->shared_from_this());
 
@@ -145,4 +146,5 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_
     return local_state.sink(state, in_block, eos);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

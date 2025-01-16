@@ -215,7 +215,6 @@ public:
     MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return true; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
@@ -461,15 +460,20 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
     MaxFieldType multiplier = DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from);
     FromDataType from_data_type(precicion_from, scale_from);
     for (size_t i = 0; i < size; i++) {
-        auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
-        if constexpr (narrow_integral) {
-            if (tmp < min_result.value || tmp > max_result.value) {
-                THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
-                                                         from_data_type.get_name(),
-                                                         OrigToDataType {}.get_name());
+        // uint8_t now use as boolean in doris
+        if constexpr (std::is_same_v<RealTo, UInt8>) {
+            dst[i] = static_cast<MaxFieldType>(src[i]).value != 0;
+        } else {
+            auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
+            if constexpr (narrow_integral) {
+                if (tmp < min_result.value || tmp > max_result.value) {
+                    THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
+                                                             from_data_type.get_name(),
+                                                             OrigToDataType {}.get_name());
+                }
             }
+            dst[i] = tmp;
         }
-        dst[i] = tmp;
     }
 }
 

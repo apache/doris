@@ -140,7 +140,7 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
-         // lagacy logic for one-master-multi-observer mode
+        // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
         FE_FOLLOWER = 3;
@@ -544,6 +544,10 @@ message TabletCompactionJobPB {
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
     optional bool check_input_versions_range = 26;
+    optional int64 index_size_input_rowsets = 27;
+    optional int64 segment_size_input_rowsets = 28;
+    optional int64 index_size_output_rowsets = 29;
+    optional int64 segment_size_output_rowsets = 30;
 }
 
 message TabletSchemaChangeJobPB {
@@ -563,6 +567,8 @@ message TabletSchemaChangeJobPB {
     optional int64 output_cumulative_point = 12;
     optional bool is_inverted_index_change = 13 [default = false];
     optional int64 delete_bitmap_lock_initiator = 14;
+    optional int64 index_size_output_rowsets = 15;
+    optional int64 segment_size_output_rowsets = 16;
 }
 
 message TabletJobInfoPB {
@@ -576,7 +582,7 @@ message TabletJobInfoPB {
 //==============================================================================
 message TabletStatsPB {
     optional TabletIndexPB idx = 1;
-    optional int64 data_size = 2;
+    optional int64 data_size = 2; // data_size = index_size + segment_size
     optional int64 num_rows = 3;
     optional int64 num_rowsets = 4;
     optional int64 num_segments = 5;
@@ -588,6 +594,8 @@ message TabletStatsPB {
     optional int64 last_cumu_compaction_time_ms = 11;
     optional int64 full_compaction_cnt = 12;
     optional int64 last_full_compaction_time_ms = 13;
+    optional int64 index_size = 14;
+    optional int64 segment_size = 15; 
 }
 
 message ObjectFilePB {
@@ -1087,6 +1095,8 @@ message AlterClusterRequest {
     optional string cloud_unique_id = 2; // For auth
     optional ClusterPB cluster = 3;
     optional Operation op = 4;
+    // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
+    optional bool replace_if_existing_empty_target_cluster = 5;
 }
 
 message AlterClusterResponse {
@@ -1373,6 +1383,7 @@ enum MetaServiceCode {
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
+    PENDING_DELETE_BITMAP_WRONG = 8004;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
@@ -1421,6 +1432,7 @@ message GetDeleteBitmapResponse {
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
+    optional int64 tablet_id = 6;
 }
 
 message RemoveDeleteBitmapRequest {
@@ -1437,6 +1449,7 @@ message RemoveDeleteBitmapResponse {
 
 message PendingDeleteBitmapPB {
     repeated bytes delete_bitmap_keys = 1;
+    optional int64 lock_id = 2;
 }
 
 message DeleteBitmapUpdateLockPB {

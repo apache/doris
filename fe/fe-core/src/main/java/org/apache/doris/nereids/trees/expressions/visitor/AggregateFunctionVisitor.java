@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -260,6 +262,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(function, context);
     }
 
+    default R visitMedian(Median median, C context) {
+        return visitNullableAggregateFunction(median, context);
+    }
+
     default R visitPercentile(Percentile percentile, C context) {
         return visitNullableAggregateFunction(percentile, context);
     }
@@ -362,6 +368,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitApproxTopK(ApproxTopK approxTopK, C context) {
         return visitNullableAggregateFunction(approxTopK, context);
+    }
+
+    default R visitApproxTopSum(ApproxTopSum approxTopSum, C context) {
+        return visitNullableAggregateFunction(approxTopSum, context);
     }
 
 }

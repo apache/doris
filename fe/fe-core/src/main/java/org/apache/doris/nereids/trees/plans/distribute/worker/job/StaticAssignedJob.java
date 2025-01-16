@@ -89,6 +89,7 @@ public class StaticAssignedJob implements AssignedJob {
         }
 
         return str
+                .append(formatOtherString())
                 .append(",\n  scanSource: " + formatScanSourceString())
                 .append("\n)")
                 .toString();
@@ -106,6 +107,10 @@ public class StaticAssignedJob implements AssignedJob {
             scanSourceString = new StringBuilder("[]");
         }
         return scanSourceString.toString();
+    }
+
+    protected String formatOtherString() {
+        return "";
     }
 
     @Override

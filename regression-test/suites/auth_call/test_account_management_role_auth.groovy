@@ -32,7 +32,7 @@ suite("test_account_management_role_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -45,7 +45,7 @@ suite("test_account_management_role_auth","p0,auth_call") {
     sql """create database ${dbName}"""
     sql """GRANT '${role}' TO ${user};"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE ROLE ${role_derive}"""
             exception "denied"
@@ -60,7 +60,7 @@ suite("test_account_management_role_auth","p0,auth_call") {
         }
     }
     sql """grant grant_priv on *.*.* to ROLE '${role}'"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE ROLE ${role_derive}"""
         sql """ALTER ROLE ${role_derive} COMMENT "this is my first role";"""
         sql """DROP ROLE ${role_derive}"""

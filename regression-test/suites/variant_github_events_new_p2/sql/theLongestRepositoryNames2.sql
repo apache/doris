@@ -1,1 +1,0 @@
-SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */ cast(v["repo"]["name"] as string) as repo_name, count() FROM github_events WHERE cast(v["type"] as string) = 'WatchEvent' AND cast(v["repo"]["name"] as string) LIKE '%_/_%' GROUP BY repo_name ORDER BY length(repo_name) ASC, repo_name LIMIT 50

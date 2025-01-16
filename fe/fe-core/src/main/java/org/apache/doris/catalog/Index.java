@@ -54,7 +54,7 @@ public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "i", alternate = {"indexId"})
-    private long indexId = -1; // -1 for compatibale
+    private long indexId = -1; // -1 for compatiable
     @SerializedName(value = "in", alternate = {"indexName"})
     private String indexName;
     @SerializedName(value = "c", alternate = {"columns"})
@@ -264,15 +264,14 @@ public class Index implements Writable {
         return tIndex;
     }
 
-    public OlapFile.TabletIndexPB toPb(List<Column> schemaColumns) {
+    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap) {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
-        for (String columnName : columns) {
-            for (Column column : schemaColumns) {
-                if (column.getName().equals(columnName)) {
-                    builder.addColUniqueId(column.getUniqueId());
-                }
+        for (Integer columnUniqueId : columnUniqueIds) {
+            Column column = columnMap.get(columnUniqueId);
+            if (column != null) {
+                builder.addColUniqueId(column.getUniqueId());
             }
         }
 

@@ -74,7 +74,6 @@ public class LoadLoadingTask extends LoadTask {
     private final int sendBatchParallelism;
     private final boolean loadZeroTolerance;
     private final boolean singleTabletLoadPerSink;
-    private final boolean useNewLoadScanNode;
 
     private final boolean enableMemTableOnSinkNode;
     private final int batchSize;
@@ -92,7 +91,7 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
+            Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -112,7 +111,6 @@ public class LoadLoadingTask extends LoadTask {
         this.loadZeroTolerance = loadZeroTolerance;
         this.jobProfile = jobProfile;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
-        this.useNewLoadScanNode = useNewLoadScanNode;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
         this.batchSize = batchSize;
     }
@@ -122,7 +120,7 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
                 strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
+                userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -145,13 +143,13 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     protected void executeOnce() throws Exception {
-        final boolean enabelProfile = this.jobProfile != null;
+        final boolean enableProfile = this.jobProfile != null;
         // New one query id,
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enabelProfile);
-        if (enabelProfile) {
+                enableProfile);
+        if (enableProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);

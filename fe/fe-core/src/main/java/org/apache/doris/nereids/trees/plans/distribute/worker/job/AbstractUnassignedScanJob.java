@@ -74,8 +74,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             DistributeContext distributeContext) {
 
         ConnectContext context = statementContext.getConnectContext();
-        boolean useLocalShuffleToAddParallel = fragment.useSerialSource(ConnectContext.get());
-        int instanceIndexInFragment = 0;
+        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel();
         List<AssignedJob> instances = Lists.newArrayList();
         for (Entry<DistributedPlanWorker, UninstancedScanSource> entry : workerToScanRanges.entrySet()) {
             DistributedPlanWorker worker = entry.getKey();
@@ -92,67 +91,76 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
             // now we should compute how many instances to process the data,
             // for example: two instances
-            int instanceNum = degreeOfParallelism(scanSourceMaxParallel);
+            int instanceNum = degreeOfParallelism(scanSourceMaxParallel, useLocalShuffleToAddParallel);
 
-            List<ScanSource> instanceToScanRanges;
             if (useLocalShuffleToAddParallel) {
-                // only generate one instance to scan all data, in this step
-                instanceToScanRanges = scanSource.parallelize(
-                        scanNodes, 1
-                );
-
-                // when data not big, but aggregation too slow, we will use 1 instance to scan data,
-                // and use more instances (to ***add parallel***) to process aggregate.
-                // We call it `ignore data distribution` of `share scan`. Backend will know this instances
-                // share the same ScanSource, and will not scan same data multiple times.
-                //
-                // +-------------------------------- same fragment in one host -------------------------------------+
-                // |                instance1      instance2     instance3     instance4                            |
-                // |                    \              \             /            /                                 |
-                // |                                                                                                |
-                // |                                     OlapScanNode                                               |
-                // |(share scan node, instance1 will scan all data and local shuffle to other local instances       |
-                // |                           to parallel compute this data)                                       |
-                // +------------------------------------------------------------------------------------------------+
-                ScanSource shareScanSource = instanceToScanRanges.get(0);
-
-                // one scan range generate multiple instances,
-                // different instances reference the same scan source
-                int shareScanId = shareScanIdGenerator.getAndIncrement();
-                ScanSource emptyShareScanSource = shareScanSource.newEmpty();
-                for (int i = 0; i < instanceNum; i++) {
-                    LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
-                            instanceIndexInFragment++, shareScanId, i > 0,
-                            context.nextInstanceId(), this, worker,
-                            i == 0 ? shareScanSource : emptyShareScanSource
-                    );
-                    instances.add(instance);
-                }
+                assignLocalShuffleJobs(scanSource, instanceNum, instances, context, worker);
             } else {
-                // split the scanRanges to some partitions, one partition for one instance
-                // for example:
-                //  [
-                //     scan tbl1: [tablet_10001, tablet_10003], // instance 1
-                //     scan tbl1: [tablet_10002, tablet_10004]  // instance 2
-                //  ]
-                instanceToScanRanges = scanSource.parallelize(
-                        scanNodes, instanceNum
-                );
-
-                for (ScanSource instanceToScanRange : instanceToScanRanges) {
-                    instances.add(
-                            assignWorkerAndDataSources(
-                                instanceIndexInFragment++, context.nextInstanceId(), worker, instanceToScanRange
-                            )
-                    );
-                }
+                assignedDefaultJobs(scanSource, instanceNum, instances, context, worker);
             }
         }
 
         return instances;
     }
 
-    protected int degreeOfParallelism(int maxParallel) {
+    protected boolean useLocalShuffleToAddParallel() {
+        return fragment.useSerialSource(ConnectContext.get());
+    }
+
+    protected void assignedDefaultJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
+            ConnectContext context, DistributedPlanWorker worker) {
+        // split the scanRanges to some partitions, one partition for one instance
+        // for example:
+        //  [
+        //     scan tbl1: [tablet_10001, tablet_10003], // instance 1
+        //     scan tbl1: [tablet_10002, tablet_10004]  // instance 2
+        //  ]
+        List<ScanSource> instanceToScanRanges = scanSource.parallelize(scanNodes, instanceNum);
+
+        for (ScanSource instanceToScanRange : instanceToScanRanges) {
+            instances.add(
+                    assignWorkerAndDataSources(
+                        instances.size(), context.nextInstanceId(), worker, instanceToScanRange
+                    )
+            );
+        }
+    }
+
+    protected void assignLocalShuffleJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
+            ConnectContext context, DistributedPlanWorker worker) {
+        // only generate one instance to scan all data, in this step
+        List<ScanSource> assignedJoinBuckets = scanSource.parallelize(scanNodes, instanceNum);
+
+        // when data not big, but aggregation too slow, we will use 1 instance to scan data,
+        // and use more instances (to ***add parallel***) to process aggregate.
+        // We call it `ignore data distribution` of `share scan`. Backend will know this instances
+        // share the same ScanSource, and will not scan same data multiple times.
+        //
+        // +-------------------------------- same fragment in one host -------------------------------------+
+        // |                instance1      instance2     instance3     instance4                            |
+        // |                    \              \             /            /                                 |
+        // |                                                                                                |
+        // |                                     OlapScanNode                                               |
+        // |(share scan node, instance1 will scan all data and local shuffle to other local instances       |
+        // |                           to parallel compute this data)                                       |
+        // +------------------------------------------------------------------------------------------------+
+        ScanSource shareScanSource = assignedJoinBuckets.get(0);
+
+        // one scan range generate multiple instances,
+        // different instances reference the same scan source
+        int shareScanId = shareScanIdGenerator.getAndIncrement();
+        ScanSource emptyShareScanSource = shareScanSource.newEmpty();
+        for (int i = 0; i < instanceNum; i++) {
+            LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
+                    instances.size(), shareScanId, context.nextInstanceId(), this, worker,
+                    // only first instance need to scan data
+                    i == 0 ? scanSource : emptyShareScanSource
+            );
+            instances.add(instance);
+        }
+    }
+
+    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
         Preconditions.checkArgument(maxParallel > 0, "maxParallel must be positive");
         if (!fragment.getDataPartition().isPartitioned()) {
             return 1;
@@ -169,6 +177,10 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             if (connectContext != null && olapScanNode.shouldUseOneInstance(connectContext)) {
                 return 1;
             }
+        }
+
+        if (useLocalShuffleToAddParallel) {
+            return Math.max(fragment.getParallelExecNum(), 1);
         }
 
         // the scan instance num should not larger than the tablets num

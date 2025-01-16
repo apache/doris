@@ -131,6 +131,9 @@ suite("direct_query_mv") {
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column o_comment set stats ('row_count'='15');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     create_async_mv(db, "mv1_0",
             """

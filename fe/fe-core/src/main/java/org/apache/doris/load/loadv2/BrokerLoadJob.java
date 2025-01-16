@@ -227,7 +227,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -246,7 +246,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             this.jobProfile = new Profile(
                     true,
                     Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "500")));
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "-1")));
+            this.jobProfile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
             // TODO: 怎么给这些 load job 设置 profile 记录时间
             // this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }

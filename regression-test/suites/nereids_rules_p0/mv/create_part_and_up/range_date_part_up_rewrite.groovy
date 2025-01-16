@@ -113,6 +113,9 @@ suite("mtmv_range_date_part_up_rewrite") {
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-31'); 
     """
 
+    sql """alter table lineitem_range_date_union modify column l_comment set stats ('row_count'='7');"""
+    sql """alter table orders_range_date_union modify column o_comment set stats ('row_count'='10');"""
+
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv1;"""
     sql """CREATE MATERIALIZED VIEW ${mv_prefix}_mv1 BUILD IMMEDIATE REFRESH AUTO ON MANUAL partition by(date_trunc(`col1`, 'month')) DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') AS  
         select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from lineitem_range_date_union as t1 left join orders_range_date_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""
@@ -166,7 +169,7 @@ suite("mtmv_range_date_part_up_rewrite") {
     for (int i = 0; i < mv_name_list.size(); i++) {
         def job_name = getJobName(db, mv_name_list[i])
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
@@ -175,38 +178,38 @@ suite("mtmv_range_date_part_up_rewrite") {
     sql """insert into lineitem_range_date_union values 
         (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-01')"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     sql """insert into lineitem_range_date_union values 
         (2, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-01');"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     sql """ALTER TABLE lineitem_range_date_union DROP PARTITION IF EXISTS p4 FORCE"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 

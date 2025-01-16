@@ -85,16 +85,16 @@ public:
 
     // parse a UTF-8 JSON string
     bool parse(const std::string& str, hDictInsert handler = nullptr) {
-        return parse(str.c_str(), (unsigned int)str.size(), handler);
+        return parse(str.c_str(), str.size(), handler);
     }
 
     // parse a UTF-8 JSON c-style string (NULL terminated)
     bool parse(const char* c_str, hDictInsert handler = nullptr) {
-        return parse(c_str, (unsigned int)strlen(c_str), handler);
+        return parse(c_str, strlen(c_str), handler);
     }
 
     // parse a UTF-8 JSON string with length
-    bool parse(const char* pch, unsigned int len, hDictInsert handler = nullptr) {
+    bool parse(const char* pch, size_t len, hDictInsert handler = nullptr) {
         // reset state before parse
         reset();
 
@@ -136,7 +136,7 @@ public:
                 break;
             }
             case simdjson::ondemand::json_type::number: {
-                write_number(doc.get_number());
+                write_number(doc.get_number(), doc.raw_json_token());
                 break;
             }
             }
@@ -172,7 +172,7 @@ public:
             break;
         }
         case simdjson::ondemand::json_type::number: {
-            write_number(value.get_number());
+            write_number(value.get_number(), value.raw_json_token());
             break;
         }
         case simdjson::ondemand::json_type::object: {
@@ -290,9 +290,23 @@ public:
         }
     }
 
-    void write_number(simdjson::ondemand::number num) {
+    void write_number(simdjson::ondemand::number num, std::string_view raw_string) {
         if (num.is_double()) {
-            if (writer_.writeDouble(num.get_double()) == 0) {
+            double number = num.get_double();
+            // When a double exceeds the precision that can be represented by a double type in simdjson, it gets converted to 0.
+            // The correct approach, should be to truncate the double value instead.
+            if (number == 0) {
+                StringParser::ParseResult result;
+                number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
+                                                               &result);
+                if (result != StringParser::PARSE_SUCCESS) {
+                    err_ = JsonbErrType::E_INVALID_NUMBER;
+                    LOG(WARNING) << "invalid number, raw string is: " << raw_string;
+                    return;
+                }
+            }
+
+            if (writer_.writeDouble(number) == 0) {
                 err_ = JsonbErrType::E_OUTPUT_FAIL;
                 LOG(WARNING) << "writeDouble failed";
                 return;

@@ -38,6 +38,8 @@ public class DropInfo implements Writable {
     private String tableName; // not used in equals and hashCode
     @SerializedName(value = "indexId")
     private long indexId;
+    @SerializedName(value = "indexName")
+    private String indexName; // not used in equals and hashCode
     @SerializedName(value = "isView")
     private boolean isView = false;
     @SerializedName(value = "forceDrop")
@@ -48,12 +50,18 @@ public class DropInfo implements Writable {
     public DropInfo() {
     }
 
-    public DropInfo(long dbId, long tableId, String tableName, long indexId, boolean isView, boolean forceDrop,
-                    long recycleTime) {
+    public DropInfo(long dbId, long tableId, String tableName, boolean isView, boolean forceDrop,
+            long recycleTime) {
+        this(dbId, tableId, tableName, -1L, "", isView, forceDrop, recycleTime);
+    }
+
+    public DropInfo(long dbId, long tableId, String tableName, long indexId, String indexName, boolean isView,
+            boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
         this.indexId = indexId;
+        this.indexName = indexName;
         this.isView = isView;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
@@ -73,6 +81,10 @@ public class DropInfo implements Writable {
 
     public long getIndexId() {
         return this.indexId;
+    }
+
+    public String getIndexName() {
+        return this.indexName;
     }
 
     public boolean isView() {
@@ -132,5 +144,9 @@ public class DropInfo implements Writable {
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public static DropInfo fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, DropInfo.class);
     }
 }

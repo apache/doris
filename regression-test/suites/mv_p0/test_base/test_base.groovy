@@ -44,6 +44,7 @@ suite ("test_base") {
     sql """insert into dwd(id) values(2);"""
 
     sql "analyze table dwd with sync;"
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")

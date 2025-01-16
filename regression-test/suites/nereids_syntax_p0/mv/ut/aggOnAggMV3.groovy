@@ -46,6 +46,8 @@ suite ("aggOnAggMV3") {
     sleep(3000)
 
     sql "analyze table aggOnAggMV3 with sync;"
+    sql """alter table aggOnAggMV3 modify column time_col set stats ('row_count'='5');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")

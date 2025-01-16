@@ -66,7 +66,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -75,7 +75,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
 
     // pipeline can't support delete node, it can affect other case
     if (is_exists_follower()) {
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """show frontends"""
                 exception "denied"
@@ -92,7 +92,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
     }
 
     if (is_exists_observer()) {
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """show frontends"""
                 exception "denied"
@@ -109,7 +109,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
     }
 
     if (is_exists_backends()) {
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """show backends"""
                 exception "denied"

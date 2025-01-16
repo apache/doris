@@ -38,12 +38,12 @@ suite ("testSubQuery") {
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
-
     createMV("create materialized view emps_mv as select deptno, empid from emps;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table emps with sync;"
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
@@ -52,5 +52,6 @@ suite ("testSubQuery") {
     qt_select_mv "select empid, deptno, salary from emps e1 where empid = (select max(empid) from emps where deptno = e1.deptno) order by deptno;"
 
     sql """set enable_stats=true;"""
+
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 }

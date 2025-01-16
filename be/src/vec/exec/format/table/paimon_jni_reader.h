@@ -53,7 +53,8 @@ public:
     static const std::string PAIMON_OPTION_PREFIX;
     static const std::string HADOOP_OPTION_PREFIX;
     PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                    RuntimeProfile* profile, const TFileRangeDesc& range);
+                    RuntimeProfile* profile, const TFileRangeDesc& range,
+                    const TFileScanRangeParams* range_params);
 
     ~PaimonJniReader() override = default;
 

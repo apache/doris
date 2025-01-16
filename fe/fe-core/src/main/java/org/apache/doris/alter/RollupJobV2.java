@@ -270,7 +270,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getRowStoreColumnsUniqueIds(tbl.getTableProperty().getCopiedRowStoreColumns()),
                                 objectPool,
                                 tbl.rowStorePageSize(),
-                                tbl.variantEnableFlattenNested());
+                                tbl.variantEnableFlattenNested(),
+                                tbl.storagePageSize());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -569,7 +570,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     continue;
                 }
 
-                long visiableVersion = partition.getVisibleVersion();
+                long visibleVersion = partition.getVisibleVersion();
                 short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(
                         partitionId).getTotalReplicaNum();
                 MaterializedIndex rollupIndex = entry.getValue();
@@ -578,7 +579,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     int healthyReplicaNum = 0;
                     for (Replica replica : replicas) {
                         if (!replica.isBad() && replica.getLastFailedVersion() < 0
-                                && replica.checkVersionCatchUp(visiableVersion, false)) {
+                                && replica.checkVersionCatchUp(visibleVersion, false)) {
                             healthyReplicaNum++;
                         }
                     }

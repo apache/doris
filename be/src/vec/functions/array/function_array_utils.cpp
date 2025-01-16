@@ -24,7 +24,9 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_vector.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -45,12 +47,19 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
 
     // extract array offsets and nested column
     data.offsets_ptr = &data.array_col->get_offsets();
-    data.nested_col = &data.array_col->get_data();
+    data.nested_col = data.array_col->get_data_ptr();
     // extract nested column is nullable
     if (data.nested_col->is_nullable()) {
         const auto& nested_null_col = reinterpret_cast<const ColumnNullable&>(*data.nested_col);
         data.nested_nullmap_data = nested_null_col.get_null_map_data().data();
-        data.nested_col = nested_null_col.get_nested_column_ptr().get();
+        data.nested_col = nested_null_col.get_nested_column_ptr();
+    }
+    if (data.output_as_variant &&
+        !WhichDataType(remove_nullable(data.nested_type)).is_variant_type()) {
+        // set variant root column/type to from column/type
+        auto variant = ColumnObject::create(true /*always nullable*/);
+        variant->create_root(data.nested_type, make_nullable(data.nested_col)->assume_mutable());
+        data.nested_col = variant->get_ptr();
     }
     return true;
 }

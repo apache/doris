@@ -180,7 +180,7 @@ public:
     static JsonbDocument* createDocument(const char* pb, size_t size);
 
     // create an JsonbValue from JSONB packed bytes
-    static JsonbValue* createValue(const char* pb, uint32_t size);
+    static JsonbValue* createValue(const char* pb, size_t size);
 
     uint8_t version() { return header_.ver_; }
 
@@ -1160,7 +1160,7 @@ inline void JsonbDocument::setValue(const JsonbValue* value) {
     memcpy(payload_, value, value->numPackedBytes());
 }
 
-inline JsonbValue* JsonbDocument::createValue(const char* pb, uint32_t size) {
+inline JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
     }

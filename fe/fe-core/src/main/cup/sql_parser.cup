@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
@@ -1013,6 +1013,8 @@ nonterminal List<Expr> copy_select_expr_list;
 
 //genearted column
 nonterminal Boolean opt_generated_always;
+
+nonterminal Boolean opt_detailed;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -3675,6 +3677,20 @@ partition_key_item_list ::=
     {:
         RESULT = Lists.newArrayList(new PartitionValue("", true));
     :}
+    | partition_key_item_list:l COMMA KW_NULL
+    {:
+        l.add(new PartitionValue("", true));
+        RESULT = l;
+    :}
+    | KW_MAX_VALUE
+    {:
+        RESULT = Lists.newArrayList(PartitionValue.MAX_VALUE);
+    :}
+    | partition_key_item_list:l COMMA KW_MAX_VALUE
+    {:
+        l.add(PartitionValue.MAX_VALUE);
+        RESULT = l;
+    :}
     ;
 
 partition_key_list ::=
@@ -4493,13 +4509,13 @@ show_param ::=
         RESULT = new ShowDataSkewStmt(table_ref);
     :}
     /* Show data statement: used to show data size of specified range */
-     | KW_DATA order_by_clause:orderByClause opt_properties:prop
+     | KW_DATA opt_detailed:detailed order_by_clause:orderByClause opt_properties:prop
     {:
-        RESULT = new ShowDataStmt(null, orderByClause, prop);
+        RESULT = new ShowDataStmt(null, orderByClause, prop, detailed);
     :}
-    | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
+    | KW_DATA opt_detailed:detailed KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName, orderByClause, null);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause, null, detailed);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -5060,6 +5076,17 @@ cancel_param ::=
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
         RESULT = new CancelCloudWarmUpStmt(parser.where);
+    :}
+    ;
+
+opt_detailed ::=
+     /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_ALL
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -7976,9 +8003,9 @@ admin_stmt ::=
     ;
 
 truncate_stmt ::=
-    KW_TRUNCATE KW_TABLE base_table_ref:tblRef
+    KW_TRUNCATE KW_TABLE base_table_ref:tblRef opt_force:force
     {:
-        RESULT = new TruncateTableStmt(tblRef);
+        RESULT = new TruncateTableStmt(tblRef, force);
     :}
     ;
 

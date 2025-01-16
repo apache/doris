@@ -67,7 +67,7 @@
 #include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
 }
@@ -76,7 +76,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     DataTypePtr nested = nullptr;
     if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
         DataTypes dataTypes;
-        for (size_t i = 0; i < col_desc.get_subtype_count(); i++) {
+        for (UInt32 i = 0; i < col_desc.get_subtype_count(); i++) {
             dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
         }
         nested = std::make_shared<vectorized::DataTypeAggState>(
@@ -97,7 +97,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         Strings names;
         dataTypes.reserve(col_size);
         names.reserve(col_size);
-        for (size_t i = 0; i < col_size; i++) {
+        for (UInt32 i = 0; i < col_size; i++) {
             dataTypes.push_back(create_data_type(col_desc.get_sub_column(i)));
             names.push_back(col_desc.get_sub_column(i).name());
         }
@@ -546,13 +546,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
                                                            create_data_type(pcolumn.children(1)));
         break;
     case PGenericType::STRUCT: {
-        size_t col_size = pcolumn.children_size();
+        int col_size = pcolumn.children_size();
         DCHECK(col_size >= 1);
         DataTypes dataTypes;
         Strings names;
         dataTypes.reserve(col_size);
         names.reserve(col_size);
-        for (size_t i = 0; i < col_size; i++) {
+        for (int i = 0; i < col_size; i++) {
             dataTypes.push_back(create_data_type(pcolumn.children(i)));
             names.push_back(pcolumn.children(i).name());
         }
@@ -615,10 +615,10 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
                 create_data_type(pcolumn.children_columns(1)));
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
         DCHECK_GE(pcolumn.children_columns().size(), 1);
-        size_t col_size = pcolumn.children_columns().size();
+        Int32 col_size = pcolumn.children_columns().size();
         DataTypes dataTypes(col_size);
         Strings names(col_size);
-        for (size_t i = 0; i < col_size; i++) {
+        for (Int32 i = 0; i < col_size; i++) {
             dataTypes[i] = create_data_type(pcolumn.children_columns(i));
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);

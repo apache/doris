@@ -46,8 +46,6 @@ public class JdbcMySQLClient extends JdbcClient {
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
-        // Disable abandoned connection cleanup
-        System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         Connection conn = null;
         Statement stmt = null;
@@ -72,6 +70,12 @@ public class JdbcMySQLClient extends JdbcClient {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         this.dbType = dbType;
+    }
+
+    @Override
+    protected void setJdbcDriverSystemProperties() {
+        super.setJdbcDriverSystemProperties();
+        System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
     }
 
     @Override
@@ -130,12 +134,10 @@ public class JdbcMySQLClient extends JdbcClient {
      * get all columns of one table
      */
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
         Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
@@ -255,11 +257,9 @@ public class JdbcMySQLClient extends JdbcClient {
                 return createDecimalOrStringType(precision, scale);
             }
             case "CHAR":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.requiredColumnSize());
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "VARCHAR":
-                return ScalarType.createVarcharType(fieldSchema.getColumnSize().orElse(0));
+                return ScalarType.createVarcharType(fieldSchema.requiredColumnSize());
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;

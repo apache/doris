@@ -157,6 +157,11 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::N
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
+
 bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
@@ -200,7 +205,14 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                            config::brpc_light_work_pool_max_queue_size != -1
                                    ? config::brpc_light_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
-                           "brpc_light") {
+                           "brpc_light"),
+          _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
+                                          ? config::brpc_arrow_flight_work_pool_threads
+                                          : std::max(512, CpuInfo::num_cores() * 16),
+                                  config::brpc_arrow_flight_work_pool_max_queue_size != -1
+                                          ? config::brpc_arrow_flight_work_pool_max_queue_size
+                                          : std::max(20480, CpuInfo::num_cores() * 640),
+                                  "brpc_arrow_flight") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -218,6 +230,15 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                          []() { return config::brpc_heavy_work_pool_threads; });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
+
+    REGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size,
+                         [this]() { return _arrow_flight_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(arrow_flight_work_active_threads,
+                         [this]() { return _arrow_flight_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size,
+                         []() { return config::brpc_arrow_flight_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
+                         []() { return config::brpc_arrow_flight_work_pool_threads; });
 
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
     _exec_env->load_stream_mgr()->set_light_work_pool(&_light_work_pool);
@@ -242,24 +263,14 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
 
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_active_threads);
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
+
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
-
-void PInternalService::transmit_data(google::protobuf::RpcController* controller,
-                                     const PTransmitDataParams* request,
-                                     PTransmitDataResult* response,
-                                     google::protobuf::Closure* done) {}
-
-void PInternalService::transmit_data_by_http(google::protobuf::RpcController* controller,
-                                             const PEmptyRequest* request,
-                                             PTransmitDataResult* response,
-                                             google::protobuf::Closure* done) {}
-
-void PInternalService::_transmit_data(google::protobuf::RpcController* controller,
-                                      const PTransmitDataParams* request,
-                                      PTransmitDataResult* response,
-                                      google::protobuf::Closure* done, const Status& extract_st) {}
 
 void PInternalService::tablet_writer_open(google::protobuf::RpcController* controller,
                                           const PTabletWriterOpenRequest* request,
@@ -605,7 +616,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         // Convert PPlanFragmentCancelReason to Status
         if (has_cancel_status) {
             // If fe set cancel status, then it is new FE now, should use cancel status.
-            actual_cancel_status = Status::create(request->cancel_status());
+            actual_cancel_status = Status::create<false>(request->cancel_status());
         } else if (has_cancel_reason) {
             // If fe not set cancel status, but set cancel reason, should convert cancel reason
             // to cancel status here.
@@ -639,13 +650,25 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
 void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   const PFetchDataRequest* request, PFetchDataResult* result,
                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, result, done]() {
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
-        _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
+    // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
+    auto* cntl = static_cast<brpc::Controller*>(controller);
+    auto* ctx = new GetResultBatchCtx(cntl, result, done);
+    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+}
+
+void PInternalService::fetch_arrow_data(google::protobuf::RpcController* controller,
+                                        const PFetchArrowDataRequest* request,
+                                        PFetchArrowDataResult* result,
+                                        google::protobuf::Closure* done) {
+    bool ret = _arrow_flight_work_pool.try_offer([this, controller, request, result, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto* cntl = static_cast<brpc::Controller*>(controller);
+        auto* ctx = new GetArrowResultBatchCtx(cntl, result, done);
+        _exec_env->result_mgr()->fetch_arrow_data(request->finst_id(), ctx);
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _arrow_flight_work_pool);
         return;
     }
 }
@@ -857,23 +880,24 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
                                                  google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        std::shared_ptr<arrow::Schema> schema =
-                ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
-                        UniqueId(request->finst_id()).to_thrift());
-        if (schema == nullptr) {
-            LOG(INFO) << "FE not found arrow flight schema, maybe query has been canceled";
-            auto st = Status::NotFound(
-                    "FE not found arrow flight schema, maybe query has been canceled");
+        std::shared_ptr<arrow::Schema> schema;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
+                UniqueId(request->finst_id()).to_thrift(), &schema);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
 
         std::string schema_str;
-        auto st = serialize_arrow_schema(&schema, &schema_str);
+        st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
-            if (config::public_access_ip != "") {
-                result->set_be_arrow_flight_ip(config::public_access_ip);
+            if (!config::public_host.empty()) {
+                result->set_be_arrow_flight_ip(config::public_host);
+            }
+            if (config::arrow_flight_sql_proxy_port != -1) {
+                result->set_be_arrow_flight_port(config::arrow_flight_sql_proxy_port);
             }
         }
         st.to_protobuf(result->mutable_status());
@@ -1197,7 +1221,10 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
 void PInternalService::get_info(google::protobuf::RpcController* controller,
                                 const PProxyRequest* request, PProxyResult* response,
                                 google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->routine_load_task_executor()->get_thread_pool().submit_func([this,
+                                                                                       request,
+                                                                                       response,
+                                                                                       done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:

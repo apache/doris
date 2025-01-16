@@ -694,12 +694,17 @@ public class NumericArithmetic {
         return input;
     }
 
+    private static Expression castDecimalV3Literal(DecimalV3Literal literal, int precision) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(precision, literal.getValue().scale()),
+                literal.getValue());
+    }
+
     /**
      * round
      */
     @ExecFunction(name = "round")
     public static Expression round(DecimalV3Literal first) {
-        return first.round(0);
+        return castDecimalV3Literal(first.round(0), ((DecimalV3Type) first.getDataType()).getPrecision());
     }
 
     /**
@@ -707,7 +712,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DecimalV3Literal first, IntegerLiteral second) {
-        return first.round(second.getValue());
+        return castDecimalV3Literal(first.round(second.getValue()),
+                ((DecimalV3Type) first.getDataType()).getPrecision());
     }
 
     /**
@@ -733,7 +739,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DecimalV3Literal first) {
-        return first.roundCeiling(0);
+        return castDecimalV3Literal(first.roundCeiling(0), ((DecimalV3Type) first.getDataType()).getPrecision());
     }
 
     /**
@@ -741,7 +747,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DecimalV3Literal first, IntegerLiteral second) {
-        return first.roundCeiling(second.getValue());
+        return castDecimalV3Literal(first.roundCeiling(second.getValue()),
+                ((DecimalV3Type) first.getDataType()).getPrecision());
     }
 
     /**
@@ -767,7 +774,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DecimalV3Literal first) {
-        return first.roundFloor(0);
+        return castDecimalV3Literal(first.roundFloor(0), ((DecimalV3Type) first.getDataType()).getPrecision());
     }
 
     /**
@@ -775,7 +782,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DecimalV3Literal first, IntegerLiteral second) {
-        return first.roundFloor(second.getValue());
+        return castDecimalV3Literal(first.roundFloor(second.getValue()),
+                ((DecimalV3Type) first.getDataType()).getPrecision());
     }
 
     /**
@@ -819,6 +827,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "log")
     public static Expression log(DoubleLiteral first, DoubleLiteral second) {
         checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (first.getValue().equals(1.0d)) {
+            throw new NotSupportedException("the first input of function log can not be 1.0");
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue()) / Math.log(second.getValue())));
     }
 
@@ -855,6 +866,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "power")
     public static Expression power(DoubleLiteral first, DoubleLiteral second) {
         checkInputBoundary(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+        if (first.getValue() < 0 && second.getValue() % 1 != 0) {
+            throw new NotSupportedException("input pair of function power can not be negative number and non-integer");
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
     }
 
@@ -1136,21 +1150,12 @@ public class NumericArithmetic {
     public static Expression truncate(DecimalV3Literal first, IntegerLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return first;
+        } else if (first.getValue().compareTo(BigDecimal.ZERO) < 0) {
+            return castDecimalV3Literal(first.roundCeiling(second.getValue()),
+                    ((DecimalV3Type) first.getDataType()).getPrecision());
         } else {
-            if (first.getValue().scale() < second.getValue()) {
-                return first;
-            }
-            if (second.getValue() < 0) {
-                double factor = Math.pow(10, Math.abs(second.getValue()));
-                return new DecimalV3Literal(
-                    DecimalV3Type.createDecimalV3Type(first.getValue().precision(), 0),
-                    BigDecimal.valueOf(Math.floor(first.getDouble() / factor) * factor));
-            }
-            if (first.getValue().compareTo(BigDecimal.ZERO) == -1) {
-                return first.roundCeiling(second.getValue());
-            } else {
-                return first.roundFloor(second.getValue());
-            }
+            return castDecimalV3Literal(first.roundFloor(second.getValue()),
+                    ((DecimalV3Type) first.getDataType()).getPrecision());
         }
     }
 

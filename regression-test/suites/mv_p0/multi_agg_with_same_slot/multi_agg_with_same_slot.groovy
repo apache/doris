@@ -46,6 +46,7 @@ suite ("multi_agg_with_same_slot") {
     sql "insert into d_table(k4,k2,k5) values('d',4,4);"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"

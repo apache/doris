@@ -68,7 +68,7 @@ public class HiveMetadataOpsTest {
         new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
             @Mock
             public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
-                return new HMSExternalDatabase(mockedCatalog, 0L, "mockedDb");
+                return new HMSExternalDatabase(mockedCatalog, 0L, "mockedDb", "mockedDb");
             }
 
             @Mock

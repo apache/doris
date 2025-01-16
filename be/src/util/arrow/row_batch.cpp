@@ -24,6 +24,7 @@
 #include <arrow/result.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_fwd.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -84,12 +85,10 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
     case TYPE_STRING:
     case TYPE_JSONB:
-    case TYPE_OBJECT:
         *result = arrow::utf8();
         break;
     case TYPE_DATEV2:
@@ -150,6 +149,12 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::utf8();
         break;
     }
+    case TYPE_QUANTILE_STATE:
+    case TYPE_OBJECT:
+    case TYPE_HLL: {
+        *result = arrow::binary();
+        break;
+    }
     default:
         return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type",
                                        type.type);
@@ -157,8 +162,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     return Status::OK();
 }
 
-Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::Schema>* result,
-                        const std::string& timezone) {
+Status get_arrow_schema_from_block(const vectorized::Block& block,
+                                   std::shared_ptr<arrow::Schema>* result,
+                                   const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -171,9 +177,9 @@ Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::S
     return Status::OK();
 }
 
-Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                                      std::shared_ptr<arrow::Schema>* result,
-                                      const std::string& timezone) {
+Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                       std::shared_ptr<arrow::Schema>* result,
+                                       const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;

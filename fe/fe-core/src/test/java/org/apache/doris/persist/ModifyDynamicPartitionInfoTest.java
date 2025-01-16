@@ -67,4 +67,17 @@ public class ModifyDynamicPartitionInfoTest {
         Assert.assertEquals(readModifyDynamicPartitionInfo.getProperties(), properties);
         in.close();
     }
+
+    @Test
+    public void testToSql() {
+        HashMap<String, String> properties = new HashMap<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
+        properties.put(DynamicPartitionProperty.START, "-3");
+        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L, 200L,
+                "test", properties);
+        Assert.assertTrue(modifyDynamicPartitionInfo.toSql().contains("\"dynamic_partition.enable\" = \"true\""));
+        Assert.assertTrue(modifyDynamicPartitionInfo.toSql().contains("\"dynamic_partition.time_unit\" = \"day\""));
+        Assert.assertTrue(modifyDynamicPartitionInfo.toSql().contains("\"dynamic_partition.start\" = \"-3\""));
+    }
 }

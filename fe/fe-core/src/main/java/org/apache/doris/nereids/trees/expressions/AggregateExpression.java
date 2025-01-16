@@ -100,7 +100,7 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         if (aggregateParam.aggMode.productAggregateBuffer) {
             return "partial_" + function.toSql();
         } else {
@@ -145,8 +145,8 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), function, aggregateParam, child());
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), function, aggregateParam, child());
     }
 
     @Override

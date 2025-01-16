@@ -24,9 +24,11 @@
 #include <streamvbyte.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -36,10 +38,11 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -97,8 +100,10 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
         if (offsets_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += offsets_size;
         } else {
-            size += sizeof(size_t) + std::max(offsets_size, streamvbyte_max_compressedbytes(
-                                                                    upper_int32(offsets_size)));
+            // Throw exception if offsets_size is large than UINT32_MAX
+            size += sizeof(size_t) +
+                    std::max(offsets_size, streamvbyte_max_compressedbytes(
+                                                   cast_set<UInt32>(upper_int32(offsets_size))));
         }
         size += sizeof(size_t);
         if (size_t bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -110,7 +115,8 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                 "LZ4_MAX_INPUT_SIZE={}",
                                 bytes, LZ4_MAX_INPUT_SIZE);
             }
-            size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
+            size += sizeof(size_t) +
+                    std::max(bytes, (size_t)LZ4_compressBound(cast_set<UInt32>(bytes)));
         }
         return size;
     } else {
@@ -121,14 +127,18 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
             offsets_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += offsets_size;
         } else {
-            size += sizeof(size_t) + std::max(offsets_size, streamvbyte_max_compressedbytes(
-                                                                    upper_int32(offsets_size)));
+            // Throw exception if offsets_size is large than UINT32_MAX
+            size += sizeof(size_t) +
+                    std::max(offsets_size, streamvbyte_max_compressedbytes(
+                                                   cast_set<UInt32>(upper_int32(offsets_size))));
         }
 
         if (auto bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += bytes;
         } else {
-            size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
+            // Throw exception if bytes is large than UINT32_MAX
+            size += sizeof(size_t) +
+                    std::max(bytes, (size_t)LZ4_compressBound(cast_set<UInt32>(bytes)));
         }
         return size;
     }
@@ -141,16 +151,17 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
         buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
         // mem_size = real_row_num * sizeof(IColumn::Offset)
-        auto mem_size = real_need_copy_num * sizeof(IColumn::Offset);
+        size_t mem_size = real_need_copy_num * sizeof(IColumn::Offset);
         const auto& string_column = assert_cast<const ColumnString&>(*data_column);
         // offsets
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(buf, string_column.get_offsets().data(), mem_size);
             buf += mem_size;
         } else {
+            // Throw exception if mem_size is large than UINT32_MAX
             auto encode_size = streamvbyte_encode(
                     reinterpret_cast<const uint32_t*>(string_column.get_offsets().data()),
-                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+                    cast_set<uint32_t>(upper_int32(mem_size)), (uint8_t*)(buf + sizeof(size_t)));
             *reinterpret_cast<size_t*>(buf) = encode_size;
             buf += (sizeof(size_t) + encode_size);
         }
@@ -163,9 +174,9 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
             memcpy(buf, string_column.get_chars().data(), value_len);
             buf += value_len;
         } else {
-            auto encode_size =
-                    LZ4_compress_fast(string_column.get_chars().raw_data(), (buf + sizeof(size_t)),
-                                      value_len, LZ4_compressBound(value_len), 1);
+            auto encode_size = LZ4_compress_fast(string_column.get_chars().raw_data(),
+                                                 (buf + sizeof(size_t)), cast_set<Int32>(value_len),
+                                                 LZ4_compressBound(cast_set<Int32>(value_len)), 1);
             *reinterpret_cast<size_t*>(buf) = encode_size;
             buf += (sizeof(size_t) + encode_size);
         }
@@ -175,17 +186,18 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
         const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
         // row num
-        uint32_t mem_size = data_column.size() * sizeof(IColumn::Offset);
-        *reinterpret_cast<uint32_t*>(buf) = mem_size;
+        size_t mem_size = data_column.size() * sizeof(IColumn::Offset);
+        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(mem_size);
         buf += sizeof(uint32_t);
         // offsets
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(buf, data_column.get_offsets().data(), mem_size);
             buf += mem_size;
         } else {
+            // Throw exception if mem_size is large than UINT32_MAX
             auto encode_size = streamvbyte_encode(
                     reinterpret_cast<const uint32_t*>(data_column.get_offsets().data()),
-                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+                    cast_set<UInt32>(upper_int32(mem_size)), (uint8_t*)(buf + sizeof(size_t)));
             *reinterpret_cast<size_t*>(buf) = encode_size;
             buf += (sizeof(size_t) + encode_size);
         }
@@ -199,9 +211,9 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
             buf += value_len;
             return buf;
         }
-        auto encode_size =
-                LZ4_compress_fast(data_column.get_chars().raw_data(), (buf + sizeof(size_t)),
-                                  value_len, LZ4_compressBound(value_len), 1);
+        auto encode_size = LZ4_compress_fast(data_column.get_chars().raw_data(),
+                                             (buf + sizeof(size_t)), cast_set<Int32>(value_len),
+                                             LZ4_compressBound(cast_set<Int32>(value_len)), 1);
         *reinterpret_cast<size_t*>(buf) = encode_size;
         buf += (sizeof(size_t) + encode_size);
         return buf;
@@ -229,7 +241,7 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(offsets.data()),
-                               upper_int32(mem_size));
+                               cast_set<UInt32>(upper_int32(mem_size)));
             buf += encode_size;
         }
 
@@ -245,7 +257,8 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
         } else {
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
-            LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()), encode_size, value_len);
+            LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()),
+                                cast_set<Int32>(encode_size), cast_set<Int32>(value_len));
             buf += encode_size;
         }
         return buf;
@@ -265,7 +278,7 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(offsets.data()),
-                               upper_int32(mem_size));
+                               cast_set<UInt32>(upper_int32(mem_size)));
             buf += encode_size;
         }
         // total length
@@ -280,7 +293,8 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
         } else {
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
-            LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()), encode_size, value_len);
+            LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()),
+                                cast_set<int32_t>(encode_size), cast_set<Int32>(value_len));
             buf += encode_size;
         }
         return buf;

@@ -175,10 +175,10 @@ private:
     Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
-                             ColumnSelectVector& select_vector);
+                             FilterMap& filter_map);
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
-    void _rebuild_select_vector(ColumnSelectVector& select_vector,
-                                std::unique_ptr<uint8_t[]>& filter_map, size_t pre_read_rows) const;
+    Status _rebuild_filter_map(FilterMap& filter_map, std::unique_ptr<uint8_t[]>& filter_map_data,
+                               size_t pre_read_rows) const;
     Status _fill_partition_columns(
             Block* block, size_t rows,
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&

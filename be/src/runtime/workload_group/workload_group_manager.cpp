@@ -26,6 +26,7 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_metrics.h"
 #include "util/mem_info.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -33,6 +34,25 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
+
+void WorkloadGroupMgr::init_internal_workload_group() {
+    WorkloadGroupPtr internal_wg = nullptr;
+    {
+        std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+        if (_workload_groups.find(INTERNAL_WORKLOAD_GROUP_ID) == _workload_groups.end()) {
+            WorkloadGroupInfo internal_wg_info {
+                    .id = INTERNAL_WORKLOAD_GROUP_ID,
+                    .name = INTERNAL_WORKLOAD_GROUP_NAME,
+                    .cpu_share = CgroupCpuCtl::cpu_soft_limit_default_value()};
+            internal_wg = std::make_shared<WorkloadGroup>(internal_wg_info, false);
+            _workload_groups[internal_wg_info.id] = internal_wg;
+        }
+    }
+    DCHECK(internal_wg != nullptr);
+    if (internal_wg) {
+        internal_wg->create_cgroup_cpu_ctl();
+    }
+}
 
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
         const WorkloadGroupInfo& workload_group_info) {
@@ -67,10 +87,10 @@ void WorkloadGroupMgr::get_related_workload_groups(
     }
 }
 
-WorkloadGroupPtr WorkloadGroupMgr::get_task_group_by_id(uint64_t tg_id) {
+WorkloadGroupPtr WorkloadGroupMgr::get_group(uint64_t wg_id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_workload_groups.find(tg_id) != _workload_groups.end()) {
-        return _workload_groups.at(tg_id);
+    if (_workload_groups.find(wg_id) != _workload_groups.end()) {
+        return _workload_groups.at(wg_id);
     }
     return nullptr;
 }
@@ -86,6 +106,10 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         old_wg_size = _workload_groups.size();
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
             uint64_t wg_id = iter->first;
+            // internal workload group created by BE can not be dropped
+            if (wg_id == INTERNAL_WORKLOAD_GROUP_ID) {
+                continue;
+            }
             auto workload_group_ptr = iter->second;
             if (used_wg_id.find(wg_id) == used_wg_id.end()) {
                 workload_group_ptr->shutdown();
@@ -264,16 +288,25 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
     for (const auto& [id, wg] : _workload_groups) {
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_int64_value(1, wg->id(), block);
-        SchemaScannerHelper::insert_int64_value(2, wg->get_mem_used(), block);
+        SchemaScannerHelper::insert_int64_value(2, wg->get_metrics()->get_memory_used(), block);
 
-        double cpu_usage_p =
-                (double)wg->get_cpu_usage() / (double)total_cpu_time_ns_per_second * 100;
+        double cpu_usage_p = (double)wg->get_metrics()->get_cpu_time_nanos_per_second() /
+                             (double)total_cpu_time_ns_per_second * 100;
         cpu_usage_p = std::round(cpu_usage_p * 100.0) / 100.0;
 
         SchemaScannerHelper::insert_double_value(3, cpu_usage_p, block);
 
-        SchemaScannerHelper::insert_int64_value(4, wg->get_local_scan_bytes_per_second(), block);
-        SchemaScannerHelper::insert_int64_value(5, wg->get_remote_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(
+                4, wg->get_metrics()->get_local_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(
+                5, wg->get_metrics()->get_remote_scan_bytes_per_second(), block);
+    }
+}
+
+void WorkloadGroupMgr::refresh_workload_group_metrics() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (const auto& [id, wg] : _workload_groups) {
+        wg->get_metrics()->refresh_metrics();
     }
 }
 

@@ -130,6 +130,8 @@ message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
+option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)
+message(STATUS "make benchmark: ${BUILD_BENCHMARK}")
 
 option(WITH_MYSQL "Support access MySQL" ON)
 
@@ -568,7 +570,7 @@ if (OS_MACOSX)
     )
 endif()
 
-if (MAKE_TEST)
+if (BUILD_BENCHMARK)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         benchmark
@@ -708,6 +710,11 @@ if (MAKE_TEST)
     endif()
 endif ()
 
+# use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
+if (BUILD_BENCHMARK)
+    add_definitions(-DBE_TEST)
+endif()
+
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)
 get_directory_property(COMPILER_DEFINES COMPILE_DEFINITIONS)
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
@@ -754,7 +761,7 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/service)
+add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
 
@@ -772,36 +779,44 @@ add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 add_subdirectory(${SRC_DIR}/pipeline)
 
+# this include doris_be_test
 if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
-# Install be
-install(DIRECTORY DESTINATION ${OUTPUT_DIR})
-install(DIRECTORY DESTINATION ${OUTPUT_DIR}/bin)
-install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
+if(NOT BUILD_BENCHMARK)
+    # Install be
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR})
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/bin)
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
 
-install(FILES
-    ${BASE_DIR}/../bin/start_be.sh
-    ${BASE_DIR}/../bin/stop_be.sh
-    ${BASE_DIR}/../tools/jeprof
-    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
-    GROUP_READ GROUP_WRITE GROUP_EXECUTE
-    WORLD_READ WORLD_EXECUTE
-    DESTINATION ${OUTPUT_DIR}/bin)
+    install(FILES
+        ${BASE_DIR}/../bin/start_be.sh
+        ${BASE_DIR}/../bin/stop_be.sh
+        ${BASE_DIR}/../tools/jeprof
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_WRITE GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+        DESTINATION ${OUTPUT_DIR}/bin)
 
-install(FILES
-    ${BASE_DIR}/../conf/be.conf
-    ${BASE_DIR}/../conf/odbcinst.ini
-    ${BASE_DIR}/../conf/asan_suppr.conf
-    ${BASE_DIR}/../conf/lsan_suppr.conf
-    DESTINATION ${OUTPUT_DIR}/conf)
+    install(FILES
+        ${BASE_DIR}/../conf/be.conf
+        ${BASE_DIR}/../conf/odbcinst.ini
+        ${BASE_DIR}/../conf/asan_suppr.conf
+        ${BASE_DIR}/../conf/lsan_suppr.conf
+        DESTINATION ${OUTPUT_DIR}/conf)
+endif()
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
 
-
+if (BUILD_BENCHMARK)
+    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
+    message(STATUS "Add benchmark to build")
+    install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)
+endif()

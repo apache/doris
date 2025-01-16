@@ -36,6 +36,7 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 2,2,2,'b';"
     sql "insert into case_ignore select 3,-3,null,'c';"
 
+
     createMV ("create materialized view k12a as select K1,abs(K2) from case_ignore;")
     sleep(3000)
 
@@ -44,6 +45,8 @@ suite ("case_ignore") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table case_ignore with sync;"
+    sql """alter table case_ignore modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from case_ignore order by k1;"

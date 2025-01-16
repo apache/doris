@@ -51,6 +51,7 @@ suite ("sum_count") {
     sql "analyze table d_table with sync;"
     sql """set enable_stats=true;"""
 
+    sql """alter table d_table modify column k1 set stats ('row_count'='8');"""
     mv_rewrite_success("select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;", "kavg")
     
     qt_select_mv "select k1,k4,sum(k2),count(k2) from d_table group by k1,k4 order by 1,2;"

@@ -281,9 +281,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     if (_inited) {
         return Status::OK();
     }
+    _opts = opts;
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
-    _opts = opts;
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -377,7 +378,7 @@ Status SegmentIterator::_lazy_init() {
     _row_bitmap.addRange(0, _segment->num_rows());
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
-        _segment->_tablet_schema->cluster_key_idxes().empty()) {
+        _segment->_tablet_schema->cluster_key_uids().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
@@ -838,7 +839,13 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    such as when index segment files are not generated
         // above case can downgrade without index query
         _opts.stats->inverted_index_downgrade_count++;
-        LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
+        if (!res.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
+            LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: "
+                      << res;
+        } else {
+            VLOG_DEBUG << "will downgrade without index to evaluate predicate, because of res: "
+                       << res;
+        }
         return true;
     }
     return false;
@@ -1005,6 +1012,7 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
 }
 
 Status SegmentIterator::_init_return_column_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_return_column_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
@@ -1047,19 +1055,21 @@ Status SegmentIterator::_init_return_column_iterators() {
 }
 
 Status SegmentIterator::_init_bitmap_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_bitmap_index_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
         if (_bitmap_index_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
-                                                                &_bitmap_index_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(
+                    _opts.tablet_schema->column(cid), _opts, &_bitmap_index_iterators[cid]));
         }
     }
     return Status::OK();
 }
 
 Status SegmentIterator::_init_inverted_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_inverted_index_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
@@ -1177,7 +1187,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     bool exact_match = false;
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator));
+    RETURN_IF_ERROR(pk_index_reader->new_iterator(&index_iterator, _opts.stats));
 
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
@@ -1193,7 +1203,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     bool has_seq_col = _segment->_tablet_schema->has_sequence_col();
     // Used to get key range from primary key index,
     // for mow with cluster key table, we should get key range from short key index.
-    DCHECK(_segment->_tablet_schema->cluster_key_idxes().empty());
+    DCHECK(_segment->_tablet_schema->cluster_key_uids().empty());
 
     // if full key is exact_match, the primary key without sequence column should also the same
     if (has_seq_col && !exact_match) {
@@ -1951,8 +1961,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
 Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& col_ids) {
     for (ColumnId i : col_ids) {
-        if (_current_return_columns[i] == nullptr || _converted_column_ids[i] ||
-            _is_pred_column[i]) {
+        if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
         if (!_segment->same_with_storage_type(
@@ -1995,7 +2004,13 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
 
-    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
+    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
+}
+
+void SegmentIterator::_clear_iterators() {
+    _column_iterators.clear();
+    _bitmap_index_iterators.clear();
+    _inverted_index_iterators.clear();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -2104,6 +2119,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
         block->clear_column_data();
+        // clear and release iterators memory footprint in advance
+        _clear_iterators();
         return Status::EndOfFile("no more data in segment");
     }
 
@@ -2167,11 +2184,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                     if (block->rows() == 0) {
                         vectorized::MutableColumnPtr col0 =
                                 std::move(*block->get_by_position(0).column).mutate();
-                        auto res_column = vectorized::ColumnString::create();
-                        res_column->insert_data("", 0);
-                        auto col_const = vectorized::ColumnConst::create(std::move(res_column),
-                                                                         selected_size);
-                        block->replace_by_position(0, std::move(col_const));
+                        auto tmp_indicator_col =
+                                block->get_by_position(0)
+                                        .type->create_column_const_with_default_value(
+                                                selected_size);
+                        block->replace_by_position(0, std::move(tmp_indicator_col));
                         _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
                                                              block);
                         block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
@@ -2205,17 +2222,23 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 _sel_rowid_idx[i] = i;
             }
 
+            // Here we just use col0 as row_number indicator. when reach here, we will calculate the predicates first.
+            //  then use the result to reduce our data read(that is, expr push down). there's now row in block means the first
+            //  column is not in common expr. so it's safe to replace it temporarily to provide correct `selected_size`.
             if (block->rows() == 0) {
                 vectorized::MutableColumnPtr col0 =
                         std::move(*block->get_by_position(0).column).mutate();
-                auto res_column = vectorized::ColumnString::create();
-                res_column->insert_data("", 0);
-                auto col_const =
-                        vectorized::ColumnConst::create(std::move(res_column), selected_size);
-                block->replace_by_position(0, std::move(col_const));
+                // temporary replace the column with a row number indicator. using a ColumnConst is more efficient than
+                //  insert_many_default
+                auto tmp_indicator_col =
+                        block->get_by_position(0).type->create_column_const_with_default_value(
+                                selected_size);
+                block->replace_by_position(0, std::move(tmp_indicator_col));
+
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
+                // now recover the origin col0
                 block->replace_by_position(0, std::move(col0));
             } else {
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
@@ -2258,8 +2281,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     size_t rows = block->rows();
     for (const auto& entry : *block) {
         if (entry.column->size() != rows) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "unmatched size {}, expected {}",
-                                   entry.column->size(), rows);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "unmatched size {}, expected {}, column: {}, type: {}",
+                                   entry.column->size(), rows, entry.column->get_name(),
+                                   entry.type->get_name());
         }
     }
 #endif

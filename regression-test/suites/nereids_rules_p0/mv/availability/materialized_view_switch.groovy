@@ -124,6 +124,11 @@ suite("materialized_view_switch") {
       analyze table orders with sync;
       analyze table partsupp with sync;
     """
+
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     def mv_name = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
         from lineitem

@@ -77,7 +77,7 @@ suite("test_date_function") {
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03");
     """
-    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
+    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
 
     sql """ truncate table ${tableName} """
 
@@ -122,7 +122,7 @@ suite("test_date_function") {
             (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
     """
 
-    sql "set parallel_fragment_exec_instance_num = 8"
+    sql "set parallel_pipeline_task_num = 8"
 
     qt_sql1 """
         SELECT
@@ -818,4 +818,15 @@ suite("test_date_function") {
     qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1,dt,fmt; """
     qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
     qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
+
+    def test_simplify = {
+        test {
+            sql "select months_add(dt, 1) = date '2024-02-29' from (select date '2024-01-31' as dt)a"
+            result([[true]])
+        }
+        test {
+            sql "select years_add(dt, 1) = date '2025-02-28' from (select date '2024-02-29' as dt)a"
+            result([[true]])
+        }
+    }()
 }

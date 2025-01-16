@@ -83,39 +83,6 @@ namespace doris::segment_v2 {
 
 const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
 
-class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
-protected:
-    void flushBuffer(const uint8_t* b, const int32_t size) override;
-
-public:
-    FSIndexOutput() = default;
-    void init(const io::FileSystemSPtr& fs, const char* path);
-    ~FSIndexOutput() override;
-    void close() override;
-    int64_t length() const override;
-
-    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
-
-private:
-    io::FileWriterPtr _writer;
-    io::FileWriterOptions _opts;
-};
-
-class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
-private:
-    io::FileWriter* _index_v2_file_writer = nullptr;
-
-protected:
-    void flushBuffer(const uint8_t* b, const int32_t size) override;
-
-public:
-    FSIndexOutputV2() = default;
-    void init(io::FileWriter* file_writer);
-    ~FSIndexOutputV2() override;
-    void close() override;
-    int64_t length() const override;
-};
-
 bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
                                           IndexInput*& ret, CLuceneError& error,
                                           int32_t buffer_size, int64_t file_size) {
@@ -201,22 +168,27 @@ lucene::store::IndexInput* DorisFSDirectory::FSIndexInput::clone() const {
 }
 void DorisFSDirectory::FSIndexInput::close() {
     BufferedIndexInput::close();
-    /*if (_handle != nullptr) {
-        std::mutex* lock = _handle->_shared_lock;
-        bool ref = false;
-        {
-            std::lock_guard<std::mutex> wlock(*lock);
-            //determine if we are about to delete the handle...
-            ref = (_LUCENE_ATOMIC_INT_GET(_handle->__cl_refcount) > 1);
-            //decdelete (deletes if refcount is down to 0
-            _CLDECDELETE(_handle);
-        }
+}
 
-        //if _handle is not ref by other FSIndexInput, try to release mutex lock, or it will be leaked.
-        if (!ref) {
-            delete lock;
-        }
-    }*/
+void DorisFSDirectory::FSIndexInput::setIoContext(const void* io_ctx) {
+    if (io_ctx) {
+        const auto& ctx = static_cast<const io::IOContext*>(io_ctx);
+        _io_ctx.reader_type = ctx->reader_type;
+        _io_ctx.query_id = ctx->query_id;
+        _io_ctx.file_cache_stats = ctx->file_cache_stats;
+    } else {
+        _io_ctx.reader_type = ReaderType::UNKNOWN;
+        _io_ctx.query_id = nullptr;
+        _io_ctx.file_cache_stats = nullptr;
+    }
+}
+
+const void* DorisFSDirectory::FSIndexInput::getIoContext() {
+    return &_io_ctx;
+}
+
+void DorisFSDirectory::FSIndexInput::setIndexFile(bool isIndexFile) {
+    _io_ctx.is_index_data = isIndexFile;
 }
 
 void DorisFSDirectory::FSIndexInput::seekInternal(const int64_t position) {
@@ -239,9 +211,23 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
         _handle->_fpos = _pos;
     }
 
+    DBUG_EXECUTE_IF(
+            "DorisFSDirectory::FSIndexInput::readInternal", ({
+                static thread_local std::unordered_map<const TUniqueId*, io::FileCacheStatistics*>
+                        thread_file_cache_map;
+                auto it = thread_file_cache_map.find(_io_ctx.query_id);
+                if (it != thread_file_cache_map.end()) {
+                    if (_io_ctx.file_cache_stats != it->second) {
+                        _CLTHROWA(CL_ERR_IO, "File cache statistics mismatch");
+                    }
+                } else {
+                    thread_file_cache_map[_io_ctx.query_id] = _io_ctx.file_cache_stats;
+                }
+            }));
+
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
-    auto st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
+    Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
     DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error", {
         st = Status::InternalError(
                 "debug point: DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
@@ -810,10 +796,8 @@ bool DorisRAMFSDirectory::doDeleteFile(const char* name) {
         SCOPED_LOCK_MUTEX(this->THIS_LOCK);
         sizeInBytes -= itr->second->sizeInBytes;
         filesMap->removeitr(itr);
-        return true;
-    } else {
-        return false;
     }
+    return true;
 }
 
 bool DorisRAMFSDirectory::deleteDirectory() {

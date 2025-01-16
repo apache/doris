@@ -34,6 +34,9 @@ void Pipeline::_init_profile() {
 
 bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distribution,
                                       const int idx) const {
+    if (!target_data_distribution.need_local_exchange()) {
+        return false;
+    }
     // If serial operator exists after `idx`-th operator, we should not improve parallelism.
     if (std::any_of(_operators.begin() + idx, _operators.end(),
                     [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
@@ -112,7 +115,12 @@ void Pipeline::make_all_runnable() {
     if (_sink->count_down_destination()) {
         for (auto* task : _tasks) {
             if (task) {
-                task->clear_blocking_state(true);
+                task->set_wake_up_early();
+            }
+        }
+        for (auto* task : _tasks) {
+            if (task) {
+                task->clear_blocking_state();
             }
         }
     }

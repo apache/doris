@@ -204,7 +204,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
             auto& nested_null_col =
                     reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
-            nested_null_col.insert_null_elements(1);
+            nested_null_col.insert_default();
             continue;
         }
         auto st = elems[idx]->from_string(field_rb, &struct_column->get_column(idx));
@@ -425,14 +425,6 @@ bool DataTypeStruct::have_maximum_size_of_value() const {
 bool DataTypeStruct::is_comparable() const {
     return std::all_of(elems.begin(), elems.end(),
                        [](auto&& elem) { return elem->is_comparable(); });
-}
-
-size_t DataTypeStruct::get_maximum_size_of_value_in_memory() const {
-    size_t res = 0;
-    for (const auto& elem : elems) {
-        res += elem->get_maximum_size_of_value_in_memory();
-    }
-    return res;
 }
 
 size_t DataTypeStruct::get_size_of_value_in_memory() const {

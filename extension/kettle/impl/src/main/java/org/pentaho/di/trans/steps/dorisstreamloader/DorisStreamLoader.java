@@ -17,6 +17,7 @@
 
 package org.pentaho.di.trans.steps.dorisstreamloader;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang.StringUtils;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMetaInterface;
@@ -91,6 +92,7 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
                 .setFormatMeta(data.formatMeta)
                 .setFieldDelimiter(loadProperties.getProperty(FIELD_DELIMITER_KEY, FIELD_DELIMITER_DEFAULT))
                 .setLogChannelInterface(log)
+                .setDeletable(options.isDeletable())
                 .build();
       }
 
@@ -120,6 +122,8 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
   public boolean init( StepMetaInterface smi, StepDataInterface sdi ) {
     meta = (DorisStreamLoaderMeta) smi;
     data = (DorisStreamLoaderData) sdi;
+    logDebug("Initializing step with meta : " + meta.toString());
+
     if (super.init(smi, sdi)){
       Properties streamHeaders = new Properties();
       String streamLoadProp = meta.getStreamLoadProp();
@@ -141,7 +145,10 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
               .withBufferFlushMaxBytes(meta.getBufferFlushMaxBytes())
               .withBufferFlushMaxRows(meta.getBufferFlushMaxRows())
               .withMaxRetries(meta.getMaxRetries())
-              .withStreamLoadProp(streamHeaders).build();
+              .withStreamLoadProp(streamHeaders)
+              .withDeletable(meta.isDeletable()).build();
+
+      logDetailed("Initializing step with options: " + options.toString());
       streamLoad = new DorisBatchStreamLoad(options, log);
       return true;
     }
@@ -165,5 +172,10 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
     }
 
     super.dispose( smi, sdi );
+  }
+
+  @VisibleForTesting
+  public DorisBatchStreamLoad getStreamLoad(){
+    return streamLoad;
   }
 }

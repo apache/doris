@@ -114,8 +114,8 @@ public class StructLiteral extends Literal {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), fields);
+    protected int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), fields);
     }
 
     @Override
@@ -124,7 +124,7 @@ public class StructLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("STRUCT(");
         for (int i = 0; i < fields.size(); i++) {

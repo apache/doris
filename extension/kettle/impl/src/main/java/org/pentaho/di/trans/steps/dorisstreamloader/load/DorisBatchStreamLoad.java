@@ -18,6 +18,7 @@
 package org.pentaho.di.trans.steps.dorisstreamloader.load;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang.StringUtils;
 import org.apache.http.client.entity.GzipCompressingEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -184,7 +185,7 @@ public class DorisBatchStreamLoad implements Serializable {
      * @param record
      * @throws IOException
      */
-    public synchronized void writeRecord(String database, String table, byte[] record) {
+    public void writeRecord(String database, String table, byte[] record) {
         checkFlushException();
         String bufferKey = getTableIdentifier(database, table);
         BatchRecordBuffer buffer =
@@ -203,6 +204,7 @@ public class DorisBatchStreamLoad implements Serializable {
             lock.lock();
             try {
                 while (currentCacheBytes.get() >= maxBlockedBytes) {
+                    checkFlushException();
                     log.logDetailed(
                             "Cache full, waiting for flush, currentBytes: " + currentCacheBytes.get()
                                     + ", maxBlockedBytes: " + maxBlockedBytes);
@@ -231,19 +233,15 @@ public class DorisBatchStreamLoad implements Serializable {
         }
     }
 
-    public synchronized boolean bufferFullFlush(String bufferKey) {
+    public boolean bufferFullFlush(String bufferKey) {
         return doFlush(bufferKey, false, true);
-    }
-
-    public synchronized boolean intervalFlush() {
-        return doFlush(null, false, false);
     }
 
     /**
      * Force flush and wait for success.
      * @return
      */
-    public synchronized boolean forceFlush() {
+    public  boolean forceFlush() {
         return doFlush(null, true, false);
     }
 
@@ -261,6 +259,10 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     private synchronized boolean flush(String bufferKey, boolean waitUtilDone) {
+        if (bufferMap.isEmpty()) {
+            // bufferMap may have been flushed by other threads
+            return false;
+        }
         if (null == bufferKey) {
             boolean flush = false;
             for (String key : bufferMap.keySet()) {
@@ -277,7 +279,7 @@ public class DorisBatchStreamLoad implements Serializable {
         } else if (bufferMap.containsKey(bufferKey)) {
             flushBuffer(bufferKey);
         } else {
-            throw new DorisRuntimeException("buffer not found for key: " + bufferKey);
+            log.logDetailed("buffer not found for key: {}, may be already flushed.", bufferKey);
         }
         if (waitUtilDone) {
             waitAsyncLoadFinish();
@@ -313,7 +315,9 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     private void waitAsyncLoadFinish() {
-        for (int i = 0; i < FLUSH_QUEUE_SIZE + 1; i++) {
+        // Because the flush thread will drainTo once after polling is completed
+        // if queue_size is 2, at least 4 empty queues must be consumed to ensure that flush has been completed
+        for (int i = 0; i < FLUSH_QUEUE_SIZE * 2; i++) {
             BatchRecordBuffer empty = new BatchRecordBuffer();
             putRecordToFlushQueue(empty);
         }
@@ -416,11 +420,6 @@ public class DorisBatchStreamLoad implements Serializable {
                             load(bf.getLabelName(), bf);
                         }
                     }
-
-                    if (flushQueue.size() < flushQueueSize) {
-                        // Avoid waiting for 2 rounds of intervalMs
-                        doFlush(null, false, false);
-                    }
                 } catch (Exception e) {
                     log.logError("worker running error", e);
                     exception.set(e);
@@ -448,6 +447,7 @@ public class DorisBatchStreamLoad implements Serializable {
                     .setLabel(label)
                     .addCommonHeader()
                     .setEntity(entity)
+                    .addHiddenColumns(options.isDeletable())
                     .addProperties(options.getStreamLoadProp());
 
             if (enableGzCompress) {
@@ -488,11 +488,22 @@ public class DorisBatchStreamLoad implements Serializable {
                                 putBuilder.setLabel(label + "_" + retry);
                                 reason = respContent.getMessage();
                             } else {
-                                String errMsg =
+                                String errMsg = null;
+                                if (StringUtils.isBlank(respContent.getMessage())
+                                    && StringUtils.isBlank(respContent.getErrorURL())) {
+                                    // sometimes stream load will not return message
+                                    errMsg =
                                         String.format(
-                                                "stream load error: %s, see more in %s",
-                                                respContent.getMessage(),
-                                                respContent.getErrorURL());
+                                            "stream load error, response is %s",
+                                            loadResult);
+                                    throw new DorisRuntimeException(errMsg);
+                                } else {
+                                    errMsg =
+                                        String.format(
+                                            "stream load error: %s, see more in %s",
+                                            respContent.getMessage(),
+                                            respContent.getErrorURL());
+                                }
                                 throw new DorisRuntimeException(errMsg);
                             }
                         }

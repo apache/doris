@@ -65,10 +65,23 @@ suite("test_routine_load_with_user","p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+
+        try {
+            def storageVaults = (sql " SHOW STORAGE VAULT; ").stream().map(row -> row[0]).collect(Collectors.toSet())
+            logger.info("all vaults: ${storageVaults}")
+            for (String vault in storageVaults) {
+                sql """
+                    GRANT usage_priv ON storage vault ${vault} TO '${user}';
+                """
+            }
+        } catch (Exception e) {
+            // cloud instance may doesn't support storage vault
+            logger.info(e.getMessage())
+        }
     }
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ DROP TABLE IF EXISTS ${tableName}"""
         sql """ CREATE TABLE IF NOT EXISTS ${tableName}
                 (

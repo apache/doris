@@ -108,10 +108,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
-import org.apache.doris.common.NereidsSqlCacheManager;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -155,11 +155,13 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -236,6 +238,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -259,6 +262,8 @@ public class StmtExecutor {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     public static final String NULL_VALUE_FOR_LOAD = "\\N";
+    private static Set<String> blockSqlAstNames = Sets.newHashSet();
+
     private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private final StatementContext statementContext;
@@ -626,6 +631,8 @@ public class StmtExecutor {
                 }
                 parsedStmt = null;
                 planner = null;
+                isForwardedToMaster = null;
+                redirectStatus = null;
                 // Attention: currently exception from nereids does not mean an Exception to user terminal
                 // unless user does not allow fallback to lagency planner. But state of query
                 // has already been set to Error in this case, it will have some side effect on profile result
@@ -684,7 +691,7 @@ public class StmtExecutor {
         }
         context.setQueryId(queryId);
         context.setStartTime();
-        profile.getSummaryProfile().setQueryBeginTime();
+        profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
         profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -694,6 +701,7 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        checkSqlBlocked(logicalPlan.getClass());
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
@@ -716,8 +724,9 @@ public class StmtExecutor {
             }
         }
         if (logicalPlan instanceof Command) {
-            if (logicalPlan instanceof Forward) {
-                redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
+            if (logicalPlan instanceof Redirect) {
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(context, logicalPlan);
+                redirectStatus = ((Redirect) logicalPlan).toRedirectStatus();
                 if (isForwardToMaster()) {
                     // before forward to master, we also need to set profileType in this node
                     if (logicalPlan instanceof InsertIntoTableCommand) {
@@ -750,7 +759,7 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded();
             try {
-                ((Command) logicalPlan).verifyCommandSupported();
+                ((Command) logicalPlan).verifyCommandSupported(context);
                 ((Command) logicalPlan).run(context, this);
             } catch (MustFallbackException e) {
                 if (LOG.isDebugEnabled()) {
@@ -831,6 +840,23 @@ public class StmtExecutor {
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
+        }
+    }
+
+    public static void initBlockSqlAstNames() {
+        blockSqlAstNames.clear();
+        blockSqlAstNames = Pattern.compile(",")
+                .splitAsStream(Config.block_sql_ast_names)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        if (blockSqlAstNames.isEmpty() && !Config.block_sql_ast_names.isEmpty()) {
+            blockSqlAstNames.add(Config.block_sql_ast_names);
+        }
+    }
+
+    public void checkSqlBlocked(Class<?> clazz) throws UserException {
+        if (blockSqlAstNames.contains(clazz.getSimpleName())) {
+            throw new UserException("SQL is blocked with AST name: " + clazz.getSimpleName());
         }
     }
 
@@ -969,7 +995,7 @@ public class StmtExecutor {
     public void executeByLegacy(TUniqueId queryId) throws Exception {
         context.setStartTime();
 
-        profile.getSummaryProfile().setQueryBeginTime();
+        profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
 
@@ -981,6 +1007,7 @@ public class StmtExecutor {
         try {
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
+            checkSqlBlocked(parsedStmt.getClass());
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, update, delete, "
@@ -1333,6 +1360,7 @@ public class StmtExecutor {
             }
             // table id in tableList is in ascending order because that table map is a sorted map
             List<TableIf> tables = Lists.newArrayList(tableMap.values());
+            tables.sort((Comparator.comparing(TableIf::getId)));
             int analyzeTimes = 2;
             if (Config.isCloudMode()) {
                 // be core and be restarted, need retry more times
@@ -1560,7 +1588,7 @@ public class StmtExecutor {
     }
 
     // Because this is called by other thread
-    public void cancel(Status cancelReason) {
+    public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1584,10 +1612,14 @@ public class StmtExecutor {
         if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
-        if (insertOverwriteTableCommand.isPresent()) {
+        if (insertOverwriteTableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
             insertOverwriteTableCommand.get().waitNotRunning();
         }
+    }
+
+    public void cancel(Status cancelReason) {
+        cancel(cancelReason, true);
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
@@ -1870,7 +1902,8 @@ public class StmtExecutor {
         // TODO support arrow flight sql
         // NOTE: If you want to add another condition about SessionVariable, please consider whether
         // add to CacheAnalyzer.commonCacheCondition
-        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())) {
+        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
+                && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
@@ -1972,7 +2005,7 @@ public class StmtExecutor {
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    exprToType(queryStmt.getResultExprs()));
+                                    getReturnTypes(queryStmt));
                         } else {
                             if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
                                 outfileWriteSuccess(queryStmt.getOutFileClause());
@@ -2024,7 +2057,7 @@ public class StmtExecutor {
                         return;
                     } else {
                         sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                exprToType(queryStmt.getResultExprs()));
+                                getReturnTypes(queryStmt));
                     }
                 } else {
                     sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
@@ -2358,10 +2391,11 @@ public class StmtExecutor {
                     LOG.info("group commit insert failed. stmt: {}, query_id: {}, db_id: {}, table_id: {}"
                                     + ", schema version: {}, backend_id: {}, status: {}, retry: {}",
                             insertStmt.getOrigStmt().originStmt, DebugUtil.printId(context.queryId()), dbId, tableId,
-                            nativeInsertStmt.getBaseSchemaVersion(), groupCommitPlanner.getBackend().getId(),
+                            nativeInsertStmt.getBaseSchemaVersion(), groupCommitPlanner.getBackendId(),
                             response.getStatus(), i);
                     if (i < maxRetry) {
                         List<TableIf> tables = Lists.newArrayList(insertStmt.getTargetTable());
+                        tables.sort((Comparator.comparing(TableIf::getId)));
                         MetaLockUtils.readLockTables(tables);
                         try {
                             insertStmt.reset();
@@ -2374,15 +2408,15 @@ public class StmtExecutor {
                     } else {
                         errMsg = "group commit insert failed. db_id: " + dbId + ", table_id: " + tableId
                                 + ", query_id: " + DebugUtil.printId(context.queryId()) + ", backend_id: "
-                                + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
+                                + groupCommitPlanner.getBackendId() + ", status: " + response.getStatus();
                         if (response.hasErrorUrl()) {
                             errMsg += ", error url: " + response.getErrorUrl();
                         }
                     }
                 } else if (code != TStatusCode.OK) {
                     errMsg = "group commit insert failed. db_id: " + dbId + ", table_id: " + tableId + ", query_id: "
-                            + DebugUtil.printId(context.queryId()) + ", backend_id: " + groupCommitPlanner.getBackend()
-                            .getId() + ", status: " + response.getStatus();
+                            + DebugUtil.printId(context.queryId()) + ", backend_id: "
+                            + groupCommitPlanner.getBackendId() + ", status: " + response.getStatus();
                     if (response.hasErrorUrl()) {
                         errMsg += ", error url: " + response.getErrorUrl();
                     }
@@ -2831,15 +2865,35 @@ public class StmtExecutor {
             LOG.debug("sendFields {}", colNames);
         }
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        StatementContext statementContext = context.getStatementContext();
+        boolean isShortCircuited = statementContext.isShortCircuitQuery()
+                        && statementContext.getShortCircuitQueryContext() != null;
+        ShortCircuitQueryContext ctx = statementContext.getShortCircuitQueryContext();
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            if (fieldInfos != null) {
-                serializer.writeField(fieldInfos.get(i), types.get(i));
+            if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited) {
+                // Using PreparedStatment pre serializedField to avoid serialize each time
+                // we send a field
+                byte[] serializedField = ctx.getSerializedField(i);
+                if (serializedField == null) {
+                    if (fieldInfos != null) {
+                        serializer.writeField(fieldInfos.get(i), types.get(i));
+                    } else {
+                        serializer.writeField(colNames.get(i), types.get(i));
+                    }
+                    serializedField = serializer.toArray();
+                    ctx.addSerializedField(i, serializedField);
+                }
+                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {
-                serializer.writeField(colNames.get(i), types.get(i));
+                if (fieldInfos != null) {
+                    serializer.writeField(fieldInfos.get(i), types.get(i));
+                } else {
+                    serializer.writeField(colNames.get(i), types.get(i));
+                }
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
         serializer.reset();
@@ -3345,6 +3399,11 @@ public class StmtExecutor {
         return statisticsForAuditLog.build();
     }
 
+    private boolean isShortCircuitedWithCtx() {
+        return statementContext.isShortCircuitQuery()
+                        && statementContext.getShortCircuitQueryContext() != null;
+    }
+
     private List<Type> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType()).collect(Collectors.toList());
     }
@@ -3465,6 +3524,13 @@ public class StmtExecutor {
 
     public List<Type> getReturnTypes() {
         return exprToType(parsedStmt.getResultExprs());
+    }
+
+    public List<Type> getReturnTypes(Queriable stmt) {
+        if (isShortCircuitedWithCtx()) {
+            return statementContext.getShortCircuitQueryContext().getReturnTypes();
+        }
+        return exprToType(stmt.getResultExprs());
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {

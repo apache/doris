@@ -284,7 +284,7 @@ suite("test_auto_partition_behavior") {
     logger.info("get table replica num: " + replicaNum)
 
     sql """ insert into test_change values ("20201212"); """
-    part_result = sql " show tablets from test_change "
+    def part_result = sql " show tablets from test_change "
     assertEquals(part_result.size, 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
@@ -333,7 +333,7 @@ suite("test_auto_partition_behavior") {
             INDEX idx_level (`level`) USING INVERTED COMMENT '',
             INDEX idx_component (`component`) USING INVERTED COMMENT '',
             INDEX idx_clientRequestId (`clientRequestId`) USING INVERTED COMMENT '',
-            INDEX idx_message (`message`) USING INVERTED PROPERTIES("parser"="english") COMMENT '',
+            INDEX idx_message (`message`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT '',
             -- INDEX idx_properties (`properties`) USING INVERTED COMMENT '',
             ) ENGINE=OLAP
             DUPLICATE KEY(`timestamp`)

@@ -100,6 +100,20 @@ Status CumulativeCompaction::prepare_compact() {
 }
 
 Status CumulativeCompaction::execute_compact() {
+    DBUG_EXECUTE_IF("CumulativeCompaction::execute_compact.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == _tablet->tablet_id()) {
+            LOG(INFO) << "start debug block "
+                      << "CumulativeCompaction::execute_compact.block";
+            while (DebugPoints::instance()->is_enable(
+                    "CumulativeCompaction::execute_compact.block")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+            LOG(INFO) << "end debug block "
+                      << "CumulativeCompaction::execute_compact.block";
+        }
+    })
+
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
@@ -110,10 +124,6 @@ Status CumulativeCompaction::execute_compact() {
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
     DCHECK_EQ(_state, CompactionState::SUCCESS);
-    if (tablet()->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
-        tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
-                                                                          _output_rowset);
-    }
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
@@ -145,7 +155,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         DCHECK(missing_versions.size() % 2 == 0);
         LOG(WARNING) << "There are missed versions among rowsets. "
                      << "total missed version size: " << missing_versions.size() / 2
-                     << " first missed version prev rowset verison=" << missing_versions[0]
+                     << ", first missed version prev rowset verison=" << missing_versions[0]
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
     }

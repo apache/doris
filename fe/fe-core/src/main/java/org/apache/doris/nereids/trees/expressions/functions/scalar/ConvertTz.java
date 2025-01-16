@@ -89,6 +89,11 @@ public class ConvertTz extends ScalarFunction
     }
 
     @Override
+    public boolean isMonotonic(Literal lower, Literal upper) {
+        return child(1).isConstant() && child(2).isConstant();
+    }
+
+    @Override
     public boolean isPositive() {
         return true;
     }
@@ -99,7 +104,7 @@ public class ConvertTz extends ScalarFunction
     }
 
     @Override
-    public Expression withConstantArgs(Literal literal) {
+    public Expression withConstantArgs(Expression literal) {
         return new ConvertTz(literal, child(1), child(2));
     }
 }

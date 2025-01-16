@@ -43,7 +43,7 @@ struct RuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_parent->publish_runtime_filter_timer());
-            RETURN_IF_ERROR(runtime_filter_slots.publish());
+            RETURN_IF_ERROR(runtime_filter_slots.publish(state));
         }
 
         return Status::OK();
@@ -66,8 +66,8 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     _shared_state->join_op_variants = p._join_op_variants;
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
+                                                                &_runtime_filters[i]));
     }
     return Status::OK();
 }
@@ -85,13 +85,11 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
-                                                                   int operator_id,
+                                                                   int operator_id, int dest_id,
                                                                    const TPlanNode& tnode,
-                                                                   const DescriptorTbl& descs,
-                                                                   bool need_local_merge)
-        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
-                                                                    descs),
-          _need_local_merge(need_local_merge),
+                                                                   const DescriptorTbl& descs)
+        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
+                                                                    tnode, descs),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
@@ -129,8 +127,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     auto mem_usage = block->allocated_bytes();
 
     if (rows != 0) {
-        local_state._build_rows += rows;
-        local_state._total_mem_usage += mem_usage;
+        COUNTER_UPDATE(local_state._memory_used_counter, mem_usage);
         local_state._shared_state->build_blocks.emplace_back(std::move(*block));
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(

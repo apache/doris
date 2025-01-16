@@ -43,6 +43,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -55,14 +56,18 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
+import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
+import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
@@ -78,6 +83,8 @@ import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.THudiMetadataParams;
+import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
@@ -100,6 +107,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.iceberg.Snapshot;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -111,6 +121,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -216,6 +227,9 @@ public class MetadataGenerator {
         switch (metadataType) {
             case ICEBERG:
                 result = icebergMetadataResult(params);
+                break;
+            case HUDI:
+                result = hudiMetadataResult(params);
                 break;
             case BACKENDS:
                 result = backendsMetadataResult(params);
@@ -365,6 +379,48 @@ public class MetadataGenerator {
                 break;
             default:
                 return errorResult("Unsupported iceberg inspect type: " + icebergQueryType);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult hudiMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetHudiMetadataParams()) {
+            return errorResult("Hudi metadata params is not set.");
+        }
+
+        THudiMetadataParams hudiMetadataParams = params.getHudiMetadataParams();
+        THudiQueryType hudiQueryType = hudiMetadataParams.getHudiQueryType();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(hudiMetadataParams.getCatalog());
+        if (catalog == null) {
+            return errorResult("The specified catalog does not exist:" + hudiMetadataParams.getCatalog());
+        }
+        HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
+        String hudiBasePathString = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(hudiMetadataParams.getDatabase(), hudiMetadataParams.getTable()).getSd().getLocation();
+        Configuration conf = ((HMSExternalCatalog) catalog).getConfiguration();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        switch (hudiQueryType) {
+            case TIMELINE:
+                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(hudiMetadataParams.getDatabase(),
+                        hudiMetadataParams.getTable(), hudiBasePathString, conf).getActiveTimeline();
+                for (HoodieInstant instant : timeline.getInstants()) {
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getFileName()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getStateTransitionTime()));
+                    dataBatch.add(trow);
+                }
+                break;
+            default:
+                return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -844,22 +900,42 @@ public class MetadataGenerator {
                 }
                 MTMV mv = (MTMV) table;
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("mv: " + mv.toInfoString());
+                    LOG.debug("mv: {}", mv.toInfoString());
                 }
+                List<TableIf> needLocked = Lists.newArrayList();
+                needLocked.add(mv);
+                boolean alwaysNotSync = false;
+                try {
+                    for (BaseTableInfo baseTableInfo : mv.getRelation().getBaseTables()) {
+                        TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
+                        needLocked.add(baseTable);
+                    }
+                } catch (Exception e) {
+                    alwaysNotSync = true;
+                }
+                needLocked.sort(Comparator.comparing(TableIf::getId));
+                MetaLockUtils.readLockTables(needLocked);
+                boolean isSync;
+                try {
+                    isSync = !alwaysNotSync && MTMVPartitionUtil.isMTMVSync(mv);
+                } finally {
+                    MetaLockUtils.readUnlockTables(needLocked);
+                }
+                MTMVStatus mtmvStatus = mv.getStatus();
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getJobInfo().getJobName()));
-                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getState().name()));
-                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getSchemaChangeDetail()));
-                trow.addToColumnValue(new TCell().setStringVal(mv.getStatus().getRefreshState().name()));
+                trow.addToColumnValue(new TCell().setStringVal(mtmvStatus.getState().name()));
+                trow.addToColumnValue(new TCell().setStringVal(mtmvStatus.getSchemaChangeDetail()));
+                trow.addToColumnValue(new TCell().setStringVal(mtmvStatus.getRefreshState().name()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getRefreshInfo().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
-                trow.addToColumnValue(new TCell().setBoolVal(MTMVPartitionUtil.isMTMVSync(mv)));
+                trow.addToColumnValue(new TCell().setBoolVal(isSync));
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("mvend: " + mv.getName());
+                    LOG.debug("mv end: {}", mv.getName());
                 }
                 dataBatch.add(trow);
             }
@@ -1089,7 +1165,7 @@ public class MetadataGenerator {
     }
 
     private static void tableOptionsForInternalCatalog(UserIdentity currentUserIdentity,
-                    CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
+            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
@@ -1142,7 +1218,7 @@ public class MetadataGenerator {
     }
 
     private static void tableOptionsForExternalCatalog(UserIdentity currentUserIdentity,
-                    CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
+            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
                     database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
@@ -1184,7 +1260,7 @@ public class MetadataGenerator {
         String clg = params.getCatalog();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
         if (catalog == null) {
-            // catalog is NULL  let return empty to BE
+            // catalog is NULL let return empty to BE
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
             return result;
@@ -1193,7 +1269,8 @@ public class MetadataGenerator {
         if (database == null) {
             // BE gets the database id list from FE and then invokes this interface
             // per database. there is a chance that in between database can be dropped.
-            // so need to handle database not exist case and return ok so that BE continue the
+            // so need to handle database not exist case and return ok so that BE continue
+            // the
             // loop with next database.
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
@@ -1211,7 +1288,7 @@ public class MetadataGenerator {
     }
 
     private static void tablePropertiesForInternalCatalog(UserIdentity currentUserIdentity,
-                CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
+            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
@@ -1236,7 +1313,7 @@ public class MetadataGenerator {
                     continue;
                 }
 
-                Map<String, String>  propertiesMap = property.getProperties();
+                Map<String, String> propertiesMap = property.getProperties();
                 propertiesMap.forEach((key, value) -> {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
@@ -1259,7 +1336,8 @@ public class MetadataGenerator {
                     database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                 continue;
             }
-            // Currently for external catalog, we put properties as empty, can extend in future
+            // Currently for external catalog, we put properties as empty, can extend in
+            // future
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
             trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
@@ -1291,7 +1369,7 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
         if (catalog == null) {
-            // catalog is NULL  let return empty to BE
+            // catalog is NULL let return empty to BE
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
             return result;
@@ -1300,8 +1378,8 @@ public class MetadataGenerator {
         if (database == null) {
             // BE gets the database id list from FE and then invokes this interface
             // per database. there is a chance that in between database can be dropped.
-            // so need to handle database not exist case and return ok so that BE continue the
-            // loop with next database.
+            // so need to handle database not exist case and return ok so that BE continue
+            // the loop with next database.
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
             return result;
@@ -1330,9 +1408,8 @@ public class MetadataGenerator {
                     fillBatch(dataBatch, cache.getStats(), catalog.getName());
                 }
                 // 2. hudi cache
-                HudiCachedPartitionProcessor processor
-                        = (HudiCachedPartitionProcessor) mgr.getHudiPartitionProcess(catalog);
-                fillBatch(dataBatch, processor.getCacheStats(), catalog.getName());
+                HudiMetadataCacheMgr hudiMetadataCacheMgr = mgr.getHudiMetadataCacheMgr();
+                fillBatch(dataBatch, hudiMetadataCacheMgr.getCacheStats(catalog), catalog.getName());
             } else if (catalogIf instanceof IcebergExternalCatalog) {
                 // 3. iceberg cache
                 IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache();
@@ -1345,7 +1422,7 @@ public class MetadataGenerator {
     }
 
     private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity,
-                CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
+            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
@@ -1368,8 +1445,8 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(partition.getName())); // PARTITION_NAME
                     trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_NAME (always null)
 
-                    trow.addToColumnValue(new TCell().setIntVal(0)); //PARTITION_ORDINAL_POSITION (not available)
-                    trow.addToColumnValue(new TCell().setIntVal(0)); //SUBPARTITION_ORDINAL_POSITION (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); // PARTITION_ORDINAL_POSITION (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); // SUBPARTITION_ORDINAL_POSITION (not available)
                     trow.addToColumnValue(new TCell().setStringVal(
                             olapTable.getPartitionInfo().getType().toString())); // PARTITION_METHOD
                     trow.addToColumnValue(new TCell().setStringVal("NULL")); // SUBPARTITION_METHOD(always null)
@@ -1382,23 +1459,23 @@ public class MetadataGenerator {
                     } else {
                         trow.addToColumnValue(new TCell().setStringVal(
                                 olapTable.getPartitionInfo()
-                                    .getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
+                                        .getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
                         trow.addToColumnValue(
                                 new TCell().setStringVal("NULL")); // SUBPARTITION_EXPRESSION (always null)
                         trow.addToColumnValue(new TCell().setStringVal(
                                 item.getItemsSql())); // PARITION DESC
                     }
-                    trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount())); //TABLE_ROWS (PARTITION row)
-                    trow.addToColumnValue(new TCell().setLongVal(partition.getAvgRowLength())); //AVG_ROW_LENGTH
-                    trow.addToColumnValue(new TCell().setLongVal(partition.getDataLength())); //DATA_LENGTH
-                    trow.addToColumnValue(new TCell().setIntVal(0)); //MAX_DATA_LENGTH (not available)
-                    trow.addToColumnValue(new TCell().setIntVal(0)); //INDEX_LENGTH (not available)
-                    trow.addToColumnValue(new TCell().setIntVal(0)); //DATA_FREE (not available)
-                    trow.addToColumnValue(new TCell().setStringVal("NULL")); //CREATE_TIME (not available)
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount())); // TABLE_ROWS (PARTITION)
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getAvgRowLength())); // AVG_ROW_LENGTH
+                    trow.addToColumnValue(new TCell().setLongVal(partition.getDataLength())); // DATA_LENGTH
+                    trow.addToColumnValue(new TCell().setIntVal(0)); // MAX_DATA_LENGTH (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); // INDEX_LENGTH (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); // DATA_FREE (not available)
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // CREATE_TIME (not available)
                     trow.addToColumnValue(new TCell().setStringVal(
-                            TimeUtils.longToTimeString(partition.getVisibleVersionTime()))); //UPDATE_TIME
+                            TimeUtils.longToTimeString(partition.getVisibleVersionTime()))); // UPDATE_TIME
                     trow.addToColumnValue(new TCell().setStringVal("NULL")); // CHECK_TIME (not available)
-                    trow.addToColumnValue(new TCell().setIntVal(0)); //CHECKSUM (not available)
+                    trow.addToColumnValue(new TCell().setIntVal(0)); // CHECKSUM (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_COMMENT (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
@@ -1442,7 +1519,7 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
         if (catalog == null) {
-            // catalog is NULL  let return empty to BE
+            // catalog is NULL let return empty to BE
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
             return result;
@@ -1451,7 +1528,8 @@ public class MetadataGenerator {
         if (database == null) {
             // BE gets the database id list from FE and then invokes this interface
             // per database. there is a chance that in between database can be dropped.
-            // so need to handle database not exist case and return ok so that BE continue the
+            // so need to handle database not exist case and return ok so that BE continue
+            // the
             // loop with next database.
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
@@ -1602,4 +1680,3 @@ public class MetadataGenerator {
     }
 
 }
-

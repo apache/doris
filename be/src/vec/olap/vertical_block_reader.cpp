@@ -139,7 +139,8 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     auto ori_return_col_size = _return_columns.size();
     if (read_params.is_key_column_group) {
         uint32_t seq_col_idx = -1;
-        if (read_params.tablet->tablet_schema()->has_sequence_col()) {
+        if (read_params.tablet->tablet_schema()->has_sequence_col() &&
+            read_params.tablet->tablet_schema()->cluster_key_uids().empty()) {
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
         if (read_params.tablet->tablet_schema()->num_key_columns() == 0) {
@@ -237,7 +238,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         _next_block_func = &VerticalBlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
             _next_block_func = &VerticalBlockReader::_unique_key_next_block;
             if (_filter_delete) {
                 _delete_filter_column = ColumnUInt8::create();

@@ -29,6 +29,8 @@ suite ("testSelectMVWithTableAlias") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
+
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 

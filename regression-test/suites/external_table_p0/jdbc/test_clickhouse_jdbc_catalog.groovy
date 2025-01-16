@@ -83,17 +83,11 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
             sql("select * from ts where from_unixtime(ts,'yyyyMMdd') >= '2022-01-01';")
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE ((FROM_UNIXTIME("ts", '%Y%m%d') >= '2022-01-01'))"""
         }
-        explain {
-            sql("select * from ts where nvl(ts,null) >= '1';")
-            contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts"""
-        }
         order_qt_func_push2 """select * from ts where ts <= unix_timestamp(from_unixtime(ts,'yyyyMMdd'));"""
-        sql "set enable_jdbc_cast_predicate_push_down = true;"
         explain {
             sql("select * from ts where ts <= unix_timestamp(from_unixtime(ts,'yyyy-MM-dd'));")
             contains """QUERY: SELECT "id", "ts" FROM "doris_test"."ts" WHERE (("ts" <= toUnixTimestamp(FROM_UNIXTIME("ts", '%Y-%m-%d'))))"""
         }
-        sql "set enable_jdbc_cast_predicate_push_down = false;"
 
         order_qt_dt_with_tz """ select * from dt_with_tz order by id; """
 

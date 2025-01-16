@@ -232,9 +232,9 @@ public:
         if (column.is_nullable()) {
             const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            const auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                              nullable_col->get_null_map_column())
-                                              .get_data();
+            const auto& null_bitmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                            .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -322,6 +322,23 @@ public:
                                 sizeof(decimal12_t))) {
                         return true;
                     }
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                    const T* value = (const T*)(iter->get_value());
+                    uint24_t date_value(value->to_olap_date());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                                sizeof(uint24_t))) {
+                        return true;
+                    }
+                    // DatetimeV1 using int64_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                    const T* value = (const T*)(iter->get_value());
+                    int64_t datetime_value(value->to_olap_datetime());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                                sizeof(int64_t))) {
+                        return true;
+                    }
                 } else {
                     const T* value = (const T*)(iter->get_value());
                     if (bf->test_bytes(reinterpret_cast<const char*>(value), sizeof(*value))) {
@@ -355,9 +372,9 @@ private:
         if (column.is_nullable()) {
             const auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                           nullable_col->get_null_map_column())
-                                           .get_data();
+            const auto& null_map =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                            .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -534,8 +551,9 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info =
-                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        std::string info = "InListPredicateBase(" + type_to_string(Type) + ", " +
+                           type_to_string(PT) +
+                           ", filter_id=" + std::to_string(_values->get_filter_id()) + ")";
         return info;
     }
 

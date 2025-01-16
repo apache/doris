@@ -83,10 +83,10 @@ suite("test_index_match_select", "inverted_index_select"){
                 ${char_colume1} char(100),
                 ${string_colume1} string,
                 ${text_colume1} text,
-                INDEX ${varchar_colume1}_idx(${varchar_colume1}) USING INVERTED PROPERTIES("parser"="english") COMMENT '${varchar_colume1} index',
+                INDEX ${varchar_colume1}_idx(${varchar_colume1}) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT '${varchar_colume1} index',
                 INDEX ${int_colume1}_idx(${int_colume1}) USING INVERTED COMMENT '${int_colume1} index',
                 INDEX ${varchar_colume2}_idx(${varchar_colume2}) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index',
-                INDEX ${string_colume1}_idx(${string_colume1}) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index',
+                INDEX ${string_colume1}_idx(${string_colume1}) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT '${string_colume1} index',
                 INDEX ${char_colume1}_idx(${char_colume1}) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index',
                 INDEX ${text_colume1}_idx(${text_colume1}) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index',
                 INDEX ${varchar_colume3}_idx(${varchar_colume3}) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index'
@@ -128,11 +128,11 @@ suite("test_index_match_select", "inverted_index_select"){
             logger.info("it's " + i + " times select, readd all index before select again")
             sql """
                 ALTER TABLE ${indexTbName1}
-                    add index ${varchar_colume1}_idx(`${varchar_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${varchar_colume1} index',
+                    add index ${varchar_colume1}_idx(`${varchar_colume1}`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT '${varchar_colume1} index',
                     add index ${varchar_colume2}_idx(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index',
                     add index ${varchar_colume3}_idx(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index',
                     add index ${int_colume1}_idx(`${int_colume1}`) USING INVERTED COMMENT '${int_colume1} index',
-                    add index ${string_colume1}_idx(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index',
+                    add index ${string_colume1}_idx(`${string_colume1}`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT '${string_colume1} index',
                     add index ${char_colume1}_idx(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index',
                     add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
             """
@@ -207,7 +207,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // cas2.2 test varchar standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any 'zhang yi' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_all "zhang yi" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any '"zhang yi"' order by name """
@@ -217,7 +217,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case3: test char standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any 'tall:100cm, weight: 30kg, hobbies:' order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_all "tall:100cm, weight: 30kg, hobbies:" order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any '"tall:100cm, weight: 30kg, hobbies:"' order by name """
@@ -227,7 +227,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case4: test string simple match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_all 'A naughty boy' order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any "A naughty boy" order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any '"A naughty boy"' order by name """
@@ -236,7 +236,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case5: test text standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all 'i just want go outside' order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_any "i just want go outside" order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all '"i just want go outside"' order by name """

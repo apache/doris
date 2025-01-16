@@ -124,7 +124,6 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                 }
                 SCOPED_ATTACH_TASK(state);
                 _async_thread_running = true;
-                _finish_dependency->block();
                 if (!_opened) {
                     _data_block = vectorized::Block::create_unique();
                     _init_block(_data_block.get());
@@ -140,9 +139,6 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                 _eos = eos;
                 _async_thread_running = false;
                 _dependency->set_ready();
-                if (eos) {
-                    _finish_dependency->set_ready();
-                }
             }));
     return Status::OK();
 }

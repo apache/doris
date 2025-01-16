@@ -63,11 +63,13 @@ private:
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+    vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
-    AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                           const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedScanBucketOlapTableJob;
@@ -239,14 +240,19 @@ public class ThriftPlansBuilder {
         return senderNum;
     }
 
-    private static void setMultiCastDestinationThrift(PipelineDistributedPlan fragmentPlan) {
+    private static void setMultiCastDestinationThriftIfNotSet(PipelineDistributedPlan fragmentPlan) {
         MultiCastDataSink multiCastDataSink = (MultiCastDataSink) fragmentPlan.getFragmentJob().getFragment().getSink();
         List<List<TPlanFragmentDestination>> destinationList = multiCastDataSink.getDestinations();
 
         List<DataStreamSink> dataStreamSinks = multiCastDataSink.getDataStreamSinks();
         for (int i = 0; i < dataStreamSinks.size(); i++) {
-            DataStreamSink realSink = dataStreamSinks.get(i);
             List<TPlanFragmentDestination> destinations = destinationList.get(i);
+            if (!destinations.isEmpty()) {
+                // we should only set destination only once,
+                // because all backends share the same MultiCastDataSink object
+                continue;
+            }
+            DataStreamSink realSink = dataStreamSinks.get(i);
             for (Entry<DataSink, List<AssignedJob>> kv : fragmentPlan.getDestinations().entrySet()) {
                 DataSink sink = kv.getKey();
                 if (sink == realSink) {
@@ -317,7 +323,7 @@ public class ThriftPlansBuilder {
             List<TPlanFragmentDestination> nonMultiCastDestinations;
             if (fragment.getSink() instanceof MultiCastDataSink) {
                 nonMultiCastDestinations = Lists.newArrayList();
-                setMultiCastDestinationThrift(fragmentPlan);
+                setMultiCastDestinationThriftIfNotSet(fragmentPlan);
             } else {
                 nonMultiCastDestinations = nonMultiCastDestinationToThrift(fragmentPlan);
             }
@@ -413,21 +419,18 @@ public class ThriftPlansBuilder {
         if (runtimeFiltersThriftBuilder.isMergeRuntimeFilterInstance(instance)) {
             runtimeFiltersThriftBuilder.setRuntimeFilterThriftParams(runtimeFilterParams);
         }
+        boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
+        if (isLocalShuffle) {
+            // a fragment in a backend only enable local shuffle once for the first local shuffle instance,
+            // because we just skip set scan params for LocalShuffleAssignedJob.receiveDataFromLocal == true
+            ignoreDataDistribution(currentFragmentParam);
+        }
         return instanceParam;
     }
 
     private static void setScanSourceParam(
             TPipelineFragmentParams currentFragmentParam, AssignedJob instance,
             TPipelineInstanceParams instanceParams) {
-
-        boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
-        if (isLocalShuffle && ((LocalShuffleAssignedJob) instance).receiveDataFromLocal) {
-            // save thrift rpc message size, don't need perNodeScanRanges and perNodeSharedScans,
-            // but the perNodeScanRanges is required rpc field
-            instanceParams.setPerNodeScanRanges(Maps.newLinkedHashMap());
-            return;
-        }
-
         ScanSource scanSource = instance.getScanSource();
         PerNodeScanParams scanParams;
         if (scanSource instanceof BucketScanSource) {
@@ -437,12 +440,6 @@ public class ThriftPlansBuilder {
         }
         // perNodeScanRanges is required
         instanceParams.setPerNodeScanRanges(scanParams.perNodeScanRanges);
-
-        if (isLocalShuffle) {
-            // a fragment in a backend only enable local shuffle once for the first local shuffle instance,
-            // because we just skip set scan params for LocalShuffleAssignedJob.receiveDataFromLocal == true
-            ignoreDataDistribution(currentFragmentParam);
-        }
     }
 
     // local shuffle has two functions:
@@ -458,19 +455,16 @@ public class ThriftPlansBuilder {
 
     private static PerNodeScanParams computeDefaultScanSourceParam(DefaultScanSource defaultScanSource) {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newLinkedHashMap();
-        Map<Integer, Boolean> perNodeSharedScans = Maps.newLinkedHashMap();
         for (Entry<ScanNode, ScanRanges> kv : defaultScanSource.scanNodeToScanRanges.entrySet()) {
             int scanNodeId = kv.getKey().getId().asInt();
             perNodeScanRanges.put(scanNodeId, kv.getValue().params);
-            perNodeSharedScans.put(scanNodeId, true);
         }
 
-        return new PerNodeScanParams(perNodeScanRanges, perNodeSharedScans);
+        return new PerNodeScanParams(perNodeScanRanges);
     }
 
     private static PerNodeScanParams computeBucketScanSourceParam(BucketScanSource bucketScanSource) {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newLinkedHashMap();
-        Map<Integer, Boolean> perNodeSharedScans = Maps.newLinkedHashMap();
         for (Entry<Integer, Map<ScanNode, ScanRanges>> kv :
                 bucketScanSource.bucketIndexToScanNodeToTablets.entrySet()) {
             Map<ScanNode, ScanRanges> scanNodeToRanges = kv.getValue();
@@ -478,10 +472,9 @@ public class ThriftPlansBuilder {
                 int scanNodeId = kv2.getKey().getId().asInt();
                 List<TScanRangeParams> scanRanges = perNodeScanRanges.computeIfAbsent(scanNodeId, ArrayList::new);
                 scanRanges.addAll(kv2.getValue().params);
-                perNodeSharedScans.put(scanNodeId, true);
             }
         }
-        return new PerNodeScanParams(perNodeScanRanges, perNodeSharedScans);
+        return new PerNodeScanParams(perNodeScanRanges);
     }
 
     private static Map<Integer, Integer> computeBucketIdToInstanceId(
@@ -498,14 +491,18 @@ public class ThriftPlansBuilder {
             if (instanceJob.getAssignedWorker().id() != worker.id()) {
                 continue;
             }
-            if (instanceJob instanceof LocalShuffleAssignedJob
-                    && ((LocalShuffleAssignedJob) instanceJob).receiveDataFromLocal) {
-                continue;
-            }
+
             Integer instanceIndex = instanceToIndex.get(instanceJob);
-            BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
-            for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
-                bucketIdToInstanceId.put(bucketIndex, instanceIndex);
+            if (instanceJob instanceof LocalShuffleBucketJoinAssignedJob) {
+                LocalShuffleBucketJoinAssignedJob assignedJob = (LocalShuffleBucketJoinAssignedJob) instanceJob;
+                for (Integer bucketIndex : assignedJob.getAssignedJoinBucketIndexes()) {
+                    bucketIdToInstanceId.put(bucketIndex, instanceIndex);
+                }
+            } else {
+                BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
+                for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
+                    bucketIdToInstanceId.put(bucketIndex, instanceIndex);
+                }
             }
         }
         return bucketIdToInstanceId;
@@ -557,12 +554,9 @@ public class ThriftPlansBuilder {
 
     private static class PerNodeScanParams {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges;
-        Map<Integer, Boolean> perNodeSharedScans;
 
-        public PerNodeScanParams(Map<Integer, List<TScanRangeParams>> perNodeScanRanges,
-                Map<Integer, Boolean> perNodeSharedScans) {
+        public PerNodeScanParams(Map<Integer, List<TScanRangeParams>> perNodeScanRanges) {
             this.perNodeScanRanges = perNodeScanRanges;
-            this.perNodeSharedScans = perNodeSharedScans;
         }
     }
 }

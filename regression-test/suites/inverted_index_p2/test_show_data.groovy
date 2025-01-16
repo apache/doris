@@ -52,7 +52,7 @@ suite("test_show_data", "p2") {
                           `request` text NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
@@ -629,7 +629,7 @@ suite("test_show_data_with_compaction", "p2") {
 
     backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    
+
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def configList = parseJson(out.trim())
@@ -659,7 +659,7 @@ suite("test_show_data_with_compaction", "p2") {
                           `request` text NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
@@ -742,42 +742,6 @@ suite("test_show_data_with_compaction", "p2") {
         return "wait_timeout"
     }
 
-    def run_compaction_and_wait = { tableName ->
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
-
-        // trigger compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                logger.info("Compaction was done automatically!")
-            } else {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
-
-        // wait for all compactions done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-    }
-
     def create_table_run_compaction_and_wait = { test_name ->
         sql """ DROP TABLE IF EXISTS ${test_name}; """
         sql """
@@ -787,7 +751,7 @@ suite("test_show_data_with_compaction", "p2") {
                 `hobbies` text NULL,
                 `score` int(11) NULL,
                 index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
@@ -804,14 +768,14 @@ suite("test_show_data_with_compaction", "p2") {
         sql """ INSERT INTO ${test_name} VALUES (3, "bason", "bason hate pear", 99); """
         def data_size = wait_for_show_data_finish(test_name, 60000, 0)
         assertTrue(data_size != "wait_timeout")
-        run_compaction_and_wait(test_name)
+        trigger_and_wait_compaction(test_name, "full")
         data_size = wait_for_show_data_finish(test_name, 60000, data_size)
         assertTrue(data_size != "wait_timeout")
         return data_size
     }
 
     try {
-        
+
         set_be_config.call("inverted_index_compaction_enable", "true")
         sql "DROP TABLE IF EXISTS ${tableWithIndexCompaction}"
         create_table_with_index.call(tableWithIndexCompaction)
@@ -826,7 +790,7 @@ suite("test_show_data_with_compaction", "p2") {
 
         def with_index_size = wait_for_show_data_finish(tableWithIndexCompaction, 60000, 0)
         assertTrue(with_index_size != "wait_timeout")
-        run_compaction_and_wait(tableWithIndexCompaction)
+        trigger_and_wait_compaction(tableWithIndexCompaction, "full")
         with_index_size = wait_for_show_data_finish(tableWithIndexCompaction, 60000, with_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
@@ -842,7 +806,7 @@ suite("test_show_data_with_compaction", "p2") {
 
         def another_with_index_size = wait_for_show_data_finish(tableWithOutIndexCompaction, 60000, 0)
         assertTrue(another_with_index_size != "wait_timeout")
-        run_compaction_and_wait(tableWithOutIndexCompaction)
+        trigger_and_wait_compaction(tableWithOutIndexCompaction, "full")
         another_with_index_size = wait_for_show_data_finish(tableWithOutIndexCompaction, 60000, another_with_index_size)
         assertTrue(another_with_index_size != "wait_timeout")
 

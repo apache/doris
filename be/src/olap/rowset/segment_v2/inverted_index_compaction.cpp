@@ -76,17 +76,19 @@ Status compact_column(int64_t index_id,
     // when index_writer is destroyed, if closeDir is set, dir will be close
     // _CLDECDELETE(dir) will try to ref_cnt--, when it decreases to 1, dir will be destroyed.
     _CLDECDELETE(dir)
-    for (auto* d : dest_index_dirs) {
-        if (d != nullptr) {
-            // NOTE: DO NOT close dest dir here, because it will be closed when dest index writer finalize.
-            //d->close();
-            //_CLDELETE(d);
-        }
-    }
 
     // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
     if (!config::inverted_index_ram_dir_enable) {
-        std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+        auto st = io::global_local_filesystem()->delete_directory(tmp_path.data());
+        DBUG_EXECUTE_IF("compact_column_delete_tmp_path_error", {
+            st = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                    "debug point: compact_column_delete_tmp_path_error in index compaction");
+        })
+        if (!st.ok()) {
+            LOG(WARNING) << "compact column failed to delete tmp path: " << tmp_path
+                         << ", error: " << st.to_string();
+            return st;
+        }
     }
     return Status::OK();
 }
