@@ -275,16 +275,28 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t1]
 
 -- !limit_filter --
+<<<<<<< HEAD
 PhysicalDeferMaterializeResultSink
 --PhysicalDeferMaterializeTopN
 ----PhysicalDeferMaterializeTopN
+=======
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+>>>>>>> 393088b01f (fix regression tpcds shape)
 ------filter((t1.id = 1))
 --------PhysicalDeferMaterializeOlapScan[t1]
 
 -- !limit_offset_filter --
+<<<<<<< HEAD
 PhysicalDeferMaterializeResultSink
 --PhysicalDeferMaterializeTopN
 ----PhysicalDeferMaterializeTopN
+=======
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+>>>>>>> 393088b01f (fix regression tpcds shape)
 ------filter((t1.id = 1))
 --------PhysicalDeferMaterializeOlapScan[t1]
 
