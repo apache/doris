@@ -59,7 +59,7 @@ public class SimplifySelfComparison implements ExpressionPatternRuleFactory {
         // then `user() = user()` and `current_timestamp() = current_timestamp()` can simplify to `TRUE`.
         // function `random` is not foldable and non-deterministic,
         // then `random(1, 10) = random(1, 10)` cann't simplify to `TRUE`
-        if (left.foldable() && left.equals(comparison.right())) {
+        if (!left.containsNonfoldable() && left.equals(comparison.right())) {
             if (comparison instanceof EqualTo
                     || comparison instanceof GreaterThanEqual
                     || comparison instanceof LessThanEqual) {

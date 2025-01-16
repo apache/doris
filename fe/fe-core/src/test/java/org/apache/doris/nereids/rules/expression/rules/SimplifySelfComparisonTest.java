@@ -45,6 +45,7 @@ class SimplifySelfComparisonTest extends ExpressionRewriteTestHelper {
 
         // not foldable, not cast
         assertRewriteAfterTypeCoercion("random(5, 10) = random(5, 10)", "random(5, 10) = random(5, 10)");
+        assertRewriteAfterTypeCoercion("random(5, 10) + 100 = random(5, 10) + 100", "random(5, 10) + 100 = random(5, 10) + 100");
     }
 
 }
