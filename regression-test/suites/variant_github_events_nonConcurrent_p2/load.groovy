@@ -181,7 +181,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     if (!isCloudMode()) {
         // BUILD INDEX and expect state is FINISHED
         sql """ BUILD INDEX idx_var ON  github_events"""
-        state = wait_for_last_build_index_on_table_finish("github_events", timeout)
+        def state = wait_for_last_build_index_on_table_finish("github_events", timeout)
         assertEquals("FINISHED", state)
     }
 
