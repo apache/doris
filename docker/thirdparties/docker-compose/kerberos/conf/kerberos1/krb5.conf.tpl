@@ -16,10 +16,24 @@
 # specific language governing permissions and limitations
 # under the License.
 
-/usr/bin/mysqld_safe &
-while ! mysqladmin ping -proot --silent; do sleep 1; done
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
+ admin_server = FILE:/var/log/kadmind.log
 
-hive --service metatool -updateLocation hdfs://hadoop-master-2:9000/user/hive/warehouse hdfs://hadoop-master:9000/user/hive/warehouse
+[libdefaults]
+ default_realm = LABS.TERADATA.COM
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ forwardable = true
+ allow_weak_crypto = true
 
-killall mysqld
-while pgrep mysqld; do sleep 1; done
+[realms]
+ LABS.TERADATA.COM = {
+  kdc = ${HOST}:${KDC_PORT1}
+  admin_server = ${HOST}:${KADMIND_PORT1}
+ }
+ OTHERLABS.TERADATA.COM = {
+  kdc = ${HOST}:${KDC_PORT2}
+  admin_server = ${HOST}:${KADMIND_PORT2}
+ }

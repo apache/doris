@@ -16,19 +16,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -euo pipefail
+[kdcdefaults]
+ kdc_ports = ${KDC_PORT1}
+ kdc_tcp_ports = ${KDC_PORT1}
+ kadmind_port = ${KADMIND_PORT1}
+ kpasswd_port = ${KPASSWD_PORT1}
 
-if test $# -gt 0; then
-    echo "$0 does not accept arguments" >&2
-    exit 32
-fi
 
-set -x
-
-HEALTH_D=${HEALTH_D:-/etc/health.d/}
-
-if test -d "${HEALTH_D}"; then
-    for health_script in "${HEALTH_D}"/*; do
-        "${health_script}" &>> /var/log/container-health.log || exit 1
-    done
-fi
+[realms]
+ OTHERREALM.COM = {
+  acl_file = /var/kerberos/krb5kdc/kadm5.acl
+  dict_file = /usr/share/dict/words
+  admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
+  supported_enctypes = aes128-cts:normal des3-hmac-sha1:normal arcfour-hmac:normal des-hmac-sha1:normal des-cbc-md5:normal des-cbc-crc:normal
+  kdc_listen = ${KDC_PORT1}
+  kdc_tcp_listen = ${KDC_PORT1}
+  kdc_ports = ${KDC_PORT1}
+  kdc_tcp_ports = ${KDC_PORT1}
+  kadmind_port = ${KADMIND_PORT1}
+  kpasswd_port = ${KPASSWD_PORT1}
+ }
