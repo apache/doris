@@ -399,13 +399,11 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 bottomUp(SimplifyRange.INSTANCE)
         ));
         // if expression contains non-foldable, don't simplify itself.
-        assertRewrite("random(1, 10) = 1 or random(1, 10) = 2 or random(1, 10) = 3", "random(1, 10) = 1 or random(1, 10) = 2 or random(1, 10) = 3");
-        assertRewrite("random(1, 10) in (1, 2, 3) or random(1, 10) in (4, 5, 6)", "random(1, 10) in (1, 2, 3) or random(1, 10) in (4, 5, 6)");
-        assertRewrite("random(1, 10) > 8 and random(1, 10) < 5", "random(1, 10) > 8 and random(1, 10) < 5");
-        assertRewrite("random(1, 10) < 5 and random(1, 10) < 5 and random(1, 10) < 5",
-                "random(1, 10) < 5 and random(1, 10) < 5 and random(1, 10) < 5");
-        assertRewrite("random(1, 10) < 5 or random(1, 10) < 5 or random(1, 10) < 5",
-                "random(1, 10) < 5 or random(1, 10) < 5 or random(1, 10) < 5");
+        assertRewriteNoChange("random(1, 10) = 1 or random(1, 10) = 2 or random(1, 10) = 3");
+        assertRewriteNoChange("random(1, 10) in (1, 2, 3) or random(1, 10) in (4, 5, 6)");
+        assertRewriteNoChange("random(1, 10) > 8 and random(1, 10) < 5");
+        assertRewriteNoChange("random(1, 10) < 5 and random(1, 10) < 5 and random(1, 10) < 5");
+        assertRewriteNoChange("random(1, 10) < 5 or random(1, 10) < 5 or random(1, 10) < 5");
     }
 
     private ValueDesc getValueDesc(String expression) {
@@ -413,6 +411,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Expression parseExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         parseExpression = typeCoercion(parseExpression);
         return (new RangeInference()).getValue(parseExpression, context);
+    }
+
+    private void assertRewriteNoChange(String expression) {
+        assertRewrite(expression, expression);
     }
 
     private void assertRewrite(String expression, String expected) {
