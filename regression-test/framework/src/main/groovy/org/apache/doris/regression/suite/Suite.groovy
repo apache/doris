@@ -469,7 +469,7 @@ class Suite implements GroovyInterceptable {
         Set<String> uniqueSet = new HashSet<>()
         Set<String> duplicates = new HashSet<>()
     
-        for (String str : strings) {
+        for (String str : columnNames) {
             if (uniqueSet.contains(str)) {
                 duplicates.add(str)
             } else {
