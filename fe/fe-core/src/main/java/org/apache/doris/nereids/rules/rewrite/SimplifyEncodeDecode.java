@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeStrToInteger;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeString;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -48,7 +48,7 @@ public class SimplifyEncodeDecode implements RewriteRuleFactory {
                                     boolean changed = false;
                                     for (NamedExpression namedExpression : project.getProjects()) {
                                         if (namedExpression instanceof Alias
-                                                && namedExpression.child(0) instanceof EncodeStrToInteger
+                                                && namedExpression.child(0) instanceof EncodeString
                                                 && namedExpression.child(0).child(0)
                                                 instanceof DecodeAsVarchar) {
                                             Alias alias = (Alias) namedExpression;

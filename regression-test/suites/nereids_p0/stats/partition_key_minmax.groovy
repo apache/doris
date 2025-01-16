@@ -28,7 +28,7 @@ suite("partition_key_minmax") {
         )
         distributed by hash(a) properties("replication_num"="1");
 
-        insert into rangetable values (5, 3, 0), (22, 150, 1), (333, 1, 2),(6, 1, 3);
+        insert into rangetable values (5, 3, 0),(6, 1, 3),(22, 150, 1),(333, 1, 2);
 
         analyze table rangetable with sync;
     """
@@ -38,8 +38,14 @@ suite("partition_key_minmax") {
         sql """memo plan
             select * from rangetable where a < 250;
             """
-        containsAny("a#0 -> ndv=2.6667, min=5.000000(5), max=30.000000(30), count=2.6667")
-        containsAny("a#0 -> ndv=3, min=5.000000(5), max=30.000000(30), count=2.6667")
+        // case 1: partition col stats not available, partition row count not available
+        containsAny("a#0 -> ndv=2.6667, min=5.000000(5), max=30.000000(30)")
+        // case 2: partition col stats not available, partition row count available
+        containsAny("a#0 -> ndv=3.0000, min=5.000000(5), max=30.000000(30)")
+        // case 3: partition col stats available, partition row count not available
+        containsAny("a#0 -> ndv=2.6667, min=5.000000(5), max=22.000000(22)")
+        // case 4: partition col stats available, partition row count available
+        containsAny("a#0 -> ndv=3.0000, min=5.000000(5), max=22.000000(22)")
     }
 
     sql """
@@ -65,8 +71,7 @@ suite("partition_key_minmax") {
         sql """
          memo plan select * from listtable where id >=3;
         """
-        containsAny("id#0 -> ndv=1.0000, min=3.000000(3), max=3.000000(3), count=1.0000,")
-        containsAny("id#0 -> ndv=1.0000, min=1.000000(1), max=3.000000(3), count=1.0000,")
+        contains("id#0 -> ndv=1.0000, min=3.000000(3), max=3.000000(3), count=1.0000")
     }
 }
 

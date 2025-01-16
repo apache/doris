@@ -391,10 +391,11 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         void* data = nullptr;
         int len = 0;
         bool has_attachment = false;
-        if (!cnt_val->filter->get_ignored()) {
+        if (!cnt_val->filter->get_ignored() && !cnt_val->filter->get_disabled()) {
             RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
         } else {
-            apply_request.set_ignored(true);
+            apply_request.set_ignored(cnt_val->filter->get_ignored());
+            apply_request.set_disabled(cnt_val->filter->get_disabled());
             apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
         }
 

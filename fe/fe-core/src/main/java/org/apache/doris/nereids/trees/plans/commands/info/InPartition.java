@@ -49,9 +49,6 @@ public class InPartition extends PartitionDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        if (values.stream().anyMatch(l -> l.stream().anyMatch(MaxValue.class::isInstance))) {
-            throw new AnalysisException("MAXVALUE cannot be used in 'in partition'");
-        }
     }
 
     @Override

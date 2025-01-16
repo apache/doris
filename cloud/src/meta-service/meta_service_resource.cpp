@@ -2203,6 +2203,13 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         }
     } break;
     case AlterClusterRequest::RENAME_CLUSTER: {
+        // SQL mode, cluster cluster name eq empty cluster name, need drop empty cluster first.
+        // but in http api, cloud control will drop empty cluster
+        bool replace_if_existing_empty_target_cluster =
+                request->has_replace_if_existing_empty_target_cluster()
+                        ? request->replace_if_existing_empty_target_cluster()
+                        : false;
+
         msg = resource_mgr_->update_cluster(
                 instance_id, cluster,
                 [&](const ClusterPB& i) { return i.cluster_id() == cluster.cluster.cluster_id(); },
@@ -2212,7 +2219,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     LOG(INFO) << "cluster.cluster.cluster_name(): "
                               << cluster.cluster.cluster_name();
                     for (auto itt : cluster_names) {
-                        LOG(INFO) << "itt : " << itt;
+                        LOG(INFO) << "instance's cluster name : " << itt;
                     }
                     if (it != cluster_names.end()) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2232,7 +2239,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                     }
                     c.set_cluster_name(cluster.cluster.cluster_name());
                     return msg;
-                });
+                },
+                replace_if_existing_empty_target_cluster);
     } break;
     case AlterClusterRequest::UPDATE_CLUSTER_ENDPOINT: {
         msg = resource_mgr_->update_cluster(
@@ -2303,6 +2311,14 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     }
     if (!msg.empty() && code == MetaServiceCode::OK) {
         code = MetaServiceCode::UNDEFINED_ERR;
+    }
+
+    // ugly but easy to repair
+    // not change cloud.proto add err_code
+    if (request->op() == AlterClusterRequest::DROP_NODE &&
+        msg.find("not found") != std::string::npos) {
+        // see convert_ms_code_to_http_code, reuse CLUSTER_NOT_FOUND, return http status code 404
+        code = MetaServiceCode::CLUSTER_NOT_FOUND;
     }
 
     if (code != MetaServiceCode::OK) return;
@@ -2418,6 +2434,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         response->mutable_cluster()->CopyFrom(instance.clusters());
         LOG_EVERY_N(INFO, 100) << "get all cluster info, " << msg;
     } else {
+        bool is_instance_changed = false;
         for (int i = 0; i < instance.clusters_size(); ++i) {
             auto& c = instance.clusters(i);
             std::set<std::string> mysql_users;
@@ -2431,6 +2448,24 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
                 response->add_cluster()->CopyFrom(c);
                 LOG_EVERY_N(INFO, 100) << "found a cluster, instance_id=" << instance.instance_id()
                                        << " cluster=" << msg;
+            }
+        }
+        if (is_instance_changed) {
+            val = instance.SerializeAsString();
+            if (val.empty()) {
+                msg = "failed to serialize";
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                return;
+            }
+
+            txn->put(key, val);
+            LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
+                      << " json=" << proto_to_json(instance);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::COMMIT>(err);
+                msg = fmt::format("failed to commit kv txn, err={}", err);
+                LOG(WARNING) << msg;
             }
         }
     }

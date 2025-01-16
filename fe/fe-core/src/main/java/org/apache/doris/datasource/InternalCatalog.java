@@ -17,14 +17,12 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
-import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
@@ -489,8 +487,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        LOG.info("begin drop database[{}], is force : {}", dbName, stmt.isForceDrop());
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        LOG.info("begin drop database[{}], is force : {}", dbName, force);
 
         // 1. check if database exists
         if (!tryLock(false)) {
@@ -498,7 +499,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         try {
             if (!fullNameToDb.containsKey(dbName)) {
-                if (stmt.isSetIfExists()) {
+                if (ifExists) {
                     LOG.info("drop database[{}] which does not exist", dbName);
                     return;
                 } else {
@@ -511,13 +512,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLock();
             long recycleTime = 0;
             try {
-                if (!stmt.isForceDrop()) {
+                if (!force) {
                     if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException(
-                                "There are still some transactions in the COMMITTED state waiting to be completed. "
-                                        + "The database [" + dbName
-                                        + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                        + " please use \"DROP database FORCE\".");
+                            "There are still some transactions in the COMMITTED state waiting to be completed. "
+                                + "The database [" + dbName
+                                + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP database FORCE\".");
                     }
                 }
 
@@ -530,16 +531,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
-                    if (!stmt.isForceDrop()) {
+                    if (!force) {
                         for (Table table : tableList) {
                             if (table.isManagedTable()) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
-                                            + olapTable.getState() + ", cannot be dropped."
-                                            + " please cancel the operation on olap table firstly."
-                                            + " If you want to forcibly drop(cannot be recovered),"
-                                            + " please use \"DROP table FORCE\".");
+                                        + olapTable.getState() + ", cannot be dropped."
+                                        + " please cancel the operation on olap table firstly."
+                                        + " If you want to forcibly drop(cannot be recovered),"
+                                        + " please use \"DROP table FORCE\".");
                                 }
                             }
                         }
@@ -549,12 +550,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                             Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                         }
                     }
-                    unprotectDropDb(db, stmt.isForceDrop(), false, 0);
+                    unprotectDropDb(db, force, false, 0);
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
 
-                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, stmt.isForceDrop(), 0);
+                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
             } finally {
                 db.writeUnlock();
@@ -563,14 +564,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
-            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
+            DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
         } finally {
             unlock();
         }
 
-        LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
+        LOG.info("finish drop database[{}], is force : {}", dbName, force);
     }
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {
@@ -760,21 +761,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("replay recover db[{}]", dbId);
     }
 
-    public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = (Database) getDbOrDdlException(dbName);
-        QuotaType quotaType = stmt.getQuotaType();
+    public void alterDatabaseQuota(String dbName, QuotaType quotaType, long quotaValue) throws DdlException {
+        Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
             if (quotaType == QuotaType.DATA) {
-                db.setDataQuota(stmt.getQuota());
+                db.setDataQuota(quotaValue);
             } else if (quotaType == QuotaType.REPLICA) {
-                db.setReplicaQuota(stmt.getQuota());
+                db.setReplicaQuota(quotaValue);
             } else if (quotaType == QuotaType.TRANSACTION) {
-                db.setTransactionQuotaSize(stmt.getQuota());
+                db.setTransactionQuotaSize(quotaValue);
             }
-            long quota = stmt.getQuota();
-            DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
+
+            DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quotaValue, quotaType);
             Env.getCurrentEnv().getEditLog().logAlterDb(dbInfo);
         } finally {
             db.writeUnlock();
@@ -828,11 +827,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
-        String fullDbName = stmt.getDbName();
-        String newFullDbName = stmt.getNewDbName();
+    public void renameDatabase(String dbName, String newDbName) throws DdlException {
 
-        if (fullDbName.equals(newFullDbName)) {
+        if (dbName.equals(newDbName)) {
             throw new DdlException("Same database name");
         }
 
@@ -842,28 +839,28 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         try {
             // check if db exists
-            db = fullNameToDb.get(fullDbName);
+            db = fullNameToDb.get(dbName);
             if (db == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, fullDbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
             }
             // check if name is already used
-            if (fullNameToDb.get(newFullDbName) != null) {
-                throw new DdlException("Database name[" + newFullDbName + "] is already used");
+            if (fullNameToDb.get(newDbName) != null) {
+                throw new DdlException("Database name[" + newDbName + "] is already used");
             }
             // 1. rename db
-            db.setNameWithLock(newFullDbName);
+            db.setNameWithLock(newDbName);
 
             // 2. add to meta. check again
-            fullNameToDb.remove(fullDbName);
-            fullNameToDb.put(newFullDbName, db);
+            fullNameToDb.remove(dbName);
+            fullNameToDb.put(newDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
+            DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
             Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
         } finally {
             unlock();
         }
 
-        LOG.info("rename database[{}] to [{}]", fullDbName, newFullDbName);
+        LOG.info("rename database[{}] to [{}]", dbName, newDbName);
     }
 
     public void replayRenameDatabase(String dbName, String newDbName) {
@@ -2704,15 +2701,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
-        boolean enableUniqueKeySkipBitmap = false;
         if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
             try {
-                enableUniqueKeySkipBitmap = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(properties);
+                // don't store this property, check and remove it from `properties`
+                PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(properties);
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
         }
-        olapTable.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
 
         boolean enableDeleteOnDeletePredicate = false;
         try {
@@ -2740,44 +2736,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
-            // set storage vault
-            String storageVaultName = PropertyAnalyzer.analyzeStorageVault(properties);
-            String storageVaultId = null;
-            // If user does not specify one storage vault then FE would use the default vault
-            if (Strings.isNullOrEmpty(storageVaultName)) {
-                Pair<String, String> info = env.getStorageVaultMgr().getDefaultStorageVaultInfo();
-                if (info != null) {
-                    storageVaultName = info.first;
-                    storageVaultId = info.second;
-                    LOG.info("Using default storage vault: name={}, id={}", storageVaultName, storageVaultId);
-                } else {
-                    throw new DdlException("No default storage vault."
-                            + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
-                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
-                }
-            }
-
-            if (storageVaultName == null || storageVaultName.isEmpty()) {
-                throw new DdlException("Invalid Storage Vault. "
-                        + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
-                        + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
-            }
+            // <storageVaultName, storageVaultId>
+            Pair<String, String> storageVaultInfoPair = PropertyAnalyzer.analyzeStorageVault(properties);
 
             // Check if user has storage vault usage privilege
-            if (ctx != null && !env.getAuth()
-                    .checkStorageVaultPriv(ctx.getCurrentUserIdentity(), storageVaultName, PrivPredicate.USAGE)) {
+            if (ConnectContext.get() != null && !env.getAuth()
+                    .checkStorageVaultPriv(ctx.getCurrentUserIdentity(),
+                            storageVaultInfoPair.first, PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                         + "'@'" + ConnectContext.get().getRemoteIP()
-                        + "' for storage vault '" + storageVaultName + "'");
+                        + "' for storage vault '" + storageVaultInfoPair.first + "'");
             }
-
-            storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
-            if (Strings.isNullOrEmpty(storageVaultId)) {
-                throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
-                        + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
-                        + "or create a new one with `CREATE STORAGE VAULT`.");
-            }
-            olapTable.setStorageVaultId(storageVaultId);
+            Preconditions.checkArgument(StringUtils.isNumeric(storageVaultInfoPair.second),
+                    "Invaild storage vault id :%s", storageVaultInfoPair.second);
+            olapTable.setStorageVaultId(storageVaultInfoPair.second);
         }
 
         // check `update on current_timestamp`

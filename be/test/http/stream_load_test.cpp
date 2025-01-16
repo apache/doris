@@ -54,11 +54,11 @@ void http_request_done_cb(struct evhttp_request* req, void* arg) {
 
 TEST_F(StreamLoadTest, TestHeader) {
     // 1G
-    auto wal_mgr = WalManager::create_shared(ExecEnv::GetInstance(), config::group_commit_wal_path);
+    auto wal_mgr = WalManager::create_unique(ExecEnv::GetInstance(), config::group_commit_wal_path);
     static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_1", 1000, 0, 0));
     static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_2", 10000, 0, 0));
     static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_3", 100000, 0, 0));
-    ExecEnv::GetInstance()->set_wal_mgr(wal_mgr);
+    ExecEnv::GetInstance()->set_wal_mgr(std::move(wal_mgr));
     // 1. empty info
     {
         auto* evhttp_req = evhttp_request_new(nullptr, nullptr);

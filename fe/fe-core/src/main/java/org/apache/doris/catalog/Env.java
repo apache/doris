@@ -21,6 +21,7 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -36,7 +37,6 @@ import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -200,6 +200,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
@@ -3178,6 +3179,13 @@ public class Env {
     }
 
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
+        if (!Strings.isNullOrEmpty(System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY))) {
+            // metadata recovery mode
+            LOG.info("Metadata failure recovery({}), ignore removing dropped frontends",
+                    System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY));
+            return;
+        }
+
         if (haProtocol != null && haProtocol instanceof BDBHA) {
             BDBHA bdbha = (BDBHA) haProtocol;
             bdbha.removeDroppedMember(removedFrontends);
@@ -3256,13 +3264,17 @@ public class Env {
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropDb(String catalogName, String dbName, boolean ifExists, boolean force) throws DdlException {
         CatalogIf<?> catalogIf;
-        if (StringUtils.isEmpty(stmt.getCtlName())) {
+        if (StringUtils.isEmpty(catalogName)) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+            catalogIf = catalogMgr.getCatalog(catalogName);
         }
-        catalogIf.dropDb(stmt);
+        catalogIf.dropDb(dbName, ifExists, force);
     }
 
     public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
@@ -3307,7 +3319,7 @@ public class Env {
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
-        getInternalCatalog().alterDatabaseQuota(stmt);
+        getInternalCatalog().alterDatabaseQuota(stmt.getDbName(), stmt.getQuotaType(), stmt.getQuota());
     }
 
     public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) throws MetaNotFoundException {
@@ -3324,7 +3336,7 @@ public class Env {
     }
 
     public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
-        getInternalCatalog().renameDatabase(stmt);
+        getInternalCatalog().renameDatabase(stmt.getDbName(), stmt.getNewDbName());
     }
 
     public void replayRenameDatabase(String dbName, String newDbName) {
@@ -4698,7 +4710,7 @@ public class Env {
                     }
                     break;
                 }
-                if (column.getType().isFloatingPointType()) {
+                if (!column.getType().couldBeShortKey()) {
                     break;
                 }
                 if (column.getDataType() == PrimitiveType.VARCHAR) {
@@ -4734,6 +4746,10 @@ public class Env {
      */
     public void alterTable(AlterTableStmt stmt) throws UserException {
         this.alter.processAlterTable(stmt);
+    }
+
+    public void alterTable(AlterTableCommand command) throws UserException {
+        this.alter.processAlterTable(command);
     }
 
     /**
@@ -5213,7 +5229,8 @@ public class Env {
         }
 
         // 5. modify sequence map col
-        if (table.hasSequenceCol() && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
+        if (table.hasSequenceCol() && table.getSequenceMapCol() != null
+                && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
             table.setSequenceMapCol(newColName);
         }
 

@@ -53,3 +53,21 @@ a	1
 中	8
 bb	3
 
+-- !explain_sort_agg --
+cost = 19.563333333333333
+PhysicalResultSink[294] ( outputExprs=[v1#1] )
++--PhysicalProject[289]@5 ( stats=1, projects=[v1#1] )
+   +--PhysicalQuickSort[284]@4 ( stats=1, orderKeys=[encode_as_bigint(v1)#4 asc null first], phase=MERGE_SORT )
+      +--PhysicalDistribute[279]@7 ( stats=1, distributionSpec=DistributionSpecGather )
+         +--PhysicalQuickSort[274]@7 ( stats=1, orderKeys=[encode_as_bigint(v1)#4 asc null first], phase=LOCAL_SORT )
+            +--PhysicalProject[269]@3 ( stats=1, projects=[decode_as_varchar(encode_as_bigint(v1)#3) AS `v1`#1, encode_as_bigint(decode_as_varchar(encode_as_bigint(v1)#3)) AS `encode_as_bigint(decode_as_varchar(encode_as_bigint(v1)))`#4], multi_proj=l0([encode_as_bigint(v1)#3, decode_as_varchar(encode_as_bigint(v1)#3) AS `decode_as_varchar(encode_as_bigint(v1))`#5])l1([decode_as_varchar(encode_as_bigint(v1))#5 AS `v1`#1, encode_as_bigint(decode_as_varchar(encode_as_bigint(v1))#5) AS `encode_as_bigint(decode_as_varchar(encode_as_bigint(v1)))`#4]) )
+               +--PhysicalHashAggregate[264]@2 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[encode_as_bigint(v1)#3], outputExpr=[encode_as_bigint(v1)#3], partitionExpr=Optional[[encode_as_bigint(v1)#3]], topnFilter=false, topnPushDown=false )
+                  +--PhysicalDistribute[259]@8 ( stats=1, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[3], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[3]], exprIdToEquivalenceSet={3=0} ) )
+                     +--PhysicalHashAggregate[254]@8 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=true, groupByExpr=[encode_as_bigint(v1)#3], outputExpr=[encode_as_bigint(v1)#3], partitionExpr=Optional[[encode_as_bigint(v1)#3]], topnFilter=false, topnPushDown=false )
+                        +--PhysicalProject[249]@1 ( stats=1, projects=[encode_as_bigint(v1#1) AS `encode_as_bigint(v1)`#3] )
+                           +--PhysicalOlapScan[t1]@0 ( stats=1 )
+
+-- !exec_sort_agg --
+a
+b
+

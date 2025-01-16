@@ -50,8 +50,6 @@ public:
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
-    uint64_t _build_rows = 0;
-    uint64_t _total_mem_usage = 0;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 };
@@ -59,8 +57,8 @@ private:
 class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
-    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs);
+    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
                 "{} should not init with TDataSink",

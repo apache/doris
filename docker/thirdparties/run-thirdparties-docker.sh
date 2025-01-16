@@ -59,7 +59,7 @@ eval set -- "${OPTS}"
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
 else
     while true; do
         case "$1" in
@@ -138,6 +138,7 @@ RUN_DB2=0
 RUN_OCENABASE=0
 RUN_LAKESOUL=0
 RUN_KERBEROS=0
+RUN_MINIO=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -176,6 +177,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_LAKESOUL=1
     elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
+    elif [[ "${element}"x == "minio"x ]]; then
+        RUN_MINIO=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -579,8 +582,22 @@ start_lakesoul() {
 
 start_kerberos() {
     echo "RUN_KERBEROS"
-    cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
+    export IP_HOST=${IP_HOST}
+    export CONTAINER_UID=${CONTAINER_UID}
+    envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    for i in {1..2}; do
+        . "${ROOT}"/docker-compose/kerberos/kerberos${i}_settings.env
+        envsubst <"${ROOT}"/docker-compose/kerberos/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/kerberos/hadoop-hive-${i}.env
+        envsubst <"${ROOT}"/docker-compose/kerberos/conf/my.cnf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/my.cnf
+        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf
+        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf
+    done
+    sudo chmod a+w /etc/hosts
+    sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
+    sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
+    sudo cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
     if [[ "${STOP}" -ne 1 ]]; then
@@ -588,20 +605,26 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d --wait
         sudo rm -f /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
-
-        sudo chmod a+w /etc/hosts
-        echo '172.31.71.25 hadoop-master' >> /etc/hosts
-        echo '172.31.71.26 hadoop-master-2' >> /etc/hosts
         sleep 2
     fi
 }
 
-echo "starting dockers in parrallel"
+start_minio() {
+    echo "RUN_MINIO"
+    cp "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml.tpl "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env up -d
+    fi
+}
+
+echo "starting dockers in parallel"
 
 declare -A pids
 
@@ -690,6 +713,11 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     pids["lakesoul"]=$!
 fi
 
+if [[ "${RUN_MINIO}" -eq 1 ]]; then
+    start_minio > start_minio.log 2>&1 &
+    pids["minio"]=$!
+fi
+
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     start_kerberos > start_kerberos.log 2>&1 &
     pids["kerberos"]=$!
@@ -705,8 +733,15 @@ for compose in "${!pids[@]}"; do
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
         cat start_${compose}.log
+
+        echo ""
+        echo "print last 100 logs of the latest unhealthy container"
+        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+
         exit 1
     fi
 done
 
+echo "docker started"
+docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"

@@ -382,8 +382,7 @@ public class CreateTableInfo {
                                 }
                                 break;
                             }
-                            if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                                    || catalogType.isComplexType() || catalogType.isVariantType()) {
+                            if (!catalogType.couldBeShortKey()) {
                                 break;
                             }
                             keys.add(column.getName());
@@ -540,7 +539,7 @@ public class CreateTableInfo {
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
                             + "only be set in merge-on-write unique table.");
                 }
                 // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
@@ -618,7 +617,6 @@ public class CreateTableInfo {
                     throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
                 }
                 columnDef.setIsKey(true);
-                columnDef.setAggType(AggregateType.NONE);
             }
             // TODO: support iceberg partition check
             if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
