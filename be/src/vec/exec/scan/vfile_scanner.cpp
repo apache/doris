@@ -178,18 +178,22 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
 }
 
 Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
+    if (_conjuncts.empty() || _partition_col_descs.empty()) {
+        return Status::OK();
+    }
     VExprContextSPtrs ctxs;
-
-    for (auto& conjunct : _push_down_conjuncts) {
+    for (auto& conjunct : _conjuncts) {
         auto impl = conjunct->root()->get_impl();
         if (impl) {
             // If impl is not null, which means this a conjuncts from runtime filter.
-            auto* runtime_filter = typeid_cast<VRuntimeFilterWrapper*>(impl.get());
-            ctxs.emplace_back(std::make_shared<VExprContext>(runtime_filter->get_impl()));
+            ctxs.emplace_back(conjunct);
         }
     }
-
+    if (ctxs.empty()) {
+        return Status::OK();
+    }
     size_t partition_value_column_size = 0;
+
     // 1. Get partition key values to string columns.
     std::unordered_map<SlotId, MutableColumnPtr> parititon_slot_id_to_column;
     for (auto const& partition_col_desc : _partition_col_descs) {
@@ -197,8 +201,8 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         const auto* partiton_slot_desc = std::get<1>(partition_col_desc.second);
         auto partition_value_column = ColumnString::create();
         partition_value_column->insert_data(partiton_data.c_str(), partiton_data.size());
-        parititon_slot_id_to_column[partiton_slot_desc->id()] = std::move(partition_value_column);
         partition_value_column_size = partition_value_column->size();
+        parititon_slot_id_to_column[partiton_slot_desc->id()] = std::move(partition_value_column);
     }
 
     // 2. Build a temp block from the partition column, then execute conjuncts and filter block.
@@ -943,7 +947,7 @@ Status VFileScanner::_get_next_reader() {
                         &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonParquetReader> paimon_reader =
                         PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
-                                                           _state, *_params, range);
+                                                           *_params);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(paimon_reader);
             } else {
@@ -1005,8 +1009,8 @@ Status VFileScanner::_get_next_reader() {
                         &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
-                std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
-                        std::move(orc_reader), _profile, _state, *_params, range);
+                std::unique_ptr<PaimonOrcReader> paimon_reader =
+                        PaimonOrcReader::create_unique(std::move(orc_reader), _profile, *_params);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(paimon_reader);
             } else {
