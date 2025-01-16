@@ -371,7 +371,8 @@ public:
     }
 
     bool get_build_bf_cardinality() const {
-        return _context->bloom_filter_func && _context->bloom_filter_func->get_build_bf_cardinality();
+        return _context->bloom_filter_func &&
+               _context->bloom_filter_func->get_build_bf_cardinality();
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
