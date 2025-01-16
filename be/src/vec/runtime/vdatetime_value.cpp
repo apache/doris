@@ -227,6 +227,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                     } else {
                         return false;
                     }
+                case 2:
                 case 3:
                 case 4:
                     if (*ptr == ':') {
@@ -2205,6 +2206,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                     } else {
                         return false;
                     }
+                case 2:
                 case 3:
                 case 4:
                     if (*ptr == ':') {
