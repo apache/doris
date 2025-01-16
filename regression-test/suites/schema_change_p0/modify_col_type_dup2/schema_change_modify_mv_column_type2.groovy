@@ -95,6 +95,6 @@ suite("schema_change_modify_mv_column_type2") {
     }
     // sync materialized view rewrite will fail when schema change, tmp disable, enable when fixed
     sql """set enable_dml_materialized_view_rewrite = false;"""
-    qt_sql """ desc ${testTable} all """
+    qt_master_sql """ desc ${testTable} all """
     sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
 }
