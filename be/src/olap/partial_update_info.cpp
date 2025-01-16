@@ -417,7 +417,7 @@ Status FixedReadPlan::fill_missing_columns(
                     missing_col->insert_from(*mutable_default_value_columns[i], 0);
                 } else if (tablet_column.is_nullable()) {
                     auto* nullable_column = assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    nullable_column->insert_null_elements(1);
+                    nullable_column->insert_many_defaults(1);
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
                     const auto& column = *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
@@ -625,7 +625,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_null_elements(1);
+                            ->insert_many_defaults(1);
                 } else if (tablet_column.is_auto_increment()) {
                     // In flexible partial update, the skip bitmap indicates whether a cell
                     // is specified in the original load, so the generated auto-increment value is filled
@@ -733,7 +733,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_null_elements(1);
+                            ->insert_many_defaults(1);
                 } else if (tablet_column.is_auto_increment()) {
                     // In flexible partial update, the skip bitmap indicates whether a cell
                     // is specified in the original load, so the generated auto-increment value is filled

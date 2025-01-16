@@ -1138,7 +1138,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_null_elements(1);
+                            ->insert_many_defaults(1);
                 } else if (tablet_column.is_auto_increment()) {
                     // For auto-increment column, its default value(generated value) is filled in current block in flush phase
                     // when the load doesn't specify the auto-increment column
