@@ -25,6 +25,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -244,7 +245,7 @@ public class TabletStatMgr extends MasterDaemon {
     public void waitForTabletStatUpdate() {
         boolean ok = true;
         try {
-            if (!updateTabletStatsLatch.await(60, TimeUnit.SECONDS)) {
+            if (!updateTabletStatsLatch.await(600, TimeUnit.SECONDS)) {
                 LOG.info("timeout waiting {} update tablet stats tasks finish after {} seconds.",
                         updateTabletStatsLatch.getCount(), 60);
                 ok = false;
@@ -261,6 +262,9 @@ public class TabletStatMgr extends MasterDaemon {
             }
             LOG.warn("Failed to update tablet stats reason: {}, unfinished backends: {}",
                     status.getErrorMsg(), unfinishedBackendIds);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_UPDATE_TABLET_STAT_FAILED.increase(1L);
+            }
         }
     }
 
