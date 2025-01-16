@@ -253,10 +253,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
         logger.info("connection_id: ${result}")
         // qe_select16 stmt_read
 
-        sql """set enable_server_side_prepared_statement = false"""
-        def stmt_insert = prepareStatement "insert into mytable1 values(?, ?, ?, ?)"  
-        assertEquals(stmt_insert.class, com.mysql.cj.jdbc.ClientPreparedStatement);
-
         // test prepared with between, test placeholder equal
         sql """insert into mytable2 values(3,1,'user1',10);"""
         stmt_read = prepareStatement "SELECT COUNT() from mytable2 WHERE siteid between ? and ?"
@@ -264,7 +260,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read.setInt(1, 0)
         stmt_read.setInt(2, 3)
         qe_select17 stmt_read
-
 
         // test array1
         stmt_read = prepareStatement """SELECT 1, [1, 2, 3], null, ["1"], null, null, [1.111]"""
@@ -309,5 +304,11 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read = prepareStatement("""SELECT 1, null, [{'id': 1, 'name' : 'doris'}, {'id': 2, 'name': 'apache'}, null], null""")
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select24 stmt_read
+    }
+
+    def result2 = connect(user, password, url) {
+        sql """set enable_server_side_prepared_statement = false"""
+        def stmt_insert = prepareStatement "insert into mytable1 values(?, ?, ?, ?)"  
+        assertEquals(stmt_insert.class, com.mysql.cj.jdbc.ClientPreparedStatement);
     }
 }
