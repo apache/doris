@@ -1742,6 +1742,16 @@ visible_functions = {
         [['url_decode'], 'STRING', ['STRING'], ''],
         [['random_bytes'], 'STRING', ['INT'], ''],
 
+        [['format'], 'STRING', ['STRING', 'TINYINT', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'SMALLINT', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'INT', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'BIGINT', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'LARGEINT', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'FLOAT', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'DOUBLE', '...'], ''],
+        [['format'], 'STRING', ['STRING', 'STRING', '...'], ''],
+        [['format_number'], 'STRING', ['DOUBLE'], ''],
+        [['parse_data_size'], 'LARGEINT', ['STRING'], ''],
         [['overlay'], 'STRING', ['STRING', 'INT', 'INT', 'STRING'], ''],
         [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
