@@ -182,8 +182,6 @@ suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
         sql """ INSERT INTO ${testTable} VALUES (0,0,'9'),(9,9,'9'); """
         sql """ INSERT INTO ${testTable} VALUES (0,0,'10'),(10,10,'10'); """
 
-        qt_sql "select * from ${testTable} order by plan_id"
-
         // trigger compaction to generate base rowset
         def tablets = sql_return_maparray """ show tablets from ${testTable}; """
         logger.info("tablets: " + tablets)
@@ -221,8 +219,7 @@ suite("test_compaction_update_big_delete_bitmap", "nonConcurrent") {
                 assertTrue(ms_delete_bitmap_cardinality == 7)
             }
         }
-
-        qt_sql "select * from ${testTable} order by plan_id"
+        
     } finally {
         reset_be_param("compaction_promotion_version_count")
         reset_be_param("cumulative_compaction_max_deltas")
