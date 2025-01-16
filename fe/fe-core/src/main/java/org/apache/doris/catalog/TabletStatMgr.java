@@ -247,7 +247,7 @@ public class TabletStatMgr extends MasterDaemon {
         try {
             if (!updateTabletStatsLatch.await(600, TimeUnit.SECONDS)) {
                 LOG.info("timeout waiting {} update tablet stats tasks finish after {} seconds.",
-                        updateTabletStatsLatch.getCount(), 60);
+                        updateTabletStatsLatch.getCount(), 600);
                 ok = false;
             }
         } catch (InterruptedException e) {
