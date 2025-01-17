@@ -144,6 +144,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -871,8 +872,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict")) {
                         DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                                 "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict");
-                        double percent = debugPoint.param("percent", 0.3);
-                        if (new SecureRandom().nextInt() % 100 < 100 * percent) {
+                        double percent = debugPoint.param("percent", 0.4);
+                        long timestamp = System.currentTimeMillis();
+                        Random random = new Random(timestamp);
+                        if (Math.abs(random.nextInt()) % 100 < 100 * percent) {
                             LOG.info("set kv txn conflict for test");
                             GetDeleteBitmapUpdateLockResponse.Builder getLockResponseBuilder
                                     = GetDeleteBitmapUpdateLockResponse.newBuilder();
