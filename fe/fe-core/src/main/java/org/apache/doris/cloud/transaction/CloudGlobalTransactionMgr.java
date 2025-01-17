@@ -1005,25 +1005,37 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
         int retryTimes = 0;
         boolean res = false;
-        while (true) {
-            try {
-                res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
-                break;
-            } catch (UserException e) {
-                LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
-                        transactionId, retryTimes, e);
-                // only mow table will catch DELETE_BITMAP_LOCK_ERR and need to retry
-                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
-                    retryTimes++;
-                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
-                        // should throw exception after running out of retry times
+        try {
+            while (true) {
+                try {
+                    res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                            null);
+                    break;
+                } catch (UserException e) {
+                    LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
+                            transactionId, retryTimes, e);
+                    // only mow table will catch DELETE_BITMAP_LOCK_ERR and need to retry
+                    if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                        retryTimes++;
+                        if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                            // should throw exception after running out of retry times
+                            throw e;
+                        }
+                    } else {
                         throw e;
                     }
-                } else {
-                    throw e;
                 }
+            }
+        } finally {
+            stopWatch.stop();
+            long commitAndPublishTime = stopWatch.getTime();
+            LOG.info("commitAndPublishTransaction txn {} cost {} ms", transactionId, commitAndPublishTime);
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_COMMIT_AND_PUBLISH_LATENCY.update(commitAndPublishTime);
             }
         }
         return res;
@@ -1079,6 +1091,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return true;
     }
 
+    private List<Table> getTablesNeedCommitLock(List<Table> tableList) {
+        if (Config.enable_commit_lock_for_all_tables) {
+            // If enabled, lock all tables
+            return tableList.stream()
+                    .sorted(Comparator.comparingLong(Table::getId))
+                    .collect(Collectors.toList());
+        } else {
+            // If disabled, only lock MOW tables
+            return tableList.stream()
+                    .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                    .sorted(Comparator.comparingLong(Table::getId))
+                    .collect(Collectors.toList());
+        }
+    }
+
     @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
@@ -1094,26 +1121,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        // Get tables that require commit lock - only MOW tables need this:
-        // 1. Filter to keep only OlapTables with MOW enabled
-        // 2. Sort by table ID to maintain consistent locking order and prevent deadlocks
-        List<Table> mowTableList = tableList.stream()
-                .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
-                .sorted(Comparator.comparingLong(Table::getId))
-                .collect(Collectors.toList());
-        increaseWaitingLockCount(mowTableList);
-        if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseWaitingLockCount(mowTableList);
+        List<Table> tablesToLock = getTablesNeedCommitLock(tableList);
+        increaseWaitingLockCount(tablesToLock);
+        if (!MetaLockUtils.tryCommitLockTables(tablesToLock, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingLockCount(tablesToLock);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
-                            + StringUtils.join(mowTableList, ",") + ")");
+                            + StringUtils.join(tablesToLock, ",") + ")");
         }
+
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            decreaseWaitingLockCount(mowTableList);
-            MetaLockUtils.commitUnlockTables(mowTableList);
+            decreaseWaitingLockCount(tablesToLock);
+            MetaLockUtils.commitUnlockTables(tablesToLock);
         }
         return true;
     }

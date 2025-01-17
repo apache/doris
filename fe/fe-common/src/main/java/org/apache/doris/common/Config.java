@@ -3187,6 +3187,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
 
+    @ConfField(mutable = true, description = {"是否在事务提交时对所有表启用提交锁。设置为 true 时，所有表都会使用提交锁。"
+            + "设置为 false 时，仅对 Merge-On-Write 表使用提交锁。默认值为 true。",
+            "Whether to enable commit lock for all tables during transaction commit."
+            + "If true, commit lock will be applied to all tables."
+            + "If false, commit lock will only be applied to Merge-On-Write tables."
+            + "Default value is true." })
+    public static boolean enable_commit_lock_for_all_tables = true;
+
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
 
@@ -3211,6 +3219,14 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
+            "Whether to enable retry when schema change failed in cloud model, default is true."})
+    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
+            "Max retry times when schema change failed in cloud model, default is 3."})
+    public static int schema_change_max_retry_time = 3;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

@@ -17,6 +17,7 @@
 
 #include "hashjoin_build_sink.h"
 
+#include <cstdlib>
 #include <string>
 
 #include "exprs/bloom_filter_func.h"
@@ -91,8 +92,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _hash_table_init(state);
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                p._runtime_filter_descs[i], &_runtime_filters[i], _build_expr_ctxs.size() == 1));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
+                                                                &_runtime_filters[i]));
     }
 
     _runtime_filter_slots =
@@ -105,6 +106,15 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+
+#ifndef NDEBUG
+    if (state->fuzzy_disable_runtime_filter_in_be()) {
+        if ((_parent->operator_id() + random()) % 2 == 0) {
+            RETURN_IF_ERROR(disable_runtime_filters(state));
+        }
+    }
+#endif
+
     return Status::OK();
 }
 
@@ -123,7 +133,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos) {
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos ||
+        _runtime_filters_disabled) {
         return Base::close(state, exec_status);
     }
 
@@ -138,7 +149,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             {
                 SCOPED_TIMER(_runtime_filter_init_timer);
                 RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-                RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
+                RETURN_IF_ERROR(_runtime_filter_slots->disable_meaningless_filters(state));
             }
             if (hash_table_size > 1) {
                 SCOPED_TIMER(_runtime_filter_compute_timer);
@@ -166,6 +177,33 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     }
 
     return Base::close(state, exec_status);
+}
+
+Status HashJoinBuildSinkLocalState::disable_runtime_filters(RuntimeState* state) {
+    if (_runtime_filters_disabled) {
+        return Status::OK();
+    }
+
+    if (_runtime_filters.empty()) {
+        return Status::OK();
+    }
+
+    if (!_should_build_hash_table) {
+        return Status::OK();
+    }
+
+    if (_runtime_filters.empty()) {
+        return Status::OK();
+    }
+
+    DCHECK(_runtime_filter_slots) << "_runtime_filter_slots should be initialized";
+
+    _runtime_filters_disabled = true;
+    RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
+    RETURN_IF_ERROR(_runtime_filter_slots->disable_all_filters());
+
+    SCOPED_TIMER(_publish_runtime_filter_timer);
+    return _runtime_filter_slots->publish(state, !_should_build_hash_table);
 }
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
@@ -329,8 +367,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                             _build_blocks_memory_usage->value() +
                                                     (int64_t)(arg.hash_table->get_byte_size() +
                                                               arg.serialized_keys_size(true)));
-                                COUNTER_SET(_peak_memory_usage_counter,
-                                            _memory_used_counter->value());
                                 return st;
                             }},
                     *_shared_state->hash_table_variants, _shared_state->join_op_variants,
@@ -563,7 +599,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     std::move(*in_block)));
             int64_t blocks_mem_usage = local_state._build_side_mutable_block.allocated_bytes();
             COUNTER_SET(local_state._memory_used_counter, blocks_mem_usage);
-            COUNTER_SET(local_state._peak_memory_usage_counter, blocks_mem_usage);
             COUNTER_SET(local_state._build_blocks_memory_usage, blocks_mem_usage);
         }
     }
@@ -573,9 +608,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
-        RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
-                state, local_state._shared_state->build_block->rows(),
-                local_state._finish_dependency));
+        if (!local_state._runtime_filters_disabled) {
+            RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
+                    state, local_state._shared_state->build_block->rows(),
+                    local_state._finish_dependency));
+        }
+
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {
