@@ -314,10 +314,6 @@ template <typename T>
 bool read_ipv6_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<IPv6, T>);
     bool res = IPv6Value::from_string(x, buf.position(), buf.count());
-    if (!res) {
-        // try to parse as uint128
-        res = IPv6Value::from_uint128_string(x, buf.position(), buf.count());
-    }
     buf.position() = buf.end();
     return res;
 }

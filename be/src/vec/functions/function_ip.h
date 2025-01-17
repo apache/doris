@@ -1335,6 +1335,50 @@ private:
     }
 };
 
+class FunctionIPv6FromUInt128StringOrNull : public IFunction {
+public:
+    static constexpr auto name = "ipv6_from_uint128_string_or_null";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv6FromUInt128StringOrNull>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeIPv6>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& ipv6_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& [ipv6_column, ipv6_const] =
+                unpack_if_const(ipv6_column_with_type_and_name.column);
+        const auto* ipv6_addr_column = assert_cast<const ColumnString*>(ipv6_column.get());
+        // result is nullable column
+        auto col_res = ColumnNullable::create(ColumnIPv6::create(input_rows_count, 0),
+                                              ColumnUInt8::create(input_rows_count, 1));
+        auto& col_res_data = assert_cast<ColumnIPv6*>(&col_res->get_nested_column())->get_data();
+        auto& res_null_map_data = col_res->get_null_map_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            IPv6 ipv6 = 0;
+            auto ipv6_idx = index_check_const(i, ipv6_const);
+            StringRef uint128_string = ipv6_addr_column->get_data_at(ipv6_idx);
+            if (!IPv6Value::from_uint128_string(ipv6, uint128_string.data, uint128_string.size)) {
+                LOG(WARNING) << "Invalid uin128 IPv6 value '" << uint128_string.to_string_view()
+                             << "'";
+                // we should set null to the result not throw exception for load senior
+            } else {
+                col_res_data[i] = ipv6;
+                res_null_map_data[i] = 0;
+            }
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized
 
 #include "common/compile_check_end.h"

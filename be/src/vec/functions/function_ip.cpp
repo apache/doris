@@ -64,5 +64,8 @@ void register_function_ip(SimpleFunctionFactory& factory) {
 
     /// Cut IPv6 part
     factory.register_function<FunctionCutIPv6>();
+
+    // Covert to IPv6 from uint128-string
+    factory.register_function<FunctionIPv6FromUInt128StringOrNull>();
 }
 } // namespace doris::vectorized

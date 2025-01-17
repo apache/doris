@@ -195,6 +195,7 @@ suite("test_ip_basic") {
         db 'regression_test_datatype_p0_ip'
         table 'table_ipv6_uint128'
         set 'column_separator', ','
+        set 'columns', 'col0, tmp, ipv6, ipv6_uint128=ipv6_from_uint128_string_or_null(tmp)'
         file 'test_data/ipv6_uint128.csv'
         time 10000 // limit inflight 10s
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
@@ -234,5 +235,5 @@ suite("test_ip_basic") {
         }
 
     // then cast ipv6_uint128 to ipv6
-    qt_sql_ipv6_string """ select cast(ipv6_uint128 as ipv6), ipv6 from table_ipv6_uint128_string order by col0 """
+    qt_sql_ipv6_string """ select ipv6_from_uint128_string_or_null(ipv6_uint128) as ipv6_uint128, ipv6 from table_ipv6_uint128_string order by col0 """
 }
