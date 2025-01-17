@@ -33,9 +33,9 @@ suite("test_column_boundary") {
 
     sql """ insert into test_column_boundary select number, number + random() from numbers("number" = "1000000"); """
     Integer count = 0;
-    Integer maxCount = 8;
+    Integer maxCount = 25;
     while (count < maxCount) {
-        sql """  insert into test_column_boundary select * from test_column_boundary;"""
+        sql """ insert into test_column_boundary select number, number + random() from numbers("number" = "10000000"); """
         count++
         sleep(100);
     }
