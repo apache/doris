@@ -191,13 +191,17 @@ public class CollectRelation implements AnalysisRuleFactory {
         if (cascadesContext.getConnectContext().getSessionVariable().enableMaterializedViewRewrite) {
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
                     .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
-            LOG.info("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
+            }
             for (MTMV mtmv : mtmvSet) {
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
                 mtmv.readMvLock();
                 try {
                     for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
-                        LOG.info("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.info("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
+                        }
                         try {
                             cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
                                     TableFrom.MTMV);
