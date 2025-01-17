@@ -165,7 +165,7 @@ suite("create_table_use_partition_policy") {
     def create_table_partition_use_created_policy_4 = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_4
         (
-            k1 DATE,
+            k1 DATE NOT NULL,
             k2 INT,
             V1 VARCHAR(2048) REPLACE
         ) PARTITION BY LIST (k1) (
