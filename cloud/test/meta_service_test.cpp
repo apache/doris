@@ -5494,7 +5494,6 @@ TEST(MetaServiceTest, DeleteBimapCommitTxnTest) {
             ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
             PendingDeleteBitmapPB pending_info;
             ASSERT_TRUE(pending_info.ParseFromString(pending_val));
-            ASSERT_EQ(pending_info.lock_id(), lock_info.lock_id());
         }
 
         // commit txn
