@@ -106,16 +106,16 @@ public class InitCatalogLog implements Writable {
 
     @Override
     public String toString() {
-        return "InitCatalogLog{" +
-                "catalogId=" + catalogId +
-                ", refreshCount=" + refreshCount +
-                ", createCount=" + createCount +
-                ", refreshDbIds=" + refreshDbIds +
-                ", createDbIds=" + createDbIds +
-                ", createDbNames=" + createDbNames +
-                ", remoteDbNames=" + remoteDbNames +
-                ", type=" + type +
-                ", lastUpdateTime=" + lastUpdateTime +
-                '}';
+        return "InitCatalogLog{"
+                + "catalogId=" + catalogId
+                + ", refreshCount=" + refreshCount
+                + ", createCount=" + createCount
+                + ", refreshDbIds=" + refreshDbIds
+                + ", createDbIds=" + createDbIds
+                + ", createDbNames=" + createDbNames
+                + ", remoteDbNames=" + remoteDbNames
+                + ", type=" + type
+                + ", lastUpdateTime=" + lastUpdateTime
+                + '}';
     }
 }

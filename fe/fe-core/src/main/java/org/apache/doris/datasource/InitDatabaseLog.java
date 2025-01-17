@@ -111,17 +111,17 @@ public class InitDatabaseLog implements Writable {
 
     @Override
     public String toString() {
-        return "InitDatabaseLog{" +
-                "catalogId=" + catalogId +
-                ", dbId=" + dbId +
-                ", refreshCount=" + refreshCount +
-                ", createCount=" + createCount +
-                ", refreshTableIds=" + refreshTableIds +
-                ", createTableIds=" + createTableIds +
-                ", createTableNames=" + createTableNames +
-                ", remoteTableNames=" + remoteTableNames +
-                ", type=" + type +
-                ", lastUpdateTime=" + lastUpdateTime +
-                '}';
+        return "InitDatabaseLog{"
+                + "catalogId=" + catalogId
+                + ", dbId=" + dbId
+                + ", refreshCount=" + refreshCount
+                + ", createCount=" + createCount
+                + ", refreshTableIds=" + refreshTableIds
+                + ", createTableIds=" + createTableIds
+                + ", createTableNames=" + createTableNames
+                + ", remoteTableNames=" + remoteTableNames
+                + ", type=" + type
+                + ", lastUpdateTime=" + lastUpdateTime
+                + '}';
     }
 }
