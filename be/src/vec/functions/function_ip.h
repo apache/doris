@@ -1365,7 +1365,7 @@ public:
             auto ipv6_idx = index_check_const(i, ipv6_const);
             StringRef uint128_string = ipv6_addr_column->get_data_at(ipv6_idx);
             if (!IPv6Value::from_uint128_string(ipv6, uint128_string.data, uint128_string.size)) {
-                LOG(WARNING) << "Invalid uin128 IPv6 value '" << uint128_string.to_string_view()
+                VLOG_DEBUG << "Invalid uin128 IPv6 value '" << uint128_string.to_string_view()
                              << "'";
                 // we should set null to the result not throw exception for load senior
             } else {
