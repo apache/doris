@@ -29,6 +29,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
@@ -43,6 +44,7 @@ import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -62,6 +64,7 @@ import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -494,6 +497,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // copy all related schema at this moment
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
+        List<StoragePolicy> copiedStoragePolicys = Lists.newArrayList();
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
@@ -513,7 +517,17 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         if (getContent() == BackupContent.ALL) {
                             prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask);
                         }
-                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables);
+                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables,
+                                copiedStoragePolicys);
+                        for (StoragePolicy policy : copiedStoragePolicys) {
+                            Resource resource = Env.getCurrentEnv().getResourceMgr()
+                                    .getResource(policy.getStorageResource());
+                            if (resource.getType() != Resource.ResourceType.S3) {
+                                status = new Status(ErrCode.COMMON_ERROR,
+                                        "backup job only support S3 type storage policy:" + resource.getType());
+                                return;
+                            }
+                        }
                         break;
                     case VIEW:
                         prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
@@ -547,7 +561,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+        backupMeta = new BackupMeta(copiedTables, copiedResources, copiedStoragePolicys);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -666,7 +680,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
-                                                          List<Table> copiedTables) {
+                                                          List<Table> copiedTables,
+                                                          List<StoragePolicy> copiedStoragePolicys) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
                 : tableRef.getPartitionNames().getPartitionNames();
@@ -678,6 +693,23 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
+
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        // classify a table's all partitions by storage policy
+        for (Long partitionId : olapTable.getPartitionIds()) {
+            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+            if (StringUtils.isEmpty(policyName)) {
+                continue;
+            }
+
+            StoragePolicy checkedPolicyCondition = StoragePolicy.ofCheck(policyName);
+            StoragePolicy storagePolicy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
+                    .getPolicy(checkedPolicyCondition);
+
+            if (storagePolicy != null && !copiedStoragePolicys.contains(storagePolicy)) {
+                copiedStoragePolicys.add(storagePolicy);
+            }
+        }
     }
 
     private void prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {

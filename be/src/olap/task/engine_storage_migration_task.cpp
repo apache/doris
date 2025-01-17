@@ -161,7 +161,7 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
     _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
             full_path, tablet_id, _tablet->replica_id(), _tablet->table_id(),
-            _tablet->partition_id(), schema_hash));
+            _tablet->partition_id(), schema_hash, false, 0));
     return Status::OK();
 }
 

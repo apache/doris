@@ -51,11 +51,9 @@ public:
     // @param snapshot_path [in] 要被释放的snapshot的路径，只包含到ID
     Status release_snapshot(const std::string& snapshot_path);
 
-    Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(const std::string& clone_dir,
-                                                               int64_t tablet_id,
-                                                               int64_t replica_id, int64_t table_id,
-                                                               int64_t partition_id,
-                                                               int32_t schema_hash);
+    Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(
+            const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t table_id,
+            int64_t partition_id, int32_t schema_hash, bool is_restore, int64_t storage_policy_id);
 
 private:
     Status _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
