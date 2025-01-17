@@ -517,43 +517,40 @@ Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
 Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* state) {
     auto& local_state = get_local_state(state);
 
-    local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
+    auto inner_runtime_state = RuntimeState::create_unique(
             state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    local_state._shared_state->inner_runtime_state->set_task(state->get_task());
-    local_state._shared_state->inner_runtime_state->set_task_execution_context(
-            state->get_task_execution_context().lock());
-    local_state._shared_state->inner_runtime_state->set_be_number(state->be_number());
+    inner_runtime_state->set_task(state->get_task());
+    inner_runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
+    inner_runtime_state->set_be_number(state->be_number());
 
-    local_state._shared_state->inner_runtime_state->set_desc_tbl(&state->desc_tbl());
-    local_state._shared_state->inner_runtime_state->resize_op_id_to_local_state(-1);
-    local_state._shared_state->inner_runtime_state->set_runtime_filter_mgr(
-            state->local_runtime_filter_mgr());
+    inner_runtime_state->set_desc_tbl(&state->desc_tbl());
+    inner_runtime_state->resize_op_id_to_local_state(-1);
+    inner_runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
-    local_state._shared_state->inner_shared_state = std::dynamic_pointer_cast<HashJoinSharedState>(
+    auto inner_shared_state = std::dynamic_pointer_cast<HashJoinSharedState>(
             _inner_sink_operator->create_shared_state());
-    LocalSinkStateInfo info {0,  local_state._internal_runtime_profile.get(),
-                             -1, local_state._shared_state->inner_shared_state.get(),
-                             {}, {}};
+    LocalSinkStateInfo info {
+            0, local_state._internal_runtime_profile.get(), -1, inner_shared_state.get(), {}, {}};
 
-    RETURN_IF_ERROR(_inner_sink_operator->setup_local_state(
-            local_state._shared_state->inner_runtime_state.get(), info));
-    auto* sink_local_state = local_state._shared_state->inner_runtime_state->get_sink_local_state();
+    RETURN_IF_ERROR(_inner_sink_operator->setup_local_state(inner_runtime_state.get(), info));
+    auto* sink_local_state = inner_runtime_state->get_sink_local_state();
     DCHECK(sink_local_state != nullptr);
 
-    LocalStateInfo state_info {local_state._internal_runtime_profile.get(),
-                               {},
-                               local_state._shared_state->inner_shared_state.get(),
-                               {},
-                               0};
+    LocalStateInfo state_info {
+            local_state._internal_runtime_profile.get(), {}, inner_shared_state.get(), {}, 0};
 
-    RETURN_IF_ERROR(_inner_probe_operator->setup_local_state(
-            local_state._shared_state->inner_runtime_state.get(), state_info));
-    auto* probe_local_state = local_state._shared_state->inner_runtime_state->get_local_state(
-            _inner_probe_operator->operator_id());
+    RETURN_IF_ERROR(
+            _inner_probe_operator->setup_local_state(inner_runtime_state.get(), state_info));
+    auto* probe_local_state =
+            inner_runtime_state->get_local_state(_inner_probe_operator->operator_id());
     DCHECK(probe_local_state != nullptr);
     RETURN_IF_ERROR(probe_local_state->open(state));
     RETURN_IF_ERROR(sink_local_state->open(state));
+
+    /// Set these two values after all the work is ready.
+    local_state._shared_state->inner_shared_state = std::move(inner_shared_state);
+    local_state._shared_state->inner_runtime_state = std::move(inner_runtime_state);
     return Status::OK();
 }
 
