@@ -43,7 +43,7 @@
 #include "vec/common/pod_array_fwd.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 /** For zero argument, result is zero.
   * For arguments with most significand bit set, result is zero.
   * For other arguments, returns value, rounded up to power of two.
@@ -685,3 +685,4 @@ void swap(PODArray<T, initial_bytes, TAllocator, pad_right_, pad_left_>& lhs,
 }
 
 } // namespace doris::vectorized
+#include "common/compile_check_avoid_end.h"
