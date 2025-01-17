@@ -109,6 +109,7 @@ under the License.
     </dependencies>
     <build>
         <finalName>spark-dpp-${project.version}</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <!-- jmockit -->
             <plugin>
