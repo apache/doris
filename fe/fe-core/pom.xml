@@ -938,6 +938,7 @@ under the License.
     </repositories>
     <build>
         <finalName>doris-fe</finalName>
+        <directory>${project.basedir}/target/</directory>
         <resources>
             <resource>
                 <directory>target/generated-sources</directory>
