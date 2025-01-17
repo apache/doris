@@ -510,12 +510,13 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
             return Status::InternalError("failed to get rowset meta: {}", resp.status().msg());
         }
         if (latency > 100 * 1000) { // 100ms
-            LOG(INFO) << "finish get_rowset rpc. rowset_meta.size()=" << resp.rowset_meta().size()
+            LOG(INFO) << "finish get_rowset rpc. tablet_id=" << tablet_id
+                      << ", rowset_meta.size()=" << resp.rowset_meta().size()
                       << ", latency=" << latency << "us";
         } else {
-            LOG_EVERY_N(INFO, 100)
-                    << "finish get_rowset rpc. rowset_meta.size()=" << resp.rowset_meta().size()
-                    << ", latency=" << latency << "us";
+            LOG_EVERY_N(INFO, 100) << "finish get_rowset rpc. tablet_id=" << tablet_id
+                                   << ", rowset_meta.size()=" << resp.rowset_meta().size()
+                                   << ", latency=" << latency << "us";
         }
 
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
