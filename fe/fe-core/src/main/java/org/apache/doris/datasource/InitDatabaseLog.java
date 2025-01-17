@@ -108,4 +108,20 @@ public class InitDatabaseLog implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, InitDatabaseLog.class);
     }
+
+    @Override
+    public String toString() {
+        return "InitDatabaseLog{" +
+                "catalogId=" + catalogId +
+                ", dbId=" + dbId +
+                ", refreshCount=" + refreshCount +
+                ", createCount=" + createCount +
+                ", refreshTableIds=" + refreshTableIds +
+                ", createTableIds=" + createTableIds +
+                ", createTableNames=" + createTableNames +
+                ", remoteTableNames=" + remoteTableNames +
+                ", type=" + type +
+                ", lastUpdateTime=" + lastUpdateTime +
+                '}';
+    }
 }
