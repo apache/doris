@@ -1546,7 +1546,7 @@ class Suite implements GroovyInterceptable {
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         List<String> toCheckTaskRow = new ArrayList<>();
-        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL')) {
+        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED')) {
             result = sql(showTasks)
             logger.info("current db is " + dbName + ", showTasks result: " + result.toString())
             if (result.isEmpty()) {
