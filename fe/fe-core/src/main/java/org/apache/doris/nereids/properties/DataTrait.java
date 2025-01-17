@@ -191,6 +191,10 @@ public class DataTrait {
             uniformSet.add(dataTrait.uniformSet);
         }
 
+        public void addUniformSlot(Slot output, Expression uniformValue) {
+            uniformSet.add(output, uniformValue);
+        }
+
         public void addUniformSlotForOuterJoinNullableSide(DataTrait dataTrait) {
             uniformSet.addUniformSlotForOuterJoinNullableSide(dataTrait.uniformSet);
         }
