@@ -1278,7 +1278,7 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
         }
 
         // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
-        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+        if (!assert_cast<const ColumnNullable&>(
                      *subcolumn->data.get_finalized_column_ptr())
                      .is_null_at(row)) {
             serialize_root = false;
