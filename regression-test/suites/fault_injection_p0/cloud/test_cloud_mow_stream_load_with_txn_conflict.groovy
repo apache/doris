@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
+suite("test_cloud_mow_stream_load_with_txn_conflict", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllFEs()
+    def tableName = "test_cloud_mow_stream_load_with_txn_conflict"
     try {
         // create table
         sql """ drop table if exists ${tableName}; """
