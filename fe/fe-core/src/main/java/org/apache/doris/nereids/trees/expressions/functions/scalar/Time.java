@@ -39,11 +39,12 @@ public class Time extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT));
+
     /**
      * constructor with 1 argument.
      */
     public Time(Expression arg) {
-      super("time", arg);
+        super("time", arg);
     }
 
     /**
