@@ -867,6 +867,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}", transactionId,
                                 request, response);
                     }
+                    if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict")) {
+                        DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict");
+                        double percent = debugPoint.param("percent", 0.5);
+                        if (new SecureRandom().nextInt() % 100 < 100 * percent) {
+                            LOG.info("set kv txn conflict for test");
+                            GetDeleteBitmapUpdateLockResponse.Builder getLockResponseBuilder
+                                    = GetDeleteBitmapUpdateLockResponse.newBuilder();
+                            getLockResponseBuilder.setStatus(MetaServiceResponseStatus.newBuilder()
+                                    .setCode(MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES)
+                                    .setMsg("kv txn conflict"));
+                            response = getLockResponseBuilder.build();
+                        }
+                    }
                     if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
                             && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                         break;
@@ -892,7 +906,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}", transactionId,
                         retryTime, response);
                 if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
-                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT) {
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                             "Failed to get delete bitmap lock due to confilct");
