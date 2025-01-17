@@ -37,6 +37,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 } // namespace doris
@@ -99,7 +100,7 @@ private:
 
 class Sorter {
 public:
-    Sorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+    Sorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
            std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
             : _vsort_exec_exprs(vsort_exec_exprs),
               _limit(limit),
@@ -143,7 +144,7 @@ protected:
     bool _enable_spill = false;
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;
-    int _limit;
+    int64_t _limit;
     int64_t _offset;
     ObjectPool* _pool = nullptr;
     std::vector<bool>& _is_asc_order;
@@ -160,7 +161,7 @@ class FullSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(FullSorter);
 
 public:
-    FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+    FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
                const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
 
@@ -192,4 +193,5 @@ private:
     size_t buffered_block_bytes_ = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
