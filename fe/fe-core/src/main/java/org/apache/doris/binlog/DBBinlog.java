@@ -261,7 +261,7 @@ public class DBBinlog {
         }
     }
 
-    public Pair<TStatus, Long> getBinlogLag(long tableId, long prevCommitSeq) {
+    public Pair<TStatus, BinlogLagInfo> getBinlogLag(long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -723,4 +723,5 @@ public class DBBinlog {
             }
         }
     }
+
 }
