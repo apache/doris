@@ -166,6 +166,6 @@ suite("load_p2", "variant_type,p2"){
         qt_sql("select count() from github_events")
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        // set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     }
 }
