@@ -644,8 +644,8 @@ suite("test_show_data_with_compaction", "p2") {
     }
 
     def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+        for (String bid: backendId_to_backendIP.keySet()) {
+            (code, out, err) = update_be_config(backendId_to_backendIP.get(bid), backendId_to_backendHttpPort.get(bid), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
