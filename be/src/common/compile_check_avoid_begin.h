@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
-
-//compile_check_avoid_begin is the opposite version of compile_check_begin, 
+//compile_check_avoid_begin is the opposite version of compile_check_begin,
 //and it is used within a block of code to avoid checks.
 #ifdef COMPILE_AVOID_CHECK
 #error The handling of compile_check_avoid_begin.h and compile_check_avoid_end.h is not done correctly.
