@@ -175,7 +175,7 @@ Status Channel::_send_current_block(bool eos) {
 Status Channel::_send_local_block(bool eos) {
     Block block;
     if (_serializer.get_block() != nullptr) {
-        block = _serializer.get_block()->to_block();
+        block = std::move(*_serializer.get_block()).to_block();
         _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
     }
 
@@ -288,7 +288,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
 
 Status BlockSerializer::serialize_block(PBlock* dest, size_t num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
-        auto block = _mutable_block->to_block();
+        auto block = std::move(*_mutable_block).to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
         block.clear_column_data();
         _mutable_block->set_mutable_columns(block.mutate_columns());

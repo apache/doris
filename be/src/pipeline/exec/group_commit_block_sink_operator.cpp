@@ -133,7 +133,7 @@ Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
         RETURN_IF_ERROR(block->append_to_block_by_selector(cur_mutable_block.get(), selector));
     }
     std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
-    output_block->swap(cur_mutable_block->to_block());
+    output_block->swap(std::move(*cur_mutable_block).to_block());
     if (!_is_block_appended && state->num_rows_load_total() + state->num_rows_load_unselected() +
                                                state->num_rows_load_filtered() <=
                                        config::group_commit_memory_rows_for_max_filter_ratio) {
@@ -185,7 +185,7 @@ void GroupCommitBlockSinkLocalState::_remove_estimated_wal_bytes() {
 
 Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
                                                    bool is_blocks_contain_all_load_data) {
-    DCHECK(_is_block_appended == false);
+    DCHECK(!_is_block_appended);
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
     if (_state->exec_env()->wal_mgr()->is_running()) {
         if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
@@ -213,9 +213,9 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
     } else {
         return Status::InternalError("be is stopping");
     }
-    for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
+    for (auto& _block : _blocks) {
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                state, *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE, p._load_id));
+                state, _block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE, p._load_id));
     }
     _is_block_appended = true;
     _blocks.clear();
@@ -253,7 +253,7 @@ Status GroupCommitBlockSinkLocalState::init(RuntimeState* state, LocalSinkStateI
 Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(Base::init(t_sink));
     DCHECK(t_sink.__isset.olap_table_sink);
-    auto& table_sink = t_sink.olap_table_sink;
+    const auto& table_sink = t_sink.olap_table_sink;
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
@@ -383,7 +383,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 }
                 res_block.add_row(block.get(), i);
             }
-            block->swap(res_block.to_block());
+            block->swap(std::move(res_block).to_block());
         }
         // add block into block queue
         RETURN_IF_ERROR(local_state._add_block(state, block));

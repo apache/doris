@@ -484,7 +484,7 @@ public:
         DCHECK_LE(column_id, columns());
         DCHECK_LE(n, rows());
         DCHECK_LE(m, rows());
-        auto& column = get_column_by_position(column_id);
+        const auto& column = get_column_by_position(column_id);
         return column->compare_at(n, m, *column, nan_direction_hint);
     }
 
@@ -527,7 +527,7 @@ public:
     std::string dump_types() const {
         std::string res;
         for (auto type : _data_types) {
-            if (res.size()) {
+            if (!res.empty()) {
                 res += ", ";
             }
             res += type->get_name();
@@ -568,7 +568,7 @@ public:
     template <typename T>
     [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
-        if (_columns.size() == 0 && _data_types.size() == 0) {
+        if (_columns.empty() && _data_types.empty()) {
             _data_types = block.get_data_types();
             _names = block.get_names();
             _columns.resize(block.columns());
@@ -614,8 +614,8 @@ public:
     }
 
     // move to columns' data to a Block. this will invalidate
-    Block to_block(int start_column = 0);
-    Block to_block(int start_column, int end_column);
+    Block to_block(int start_column = 0) &&;
+    Block to_block(int start_column, int end_column) &&;
 
     void swap(MutableBlock& other) noexcept;
 

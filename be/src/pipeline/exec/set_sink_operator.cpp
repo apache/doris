@@ -52,7 +52,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
 
     if (eos || local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
         SCOPED_TIMER(local_state._build_timer);
-        build_block = local_state._mutable_block.to_block();
+        build_block = std::move(local_state._mutable_block).to_block();
         RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
 

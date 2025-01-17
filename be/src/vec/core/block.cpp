@@ -1121,16 +1121,13 @@ void MutableBlock::erase(const String& name) {
             ++it;
         }
     }
-    // if (position < row_same_bit.size()) {
-    //     row_same_bit.erase(row_same_bit.begin() + position);
-    // }
 }
 
-Block MutableBlock::to_block(int start_column) {
-    return to_block(start_column, _columns.size());
+Block MutableBlock::to_block(int start_column) && {
+    return std::move(*this).to_block(start_column, _columns.size());
 }
 
-Block MutableBlock::to_block(int start_column, int end_column) {
+Block MutableBlock::to_block(int start_column, int end_column) && {
     ColumnsWithTypeAndName columns_with_schema;
     columns_with_schema.reserve(end_column - start_column);
     for (size_t i = start_column; i < end_column; ++i) {

@@ -340,7 +340,7 @@ Status MemTable::_sort_by_cluster_keys() {
     SCOPED_RAW_TIMER(&_stat.sort_ns);
     _stat.sort_times++;
     // sort all rows
-    vectorized::Block in_block = _output_mutable_block.to_block();
+    vectorized::Block in_block = std::move(_output_mutable_block).to_block();
     vectorized::MutableBlock mutable_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
     auto clone_block = in_block.clone_without_columns();
@@ -379,7 +379,7 @@ Status MemTable::_sort_by_cluster_keys() {
                 });
     }
 
-    in_block = mutable_block.to_block();
+    in_block = std::move(mutable_block).to_block();
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
     std::vector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
@@ -462,7 +462,7 @@ template <bool is_final, bool has_skip_bitmap_col>
 void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
     _stat.agg_times++;
-    vectorized::Block in_block = _input_mutable_block.to_block();
+    vectorized::Block in_block = std::move(_input_mutable_block).to_block();
     vectorized::MutableBlock mutable_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
@@ -620,7 +620,7 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
         } else {
-            vectorized::Block in_block = _input_mutable_block.to_block();
+            vectorized::Block in_block = std::move(_input_mutable_block).to_block();
             RETURN_IF_ERROR(_put_into_output(in_block));
         }
     } else {
@@ -635,7 +635,7 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
     _input_mutable_block.clear();
-    *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
+    *res = vectorized::Block::create_unique(std::move(_output_mutable_block).to_block());
     return Status::OK();
 }
 

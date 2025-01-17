@@ -106,10 +106,10 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     auto row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
-    auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
+    auto* inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
     if (inner_sink_state_) {
-        auto inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
-        build_block = inner_sink_state->_build_side_mutable_block.to_block();
+        auto* inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
+        build_block = std::move(inner_sink_state->_build_side_mutable_block).to_block();
     }
 
     if (build_block.rows() <= 1) {
@@ -133,7 +133,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
         auto flush_rows = [&state, this](std::unique_ptr<vectorized::MutableBlock>& partition_block,
                                          vectorized::SpillStreamSPtr& spilling_stream) {
-            auto block = partition_block->to_block();
+            auto block = std::move(*partition_block).to_block();
             auto status = spilling_stream->spill_block(state, block, false);
 
             if (!status.ok()) {
@@ -141,9 +141,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                 _spill_status = status;
                 _spill_status_ok = false;
                 _dependency->set_ready();
-                return false;
             }
-            return true;
+            return status.ok();
         };
 
         size_t total_rows = build_block.rows();
@@ -370,7 +369,7 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
     if (_spill_status_ok) {
-        auto block = partitioned_block->to_block();
+        auto block = std::move(*partitioned_block).to_block();
         partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
         auto st = spilling_stream->spill_block(state(), block, false);
         if (!st.ok()) {

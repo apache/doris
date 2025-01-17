@@ -646,7 +646,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
 
     // tablet_ids has already set when add row
     request->set_packet_seq(_next_packet_seq);
-    auto block = mutable_block->to_block();
+    auto block = std::move(*mutable_block).to_block();
     CHECK(block.rows() == request->tablet_ids_size())
             << "block rows: " << block.rows()
             << ", tablet_ids_size: " << request->tablet_ids_size();
@@ -1420,7 +1420,8 @@ Status VTabletWriter::_send_new_partition_batch() {
     if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
         RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
 
-        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+        Block tmp_block = std::move(*_row_distribution._batching_block)
+                                  .to_block(); // Borrow out, for lval ref
 
         // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.

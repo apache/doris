@@ -545,7 +545,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
-                local_state._build_side_mutable_block.to_block());
+                std::move(local_state._build_side_mutable_block).to_block());
 
         if (!local_state._runtime_filters_disabled) {
             RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
