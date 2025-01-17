@@ -62,6 +62,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     g_memtable_cnt << 1;
     _query_thread_context.init_unlocked();
     _arena = std::make_unique<vectorized::Arena>();
+    _agg_func_arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     _num_columns = _tablet_schema->num_columns();
     if (partial_update_info != nullptr) {
@@ -160,6 +161,7 @@ MemTable::~MemTable() {
         // Arena has to be destroyed after agg state, because some agg state's memory may be
         // allocated in arena.
         _arena.reset();
+        _agg_func_arena.reset();
         _vec_row_comparator.reset();
         _row_in_blocks.clear();
         _agg_functions.clear();
@@ -390,7 +392,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
             }
         }
 
-        _arena->clear();
+        _agg_func_arena->clear();
 
         if constexpr (is_final) {
             row->remove_init_agg();
@@ -400,7 +402,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
                 auto* agg_place = row->agg_places(i);
                 auto* col_ptr = _output_mutable_block.get_column_by_position(i).get();
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                              row_pos, _arena.get());
+                              row_pos, _agg_func_arena.get());
             }
         }
     } else {
