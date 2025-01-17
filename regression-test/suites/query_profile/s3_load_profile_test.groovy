@@ -108,9 +108,6 @@ PROPERTIES (
     def ak = getS3AK()
     def sk = getS3SK()
 
-    sql "set enable_profile=true;"   
-    sql "set profile_level=2;" 
-    
     def label = "test_s3_load_" + UUID.randomUUID().toString().replace("-", "_")
     logger.info("s3_load_profile_test_dup_tbl_basic, label: $label")
     loadAttribute.label = label
