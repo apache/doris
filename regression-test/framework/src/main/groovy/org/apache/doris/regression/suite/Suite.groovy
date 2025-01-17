@@ -463,6 +463,24 @@ class Suite implements GroovyInterceptable {
             columnNames.add(meta.getColumnLabel(i + 1))
         }
 
+        // Check if there are duplicates column names.
+        // SQL may return multiple columns with the same name.
+        // which cannot be handled by maps and will result in an error directly.
+        Set<String> uniqueSet = new HashSet<>()
+        Set<String> duplicates = new HashSet<>()
+    
+        for (String str : columnNames) {
+            if (uniqueSet.contains(str)) {
+                duplicates.add(str)
+            } else {
+                uniqueSet.add(str)
+            }
+        }
+        if (!duplicates.isEmpty()) {
+            def errorMessage = "${sqlStr} returns duplicates headers: ${duplicates}"   
+            throw new Exception(errorMessage)
+        }
+
         // add result to res map list, each row is a map with key is column name
         List<Map<String, Object>> res = new ArrayList<>()
         for (int i = 0; i < result.size(); i++) {
