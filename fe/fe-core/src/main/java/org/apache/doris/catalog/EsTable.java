@@ -152,15 +152,24 @@ public class EsTable extends Table implements GsonPostProcessable {
     }
 
     public Map<String, String> fieldsContext() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
     public Map<String, String> docValueContext() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
     public List<String> needCompatDateFields() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
+    private void initEsMetaStateTracker() {
+        if (esMetaStateTracker == null) {
+            esMetaStateTracker = new EsMetaStateTracker(client, this);
+        }
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -318,8 +327,6 @@ public class EsTable extends Table implements GsonPostProcessable {
         // parse httpSslEnabled before use it here.
         EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
-        // sync table metadata before use
-        syncTableMetaData();
     }
 
     @Override
@@ -354,17 +361,13 @@ public class EsTable extends Table implements GsonPostProcessable {
         // parse httpSslEnabled before use it here.
         EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
-        // sync table metadata before use
-        syncTableMetaData();
     }
 
     /**
      * Sync es index meta from remote ES Cluster.
      */
     public void syncTableMetaData() {
-        if (esMetaStateTracker == null) {
-            esMetaStateTracker = new EsMetaStateTracker(client, this);
-        }
+        initEsMetaStateTracker();
         try {
             esMetaStateTracker.run();
             this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
