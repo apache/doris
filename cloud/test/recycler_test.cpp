@@ -3352,6 +3352,12 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         rs = resp->add_rowset_meta();
         rs->set_resource_id("success_vault");
     });
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
+
     sp->enable_processing();
 
     // succeed to init MockAccessor
@@ -3371,7 +3377,6 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         instance.set_instance_id("GetObjStoreInfoTestInstance");
         txn->put(storage_vault_key({instance.instance_id(), "4"}), vault.SerializeAsString());
     }
-
     val = instance.SerializeAsString();
     txn->put(key, val);
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
