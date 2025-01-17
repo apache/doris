@@ -871,7 +871,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict")) {
                         DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                                 "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict");
-                        double percent = debugPoint.param("percent", 0.5);
+                        double percent = debugPoint.param("percent", 0.3);
                         if (new SecureRandom().nextInt() % 100 < 100 * percent) {
                             LOG.info("set kv txn conflict for test");
                             GetDeleteBitmapUpdateLockResponse.Builder getLockResponseBuilder

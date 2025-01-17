@@ -35,7 +35,7 @@ suite("test_cloud_mow_stream_load_with_txn_conflict", "nonConcurrent") {
             "replication_num" = "1"
         );
         """
-        GetDebugPoint().enableDebugPointForAllFEs('CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict', [percent: 0.5])
+        GetDebugPoint().enableDebugPointForAllFEs('CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict', [percent: 0.3])
         streamLoad {
             table "${tableName}"
 
