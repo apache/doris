@@ -78,12 +78,16 @@ public:
             fmt::format_to(buffer, "-");
         }
         if (abs_number == 1) {
+            //eg: 1000 ---> 1K
             fmt::format_to(buffer, "{}", abs_number);
         } else if (abs_number < 10) {
+            //eg: 1239 ---> 1.24K only want to show 2 decimal
             fmt::format_to(buffer, "{:.2f}", abs_number);
         } else if (abs_number < 100) {
+            //eg: 12399999 ---> 12.4M only want to show 1 decimal
             fmt::format_to(buffer, "{:.1f}", abs_number);
         } else {
+            // eg: 999999999999999 ---> 1000T only want to show 0 decimal
             fmt::format_to(buffer, "{:.0f}", abs_number);
         }
         fmt::format_to(buffer, UNITS[unit_index]);
