@@ -64,7 +64,15 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
             *block = std::move(_cached_blocks[sender_idx].front());
             _cached_blocks[sender_idx].erase(_cached_blocks[sender_idx].begin());
 
-            *eos = _cached_blocks[sender_idx].empty() && _spill_readers[sender_idx].empty() && _eos;
+            /** Eos:
+                * 1. `_eos` is true means no more data will be added into queue.
+                * 2. `_cached_blocks[sender_idx]` blocks recovered from spill.
+                * 3. `_spill_readers[sender_idx].empty()` means there are no blocks on disk.
+                * 4. `_sender_pos_to_read[sender_idx] == _multi_cast_blocks.end()` means no more blocks in queue.
+            */
+            *eos = _eos && _cached_blocks[sender_idx].empty() &&
+                   _spill_readers[sender_idx].empty() &&
+                   _sender_pos_to_read[sender_idx] == _multi_cast_blocks.end();
             return Status::OK();
         }
 
