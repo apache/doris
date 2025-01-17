@@ -761,13 +761,13 @@ Status ColumnReader::new_array_iterator(ColumnIterator** iterator,
             &item_iterator, tablet_column ? &tablet_column->get_sub_column(0) : nullptr));
 
     ColumnIterator* offset_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, tablet_column));
+    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, nullptr));
     auto* ofcIter =
             new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offset_iterator));
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator, tablet_column));
+        RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator, nullptr));
     }
     *iterator = new ArrayFileColumnIterator(this, ofcIter, item_iterator, null_iterator);
     return Status::OK();
