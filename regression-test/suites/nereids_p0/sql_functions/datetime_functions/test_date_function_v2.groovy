@@ -46,5 +46,15 @@ suite("test_date_function_v2") {
     """
     assertEquals(result2[0][0], "2024-12-29 10:11:12.000000");
 
+    def result3 = try_sql """
+        select cast(str_to_date("2025-01-17 11:59:30", '%Y-%m-%d %H:%i:%s') as string);
+    """
+    assertEquals(result3[0][0], "2025-01-17 11:59:30");
+
+    def result4 = try_sql """
+        select cast(str_to_date("2025-01-17 11:59:30", '%Y-%m-%d %H:%i:%s.%f') as string);
+    """
+    assertEquals(result4[0][0], "2025-01-17 11:59:30.000000");
+
     sql """ drop table ${tableName} """
 }
