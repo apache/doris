@@ -32,7 +32,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -68,7 +67,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerF
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
@@ -270,8 +268,6 @@ public class CreateMTMVInfo {
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
-            // can not contain VIEW or MTMV
-            analyzeBaseTables(planner.getAnalyzedPlan());
             // can not contain Random function
             analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
             // can not contain partition or tablets
@@ -366,25 +362,6 @@ public class CreateMTMVInfo {
             }
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);
-        }
-    }
-
-    private void analyzeBaseTables(Plan plan) {
-        List<Object> subQuerys = plan.collectToList(node -> node instanceof LogicalSubQueryAlias);
-        for (Object subquery : subQuerys) {
-            List<String> qualifier = ((LogicalSubQueryAlias) subquery).getQualifier();
-            if (!CollectionUtils.isEmpty(qualifier) && qualifier.size() == 3) {
-                try {
-                    TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                            .getCatalogOrAnalysisException(qualifier.get(0))
-                            .getDbOrAnalysisException(qualifier.get(1)).getTableOrAnalysisException(qualifier.get(2));
-                    if (table instanceof View) {
-                        throw new AnalysisException("can not contain VIEW");
-                    }
-                } catch (org.apache.doris.common.AnalysisException e) {
-                    LOG.warn(e.getMessage(), e);
-                }
-            }
         }
     }
 
