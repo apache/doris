@@ -19,6 +19,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -43,19 +44,16 @@ class BitmapValue;
 
 struct PartialUpdateInfo {
     Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
-                UniqueKeyUpdateModePB unique_key_update_mode,
+                UniqueKeyUpdateModePB unique_key_update_mode, PartialUpdateNewRowPolicyPB policy,
                 const std::set<std::string>& partial_update_cols, bool is_strict_mode,
                 int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
                 const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
                 int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
-    Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
-                                                  BitmapValue* skip_bitmap = nullptr) const;
-
-    Status handle_not_found_error_for_fixed_partial_update(const TabletSchema& tablet_schema) const;
-    Status handle_not_found_error_for_flexible_partial_update(const TabletSchema& tablet_schema,
-                                                              BitmapValue* skip_bitmap) const;
+    Status handle_new_key(const TabletSchema& tablet_schema,
+                          const std::function<std::string()>& line,
+                          BitmapValue* skip_bitmap = nullptr);
     std::string summary() const;
 
     std::string partial_update_mode_str() const {
@@ -84,6 +82,7 @@ private:
 
 public:
     UniqueKeyUpdateModePB partial_update_mode {UniqueKeyUpdateModePB::UPSERT};
+    PartialUpdateNewRowPolicyPB partial_update_new_key_policy {PartialUpdateNewRowPolicyPB::APPEND};
     int64_t max_version_in_flush_phase {-1};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
