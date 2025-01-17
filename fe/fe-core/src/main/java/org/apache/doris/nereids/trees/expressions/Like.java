@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.VarcharType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * like expression: a like 'xxx%'.
@@ -30,6 +33,10 @@ import java.util.List;
 public class Like extends StringRegexPredicate {
     public Like(Expression left, Expression right) {
         this(ImmutableList.of(left, right));
+    }
+
+    public Like(Expression left, Expression right, Expression escape) {
+        this(ImmutableList.of(left, right, escape));
     }
 
     private Like(List<Expression> children) {
@@ -42,8 +49,26 @@ public class Like extends StringRegexPredicate {
 
     @Override
     public Like withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
         return new Like(children);
+    }
+
+    public Optional<Expression> getEscape() {
+        List<Expression> children = super.children;
+        if (children.size() == 3) {
+            return Optional.of(children.get(2));
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        if (super.children.size() == 3) {
+            return ImmutableList.of(
+                FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+            );
+        }
+        return super.getSignatures();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

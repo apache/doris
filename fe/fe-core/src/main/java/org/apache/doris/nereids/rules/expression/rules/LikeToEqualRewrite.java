@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * LikeToEqualRewrite
@@ -46,13 +47,14 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
     private static Expression rewriteLikeToEqual(Like like) {
         Expression left = like.child(0);
         Expression right = like.child(1);
+        Optional<Expression> escape = like.getEscape();
         if (!(right instanceof VarcharLiteral)) {
             return like;
         }
         String str = ((VarcharLiteral) right).value;
         StringBuilder sb = new StringBuilder();
         int len = str.length();
-        char escapeChar = '\\';
+        char escapeChar = escape.isPresent() ? ((VarcharLiteral) escape.get()).value.charAt(0) : '\\';
         for (int i = 0; i < len;) {
             char c = str.charAt(i);
             if (c == escapeChar && (i + 1) < len
