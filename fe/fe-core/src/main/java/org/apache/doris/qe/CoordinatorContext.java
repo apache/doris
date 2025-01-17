@@ -364,9 +364,7 @@ public class CoordinatorContext {
             queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
-        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
-                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = connectContext.getMaxExecMemByte();
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             queryOptions.setMemLimit(memLimit);

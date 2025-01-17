@@ -1027,13 +1027,65 @@ public class ConnectContext {
     public int getExecTimeout() {
         if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
-            return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+            return Math.max(getInsertTimeoutS(), getQueryTimeoutS());
         } else if (executor != null && executor.isAnalyzeStmt()) {
             return sessionVariable.getAnalyzeTimeoutS();
         } else {
             // normal query stmt
-            return sessionVariable.getQueryTimeoutS();
+            return getQueryTimeoutS();
         }
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return insertTimeoutS
+     */
+    public int getInsertTimeoutS() {
+        int userInsertTimeout = getEnv().getAuth().getInsertTimeout(getQualifiedUser());
+        if (userInsertTimeout > 0) {
+            return userInsertTimeout;
+        }
+        return sessionVariable.getInsertTimeoutS();
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return queryTimeoutS
+     */
+    public int getQueryTimeoutS() {
+        int userQueryTimeout = getEnv().getAuth().getQueryTimeout(getQualifiedUser());
+        if (userQueryTimeout > 0) {
+            return userQueryTimeout;
+        }
+        return sessionVariable.getQueryTimeoutS();
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return maxExecMemByte
+     */
+    public long getMaxExecMemByte() {
+        long userLimit = getEnv().getAuth().getExecMemLimit(getQualifiedUser());
+        if (userLimit > 0) {
+            return userLimit;
+        }
+        return sessionVariable.getMaxExecMemByte();
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return workloadGroup
+     */
+    public String getWorkloadGroup() {
+        String groupName = getEnv().getAuth().getWorkloadGroup(getQualifiedUser());
+        if (!Strings.isNullOrEmpty(groupName)) {
+            return groupName;
+        }
+        return sessionVariable.getWorkloadGroup();
     }
 
     public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
