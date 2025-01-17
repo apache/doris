@@ -975,7 +975,7 @@ void process_mow_when_commit_txn(
         int64_t lock_id = lock_info.lock_id();
         for (auto tablet_id : table_id_tablet_ids[table_id]) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-
+#ifdef UNIT_TEST
             // check that if the pending info's lock_id is correct
             std::string pending_val;
             err = txn->get(pending_key, &pending_val);
@@ -1004,7 +1004,7 @@ void process_mow_when_commit_txn(
                         "found {} tablet_id={} instance_id={}",
                         lock_id, pending_info.lock_id(), tablet_id, instance_id);
             }
-
+#endif
             txn->remove(pending_key);
             LOG(INFO) << "xxx remove delete bitmap pending key, pending_key=" << hex(pending_key)
                       << " txn_id=" << txn_id;
