@@ -198,10 +198,9 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         Set<Expression> common = new HashSet<>(groupingSets.get(0));
         for (List<Expression> groupingSet : groupingSets) {
             common.retainAll(groupingSet);
-        }
-        if (common.isEmpty()) {
-            getOutput().forEach(builder::addUniformSlot);
-            return;
+            if (common.isEmpty()) {
+                break;
+            }
         }
         DataTrait childFd = child().getLogicalProperties().getTrait();
         for (Slot output : getOutput()) {
@@ -212,7 +211,9 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                     builder.addUniformSlot(output);
                 }
             } else {
-                builder.addUniformSlot(output);
+                if (childFd.isUniform(output)) {
+                    builder.addUniformSlot(output);
+                }
             }
         }
     }

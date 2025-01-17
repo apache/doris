@@ -594,8 +594,7 @@ public class DataTrait {
         // it indicates that this slot is uniform and not null.
         public boolean isUniformAndNotNull(Slot slot) {
             return slotUniformValue.containsKey(slot)
-                    && (!slot.nullable() || slotUniformValue.get(slot).isPresent()
-                    && !slotUniformValue.get(slot).get().nullable());
+                    && (slotUniformValue.get(slot).isPresent() && !slotUniformValue.get(slot).get().nullable());
         }
 
         public boolean isUniformAndHasConstValue(Slot slot) {
