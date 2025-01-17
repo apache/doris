@@ -110,6 +110,9 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
     public static LongCounterMetric COUNTER_LARGE_EDIT_LOG;
 
+    public static LongCounterMetric COUNTER_AUDIT_LOG_DISCARD_NUM;
+
+
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
     public static Histogram HISTO_JOURNAL_BATCH_SIZE;
     public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
@@ -477,6 +480,11 @@ public final class MetricRepo {
                 "counter of image failed to clean");
         COUNTER_IMAGE_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_IMAGE_CLEAN_FAILED);
+
+        // audit log
+        COUNTER_AUDIT_LOG_DISCARD_NUM = new LongCounterMetric("audit_log_discard_num", MetricUnit.OPERATIONS,
+            "counter of audit log discard");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_AUDIT_LOG_DISCARD_NUM);
 
         // txn
         COUNTER_TXN_REJECT = new LongCounterMetric("txn_counter", MetricUnit.REQUESTS,
