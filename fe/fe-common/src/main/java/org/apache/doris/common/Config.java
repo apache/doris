@@ -3220,6 +3220,14 @@ public class Config extends ConfigBase {
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
 
+    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
+            "Whether to enable retry when schema change failed in cloud model, default is true."})
+    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
+            "Max retry times when schema change failed in cloud model, default is 3."})
+    public static int schema_change_max_retry_time = 3;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
