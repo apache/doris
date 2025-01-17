@@ -50,12 +50,15 @@ public class BinlogUtils {
         }
     }
 
-    public static Pair<TStatus, Long> getBinlogLag(TreeSet<TBinlog> binlogs, long prevCommitSeq) {
+    public static Pair<TStatus, BinlogLagInfo> getBinlogLag(TreeSet<TBinlog> binlogs, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         TBinlog firstBinlog = binlogs.first();
+        TBinlog lastBinlog = binlogs.last();
 
         if (firstBinlog.getCommitSeq() > prevCommitSeq) {
-            return Pair.of(status, Long.valueOf(binlogs.size()));
+            BinlogLagInfo lagInfo = new BinlogLagInfo(binlogs.size(), firstBinlog.getCommitSeq(),
+                    firstBinlog.getTimestamp(), lastBinlog.getCommitSeq(), lastBinlog.getTimestamp());
+            return Pair.of(status, lagInfo);
         }
 
         // find first binlog whose commitSeq > commitSeq
@@ -64,11 +67,20 @@ public class BinlogUtils {
         TBinlog binlog = binlogs.higher(guard);
 
         // all prevCommitSeq <= commitSeq
-        if (binlog == null) {
-            return Pair.of(status, 0L);
-        } else {
-            return Pair.of(status, Long.valueOf(binlogs.tailSet(binlog).size()));
+        long lag = 0;
+        long lastCommitSeq = 0;
+        long lastCommitTs = 0;
+        long firstCommitSeq = 0;
+        long firstCommitTs = 0;
+        if (binlog != null) {
+            lag = binlogs.tailSet(binlog).size();
+            firstCommitSeq = binlog.getCommitSeq();
+            firstCommitTs = binlog.getTimestamp();
+            lastCommitSeq = lastBinlog.getCommitSeq();
+            lastCommitTs = lastBinlog.getTimestamp();
         }
+        return Pair.of(status, new BinlogLagInfo(lag, firstCommitSeq, lastCommitSeq,
+                firstCommitTs, lastCommitTs));
     }
 
     public static TBinlog newDummyBinlog(long dbId, long tableId) {

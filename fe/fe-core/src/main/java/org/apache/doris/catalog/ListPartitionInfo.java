@@ -219,6 +219,10 @@ public class ListPartitionInfo extends PartitionInfo {
             }
             sb.append(")");
 
+            if (!"".equals(getStoragePolicy(entry.getKey()))) {
+                sb.append("(\"storage_policy\" = \"").append(getStoragePolicy(entry.getKey())).append("\")");
+            }
+
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;
