@@ -63,90 +63,108 @@ suite ("no_await") {
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
 
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
     create_sync_mv(db, tblName, "k12s3m", """select k1,sum(k2),max(k2) from ${tblName} group by k1;""")
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
+    sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 }
