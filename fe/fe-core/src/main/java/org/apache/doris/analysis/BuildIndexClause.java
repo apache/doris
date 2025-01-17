@@ -70,6 +70,10 @@ public class BuildIndexClause extends AlterTableClause {
         if (indexDef == null) {
             throw new AnalysisException("index definition expected.");
         }
+        if (indexDef.getIndexType() == IndexDef.IndexType.NGRAM_BF
+                || indexDef.getIndexType() == IndexDef.IndexType.BLOOMFILTER) {
+            throw new AnalysisException("ngram bloomfilter or bloomfilter index is not needed to build.");
+        }
         indexDef.analyze();
         this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
                 indexDef.getColumns(), indexDef.getIndexType(),
