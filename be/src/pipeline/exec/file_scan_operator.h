@@ -50,8 +50,6 @@ public:
 
     Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-    Status start_scanners(
-            const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
@@ -67,7 +65,6 @@ private:
     // KVCache<std::string> _kv_cache;
     std::unique_ptr<vectorized::ShardedKVCache> _kv_cache;
     TupleId _output_tuple_id = -1;
-    bool _batch_split_mode = false;
 };
 
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
@@ -84,10 +81,16 @@ public:
 
     bool is_file_scan_operator() const override { return true; }
 
+    // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
+    int query_parallel_instance_num() const override {
+        return _batch_split_mode ? 1 : _query_parallel_instance_num;
+    }
+
 private:
     friend class FileScanLocalState;
 
     const std::string _table_name;
+    bool _batch_split_mode = false;
 };
 
 #include "common/compile_check_end.h"

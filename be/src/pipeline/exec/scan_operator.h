@@ -298,8 +298,7 @@ protected:
     Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    virtual Status start_scanners(
-            const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners);
+    Status _start_scanners(const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners);
 
     // For some conjunct there is chance to elimate cast operator
     // Eg. Variant's sub column could eliminate cast in storage layer if
@@ -373,6 +372,10 @@ public:
 
     [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
+    [[nodiscard]] virtual int query_parallel_instance_num() const {
+        return _query_parallel_instance_num;
+    }
+
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }
@@ -434,6 +437,8 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
+
+    int _query_parallel_instance_num = 0;
 
     std::vector<int> topn_filter_source_node_ids;
 };
