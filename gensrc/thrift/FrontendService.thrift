@@ -1420,6 +1420,10 @@ struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
     3: optional Types.TNetworkAddress master_address
+    4: optional i64 first_commit_seq
+    5: optional i64 last_commit_seq
+    6: optional i64 first_binlog_timestamp
+    7: optional i64 last_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
