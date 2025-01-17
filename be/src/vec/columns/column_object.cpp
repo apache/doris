@@ -1490,7 +1490,7 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
 #ifndef NDEBUG
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
-    if (serialize_root && subcolumns.get_root()->is_scalar()) {
+    if (serialize_root && !is_null_root()) {
         // only serialize root when all other subcolumns is null
         RETURN_IF_ERROR(
                 subcolumns.get_root()->data.get_least_common_type_serde()->write_one_cell_to_json(
