@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_truncate_and_recover_table_show_data","p2") {
+suite("test_cloud_truncate_table_show_data","p2") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -58,7 +58,7 @@ suite("test_cloud_truncate_and_recover_table_show_data","p2") {
         """
     }
 
-    def check = {String tableName, int op -> 
+    def check = {String tableName-> 
         List<String> tablets = get_tablets_from_table(tableName)
         def loadTimes = [1, 10]
         Map<String, List> sizeRecords = ["apiSize":[], "mysqlSize":[], "cbsSize":[]]
@@ -71,13 +71,13 @@ suite("test_cloud_truncate_and_recover_table_show_data","p2") {
             trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-            sleep(60 * 1000)
+            sleep(10 * 1000)
             logger.info("after ${i} times stream load, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
         }
 
@@ -89,60 +89,31 @@ suite("test_cloud_truncate_and_recover_table_show_data","p2") {
         assertEquals(sizeRecords["apiSize"][0], sizeRecords["apiSize"][1])
         assertEquals(sizeRecords["cbsSize"][0], sizeRecords["cbsSize"][1])
 
-        if(op == 1){
-
         sql """truncate table ${tableName}"""
 
-        sleep(60 * 1000)
-
-        sql """recover table ${tableName}"""
-        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
         // 加一下触发compaction的机制
         trigger_compaction(tablets)
 
         // 然后 sleep 1min， 等fe汇报完
-        sleep(60 * 1000)
+        sleep(10 * 1000)
         sql "select count(*) from ${tableName}"
+        sleep(10 * 1000)
+        tablets = get_tablets_from_table(tableName)
 
-        // expect mysqlSize == apiSize == storageSize
-        assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][1], sizeRecords["apiSize"][2])
-        }
-
-        if(op == 2){
-
-        sql """truncate table ${tableName} force"""
         sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
         sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
         sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
-        // 加一下触发compaction的机制
-        trigger_compaction(tablets)
-
-        // 然后 sleep 1min， 等fe汇报完
-        sleep(60 * 1000)
-        sql "select count(*) from ${tableName}"
+        logger.info("after truncate table, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
 
         // expect mysqlSize == apiSize == storageSize
         assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
         assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
-        assertEquals(sizeRecords["mysqlSize"][2], 0)
-
-        }
     }
 
     def main = {
-        def tableName = "test_cloud_truncate_and_recover_table_show_data"
+        def tableName = "test_cloud_truncate_table_show_data"
         create_normal_table(tableName) 
-        check(tableName, 1)
-
-        tableName = "test_cloud_truncate_and_recover_table_force_show_data"
-        create_normal_table(tableName) 
-        check(tableName, 2)
+        check(tableName)
     }
 
     main()

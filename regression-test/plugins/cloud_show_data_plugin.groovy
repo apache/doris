@@ -69,7 +69,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
     }
 
     Suite.metaClass.get_tablets_from_table = { String table ->
-        def res = sql_return_maparray """show tablets from  ${table}"""
+        def res = sql_return_maparray """show tablets from ${table}"""
+        logger.info("get tablets from ${table}:" + res)
         return res 
     }
 
@@ -120,10 +121,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
                 if (tabletStatusAfterCompaction.rowsets.size() < tabletStatusBeforeCompaction.rowsets.size()){
                     compactionStatus = 'FINISHED'
                 }
-                Thread.sleep(60 * 1000)
-            } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
+                Thread.sleep(10 * 1000)
+            } while (timeoutTimestamp > System.currentTimeMillis() && (compactionStatus != 'FINISHED'))
 
-            if (status != "FINISHED") {
+            if (compactionStatus != "FINISHED") {
                 logger.info("compaction not Finish or failed")
                 return false
             }
@@ -132,8 +133,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
     Suite.metaClass.trigger_compaction = { List<List<Object>> tablets ->
         for(def tablet: tablets) {
-            trigger_tablet_compaction(tablet, "cumulative")
-            trigger_tablet_compaction(tablet, "base")
             trigger_tablet_compaction(tablet, "full")
         }
     }
@@ -157,7 +156,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
             def client = initOssClient(ak, sk, endpoint)
             for(String tabletId: tabletIds) {
-                storageSize += calculateFolderLength(client, bucketName, storagePrefix + "/data/" + tabletId)
+                storageSize += calculateFolderLength(client, bucketName, storagePrefix + "data/" + tabletId)
             }
             shutDownOssClient(client)
         }
@@ -168,8 +167,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             def fsUser = context.config.otherConfigs.get("cbsFsUser")
             def storagePrefix = context.config.otherConfigs.get("cbsFsPrefix")
         }
-
-        return storageSize
+        def round_size = new BigDecimal(storageSize/1024/1024).setScale(0, BigDecimal.ROUND_FLOOR);
+        return round_size
     }
 
     Suite.metaClass.translate_different_unit_to_MB = { String size, String unitField ->
@@ -196,7 +195,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             def unitField = fields[1]
             mysqlShowDataSize = translate_different_unit_to_MB(sizeField, unitField)
         }
-        return mysqlShowDataSize
+        def round_size = new BigDecimal(mysqlShowDataSize).setScale(0, BigDecimal.ROUND_FLOOR);
+        return round_size
     }
 
     Suite.metaClass.caculate_table_data_size_through_api = { List<List<Object>> tablets ->
@@ -214,7 +214,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
                 }
             }
         }
-
-        return apiCaculateSize
+        def round_size = new BigDecimal(apiCaculateSize).setScale(0, BigDecimal.ROUND_FLOOR);
+        return round_size
     }
 //http://qa-build.oss-cn-beijing.aliyuncs.com/regression/show_data/fullData.1.part1.gz

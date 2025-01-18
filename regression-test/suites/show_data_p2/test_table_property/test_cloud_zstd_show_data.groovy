@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_lz4_show_data","p2") {
+suite("test_cloud_zstd_show_data","p2") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -70,13 +70,13 @@ suite("test_cloud_lz4_show_data","p2") {
             trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
+            sleep(10 * 1000)
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-            sleep(60 * 1000)
             logger.info("after ${i} times stream load, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
         }
 
@@ -84,6 +84,7 @@ suite("test_cloud_lz4_show_data","p2") {
         assertEquals(sizeRecords["mysqlSize"][0], sizeRecords["apiSize"][0])
         assertEquals(sizeRecords["mysqlSize"][0], sizeRecords["cbsSize"][0])
         // expect load 1 times ==  load 10 times
+        logger.info("after 1 time stream load, size is ${sizeRecords["mysqlSize"][0]}, after 10 times stream load, size is ${sizeRecords["mysqlSize"][1]}")
         assertEquals(sizeRecords["mysqlSize"][0], sizeRecords["mysqlSize"][1])
         assertEquals(sizeRecords["apiSize"][0], sizeRecords["apiSize"][1])
         assertEquals(sizeRecords["cbsSize"][0], sizeRecords["cbsSize"][1])
