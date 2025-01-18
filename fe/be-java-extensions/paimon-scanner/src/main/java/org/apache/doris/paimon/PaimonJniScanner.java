@@ -20,9 +20,13 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
 import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
@@ -74,6 +78,7 @@ public class PaimonJniScanner extends JniScanner {
     private long lastUpdateTime;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
+    private PreExecutionAuthenticator preExecutionAuthenticator;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
@@ -104,6 +109,14 @@ public class PaimonJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        Configuration conf = new Configuration();
+        hadoopOptionParams.forEach(conf::set);
+        preExecutionAuthenticator = new PreExecutionAuthenticator();
+        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf,
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
     }
 
     @Override
@@ -114,12 +127,20 @@ public class PaimonJniScanner extends JniScanner {
             //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
             // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
-            initTable();
-            initReader();
+            preExecutionAuthenticator.execute(() -> {
+                initTable();
+                initReader();
+                return null;
+            });
             resetDatetimeV2Precision();
+
         } catch (Throwable e) {
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
-            throw e;
+            try {
+                throw e;
+            } catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
         }
     }
 
@@ -137,7 +158,7 @@ public class PaimonJniScanner extends JniScanner {
         readBuilder.withFilter(getPredicates());
         reader = readBuilder.newRead().executeFilter().createReader(getSplit());
         paimonDataTypeList =
-            Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
     }
 
     private int[] getProjected() {
@@ -183,8 +204,7 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    @Override
-    protected int getNext() throws IOException {
+    private int readAndProcessNextBatch() throws IOException {
         int rows = 0;
         try {
             if (recordIterator == null) {
@@ -210,11 +230,20 @@ public class PaimonJniScanner extends JniScanner {
         } catch (Exception e) {
             close();
             LOG.warn("Failed to get the next batch of paimon. "
-                    + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}, dataType: {}",
+                            + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}, dataType: {}",
                     getSplit(), params.get("required_fields"), paimonAllFieldNames, paimonDataTypeList, e);
             throw new IOException(e);
         }
         return rows;
+    }
+
+    @Override
+    protected int getNext() {
+        try {
+            return preExecutionAuthenticator.execute(this::readAndProcessNextBatch);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
