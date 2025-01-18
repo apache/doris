@@ -1902,7 +1902,7 @@ int InstanceRecycler::recycle_rowsets() {
         return final_expiration;
     };
 
-    auto handle_rowset_kv = [&](std::string_view k, std::string_view v) -> int {
+    auto handle_recycle_rowset_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_key_size += k.size();
         total_rowset_value_size += v.size();
@@ -1919,6 +1919,13 @@ int InstanceRecycler::recycle_rowsets() {
         if (current_time < calc_expiration(rowset)) { // not expired
             return 0;
         }
+        // TODO(gavin): The recycle key is marked as an expired rowset, indicating that it should be
+        //              recycled. However, it may still be referenced by load, SC, or compaction
+        //              processes.
+        //              To resolve this, create a key-value transaction to read and update its
+        //              status to EXPIRED.  This will ensure that it conflicts with other commit
+        //              procedures, preventing potential issues.
+
         ++num_expired;
         expired_rowset_size += v.size();
         if (!rowset.has_type()) {                         // old version `RecycleRowsetPB`
@@ -2008,7 +2015,7 @@ int InstanceRecycler::recycle_rowsets() {
         return 0;
     };
 
-    int ret = scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_rowset_kv),
+    int ret = scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_recycle_rowset_kv),
                                std::move(loop_done));
     worker_pool->stop();
 

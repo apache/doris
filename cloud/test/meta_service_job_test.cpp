@@ -103,6 +103,14 @@ doris::RowsetMetaCloudPB create_rowset(int64_t tablet_id, int64_t start_version,
     return rowset;
 }
 
+static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res) {
+    brpc::Controller cntl;
+    CreateRowsetRequest req;
+    req.mutable_rowset_meta()->CopyFrom(rowset);
+    meta_service->prepare_rowset(&cntl, &req, &res, nullptr);
+}
+
 void commit_rowset(MetaService* meta_service, const doris::RowsetMetaCloudPB& rowset,
                    CreateRowsetResponse& res) {
     brpc::Controller cntl;
@@ -1402,6 +1410,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         for (int64_t i = 0; i < 5; ++i) {
             output_rowsets.push_back(create_rowset(new_tablet_id, i + 2, i + 2));
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), output_rowsets.back(), res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
             commit_rowset(meta_service.get(), output_rowsets.back(), res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << i;
         }
@@ -1479,6 +1490,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         output_rowsets.push_back(create_rowset(new_tablet_id, 13, 13));
         for (auto& rs : output_rowsets) {
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), rs, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
             commit_rowset(meta_service.get(), rs, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << rs.end_version();
         }
@@ -1615,8 +1629,12 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     be1_output_rowsets.push_back(create_rowset(new_tablet_id, 11, 11));
     for (auto& rs : be1_output_rowsets) {
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), rs, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), rs, res);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << rs.end_version();
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "end_version=" << rs.end_version() << res.status().ShortDebugString();
     }
     sc_res.Clear();
     // FE thinks BE1 is not alive and retries "job2" on BE2, should preempt "job2" created by BE1
@@ -1628,17 +1646,28 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     {
         CreateRowsetResponse res;
         // [2-8] has committed by BE1
-        commit_rowset(meta_service.get(), create_rowset(new_tablet_id, 2, 8), res);
+        auto rs_meta = create_rowset(new_tablet_id, 2, 8);
+        prepare_rowset(meta_service.get(), rs_meta, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED)
+                << res.status().ShortDebugString();
+        res.Clear();
+        commit_rowset(meta_service.get(), rs_meta, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
         ASSERT_TRUE(res.has_existed_rowset_meta());
         ASSERT_EQ(res.existed_rowset_meta().rowset_id_v2(), be1_output_rowsets[0].rowset_id_v2());
         be2_output_rowsets.push_back(res.existed_rowset_meta());
         res.Clear();
         be2_output_rowsets.push_back(create_rowset(new_tablet_id, 9, 12));
+        prepare_rowset(meta_service.get(), be2_output_rowsets.back(), res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), be2_output_rowsets.back(), res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         res.Clear();
         be2_output_rowsets.push_back(create_rowset(new_tablet_id, 13, 13));
+        prepare_rowset(meta_service.get(), be2_output_rowsets.back(), res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), be2_output_rowsets.back(), res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -1760,6 +1789,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         for (int64_t i = 0; i < 5; ++i) {
             output_rowsets.push_back(create_rowset(new_tablet_id, i + 2, i + 2));
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), output_rowsets.back(), res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
             commit_rowset(meta_service.get(), output_rowsets.back(), res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << i;
         }
@@ -1808,6 +1840,9 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         for (int64_t i = 0; i < 5; ++i) {
             output_rowsets.push_back(create_rowset(new_tablet_id, i + 2, i + 2));
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), output_rowsets.back(), res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
             commit_rowset(meta_service.get(), output_rowsets.back(), res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << i;
         }
@@ -1959,9 +1994,14 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
     {
         // Provide output rowset
         auto output_rowset = create_rowset(tablet_id, 5, 10);
-        CreateRowsetResponse rowset_res;
-        commit_rowset(meta_service.get(), output_rowset, rowset_res);
-        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        {
+            CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), output_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
+            commit_rowset(meta_service.get(), output_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
 
         FinishTabletJobRequest req;
         FinishTabletJobResponse res;
@@ -2071,9 +2111,14 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
     {
         // Provide output rowset
         auto output_rowset = create_rowset(tablet_id, 2, 4);
-        CreateRowsetResponse rowset_res;
-        commit_rowset(meta_service.get(), output_rowset, rowset_res);
-        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        {
+            CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), output_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
+            commit_rowset(meta_service.get(), output_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
 
         FinishTabletJobRequest req;
         FinishTabletJobResponse res;

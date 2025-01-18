@@ -209,7 +209,7 @@ static void drop_cluster(MetaServiceProxy* ms, const std::string& instance_id,
     req.set_op(AlterClusterRequest::DROP_CLUSTER);
     AlterClusterResponse res;
     ms->alter_cluster(&cntl, &req, &res, brpc::DoNothing());
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().ShortDebugString();
 }
 
 // test cluster's node addr use ip
@@ -400,6 +400,8 @@ TEST(ResourceTest, AddDropCluster) {
         auto* ret = try_any_cast<int*>(args[1]);
         *ret = 0;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time", // make it always safe to drop
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();

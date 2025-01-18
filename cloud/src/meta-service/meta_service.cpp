@@ -1172,7 +1172,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     if (err != TxnErrorCode::TXN_OK) {
         std::stringstream ss;
         ss << "failed to get recycle_rowset_key when commit rowset instance_id=" << instance_id
-           << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+           << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id << " ret=" << err;
         code = cast_as<ErrCategory::READ>(err);
         msg = ss.str();
         return;

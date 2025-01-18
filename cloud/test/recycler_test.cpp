@@ -3315,6 +3315,12 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
     }
 
+    // ATTN(gavin): we have to inject this point, otherwise it may complain ASAN memory issue of JVM
+    sp->set_call_back("HdfsAccessor::init", [](auto&& args) {
+        auto* ret = try_any_cast<std::pair<int, bool>*>(args[0]);
+        ret->first = -1; // return -1, make it fail
+        ret->second = true;
+    });
     // failed to init because accessor->init() fails
     {
         HdfsBuildConf hdfs_build_conf;
@@ -3354,7 +3360,8 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     });
     sp->enable_processing();
 
-    // succeed to init MockAccessor
+    // succeed to init MockAccessor, sync point "HdfsAccessor::init" is set to return -1 but it is
+    // ignored by sync point "InstanceRecycler::init_storage_vault_accessors.mock_vault"
     {
         HdfsBuildConf hdfs_build_conf;
         StorageVaultPB vault;
