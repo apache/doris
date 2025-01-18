@@ -432,6 +432,9 @@ Status PipelineTask::execute(bool* eos) {
                                                  GlobalMemoryArbitrator::process_mem_log_str());
                     }
                     LOG_EVERY_N(INFO, 100) << debug_msg;
+                    // If reserve failed, not add this query to paused list, because it is very small, will not
+                    // consume a lot of memory. But need set low memory mode to indicate that the system should
+                    // not use too much memory.
                     _state->get_query_ctx()->set_low_memory_mode();
                 }
             }
@@ -472,7 +475,8 @@ Status PipelineTask::execute(bool* eos) {
                         debug_msg += fmt::format(", debug info: {}",
                                                  GlobalMemoryArbitrator::process_mem_log_str());
                     }
-
+                    // If the operator is not spillable or it is spillable but not has much memory to spill
+                    // not need add to paused list, just let it go.
                     if (_sink->revocable_mem_size(_state) >= _state->spill_min_revocable_mem()) {
                         VLOG_DEBUG << debug_msg;
                         DCHECK_EQ(_pending_block.get(), nullptr);
