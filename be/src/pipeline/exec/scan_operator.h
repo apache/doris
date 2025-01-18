@@ -389,7 +389,10 @@ public:
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
-        local_state._scanner_ctx->clear_free_blocks();
+
+        if (local_state._scanner_ctx) {
+            local_state._scanner_ctx->clear_free_blocks();
+        }
     }
 
     int64_t get_push_down_count() const { return _push_down_count; }
