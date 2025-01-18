@@ -47,8 +47,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("offsets_column must be a ColumnUInt64"));
     }
 
     if (!offsets_concrete->empty() && data) {
@@ -56,10 +55,9 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            throw doris::Exception(
-                    ErrorCode::INTERNAL_ERROR,
+            throw Exception(Status::FatalError(
                     "nested_column's size {}, is not consistent with offsets_column's {}",
-                    data->size(), last_offset);
+                    data->size(), last_offset));
         }
     }
 
@@ -71,9 +69,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     if (!data->empty()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Not empty data passed to ColumnArray, but no offsets passed");
-        __builtin_unreachable();
+        throw Exception(
+                Status::FatalError("Not empty data passed to ColumnArray, but no offsets passed"));
     }
 
     offsets = ColumnOffsets::create();
@@ -1035,9 +1032,7 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
         limit = std::min(size, limit);
     }
     if (perm.size() < limit) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Size of permutation is less than required.");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Size of permutation is less than required."));
     }
     if (limit == 0) {
         return ColumnArray::create(data);

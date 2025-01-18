@@ -132,8 +132,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method replace_column_data is not supported for " + get_name());
+        throw Exception(Status::FatalError("Method replace_column_data is not supported for " +
+                                           get_name()));
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {

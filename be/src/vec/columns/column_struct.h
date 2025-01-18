@@ -102,14 +102,12 @@ public:
     void get(size_t n, Field& res) const override;
 
     [[noreturn]] StringRef get_data_at(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method get_data_at is not supported for " + get_name());
-        __builtin_unreachable();
+        throw Exception(
+                Status::FatalError("Method get_data_at is not supported for " + get_name()));
     }
     [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data is not supported for " + get_name());
-        __builtin_unreachable();
+        throw Exception(
+                Status::FatalError("Method insert_data is not supported for " + get_name()));
     }
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
@@ -137,8 +135,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method replace_column_data is not supported for " + get_name());
+        throw Exception(Status::FatalError("Method replace_column_data is not supported for " +
+                                           get_name()));
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;

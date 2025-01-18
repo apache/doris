@@ -54,16 +54,14 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
-            throw doris::Exception(
-                    doris::ErrorCode::INTERNAL_ERROR,
+            throw Exception(Status::FatalError(
                     "offsets_column size {} has data inconsistent with key_column {}", last_offset,
-                    keys_column->size());
+                    keys_column->size()));
         }
         if (values_column->size() != last_offset) {
-            throw doris::Exception(
-                    doris::ErrorCode::INTERNAL_ERROR,
+            throw Exception(Status::FatalError(
                     "offsets_column size {} has data inconsistent with value_column {}",
-                    last_offset, values_column->size());
+                    last_offset, values_column->size()));
         }
     }
 }
@@ -127,13 +125,11 @@ void ColumnMap::get(size_t n, Field& res) const {
 }
 
 StringRef ColumnMap::get_data_at(size_t n) const {
-    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                           "Method get_data_at is not supported for {}", get_name());
+    throw Exception(Status::FatalError("Method get_data_at is not supported for {}", get_name()));
 }
 
 void ColumnMap::insert_data(const char*, size_t) {
-    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                           "Method insert_data is not supported for {}", get_name());
+    throw Exception(Status::FatalError("Method insert_data is not supported for {}", get_name()));
 }
 
 void ColumnMap::insert(const Field& x) {

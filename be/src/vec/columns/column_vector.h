@@ -181,9 +181,8 @@ public:
             data.resize(new_size);
             std::iota(data.begin() + old_size, data.begin() + new_size, begin);
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "double column not support insert_range_of_integer");
-            __builtin_unreachable();
+            throw Exception(
+                    Status::FatalError("double column not support insert_range_of_integer"));
         }
     }
 
