@@ -1276,6 +1276,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
+    DCHECK(local_state._scanner_ctx != nullptr);
     RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
 
     local_state.reached_limit(block, eos);
