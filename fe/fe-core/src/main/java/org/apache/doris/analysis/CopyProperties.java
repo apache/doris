@@ -22,6 +22,7 @@ import org.apache.doris.common.util.PrintableMap;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class CopyProperties {
@@ -57,7 +58,11 @@ public class CopyProperties {
     public static final String USE_DELETE_SIGN = COPY_PREFIX + "use_delete_sign";
 
     public CopyProperties(Map<String, String> properties, String prefix) {
-        this.properties = properties;
+        Map<String, String> newProperties = new HashMap<>();
+        for (String key : properties.keySet()) {
+            newProperties.put(key, properties.get(key));
+        }
+        this.properties = newProperties;
         this.prefix = prefix;
     }
 
