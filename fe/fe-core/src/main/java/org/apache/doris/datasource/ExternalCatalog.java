@@ -372,6 +372,9 @@ public abstract class ExternalCatalog
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
         List<Pair<String, String>> remoteToLocalPairs = getFilteredDatabaseNames();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("filtered database names in catalog {}: {}", getName(), remoteToLocalPairs);
+        }
         for (Pair<String, String> pair : remoteToLocalPairs) {
             String remoteDbName = pair.key();
             String localDbName = pair.value();
@@ -400,6 +403,9 @@ public abstract class ExternalCatalog
         idToDb = tmpIdToDb;
         lastUpdateTime = System.currentTimeMillis();
         initCatalogLog.setLastUpdateTime(lastUpdateTime);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("init catalog[{}] log: {}", name, initCatalogLog);
+        }
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
@@ -717,6 +723,9 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay init external catalog[{}]: {}", name, log);
+        }
         // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
         if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
             dbNameToId = Maps.newConcurrentMap();

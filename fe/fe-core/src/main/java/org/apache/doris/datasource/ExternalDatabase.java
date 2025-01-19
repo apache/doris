@@ -190,6 +190,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("replay init external db[{}.{}]: {}", name, catalog.getName(), log);
+        }
         // If the remote name is missing during upgrade, all tables in the Map will be reinitialized.
         if (log.getCreateCount() > 0 && (log.getRemoteTableNames() == null || log.getRemoteTableNames().isEmpty())) {
             tableNameToId = Maps.newConcurrentMap();
@@ -246,6 +249,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         initDatabaseLog.setCatalogId(extCatalog.getId());
         initDatabaseLog.setDbId(id);
         List<Pair<String, String>> tableNamePairs = listTableNames();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("init external db[{}.{}] with tables[{}]",  extCatalog.getName(), name, tableNamePairs);
+        }
         if (tableNamePairs != null) {
             Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
             Map<Long, T> tmpIdToTbl = Maps.newHashMap();
@@ -281,6 +287,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
         lastUpdateTime = System.currentTimeMillis();
         initDatabaseLog.setLastUpdateTime(lastUpdateTime);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("init database[{}.{}] log: {}", extCatalog.name, name, initDatabaseLog);
+        }
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
