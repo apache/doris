@@ -1933,7 +1933,7 @@ void commit_txn_eventually(
         std::pair<MetaServiceCode, std::string> ret = task->wait();
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
-                         << "msg=" << ret.second;
+                         << " msg=" << ret.second;
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
