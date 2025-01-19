@@ -205,17 +205,20 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
     if (_runtime_filter_partition_pruning_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
     }
-    size_t partition_value_column_size = 0;
+    size_t partition_value_column_size = 1;
 
     // 1. Get partition key values to string columns.
     std::unordered_map<SlotId, MutableColumnPtr> parititon_slot_id_to_column;
     for (auto const& partition_col_desc : _partition_col_descs) {
-        auto partiton_data = std::get<0>(partition_col_desc.second);
-        const auto* partiton_slot_desc = std::get<1>(partition_col_desc.second);
-        auto partition_value_column = ColumnString::create();
-        partition_value_column->insert_data(partiton_data.c_str(), partiton_data.size());
-        partition_value_column_size = partition_value_column->size();
-        parititon_slot_id_to_column[partiton_slot_desc->id()] = std::move(partition_value_column);
+        const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
+        auto test_serde = partition_slot_desc->get_data_type_ptr()->get_serde();
+        auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
+        Slice slice(partition_value.data(), partition_value.size());
+        int num_deserialized = 0;
+        RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
+                *partition_value_column, slice, partition_value_column_size, &num_deserialized,
+                {}));
+        parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
     // 2. Build a temp block from the partition column, then execute conjuncts and filter block.
@@ -233,15 +236,12 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
             auto data_type = slot_desc->get_data_type_ptr();
             auto partition_value_column = std::move(parititon_slot_id_to_column[slot_desc->id()]);
             if (data_type->is_nullable()) {
-                temp_block.insert(
-                        {ColumnNullable::create(
-                                 std::move(partition_value_column),
-                                 ColumnUInt8::create(partition_value_column_size, 0)),
-                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
-                         ""});
+                temp_block.insert({ColumnNullable::create(
+                                           std::move(partition_value_column),
+                                           ColumnUInt8::create(partition_value_column_size, 0)),
+                                   data_type, ""});
             } else {
-                temp_block.insert({std::move(partition_value_column),
-                                   std::make_shared<DataTypeString>(), ""});
+                temp_block.insert({std::move(partition_value_column), data_type, ""});
             }
             if (index == 0) {
                 first_cloumn_filled = true;
