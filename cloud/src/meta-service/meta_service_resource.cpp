@@ -1287,7 +1287,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         // ATTN: prefix may be empty
-        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty()) {
+        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty() ||
+            prefix.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
