@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -34,9 +35,11 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -47,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDictionariesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -54,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
@@ -62,6 +67,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExplainCommand(ExplainCommand explain, C context) {
         return visitCommand(explain, context);
+    }
+
+    default R visitExplainDictionaryCommand(ExplainDictionaryCommand explainDictionary, C context) {
+        return visitCommand(explainDictionary, context);
     }
 
     default R visitReplayCommand(ReplayCommand replay, C context) {
@@ -107,6 +116,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(exportCommand, context);
     }
 
+    default R visitCreateDictionaryCommand(CreateDictionaryCommand createDictionaryCommand, C context) {
+        return visitCommand(createDictionaryCommand, context);
+    }
+
     default R visitCreateTableCommand(CreateTableCommand createTableCommand, C context) {
         return visitCommand(createTableCommand, context);
     }
@@ -129,6 +142,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
         return visitCommand(dropConstraintCommand, context);
+    }
+
+    default R visitDropDictionaryCommand(DropDictionaryCommand dropDictionaryCommand, C context) {
+        return visitCommand(dropDictionaryCommand, context);
     }
 
     default R visitShowConstraintsCommand(ShowConstraintsCommand showConstraintsCommand, C context) {
@@ -205,5 +222,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowViewCommand(ShowViewCommand showViewCommand, C context) {
         return visitCommand(showViewCommand, context);
+    }
+
+    default R visitShowDictionariesCommand(ShowDictionariesCommand showDictionariesCommand, C context) {
+        return visitCommand(showDictionariesCommand, context);
+    }
+
+    default R visitRefreshDictionaryCommand(RefreshDictionaryCommand refreshDictionaryCommand, C context) {
+        return visitCommand(refreshDictionaryCommand, context);
     }
 }

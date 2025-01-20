@@ -104,10 +104,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // root of plan tree executed by this fragment
     private PlanNode planRoot;
 
-    // exchange node to which this fragment sends its output
+    // exchange node which this fragment sends its output to
     private ExchangeNode destNode;
 
-    // if null, outputs the entire row produced by planRoot
+    // if null, set with the planRoot's output exprs when translate PhysicalPlan. see `translatePlan`
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()

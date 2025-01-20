@@ -94,6 +94,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         return database;
     }
 
+    @Override
     public OlapTable getTargetTable() {
         return targetTable;
     }
@@ -197,6 +198,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     /**
      * get output physical properties
      */
+    @Override
     public PhysicalProperties getRequirePhysicalProperties() {
         if (targetTable.isPartitionDistributed()) {
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();

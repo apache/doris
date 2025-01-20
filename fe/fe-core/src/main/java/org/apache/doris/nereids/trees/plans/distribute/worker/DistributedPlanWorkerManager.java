@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
+import java.util.List;
+
 /** DistributedPlanWorkerManager */
 public interface DistributedPlanWorkerManager {
     DistributedPlanWorker getWorker(long backendId);
 
     DistributedPlanWorker randomAvailableWorker();
+
+    List<Long> getAllBackend(boolean needAlive);
 }

@@ -118,7 +118,10 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
                                             const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
-    return _fn_contexts.size() - 1;
+    if (root()->fn().__isset.dict_function) {
+        _fn_contexts.back()->set_dict_function(root()->fn().dict_function);
+    }
+    return static_cast<int>(_fn_contexts.size()) - 1;
 }
 
 Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.LoadBalanceScanWor
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapScanNode;
@@ -74,6 +75,10 @@ public class UnassignedJobBuilder {
         List<ScanNode> scanNodes = collectScanNodesInThisFragment(planFragment);
         if (planFragment.specifyInstances.isPresent()) {
             return buildSpecifyInstancesJob(planFragment, scanNodes, inputJobs);
+        } else if (planFragment.getSink() instanceof DictionarySink) {
+            // this fragment already set its instances in `visitPhysicalDistribute`.
+            // now assign to 1 BE 1 instance.
+            return new UnassignedAllBEJob(planFragment, inputJobs);
         } else if (!scanNodes.isEmpty() || isLeafFragment(planFragment)) {
             return buildLeafOrScanJob(planFragment, scanNodes, inputJobs);
         } else {
@@ -258,7 +263,9 @@ public class UnassignedJobBuilder {
 
     // the class support find exchange nodes in the fragment, and find child fragment by exchange node id
     private static class FragmentLineage {
+        // exchange node as the source in this fragment
         private final FragmentIdMapping<Map<PlanNodeId, ExchangeNode>> parentFragmentToExchangeNode;
+        // exchange node's relative datastreamsink in child fragment
         private final ListMultimap<PlanNodeId, PlanFragmentId> exchangeToChildFragment;
 
         public FragmentLineage(

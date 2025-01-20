@@ -2935,6 +2935,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_checkpoint = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"字典删除时 RPC 的超时时间",
+            "Timeout of dictionary deletion RPC"})
+    public static int dictionary_delete_rpc_timeout_ms = 5000;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

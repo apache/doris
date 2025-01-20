@@ -47,6 +47,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -1009,6 +1010,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
 
         _sink.reset(new ResultSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
                                             thrift_sink.result_sink));
+        break;
+    }
+    case TDataSinkType::DICTIONARY_SINK: {
+        if (!thrift_sink.__isset.dictionary_sink) {
+            return Status::InternalError("Missing dict sink.");
+        }
+
+        _sink.reset(new DictSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
+                                          thrift_sink.dictionary_sink));
         break;
     }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:

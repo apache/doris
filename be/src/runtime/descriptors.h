@@ -164,6 +164,12 @@ public:
     std::string debug_string() const override;
 };
 
+class DictionaryTableDescriptor : public TableDescriptor {
+public:
+    DictionaryTableDescriptor(const TTableDescriptor& tdesc);
+    std::string debug_string() const override;
+};
+
 class SchemaTableDescriptor : public TableDescriptor {
 public:
     SchemaTableDescriptor(const TTableDescriptor& tdesc);

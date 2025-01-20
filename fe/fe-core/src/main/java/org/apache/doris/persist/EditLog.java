@@ -55,6 +55,7 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
@@ -1237,6 +1238,26 @@ public class EditLog {
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
                     break;
                 }
+                case OperationType.OP_CREATE_DICTIONARY: {
+                    CreateDictionaryPersistInfo info = (CreateDictionaryPersistInfo) journal.getData();
+                    env.getDictionaryManager().replayCreateDictionary(info);
+                    break;
+                }
+                case OperationType.OP_DROP_DICTIONARY: {
+                    DropDictionaryPersistInfo info = (DropDictionaryPersistInfo) journal.getData();
+                    env.getDictionaryManager().replayDropDictionary(info);
+                    break;
+                }
+                case OperationType.OP_DICTIONARY_INC_VERSION: {
+                    DictionaryIncreaseVersionInfo info = (DictionaryIncreaseVersionInfo) journal.getData();
+                    env.getDictionaryManager().replayIncreaseVersion(info);
+                    break;
+                }
+                case OperationType.OP_DICTIONARY_DEC_VERSION: {
+                    DictionaryDecreaseVersionInfo info = (DictionaryDecreaseVersionInfo) journal.getData();
+                    env.getDictionaryManager().replayDecreaseVersion(info);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2201,5 +2222,21 @@ public class EditLog {
 
     private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
         return journal.exceedMaxJournalSize(op, writable);
+    }
+
+    public void logCreateDictionary(Dictionary dictionary) {
+        logEdit(OperationType.OP_CREATE_DICTIONARY, new CreateDictionaryPersistInfo(dictionary));
+    }
+
+    public void logDropDictionary(String dbName, String dictionaryName) {
+        logEdit(OperationType.OP_DROP_DICTIONARY, new DropDictionaryPersistInfo(dbName, dictionaryName));
+    }
+
+    public void logDictionaryIncVersion(Dictionary dictionary) {
+        logEdit(OperationType.OP_DICTIONARY_INC_VERSION, new DictionaryIncreaseVersionInfo(dictionary));
+    }
+
+    public void logDictionaryDecVersion(Dictionary dictionary) {
+        logEdit(OperationType.OP_DICTIONARY_DEC_VERSION, new DictionaryDecreaseVersionInfo(dictionary));
     }
 }

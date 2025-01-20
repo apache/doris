@@ -1300,12 +1300,6 @@ public:
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
-
-private:
-    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
-        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
-        unaligned_store<UInt64>(buf + 8, 0);
-    }
 };
 
 class FunctionCutIPv6 : public IFunction {

@@ -396,7 +396,7 @@ public interface TableIf {
         @Deprecated ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY;
 
         public String toEngineName() {
             switch (this) {
@@ -433,6 +433,8 @@ public interface TableIf {
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case DICTIONARY:
+                    return "dictionary";
                 default:
                     return null;
             }

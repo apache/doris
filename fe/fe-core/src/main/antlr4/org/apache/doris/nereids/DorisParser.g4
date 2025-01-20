@@ -53,7 +53,9 @@ statementBase
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | supportedRefreshStatement         #supportedRefreshStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
+    | supportedDescribeStatement        #supportedDescribeStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -177,8 +179,19 @@ supportedCreateStatement
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
-        USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+        USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
+	| CREATE DICTIONARY (IF NOT EXISTS)? name = multipartIdentifier
+		USING source = multipartIdentifier
+		LEFT_PAREN dictionaryColumnDefs RIGHT_PAREN
+        LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
+        properties=propertyClause?         # createDictionary
     ;
+
+dictionaryColumnDefs:
+	dictionaryColumnDef (COMMA dictionaryColumnDef)*;
+
+dictionaryColumnDef:
+	colName = identifier columnType = (KEY | VALUE) ;
 
 supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
@@ -188,12 +201,14 @@ supportedAlterStatement
 
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     ;
 
 supportedShowStatement
     : SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW DICTIONARIES                                                             #showDictionaries
     ;
 
 unsupportedOtherStatement
@@ -411,6 +426,10 @@ channelDescriptions
 channelDescription
     : FROM source=multipartIdentifier INTO destination=multipartIdentifier
         partitionSpec? columnList=identifierList?
+    ;
+
+supportedRefreshStatement
+    : REFRESH DICTIONARY name=multipartIdentifier                                   #refreshDictionary
     ;
 
 unsupportedRefreshStatement
@@ -878,6 +897,10 @@ unsupportedDescribeStatement
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
     | explainCommand multipartIdentifier specifiedPartition?    #describeTable
+    ;
+
+supportedDescribeStatement
+    : explainCommand DICTIONARY multipartIdentifier             #describeDictionary
     ;
 
 constraint
@@ -1877,6 +1900,8 @@ nonReserved
     | DEMAND
     | DIAGNOSE
     | DIAGNOSIS
+    | DICTIONARIES
+    | DICTIONARY
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
@@ -1915,6 +1940,7 @@ nonReserved
     | GROUPING
     | GROUPS
     | HASH
+    | HASH_MAP
     | HDFS
     | HELP
     | HINT_END
@@ -1931,6 +1957,7 @@ nonReserved
     | INCREMENTAL
     | INDEXES
     | INVERTED
+    | IP_TRIE
     | IPV4
     | IPV6
     | IS_NOT_NULL_PRED
