@@ -758,7 +758,9 @@ Status ColumnReader::new_array_iterator(ColumnIterator** iterator,
                                         const TabletColumn* tablet_column) {
     ColumnIterator* item_iterator = nullptr;
     RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
-            &item_iterator, tablet_column ? &tablet_column->get_sub_column(0) : nullptr));
+            &item_iterator, tablet_column && tablet_column->get_subtype_count() > 0
+                                    ? &tablet_column->get_sub_column(0)
+                                    : nullptr));
 
     ColumnIterator* offset_iterator = nullptr;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, nullptr));
@@ -777,10 +779,14 @@ Status ColumnReader::new_map_iterator(ColumnIterator** iterator,
                                       const TabletColumn* tablet_column) {
     ColumnIterator* key_iterator = nullptr;
     RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
-            &key_iterator, tablet_column ? &tablet_column->get_sub_column(0) : nullptr));
+            &key_iterator, tablet_column && tablet_column->get_subtype_count() > 1
+                                   ? &tablet_column->get_sub_column(0)
+                                   : nullptr));
     ColumnIterator* val_iterator = nullptr;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(
-            &val_iterator, tablet_column ? &tablet_column->get_sub_column(1) : nullptr));
+            &val_iterator, tablet_column && tablet_column->get_subtype_count() > 1
+                                   ? &tablet_column->get_sub_column(1)
+                                   : nullptr));
     ColumnIterator* offsets_iterator = nullptr;
     RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator, nullptr));
     auto* ofcIter =
