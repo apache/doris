@@ -19,6 +19,7 @@ suite("test_date_function_v2") {
     sql """
     admin set frontend config ("enable_date_conversion"="true");
     """
+    sql """SET enable_nereids_planner=true"""
 
     def tableName = "test_date_function_v2"
 
@@ -55,6 +56,29 @@ suite("test_date_function_v2") {
         select cast(str_to_date("2025-01-17 11:59:30", '%Y-%m-%d %H:%i:%s.%f') as string);
     """
     assertEquals(result4[0][0], "2025-01-17 11:59:30.000000");
+
+    // test legacy planner
+    sql """SET enable_nereids_planner=false"""
+    def result5 = try_sql """
+        select cast(str_to_date(dt, '%Y-%m-%d %H:%i:%s') as string) from ${tableName};
+    """
+    assertEquals(result5[0][0], "2024-12-29 10:11:12");
+
+    result5 = try_sql """
+        select cast(str_to_date(dt, '%Y-%m-%d %H:%i:%s.%f') as string) from ${tableName};
+    """
+    assertEquals(result5[0][0], "2024-12-29 10:11:12.000000");
+
+    result5 = try_sql """
+        select cast(str_to_date('2025-01-17 11:59:30', '%Y-%m-%d %H:%i:%s') as string);
+    """
+    assertEquals(result5[0][0], "2025-01-17 11:59:30");
+
+    result5 = try_sql """
+        select cast(str_to_date('2025-01-17 11:59:30', '%Y-%m-%d %H:%i:%s.%f') as string);
+    """
+    assertEquals(result5[0][0], "2025-01-17 11:59:30.000000");
+
 
     sql """ drop table ${tableName} """
 }

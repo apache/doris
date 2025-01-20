@@ -718,7 +718,7 @@ public class DateLiteral extends LiteralExpr {
             int scale = ((ScalarType) type).getScalarScale();
             long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
 
-            if (scaledMicroseconds != 0) {
+            if (scale > 0) {
                 dateTimeChars[19] = '.';
                 fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
                 return new String(dateTimeChars, 0, 20 + scale);
@@ -1608,6 +1608,9 @@ public class DateLiteral extends LiteralExpr {
                     case 'p':
                     case 'T':
                         partUsed |= timePart;
+                        break;
+                    case 'f':
+                        partUsed |= fracPart;
                         break;
                     default:
                         break;
