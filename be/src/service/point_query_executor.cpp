@@ -34,7 +34,6 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/consts.h"
-#include "common/exception.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
