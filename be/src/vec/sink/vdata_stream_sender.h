@@ -95,6 +95,7 @@ public:
 private:
     pipeline::ExchangeSinkLocalState* _parent;
     std::unique_ptr<MutableBlock> _mutable_block;
+    MonotonicStopWatch _max_block_life_time;
 
     bool _is_local;
     const int _batch_size;

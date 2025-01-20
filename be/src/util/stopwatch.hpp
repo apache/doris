@@ -85,6 +85,8 @@ public:
         return end.tv_sec - _start.tv_sec;
     }
 
+    bool is_running() { return _running; }
+
 private:
     timespec _start;
     uint64_t _total_time; // in nanosec
