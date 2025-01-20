@@ -34,7 +34,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/object_pool.h"
 #include "io/cache/block/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -162,6 +161,8 @@ Status VFileScanner::prepare(
                                                            "FileScannerFillMissingColumnTime", 1);
         _pre_filter_timer =
                 ADD_TIMER_WITH_LEVEL(_parent->_scanner_profile, "FileScannerPreFilterTimer", 1);
+        _runtime_filter_partition_pruning_timer = ADD_TIMER_WITH_LEVEL(
+                _parent->_scanner_profile, "RuntimeFilterPartitionPruningTime", 1);
         _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(
                 _parent->_scanner_profile, "FileScannerConvertOuputBlockTime", 1);
         _empty_file_counter =
@@ -172,6 +173,8 @@ Status VFileScanner::prepare(
                 ADD_COUNTER_WITH_LEVEL(_parent->_scanner_profile, "FileNumber", TUnit::UNIT, 1);
         _has_fully_rf_file_counter = ADD_COUNTER_WITH_LEVEL(_parent->_scanner_profile,
                                                             "HasFullyRfFileNumber", TUnit::UNIT, 1);
+        _runtime_filter_partition_pruned_range_counter = ADD_COUNTER_WITH_LEVEL(
+                _parent->_scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
     } else {
         _get_block_timer =
                 ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
@@ -187,6 +190,8 @@ Status VFileScanner::prepare(
                                                  "FileScannerPreFilterTimer", 1);
         _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(
                 _local_state->scanner_profile(), "FileScannerConvertOuputBlockTime", 1);
+        _runtime_filter_partition_pruning_timer = ADD_TIMER_WITH_LEVEL(
+                _local_state->scanner_profile(), "RuntimeFilterPartitionPruningTime", 1);
         _empty_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                      "EmptyFileNum", TUnit::UNIT, 1);
         _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
@@ -195,6 +200,9 @@ Status VFileScanner::prepare(
                                                TUnit::UNIT, 1);
         _has_fully_rf_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                             "HasFullyRfFileNumber", TUnit::UNIT, 1);
+        _runtime_filter_partition_pruned_range_counter =
+                ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                       "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
     }
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
