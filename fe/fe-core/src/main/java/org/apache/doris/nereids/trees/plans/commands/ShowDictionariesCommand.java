@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.dictionary.Dictionary;
@@ -69,6 +70,11 @@ public class ShowDictionariesCommand extends ShowCommand {
         }
 
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 
     @Override
