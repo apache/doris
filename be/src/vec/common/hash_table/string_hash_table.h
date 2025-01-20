@@ -42,7 +42,8 @@ struct StringHashMapSubKeys {
 template <typename StringKey>
 StringKey to_string_key(const doris::StringRef& key) {
     if (key.size > sizeof(StringKey)) {
-        throw doris::Exception(doris::Status::FatalError("Check failed: key.size <= sizeof(StringKey)"));
+        throw doris::Exception(
+                doris::Status::FatalError("Check failed: key.size <= sizeof(StringKey)"));
     }
     StringKey string_key {};
     memcpy_small<sizeof(StringKey)>((char*)&string_key, key.data, key.size);

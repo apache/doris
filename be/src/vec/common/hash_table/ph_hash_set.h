@@ -168,9 +168,9 @@ public:
                                     Func&& f) {
         if (0 > static_cast<search_key_type>(key) ||
             static_cast<search_key_type>(key) >= hash_table_size) {
-            throw doris::Exception(
-                    doris::Status::FatalError("Check failed: 0 <= static_cast<search_key_type>(key) && "
-                                       "static_cast<search_key_type>(key) < hash_table_size"));
+            throw doris::Exception(doris::Status::FatalError(
+                    "Check failed: 0 <= static_cast<search_key_type>(key) && "
+                    "static_cast<search_key_type>(key) < hash_table_size"));
         }
         if (_hash_table[static_cast<search_key_type>(key)] == not_set_flag) {
             auto ctor = [&](auto& key_value) {
