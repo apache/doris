@@ -488,8 +488,8 @@ public class CacheAnalyzer {
 
             if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("only support olap/hive table with non-federated query, other types are not supported now, "
-                            + "queryId {}", DebugUtil.printId(queryId));
+                    LOG.debug("only support olap/hive table with non-federated query, "
+                            + "other types are not supported now, queryId {}", DebugUtil.printId(queryId));
                 }
                 return Collections.emptyList();
             }
