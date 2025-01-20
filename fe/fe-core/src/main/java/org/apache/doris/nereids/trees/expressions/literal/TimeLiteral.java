@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
@@ -30,8 +28,8 @@ import org.apache.doris.nereids.util.DateUtils;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.DateTimeException;
-import java.time.LocalTime;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Set;
@@ -43,32 +41,32 @@ public class TimeLiteral extends Literal {
     public static final String JAVA_TIME_FORMAT = "HH:mm:ss";
 
     public static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
-    '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
-    '`');
+            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
+            '`');
 
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    public static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0);
-    public static final TimeLiteral MAX_TIME = new TimeLiteral(23, 59, 59);
+    private static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0);
+    private static final TimeLiteral MAX_TIME = new TimeLiteral(23, 59, 59);
 
     protected long hour;
     protected long minute;
     protected long second;
 
     public TimeLiteral(String s) throws AnalysisException {
-      this(TimeType.INSTANCE, s);
+        this(TimeType.INSTANCE, s);
     }
 
     protected TimeLiteral(TimeType dataType, String s) throws AnalysisException {
-      super(dataType);
-      init(s);
+        super(dataType);
+        init(s);
     }
 
     /**
      * C'tor time literal.
      */
     public TimeLiteral(long hour, long minute, long second) {
-      this(TimeType.INSTANCE, hour, minute, second);
+        this(TimeType.INSTANCE, hour, minute, second);
     }
 
     /**

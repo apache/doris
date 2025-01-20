@@ -17,22 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
-import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTimeLiteral;
 
-import com.google.gson.annotations.SerializedName;
-
-import java.util.regex.Pattern;
 import java.time.DateTimeException;
 import java.time.LocalTime;
-import java.time.LocalDateTime;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 
@@ -87,7 +81,7 @@ public class TimeLiteral extends LiteralExpr {
             Integer hour = readNextInt(s, 0, 2);
             Integer minute = readNextInt(s, 3, 2);
             Integer second = readNextInt(s, 6, 2);
-    
+
             return Result.ok(LocalTime.of(hour, minute, second));
         } catch (DateTimeException e) {
             return Result.err(() ->

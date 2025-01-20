@@ -37,7 +37,6 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
