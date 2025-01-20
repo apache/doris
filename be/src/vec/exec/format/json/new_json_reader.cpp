@@ -831,9 +831,15 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                     for (int i = 0; i < block.columns(); ++i) {
                         auto column = block.get_by_position(i).column->assume_mutable();
                         if (column->size() != cur_row_count) {
-                            DCHECK(column->size() == cur_row_count + 1);
+                            if (column->size() != cur_row_count + 1) {
+                                throw Exception(Status::FatalError(
+                                        "Check failed: column->size() == cur_row_count + 1"));
+                            }
                             column->pop_back(1);
-                            DCHECK(column->size() == cur_row_count);
+                            if (column->size() != cur_row_count) {
+                                throw Exception(Status::FatalError(
+                                        "Check failed: column->size() == cur_row_count"));
+                            }
                         }
                     }
                     return Status::OK();
@@ -1603,7 +1609,10 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             continue;
         }
         if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
+            if (column_ptr->size() != cur_row_count) {
+                throw Exception(
+                        Status::FatalError("Check failed: column_ptr->size() == cur_row_count"));
+            }
             if (_should_process_skip_bitmap_col()) {
                 // not found, skip this column in flexible partial update
                 if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
@@ -1616,9 +1625,15 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                     for (int i = 0; i < block.columns(); ++i) {
                         auto column = block.get_by_position(i).column->assume_mutable();
                         if (column->size() != cur_row_count) {
-                            DCHECK(column->size() == cur_row_count + 1);
+                            if (column->size() != cur_row_count + 1) {
+                                throw Exception(Status::FatalError(
+                                        "Check failed: column->size() == cur_row_count + 1"));
+                            }
                             column->pop_back(1);
-                            DCHECK(column->size() == cur_row_count);
+                            if (column->size() != cur_row_count) {
+                                throw Exception(Status::FatalError(
+                                        "Check failed: column->size() == cur_row_count"));
+                            }
                         }
                     }
                     return Status::OK();
@@ -1633,11 +1648,16 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             }
             ++nullcount;
         }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
+        if (column_ptr->size() != cur_row_count + 1) {
+            throw Exception(
+                    Status::FatalError("Check failed: column_ptr->size() == cur_row_count + 1"));
+        }
     }
 
     // There is at least one valid value here
-    DCHECK(nullcount < block.columns());
+    if (nullcount >= block.columns()) {
+        throw Exception(Status::FatalError("Check failed: nullcount < block.columns()"));
+    }
     *valid = true;
     return Status::OK();
 }
@@ -2081,9 +2101,13 @@ Status NewJsonReader::_get_column_default_value(
             block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
             int result = -1;
             RETURN_IF_ERROR(ctx->execute(&block, &result));
-            DCHECK(result != -1);
+            if (result == -1) {
+                throw Exception(Status::FatalError("Check failed: result != -1"));
+            }
             auto column = block.get_by_position(result).column;
-            DCHECK(column->size() == 1);
+            if (column->size() != 1) {
+                throw Exception(Status::FatalError("Check failed: column->size() == 1"));
+            }
             _col_default_value_map.emplace(slot_desc->col_name(),
                                            column->get_data_at(0).to_string());
         }
@@ -2124,11 +2148,17 @@ void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row
             block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
     auto* skip_bitmap_col_ptr =
             assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
-    DCHECK(skip_bitmap_nullable_col_ptr->size() == cur_row_count);
+    if (skip_bitmap_nullable_col_ptr->size() != cur_row_count) {
+        throw Exception(Status::FatalError(
+                "Check failed: skip_bitmap_nullable_col_ptr->size() == cur_row_count"));
+    }
     // should append an empty bitmap for every row wheather this line misses columns
     skip_bitmap_nullable_col_ptr->get_null_map_data().push_back(0);
     skip_bitmap_col_ptr->insert_default();
-    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+    if (skip_bitmap_col_ptr->size() != cur_row_count + 1) {
+        throw Exception(Status::FatalError(
+                "Check failed: skip_bitmap_col_ptr->size() == cur_row_count + 1"));
+    }
 }
 
 void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
@@ -2139,7 +2169,10 @@ void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn
             block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
     auto* skip_bitmap_col_ptr =
             assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
-    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+    if (skip_bitmap_col_ptr->size() != cur_row_count + 1) {
+        throw Exception(Status::FatalError(
+                "Check failed: skip_bitmap_col_ptr->size() == cur_row_count + 1"));
+    }
     auto& skip_bitmap = skip_bitmap_col_ptr->get_data().back();
     if (!slot_desc->is_auto_increment()) {
         // For auto-increment column, it will always have a valid value when in SegmentWriter.

@@ -141,7 +141,9 @@ public:
     }
 
     StringRef get_data_at(size_t n) const override {
-        DCHECK_LT(n, size());
+        if (n >= size()) {
+            throw Exception(Status::FatalError("Check failed: n < size()"));
+        }
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
@@ -235,7 +237,9 @@ public:
             }
 
             if (length != 0) {
-                DCHECK(ptr != nullptr);
+                if (ptr == nullptr) {
+                    throw Exception(Status::FatalError("Check failed: ptr != nullptr"));
+                }
                 memcpy(data, ptr, length);
                 data += length;
             }
@@ -264,14 +268,18 @@ public:
         }
         const auto old_rows = offsets.size();
         auto tail_offset = offsets.back();
-        DCHECK(tail_offset == old_size);
+        if (tail_offset != old_size) {
+            throw Exception(Status::FatalError("Check failed: tail_offset == old_size"));
+        }
         offsets.resize(old_rows + num);
         auto* offsets_ptr = &offsets[old_rows];
 
         for (size_t i = 0; i < num; ++i) {
             offsets_ptr[i] = tail_offset + offsets_[i + 1] - begin_offset;
         }
-        DCHECK(chars.size() == offsets.back());
+        if (chars.size() != offsets.back()) {
+            throw Exception(Status::FatalError("Check failed: chars.size() == offsets.back()"));
+        }
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {

@@ -1813,7 +1813,9 @@ size_t ColumnObject::filter(const Filter& filter) {
 void ColumnObject::clear_subcolumns_data() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            DCHECK_EQ(part->use_count(), 1);
+            if (part->use_count() != 1) {
+                throw Exception(Status::FatalError("Check failed: part->use_count() == 1"));
+            }
             (*std::move(part)).clear();
         }
         entry->data.num_of_defaults_in_prefix = 0;

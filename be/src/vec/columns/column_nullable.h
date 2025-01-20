@@ -225,7 +225,9 @@ public:
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        DCHECK(pos);
+        if (!pos) {
+            throw Exception(Status::FatalError("Check failed: pos"));
+        }
         _push_false_to_nullmap(num);
         get_nested_column().insert_many_raw_data(pos, num);
     }
@@ -373,7 +375,9 @@ public:
     bool has_null(size_t size) const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        if (size() <= self_row) {
+            throw Exception(Status::FatalError("Check failed: size() > self_row"));
+        }
         const auto& nullable_rhs =
                 assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(rhs);
         get_null_map_column().replace_column_data(nullable_rhs.get_null_map_column(), row,

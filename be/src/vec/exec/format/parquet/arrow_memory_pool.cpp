@@ -42,7 +42,9 @@ arrow::Status ArrowAllocator::reallocate_aligned(int64_t old_size, int64_t new_s
                                                  int64_t alignment, uint8_t** ptr) {
     uint8_t* previous_ptr = *ptr;
     if (previous_ptr == kZeroSizeArea) {
-        DCHECK_EQ(old_size, 0);
+        if (old_size != 0) {
+            throw Exception(Status::FatalError("Check failed: old_size == 0"));
+        }
         return allocate_aligned(new_size, alignment, ptr);
     }
     if (new_size == 0) {
@@ -61,7 +63,9 @@ arrow::Status ArrowAllocator::reallocate_aligned(int64_t old_size, int64_t new_s
 
 void ArrowAllocator::deallocate_aligned(uint8_t* ptr, int64_t size, int64_t alignment) {
     if (ptr == kZeroSizeArea) {
-        DCHECK_EQ(size, 0);
+        if (size != 0) {
+            throw Exception(Status::FatalError("Check failed: size == 0"));
+        }
     } else {
         _allocator.free(ptr, static_cast<size_t>(size));
     }

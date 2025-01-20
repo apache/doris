@@ -270,7 +270,9 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        if (size() <= self_row) {
+            throw Exception(Status::FatalError("Check failed: size() > self_row"));
+        }
         data->replace_column_data(rhs, row, self_row);
     }
 };

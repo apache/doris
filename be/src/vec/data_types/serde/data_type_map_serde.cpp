@@ -77,8 +77,12 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
     IColumn& nested_val_column = array_column.get_values();
-    DCHECK(nested_key_column.is_nullable());
-    DCHECK(nested_val_column.is_nullable());
+    if (!nested_key_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_key_column.is_nullable()"));
+    }
+    if (!nested_val_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_val_column.is_nullable()"));
+    }
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
@@ -193,8 +197,12 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
     IColumn& nested_val_column = array_column.get_values();
-    DCHECK(nested_key_column.is_nullable());
-    DCHECK(nested_val_column.is_nullable());
+    if (!nested_key_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_key_column.is_nullable()"));
+    }
+    if (!nested_val_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_val_column.is_nullable()"));
+    }
     if (slice[0] != '{') {
         std::stringstream ss;
         ss << slice[0] << '\'';
@@ -304,7 +312,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
         // nested key and value should always same size otherwise we should popback wrong data
         nested_key_column.pop_back(nested_key_column.size() - offsets.back());
         nested_val_column.pop_back(nested_val_column.size() - offsets.back());
-        DCHECK(nested_key_column.size() == nested_val_column.size());
+        throw Exception(Status::FatalError(
+                "Check failed: nested_key_column.size() == nested_val_column.size()"));
         return Status::InvalidArgument(
                 "deserialize map error key_size({}) not equal to value_size{}",
                 nested_key_column.size(), nested_val_column.size());
@@ -338,8 +347,12 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     // now we default set key value in map is nullable
-    DCHECK(nested_keys_column.is_nullable());
-    DCHECK(nested_values_column.is_nullable());
+    if (!nested_keys_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_keys_column.is_nullable()"));
+    }
+    if (!nested_values_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_values_column.is_nullable()"));
+    }
     auto keys_nullmap_data =
             check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
     auto& offsets = map_column.get_offsets();

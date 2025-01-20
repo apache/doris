@@ -74,7 +74,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        DCHECK_LT(row_num, columns[0]->size());
+        if (row_num >= columns[0]->size()) {
+            throw Exception(Status::FatalError("Check failed: row_num < columns[0]->size()"));
+        }
         if constexpr (arg_nullable) {
             auto& nullable_col =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
@@ -147,7 +149,11 @@ public:
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
                                  size_t num_rows) const override {
         auto& col = assert_cast<const ColumnBitmap&>(column);
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
+        if (col.size() < num_rows) {
+            throw Exception(
+                    Status::FatalError("Check failed: col.size() >= num_rows source column's size "
+                                       "should greater than num_rows"));
+        }
         auto* src = col.get_data().data();
         auto* data = &(this->data(places));
         for (size_t i = 0; i != num_rows; ++i) {
@@ -179,8 +185,12 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > column.size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end , "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
         auto& col = assert_cast<const ColumnBitmap&>(column);
         auto* data = col.get_data().data();
         for (size_t i = begin; i <= end; ++i) {

@@ -115,7 +115,9 @@ public:
     std::string get_name() const override { return "ColumnDictionary"; }
 
     MutableColumnPtr clone_resized(size_t size) const override {
-        DCHECK(size == 0);
+        if (size != 0) {
+            throw Exception(Status::FatalError("Check failed: size == 0"));
+        }
         return this->create();
     }
 

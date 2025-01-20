@@ -73,8 +73,13 @@ public:
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
-        DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
-        DCHECK(node.__isset.string_literal);
+        if (node.node_type != TExprNodeType::STRING_LITERAL) {
+            throw Exception(Status::FatalError(
+                    "Check failed: node.node_type == TExprNodeType::STRING_LITERAL"));
+        }
+        if (!node.__isset.string_literal) {
+            throw Exception(Status::FatalError("Check failed: node.__isset.string_literal"));
+        }
         return Field(node.string_literal.value);
     }
 

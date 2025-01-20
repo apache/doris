@@ -475,8 +475,13 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena* arena) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > end) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end , "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
+        std::vector<char> deserialized_data(size_of_data());
         std::vector<char> deserialized_data(size_of_data());
         auto* deserialized_place = (AggregateDataPtr)deserialized_data.data();
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);

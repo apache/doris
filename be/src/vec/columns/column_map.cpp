@@ -154,10 +154,15 @@ void ColumnMap::insert_default() {
 
 void ColumnMap::pop_back(size_t n) {
     auto& offsets_data = get_offsets();
-    DCHECK(n <= offsets_data.size());
+    if (n > offsets_data.size()) {
+        throw Exception(Status::FatalError("Check failed: n <= offsets_data.size()"));
+    }
     size_t elems_size = offsets_data.back() - offset_at(offsets_data.size() - n);
 
-    DCHECK_EQ(keys_column->size(), values_column->size());
+    if (keys_column->size() != values_column->size()) {
+        throw Exception(
+                Status::FatalError("Check failed: keys_column->size() == values_column->size()"));
+    }
     if (elems_size) {
         keys_column->pop_back(elems_size);
         values_column->pop_back(elems_size);
@@ -167,17 +172,19 @@ void ColumnMap::pop_back(size_t n) {
 }
 
 void ColumnMap::insert_from(const IColumn& src_, size_t n) {
-    DCHECK(n < src_.size());
+    if (n >= src_.size()) {
+        throw Exception(Status::FatalError("Check failed: n < src_.size()"));
+    }
     const ColumnMap& src = assert_cast<const ColumnMap&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
     if ((!get_keys().is_nullable() && src.get_keys().is_nullable()) ||
         (!get_values().is_nullable() && src.get_values().is_nullable())) {
-        DCHECK(false);
+        throw Exception(Status::FatalError("Check failed: false"));
     } else if ((get_keys().is_nullable() && !src.get_keys().is_nullable()) ||
                (get_values().is_nullable() && !src.get_values().is_nullable())) {
-        DCHECK(false);
+        throw Exception(Status::FatalError("Check failed: false"));
     } else {
         keys_column->insert_range_from(src.get_keys(), offset, size);
         values_column->insert_range_from(src.get_values(), offset, size);
@@ -358,7 +365,9 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
 void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                        uint32_t offset, const uint8_t* __restrict null_data) const {
     auto s = rows;
-    DCHECK(s == size());
+    if (s != size()) {
+        throw Exception(Status::FatalError("Check failed: s == size()"));
+    }
 
     if (null_data) {
         for (size_t i = 0; i < s; ++i) {

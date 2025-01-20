@@ -115,7 +115,7 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
         }
         column_data->insert_value(val);
     } else {
-        DCHECK(false);
+        throw Exception(Status::FatalError("Check failed: false"));
     }
     return Status::OK();
 }

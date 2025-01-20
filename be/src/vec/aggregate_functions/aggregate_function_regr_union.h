@@ -136,7 +136,9 @@ public:
             : IAggregateFunctionDataHelper<
                       RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>>(
                       argument_types_) {
-        DCHECK(!argument_types_.empty());
+        if (argument_types_.empty()) {
+            throw Exception(Status::FatalError("Check failed: !argument_types_.empty()"));
+        }
     }
 
     String get_name() const override { return RegrFunc::name; }

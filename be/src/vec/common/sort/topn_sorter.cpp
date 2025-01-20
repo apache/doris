@@ -48,7 +48,9 @@ TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
           _row_desc(row_desc) {}
 
 Status TopNSorter::append_block(Block* block) {
-    DCHECK(block->rows() > 0);
+    if (block->rows() <= 0) {
+        throw Exception(Status::FatalError("Check failed: block->rows() > 0"));
+    }
     RETURN_IF_ERROR(_do_sort(block));
     return Status::OK();
 }

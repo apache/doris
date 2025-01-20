@@ -115,7 +115,9 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
 
     static ColumnRawPtrs get_nested_column(const IColumn* col) {
         const auto* nullable = check_and_get_column<ColumnNullable>(*col);
-        DCHECK(nullable != nullptr);
+        if (nullable == nullptr) {
+            throw Exception(Status::FatalError("Check failed: nullable != nullptr"));
+        }
         const auto* const nested_col = nullable->get_nested_column_ptr().get();
         return {nested_col};
     }

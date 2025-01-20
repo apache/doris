@@ -75,7 +75,9 @@ void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_row
 template <typename T>
 void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                                   const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
+    if (null_map == nullptr) {
+        throw Exception(Status::FatalError("Check failed: null_map != nullptr"));
+    }
 
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
 
@@ -161,7 +163,9 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        std::vector<uint8>& cmp_res,
                                        uint8* __restrict filter) const {
     const auto sz = data.size();
-    DCHECK(cmp_res.size() == sz);
+    if (cmp_res.size() != sz) {
+        throw Exception(Status::FatalError("Check failed: cmp_res.size() == sz"));
+    }
     const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
                                    .get_data()[rhs_row_id];
     size_t begin = simd::find_zero(cmp_res, 0);
@@ -182,7 +186,9 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
                                              uint32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
     auto s = rows;
-    DCHECK(s == size());
+    if (s != size()) {
+        throw Exception(Status::FatalError("Check failed: s == size()"));
+    }
 
     if constexpr (!std::is_same_v<T, Int64>) {
         DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()

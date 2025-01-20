@@ -104,15 +104,24 @@ Status Block::deserialize(const PBlock& pblock) {
             Slice decompressed_slice(compression_scratch);
             RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
                                               &decompressed_slice));
-            DCHECK(uncompressed_size == decompressed_slice.size);
+            if (uncompressed_size != decompressed_slice.size) {
+                throw Exception(Status::FatalError(
+                        "Check failed: uncompressed_size == decompressed_slice.size"));
+            }
         } else {
             bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
                                                          &uncompressed_size);
-            DCHECK(success) << "snappy::GetUncompressedLength failed";
+            if (!success) {
+                throw Exception(Status::FatalError(
+                        "Check failed: success, snappy::GetUncompressedLength failed"));
+            }
             compression_scratch.resize(uncompressed_size);
             success = snappy::RawUncompress(compressed_data, compressed_size,
                                             compression_scratch.data());
-            DCHECK(success) << "snappy::RawUncompress failed";
+            if (!success) {
+                throw Exception(
+                        Status::FatalError("Check failed: success, snappy::RawUncompress failed"));
+            }
         }
         _decompressed_bytes = uncompressed_size;
         buf = compression_scratch.data();
@@ -202,8 +211,12 @@ void Block::erase(const std::set<size_t>& positions) {
 }
 
 void Block::erase_tail(size_t start) {
-    DCHECK(start <= data.size()) << fmt::format(
-            "Position out of bound in Block::erase(), max position = {}", data.size());
+    if (start > data.size()) {
+        throw Exception(
+                Status::FatalError("Check failed: start <= data.size(). Position out of bound in "
+                                   "Block::erase(), max position = {}",
+                                   data.size()));
+    }
     data.erase(data.begin() + start, data.end());
     for (auto it = index_by_name.begin(); it != index_by_name.end();) {
         if (it->second >= start) {
@@ -218,9 +231,15 @@ void Block::erase_tail(size_t start) {
 }
 
 void Block::erase(size_t position) {
-    DCHECK(!data.empty()) << "Block is empty";
-    DCHECK_LT(position, data.size()) << fmt::format(
-            "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
+    if (data.empty()) {
+        throw Exception(Status::FatalError("Check faild: data.empty(). Block is empty"));
+    }
+    if (position >= data.size()) {
+        throw Exception(
+                Status::FatalError("Check failed: position < data.size(). Position out of bound in "
+                                   "Block::erase(), max position = {}",
+                                   data.size() - 1));
+    }
 
     erase_impl(position);
 }
@@ -608,9 +627,12 @@ MutableColumns Block::mutate_columns() {
 }
 
 void Block::set_columns(MutableColumns&& columns) {
-    DCHECK_GE(columns.size(), data.size())
-            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
-                           columns.size(), data.size());
+    if (columns.size() < data.size()) {
+        throw Exception(
+                Status::FatalError("Check failed: columns.size() >= data.size(). Invalid size of "
+                                   "columns, columns size: {}, data size: {}",
+                                   columns.size(), data.size()));
+    }
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = std::move(columns[i]);
@@ -618,9 +640,12 @@ void Block::set_columns(MutableColumns&& columns) {
 }
 
 void Block::set_columns(const Columns& columns) {
-    DCHECK_GE(columns.size(), data.size())
-            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
-                           columns.size(), data.size());
+    if (columns.size() < data.size()) {
+        throw Exception(
+                Status::FatalError("Check failed: columns.size() >= data.size(). Invalid size of "
+                                   "columns, columns size: {}, data size: {}",
+                                   columns.size(), data.size()));
+    }
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = columns[i];
@@ -734,7 +759,10 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     }
     for (auto& d : data) {
         if (d.column) {
-            DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
+            if (d.column->use_count() != 1) {
+                throw Exception(Status::FatalError("Check failed: d.column->use_count() == 1 {}",
+                                                   print_use_count()));
+            }
             (*std::move(d.column)).assume_mutable()->clear();
         }
     }
@@ -851,7 +879,9 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
 Block Block::copy_block(const std::vector<int>& column_offset) const {
     ColumnsWithTypeAndName columns_with_type_and_name;
     for (auto offset : column_offset) {
-        DCHECK(offset < data.size());
+        if (offset >= data.size()) {
+            throw Exception(Status::FatalError("Check failed: offset < data.size()"));
+        }
         columns_with_type_and_name.emplace_back(data[offset]);
     }
     return columns_with_type_and_name;
@@ -860,7 +890,10 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 Status Block::append_to_block_by_selector(MutableBlock* dst,
                                           const IColumn::Selector& selector) const {
     RETURN_IF_CATCH_EXCEPTION({
-        DCHECK_EQ(data.size(), dst->mutable_columns().size());
+        if (data.size() != dst->mutable_columns().size()) {
+            throw Exception(Status::FatalError(
+                    "Check failed: data.size() == dst->mutable_columns().size()"));
+        }
         for (size_t i = 0; i < data.size(); i++) {
             // FIXME: this is a quickfix. we assume that only partition functions make there some
             if (!is_column_const(*data[i].column)) {
@@ -931,7 +964,10 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     for (const auto& c : *this) {
         PColumnMeta* pcm = pblock->add_column_metas();
         c.to_pb_column_meta(pcm);
-        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
+        if (pcm->type() == PGenericType::UNKNOWN) {
+            throw Exception(Status::FatalError(
+                    "Check failed: pcm->type() != PGenericType::UNKNOWN, forget to set pb type"));
+        }
         // get serialized size
         content_uncompressed_size +=
                 c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
@@ -1048,17 +1084,28 @@ void MutableBlock::add_row(const Block* block, int row) {
 Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
                               const uint32_t* row_end, const std::vector<int>* column_offset) {
     RETURN_IF_CATCH_EXCEPTION({
-        DCHECK_LE(columns(), block->columns());
+        if (columns() > block->columns()) {
+            throw Exception(Status::FatalError("Check failed: columns() <= block->columns()"));
+        }
         if (column_offset != nullptr) {
-            DCHECK_EQ(columns(), column_offset->size());
+            if (columns() != column_offset->size()) {
+                throw Exception(
+                        Status::FatalError("Check failed: columns() == column_offset->size()"));
+            }
         }
         const auto& block_data = block->get_columns_with_type_and_name();
         for (size_t i = 0; i < _columns.size(); ++i) {
             const auto& src_col = column_offset ? block_data[(*column_offset)[i]] : block_data[i];
-            DCHECK_EQ(_data_types[i]->get_name(), src_col.type->get_name());
+            if (_data_types[i]->get_name() != src_col.type->get_name()) {
+                throw Exception(Status::FatalError(
+                        "Check failed: _data_types[i]->get_name() == src_col.type->get_name()"));
+            }
             auto& dst = _columns[i];
             const auto& src = *src_col.column.get();
-            DCHECK_GE(src.size(), row_end - row_begin);
+            if (src.size() < row_end - row_begin) {
+                throw Exception(
+                        Status::FatalError("Check failed: src.size() >= row_end - row_begin"));
+            }
             dst->insert_indices_from(src, row_begin, row_end);
         }
     });
@@ -1067,10 +1114,16 @@ Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
 
 Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
     RETURN_IF_CATCH_EXCEPTION({
-        DCHECK_LE(columns(), block->columns());
+        if (columns() > block->columns()) {
+            throw Exception(Status::FatalError("Check failed: columns() <= block->columns()"));
+        }
         const auto& block_data = block->get_columns_with_type_and_name();
         for (size_t i = 0; i < _columns.size(); ++i) {
-            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            if (_data_types[i]->get_name() != block_data[i].type->get_name()) {
+                throw Exception(
+                        Status::FatalError("Check failed: _data_types[i]->get_name() == "
+                                           "block_data[i].type->get_name()"));
+            }
             auto& dst = _columns[i];
             const auto& src = *block_data[i].column.get();
             dst->insert_range_from(src, row_begin, length);
@@ -1081,11 +1134,17 @@ Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t lengt
 
 Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& rows) {
     RETURN_IF_CATCH_EXCEPTION({
-        DCHECK_LE(columns(), block->columns());
+        if (columns() > block->columns()) {
+            throw Exception(Status::FatalError("Check failed: columns() <= block->columns()"));
+        }
         const auto& block_data = block->get_columns_with_type_and_name();
         const size_t length = std::ranges::distance(rows);
         for (size_t i = 0; i < _columns.size(); ++i) {
-            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            if (_data_types[i]->get_name() != block_data[i].type->get_name()) {
+                throw Exception(
+                        Status::FatalError("Check failed: _data_types[i]->get_name() == "
+                                           "block_data[i].type->get_name()"));
+            }
             auto& dst = _columns[i];
             const auto& src = *block_data[i].column.get();
             dst->reserve(dst->size() + length);

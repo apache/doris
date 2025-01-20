@@ -68,7 +68,9 @@ private:
                                          ColumnContainer<Y>* res_ptr) {
         static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
-        DCHECK(res_data.empty());
+        if (!res_data.empty()) {
+            throw Exception(Status::FatalError("Check failed: res_data.empty()"));
+        }
         res_data.reserve(sel_size);
         Y* y = (Y*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
@@ -254,7 +256,11 @@ public:
                 data_ptr[i].data = destination + offsets[i] - offsets[0];
                 data_ptr[i].size = offsets[i + 1] - offsets[i];
             }
-            DCHECK(data_ptr[num - 1].data + data_ptr[num - 1].size == destination + total_mem_size);
+            if (data_ptr[num - 1].data + data_ptr[num - 1].size != destination + total_mem_size) {
+                throw Exception(
+                        Status::FatalError("Check failed: data_ptr[num - 1].data + data_ptr[num - "
+                                           "1].size == destination + total_mem_size"));
+            }
         }
     }
 
@@ -316,7 +322,9 @@ public:
     std::string get_name() const override { return TypeName<T>::get(); }
 
     MutableColumnPtr clone_resized(size_t size) const override {
-        DCHECK(size == 0);
+        if (size != 0) {
+            throw Exception(Status::FatalError("Check failed: size == 0"));
+        }
         return this->create();
     }
 

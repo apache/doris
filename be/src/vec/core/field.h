@@ -434,7 +434,12 @@ public:
     Field() : which(Types::Null) {}
 
     // set Types::Null explictly and avoid other types
-    Field(Types::Which w) : which(w) { DCHECK_EQ(Types::Null, which); }
+    Field(Types::Which w) : which(w) {
+        if (which != Types::Null) {
+            throw Exception(
+                    Status::FatalError("Check failed: Types::Null == which"));
+        }
+    }
 
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.

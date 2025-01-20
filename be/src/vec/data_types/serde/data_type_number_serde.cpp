@@ -150,7 +150,7 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
         }
         column_data.insert_value(val);
     } else {
-        DCHECK(false);
+        throw Exception(Status::FatalError("Check failed: false"));
     }
     return Status::OK();
 }

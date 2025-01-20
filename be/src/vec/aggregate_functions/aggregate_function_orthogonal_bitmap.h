@@ -77,7 +77,9 @@ public:
 
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
-            DCHECK(argument_size > 1);
+            if (argument_size <= 1) {
+                throw Exception(Status::FatalError("Check failed: argument_size > 1"));
+            }
             for (int idx = 2; idx < argument_size; ++idx) {
                 const auto& col =
                         assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[idx]);
@@ -233,7 +235,9 @@ public:
 
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
-            DCHECK(argument_size > 1);
+            if (argument_size <= 1) {
+                throw Exception(Status::FatalError("Check failed: argument_size > 1"));
+            }
             const auto& col =
                     assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();

@@ -94,10 +94,12 @@ struct AggregateFunctionSortData {
     }
 
     void add(const IColumn** columns, size_t columns_num, size_t row_num) {
-        DCHECK(block.columns() == columns_num)
-                << fmt::format("block.columns()!=columns_num, block.columns()={}, columns_num={}",
-                               block.columns(), columns_num);
-
+        if (block.columns() != columns_num) {
+            throw Exception(Status::FatalError(
+                    "Check failed: block.columns() == columns_num, block.columns()!=columns_num, "
+                    "block.columns()={}, columns_num={}",
+                    block.columns(), columns_num));
+        }
         for (size_t i = 0; i < columns_num; ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->insert_from(*columns[i], row_num);

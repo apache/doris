@@ -124,7 +124,10 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), Field::TypeToEnum<T>::value);
+        if (x.get_type() != Field::TypeToEnum<T>::value) {
+            throw Exception(Status::FatalError(
+                    "Check failed: x.get_type() == Field::TypeToEnum<T>::value"));
+        }
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }
@@ -220,7 +223,9 @@ public:
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        if (self_row >= size()) {
+            throw Exception(Status::FatalError("Check failed: size() > self_row"));
+        }
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 

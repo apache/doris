@@ -99,7 +99,9 @@ private:
     /// If chunks size is less than 'linear_growth_threshold', then use exponential growth, otherwise - linear growth
     ///  (to not allocate too much excessive memory).
     size_t next_size(size_t min_next_size) {
-        DCHECK(head != nullptr);
+        if (head == nullptr) {
+            throw Exception(Status::FatalError("Check failed: head != nullptr"));
+        }
         size_t size_after_grow = 0;
 
         if (head->size() < linear_growth_threshold) {
@@ -123,7 +125,9 @@ private:
 
     /// Add next contiguous chunk of memory with size not less than specified.
     void NO_INLINE _add_chunk(size_t min_size) {
-        DCHECK(head != nullptr);
+        if (head == nullptr) {
+            throw Exception(Status::FatalError("Check failed: head != nullptr"));
+        }
         _used_size_no_head += head->used();
         head = new Chunk(next_size(min_size + pad_right), head);
         size_in_bytes += head->size();
@@ -195,7 +199,9 @@ public:
 	  * the allocation it intended to roll back was indeed the last one.
       */
     void* rollback(size_t size) {
-        DCHECK(head != nullptr);
+        if (head == nullptr) {
+            throw Exception(Status::FatalError("Check failed: head != nullptr"));
+        }
 
         head->pos -= size;
         ASAN_POISON_MEMORY_REGION(head->pos, size + pad_right);
@@ -225,7 +231,9 @@ public:
             return result;
         }
 
-        DCHECK(head != nullptr);
+        if (head == nullptr) {
+            throw Exception(Status::FatalError("Check failed: head != nullptr"));
+        }
 
         // Extend an existing memory range with 'additional_bytes'.
 

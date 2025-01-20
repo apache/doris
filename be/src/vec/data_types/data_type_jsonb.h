@@ -78,8 +78,13 @@ public:
     }
 
     Field get_field(const TExprNode& node) const override {
-        DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
-        DCHECK(node.__isset.json_literal);
+        if (node.node_type != TExprNodeType::JSON_LITERAL) {
+            throw Exception(Status::FatalError(
+                    "Check failed: node.node_type == TExprNodeType::JSON_LITERAL"));
+        }
+        if (!node.__isset.json_literal) {
+            throw Exception(Status::FatalError("Check failed: node.__isset.json_literal"));
+        }
         JsonBinaryValue value(node.json_literal.value);
         return Field(String(value.value(), value.size()));
     }

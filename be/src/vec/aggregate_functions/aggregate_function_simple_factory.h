@@ -82,7 +82,9 @@ public:
     static bool result_nullable_by_foreach(DataTypePtr& data_type) {
         // The return value of the 'foreach' function is 'null' or 'array<type>'.
         // The internal function's nullable should depend on whether 'type' is nullable
-        DCHECK(data_type->is_nullable());
+        if (!data_type->is_nullable()) {
+            throw Exception(Status::FatalError("Check failed: data_type->is_nullable()"));
+        }
         return assert_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                 ->get_nested_type()
                 ->is_nullable();

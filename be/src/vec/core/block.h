@@ -127,8 +127,11 @@ public:
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) {
-        DCHECK(data.size() > position)
-                << ", data.size()=" << data.size() << ", position=" << position;
+        if (data.size() <= position) {
+            throw Exception(Status::FatalError(
+                    "Check failed: data.size() > position, data.size() = {}, position = {}",
+                    data.size(), position));
+        }
         return data[position];
     }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
@@ -325,19 +328,33 @@ public:
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
       */
     int compare_at(size_t n, size_t m, const Block& rhs, int nan_direction_hint) const {
-        DCHECK_EQ(columns(), rhs.columns());
+        if (columns() != rhs.columns()) {
+            throw Exception(Status::FatalError("Check failed: columns() == rhs.columns()"));
+        }
         return compare_at(n, m, columns(), rhs, nan_direction_hint);
     }
 
     int compare_at(size_t n, size_t m, size_t num_columns, const Block& rhs,
                    int nan_direction_hint) const {
-        DCHECK_GE(columns(), num_columns);
-        DCHECK_GE(rhs.columns(), num_columns);
+        if (columns() < num_columns) {
+            throw Exception(Status::FatalError("Check failed: columns() >= num_columns"));
+        }
+        if (rhs.columns() < num_columns) {
+            throw Exception(Status::FatalError("Check failed: rhs.columns() >= num_columns"));
+        }
 
-        DCHECK_LE(n, rows());
-        DCHECK_LE(m, rhs.rows());
+        if (n > rows()) {
+            throw Exception(Status::FatalError("Check failed: n <= rows()"));
+        }
+        if (m > rhs.rows()) {
+            throw Exception(Status::FatalError("Check failed: m <= rhs.rows()"));
+        }
         for (size_t i = 0; i < num_columns; ++i) {
-            DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
+            if (!get_by_position(i).type->equals(*rhs.get_by_position(i).type)) {
+                throw Exception(Status::FatalError(
+                        "Check failed: "
+                        "get_by_position(i).type->equals(*rhs.get_by_position(i).type)"));
+            }
             auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
                                                              nan_direction_hint);
             if (res) {
@@ -349,13 +366,27 @@ public:
 
     int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
                    const Block& rhs, int nan_direction_hint) const {
-        DCHECK_GE(columns(), compare_columns->size());
-        DCHECK_GE(rhs.columns(), compare_columns->size());
+        if (columns() < compare_columns->size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: columns() >= compare_columns->size()"));
+        }
+        if (rhs.columns() < compare_columns->size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: rhs.columns() >= compare_columns->size()"));
+        }
 
-        DCHECK_LE(n, rows());
-        DCHECK_LE(m, rhs.rows());
+        if (n > rows()) {
+            throw Exception(Status::FatalError("Check failed: n <= rows()"));
+        }
+        if (m > rhs.rows()) {
+            throw Exception(Status::FatalError("Check failed: m <= rhs.rows()"));
+        }
         for (auto i : *compare_columns) {
-            DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
+            if (!get_by_position(i).type->equals(*rhs.get_by_position(i).type)) {
+                throw Exception(Status::FatalError(
+                        "Check failed: "
+                        "get_by_position(i).type->equals(*rhs.get_by_position(i).type)"));
+            }
             auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
                                                              nan_direction_hint);
             if (res) {
@@ -385,7 +416,9 @@ public:
                       std::vector<bool>::const_iterator end) {
         row_same_bit.insert(row_same_bit.end(), begin, end);
 
-        DCHECK_EQ(row_same_bit.size(), rows());
+        if (row_same_bit.size() != rows()) {
+            throw Exception(Status::FatalError("Check failed: row_same_bit.size() == rows()"));
+        }
     }
 
     bool get_same_bit(size_t position) {
@@ -481,22 +514,40 @@ public:
     }
 
     int compare_one_column(size_t n, size_t m, size_t column_id, int nan_direction_hint) const {
-        DCHECK_LE(column_id, columns());
-        DCHECK_LE(n, rows());
-        DCHECK_LE(m, rows());
+        if (column_id > columns()) {
+            throw Exception(Status::FatalError("Check failed: column_id <= columns()"));
+        }
+        if (n > rows()) {
+            throw Exception(Status::FatalError("Check failed: n <= rows()"));
+        }
+        if (m > rows()) {
+            throw Exception(Status::FatalError("Check failed: m <= rows()"));
+        }
         auto& column = get_column_by_position(column_id);
         return column->compare_at(n, m, *column, nan_direction_hint);
     }
 
     int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
                    int nan_direction_hint) const {
-        DCHECK_GE(columns(), num_columns);
-        DCHECK_GE(rhs.columns(), num_columns);
+        if (columns() < num_columns) {
+            throw Exception(Status::FatalError("Check failed: columns() >= num_columns"));
+        }
+        if (rhs.columns() < num_columns) {
+            throw Exception(Status::FatalError("Check failed: rhs.columns() >= num_columns"));
+        }
 
-        DCHECK_LE(n, rows());
-        DCHECK_LE(m, rhs.rows());
+        if (n > rows()) {
+            throw Exception(Status::FatalError("Check failed: n <= rows()"));
+        }
+        if (m > rhs.rows()) {
+            throw Exception(Status::FatalError("Check failed: m <= rhs.rows()"));
+        }
         for (size_t i = 0; i < num_columns; ++i) {
-            DCHECK(get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i)));
+            if (!get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i))) {
+                throw Exception(Status::FatalError(
+                        "Check failed: "
+                        "get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i))"));
+            }
             auto res = get_column_by_position(i)->compare_at(n, m, *(rhs.get_column_by_position(i)),
                                                              nan_direction_hint);
             if (res) {
@@ -508,13 +559,27 @@ public:
 
     int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
                    const MutableBlock& rhs, int nan_direction_hint) const {
-        DCHECK_GE(columns(), compare_columns->size());
-        DCHECK_GE(rhs.columns(), compare_columns->size());
+        if (columns() < compare_columns->size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: columns() >= compare_columns->size()"));
+        }
+        if (rhs.columns() < compare_columns->size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: rhs.columns() >= compare_columns->size()"));
+        }
 
-        DCHECK_LE(n, rows());
-        DCHECK_LE(m, rhs.rows());
+        if (n > rows()) {
+            throw Exception(Status::FatalError("Check failed: n <= rows()"));
+        }
+        if (m > rhs.rows()) {
+            throw Exception(Status::FatalError("Check failed: m <= rhs.rows()"));
+        }
         for (auto i : *compare_columns) {
-            DCHECK(get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i)));
+            if (!get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i))) {
+                throw Exception(Status::FatalError(
+                        "Check failed: "
+                        "get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i))"));
+            }
             auto res = get_column_by_position(i)->compare_at(n, m, *(rhs.get_column_by_position(i)),
                                                              nan_direction_hint);
             if (res) {
@@ -555,9 +620,12 @@ public:
                     dump_names(), dump_types(), block.dump_names(), block.dump_types());
         }
         for (int i = 0; i < _columns.size(); ++i) {
-            DCHECK(_data_types[i]->equals(*block.get_by_position(i).type))
-                    << " target type: " << _data_types[i]->get_name()
-                    << " src type: " << block.get_by_position(i).type->get_name();
+            if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
+                throw Exception(Status::FatalError(
+                        "Check failed: _data_types[i]->equals(*block.get_by_position(i).type "
+                        "target type: {} src type: {}",
+                        _data_types[i]->get_name(), block.get_by_position(i).type->get_name()));
+            }
             _columns[i]->insert_range_from_ignore_overflow(
                     *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
                     block.rows());
@@ -591,13 +659,26 @@ public:
             }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
-                    DCHECK(_data_types[i]->is_nullable())
-                            << " target type: " << _data_types[i]->get_name()
-                            << " src type: " << block.get_by_position(i).type->get_name();
-                    DCHECK(((DataTypeNullable*)_data_types[i].get())
-                                   ->get_nested_type()
-                                   ->equals(*block.get_by_position(i).type));
-                    DCHECK(!block.get_by_position(i).type->is_nullable());
+                    if (!_data_types[i]->is_nullable()) {
+                        throw Exception(
+                                Status::FatalError("Check failed: _data_types[i]->is_nullable(), "
+                                                   "target type: {} src type: {}",
+                                                   _data_types[i]->get_name(),
+                                                   block.get_by_position(i).type->get_name()));
+                    }
+                    if (!((DataTypeNullable*)_data_types[i].get())
+                                 ->get_nested_type()
+                                 ->equals(*block.get_by_position(i).type)) {
+                        throw Exception(Status::FatalError(
+                                "Check failed: "
+                                "((DataTypeNullable*)_data_types[i].get())->get_nested_type()->"
+                                "equals(*block.get_by_position(i).type)"));
+                    }
+                    if (block.get_by_position(i).type->is_nullable()) {
+                        throw Exception(Status::FatalError(
+                                "Check failed: "
+                                "!block.get_by_position(i).type->is_nullable()"));
+                    }
                     _columns[i]->insert_range_from(*make_nullable(block.get_by_position(i).column)
                                                             ->convert_to_full_column_if_const(),
                                                    0, block.rows());

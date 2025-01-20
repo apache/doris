@@ -76,14 +76,18 @@ struct AggregateFunctionDistinctSingleNumericData {
     }
 
     void merge(const Self& rhs, Arena*) {
-        DCHECK(!stable);
+        if (stable) {
+            throw Exception(Status::FatalError("Check failed: !stable"));
+        }
         if constexpr (!stable) {
             data.merge(Container(rhs.data));
         }
     }
 
     void serialize(BufferWritable& buf) const {
-        DCHECK(!stable);
+        if (stable) {
+            throw Exception(Status::FatalError("Check failed: !stable"));
+        }
         if constexpr (!stable) {
             write_var_uint(data.size(), buf);
             for (const auto& value : data) {
@@ -93,7 +97,9 @@ struct AggregateFunctionDistinctSingleNumericData {
     }
 
     void deserialize(BufferReadable& buf, Arena*) {
-        DCHECK(!stable);
+        if (stable) {
+            throw Exception(Status::FatalError("Check failed: !stable"));
+        }
         if constexpr (!stable) {
             uint64_t new_size = 0;
             read_var_uint(new_size, buf);
@@ -134,7 +140,9 @@ struct AggregateFunctionDistinctGenericData {
     Container data;
 
     void merge(const Self& rhs, Arena* arena) {
-        DCHECK(!stable);
+        if (stable) {
+            throw Exception(Status::FatalError("Check failed: !stable"));
+        }
         if constexpr (!stable) {
             for (const auto& elem : rhs.data) {
                 StringRef key = elem;
@@ -145,7 +153,9 @@ struct AggregateFunctionDistinctGenericData {
     }
 
     void serialize(BufferWritable& buf) const {
-        DCHECK(!stable);
+        if (stable) {
+            throw Exception(Status::FatalError("Check failed: !stable"));
+        }
         if constexpr (!stable) {
             write_var_uint(data.size(), buf);
             for (const auto& elem : data) {
@@ -155,7 +165,9 @@ struct AggregateFunctionDistinctGenericData {
     }
 
     void deserialize(BufferReadable& buf, Arena* arena) {
-        DCHECK(!stable);
+        if (stable) {
+            throw Exception(Status::FatalError("Check failed: stable"));
+        }
         if constexpr (!stable) {
             UInt64 size;
             read_var_uint(size, buf);

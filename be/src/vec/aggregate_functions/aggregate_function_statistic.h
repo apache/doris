@@ -73,7 +73,9 @@ public:
                       typename StatFunc::Data,
                       AggregateFunctionVarianceSimple<StatFunc, NullableInput>>(argument_types_),
               kind(kind_) {
-        DCHECK(!argument_types_.empty());
+        if (argument_types_.empty()) {
+            throw Exception(Status::FatalError("Check failed: !argument_types_.empty()"));
+        }
     }
 
     String get_name() const override { return to_string(kind); }

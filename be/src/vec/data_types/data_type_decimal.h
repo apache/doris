@@ -188,8 +188,13 @@ public:
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
-        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
-        DCHECK(node.__isset.decimal_literal);
+        if (node.node_type != TExprNodeType::DECIMAL_LITERAL) {
+            throw Exception(Status::FatalError(
+                    "Check failed: node.node_type == TExprNodeType::DECIMAL_LITERAL"));
+        }
+        if (!node.__isset.decimal_literal) {
+            throw Exception(Status::FatalError("Check failed: node.__isset.decimal_literal"));
+        }
         // decimalv2
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V2>>) {
             DecimalV2Value value;
@@ -405,7 +410,9 @@ void convert_to_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, UI
     using MaxFieldType = std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
                                             FromFieldType, ToFieldType>;
 
-    DCHECK_GE(scale_to, scale_from);
+    if (scale_to < scale_from) {
+        throw Exception(Status::FatalError("Check failed: scale_to >= scale_from"));
+    }
     // from integer to decimal
     MaxFieldType multiplier =
             DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);

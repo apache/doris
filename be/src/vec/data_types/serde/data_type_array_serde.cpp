@@ -83,7 +83,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
-    DCHECK(nested_column.is_nullable());
+    if (!nested_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_column.is_nullable()"));
+    }
     if (slice[0] != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        slice[0]);
@@ -161,7 +163,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
-    DCHECK(nested_column.is_nullable());
+    if (!nested_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_column.is_nullable()"));
+    }
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
