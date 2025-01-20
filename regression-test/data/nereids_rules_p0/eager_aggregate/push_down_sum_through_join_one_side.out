@@ -91,7 +91,7 @@ PhysicalResultSink
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
---filter((sum(score) > 100))
+--filter((sum(t1.score) > 100))
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
@@ -366,7 +366,7 @@ SyntaxError:
 
 -- !with_hint_groupby_pushdown_having --
 PhysicalResultSink
---filter((sum(score) > 100))
+--filter((sum(t1.score) > 100))
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
