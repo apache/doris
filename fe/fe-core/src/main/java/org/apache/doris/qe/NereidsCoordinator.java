@@ -465,7 +465,7 @@ public class NereidsCoordinator extends Coordinator {
 
     private void enqueue(ConnectContext context) throws UserException {
         // LoadTask does not have context, not controlled by queue now
-        if (context != null) {
+        if (context != null && context.getEnv() != null) {
             if (Config.enable_workload_group) {
                 coordinatorContext.setWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
                 if (shouldQueue(context)) {

@@ -160,10 +160,12 @@ public class EnvFactory {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext == null) {
                 connectContext = new ConnectContext();
+            }
+            if (connectContext.getLoadId() == null) {
+                connectContext.setLoadId(queryId);
+            }
+            if (connectContext.getEnv() == null) {
                 connectContext.setEnv(Env.getCurrentEnv());
-                connectContext.setLoadId(queryId);
-            } else if (connectContext.getLoadId() == null) {
-                connectContext.setLoadId(queryId);
             }
             StatementContext statementContext = connectContext.getStatementContext();
             if (statementContext == null) {
