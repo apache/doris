@@ -2538,35 +2538,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
-
-        // for spill to disk
-        if (Config.pull_request_id > 10000) {
-            if (Config.pull_request_id % 2 == 0) {
-                this.enableJoinSpill = true;
-                this.enableSortSpill = true;
-                this.enableAggSpill = true;
-
-                randomInt = random.nextInt(4);
-                switch (randomInt) {
-                    case 0:
-                        this.minRevocableMem = 0;
-                        break;
-                    case 1:
-                        this.minRevocableMem = 1;
-                        break;
-                    case 2:
-                        this.minRevocableMem = 1024 * 1024;
-                        break;
-                    default:
-                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
-                        break;
-                }
-            } else {
-                this.enableJoinSpill = false;
-                this.enableSortSpill = false;
-                this.enableAggSpill = false;
-            }
-        }
     }
 
     public String printFuzzyVariables() {
