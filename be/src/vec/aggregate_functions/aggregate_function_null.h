@@ -47,6 +47,7 @@ protected:
       * We use prefix_size bytes for flag to satisfy the alignment requirement of nested state.
       */
 
+    AggregateConstArgs get_const_args() const override { return nested_function->get_const_args(); }
     AggregateDataPtr nested_place(AggregateDataPtr __restrict place) const noexcept {
         return place + prefix_size;
     }

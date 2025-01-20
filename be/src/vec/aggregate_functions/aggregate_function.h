@@ -62,6 +62,7 @@ using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
+using AggregateConstArgs = std::set<size_t>;
 
 #define SAFE_CREATE(create, destroy) \
     do {                             \
@@ -90,6 +91,8 @@ public:
 
     /// Get the result type.
     virtual DataTypePtr get_return_type() const = 0;
+    // Constant argument index in input columns. This should be consistent with FE optimizer (org.apache.doris.nereids.trees.expressions.functions.org.apache.doris.nereids.trees.expressions.functions#checkLegalityBeforeTypeCoercion)
+    virtual AggregateConstArgs get_const_args() const { return {}; }
 
     virtual ~IAggregateFunction() = default;
 

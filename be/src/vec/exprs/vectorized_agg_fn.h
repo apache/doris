@@ -140,6 +140,7 @@ private:
     DataTypePtr _data_type;
 
     AggregateFunctionPtr _function;
+    std::vector<size_t> _column_idx_to_materialize {};
 
     std::string _expr_name;
 

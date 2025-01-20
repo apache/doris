@@ -223,6 +223,13 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);
+    } else {
+        AggregateConstArgs const_arg_idx = _function->get_const_args();
+        for (size_t i = 0; i < _input_exprs_ctxs.size(); ++i) {
+            if (!const_arg_idx.contains(i)) {
+                _column_idx_to_materialize.push_back(i);
+            }
+        }
     }
 
     if (!_sort_description.empty()) {
@@ -328,8 +335,9 @@ Status AggFnEvaluator::_calc_argument_columns(Block* block) {
         RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
         column_ids[i] = column_id;
     }
-    materialize_block_inplace(*block, column_ids.data(),
-                              column_ids.data() + _input_exprs_ctxs.size());
+    for (auto column_to_materialize : _column_idx_to_materialize) {
+        materialize_data_column(*block, column_ids[column_to_materialize]);
+    }
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         _agg_columns[i] = block->get_by_position(column_ids[i]).column.get();
     }
@@ -352,6 +360,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _sort_description(evaluator._sort_description),
           _data_type(evaluator._data_type),
           _function(evaluator._function),
+          _column_idx_to_materialize(evaluator._column_idx_to_materialize),
           _expr_name(evaluator._expr_name),
           _agg_columns(evaluator._agg_columns) {
     if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
