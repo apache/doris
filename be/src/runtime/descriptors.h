@@ -32,17 +32,17 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
-
 namespace google::protobuf {
-template <typename Element>
-class RepeatedField;
+template <typename Element> class RepeatedField;
 } // namespace google::protobuf
 
 namespace doris {
@@ -53,7 +53,7 @@ class PSlotDescriptor;
 
 class SlotDescriptor {
 public:
-    // virtual ~SlotDescriptor() {};
+    MOCK_DEFINE (virtual ~SlotDescriptor() = default;)
     SlotId id() const { return _id; }
     const TypeDescriptor& type() const { return _type; }
     TupleId parent() const { return _parent; }
@@ -74,7 +74,7 @@ public:
 
     vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
-    doris::vectorized::DataTypePtr get_data_type_ptr() const;
+    MOCK_FUNCTION doris::vectorized::DataTypePtr get_data_type_ptr() const;
 
     int32_t col_unique_id() const { return _col_unique_id; }
 
@@ -129,9 +129,23 @@ private:
     const bool _is_auto_increment;
     const std::string _col_default_value;
 
+    MOCK_DEFINE(public:)
+
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
+    MOCK_DEFINE(SlotDescriptor();)
 };
+
+#ifdef BE_TEST
+class MockSlotDescriptor : public SlotDescriptor {
+public:
+  MockSlotDescriptor(vectorized::DataTypePtr type) : _type(std::move(type)){};
+  doris::vectorized::DataTypePtr get_data_type_ptr() const override {
+    return _type;
+  }
+  vectorized::DataTypePtr _type;
+};
+#endif
 
 // Base class for table descriptors.
 class TableDescriptor {
@@ -349,6 +363,15 @@ public:
             }
         }
     }
+#ifdef BE_TEST
+    TupleDescriptor(ObjectPool *pool,
+                    const std::vector<vectorized::DataTypePtr> &types)
+        : _id(0) {
+      for (const auto &type : types) {
+        add_slot(pool->add(new MockSlotDescriptor(type)));
+      }
+    }
+#endif
     int num_materialized_slots() const { return _num_materialized_slots; }
     const std::vector<SlotDescriptor*>& slots() const { return _slots; }
 
@@ -453,6 +476,14 @@ public:
             _num_slots += (*it)->slots().size();
         }
     }
+
+#ifdef BE_TEST
+    RowDescriptor(const std::vector<vectorized::DataTypePtr> &data_typs,
+                  ObjectPool *pool) {
+      _tuple_desc_map.push_back(
+          pool->add(new TupleDescriptor{pool, data_typs}));
+    }
+#endif
 
     RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable);
 

@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <vector>
-
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include <vector>
 
 namespace doris {
 
@@ -69,9 +69,9 @@ public:
         return _need_convert_to_nullable_flags;
     }
 
-    Status clone(RuntimeState* state, VSortExecExprs& new_exprs);
+    Status clone(RuntimeState *state, VSortExecExprs &new_exprs);
 
-private:
+    MOCK_REMOVE(private:)
     // Create two VExprContexts for evaluating over the TupleRows.
     VExprContextSPtrs _lhs_ordering_expr_ctxs;
     VExprContextSPtrs _rhs_ordering_expr_ctxs;
