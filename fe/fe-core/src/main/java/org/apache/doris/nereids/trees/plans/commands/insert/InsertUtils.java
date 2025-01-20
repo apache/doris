@@ -424,8 +424,13 @@ public class InsertUtils {
     }
 
     private static Expression castValue(Expression value, DataType targetType) {
-        if (value instanceof UnboundAlias) {
-            return value.withChildren(TypeCoercionUtils.castUnbound(((UnboundAlias) value).child(), targetType));
+        if (value instanceof Alias) {
+            Expression oldChild = value.child(0);
+            Expression newChild = TypeCoercionUtils.castUnbound(oldChild, targetType);
+            return oldChild == newChild ? value : value.withChildren(newChild);
+        } else if (value instanceof UnboundAlias) {
+            UnboundAlias unboundAlias = (UnboundAlias) value;
+            return new Alias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
         } else {
             return TypeCoercionUtils.castUnbound(value, targetType);
         }
