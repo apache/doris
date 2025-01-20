@@ -182,7 +182,17 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
-        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
+        auto dbg_str = debug_string();
+        constexpr size_t max_log_size = 30000 - 100;
+        size_t pos = 0;
+        size_t total_size = dbg_str.size();
+        size_t tmp_size = std::min(max_log_size, total_size);
+        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout:";
+        while (pos < total_size) {
+            tmp_size = std::min(max_log_size, total_size - pos);
+            LOG(WARNING) << "===" << std::string(dbg_str.data() + pos, tmp_size);
+            pos += tmp_size;
+        }
     }
 
     // `ILLEGAL_STATE` means queries this fragment belongs to was not found in FE (maybe finished)
