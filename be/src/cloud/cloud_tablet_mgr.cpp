@@ -432,37 +432,8 @@ void CloudTabletMgr::get_max_tablet_delete_bitmap_score(
             max_delete_bitmap_score_tablet_id = t->tablet_id();
             *max_delete_bitmap_score = delete_bitmap_count;
         }
-        //get base rowset delete bitmap count
-        std::vector<RowsetSharedPtr> rowsets_;
-        std::string base_rowset_id_str;
-        {
-            std::shared_lock rowset_ldlock(t->get_header_lock());
-            for (const auto& it : t->rowset_map()) {
-                rowsets_.emplace_back(it.second);
-            }
-        }
-        std::sort(rowsets_.begin(), rowsets_.end(), Rowset::comparator);
-        if (!rowsets_.empty()) {
-            for (auto& rowset : rowsets_) {
-                if (rowset->rowset_meta()->total_disk_size() == 0) {
-                    continue;
-                }
-                base_rowset_id_str = rowset->rowset_id().to_string();
-                break;
-            }
-        }
-        if (!base_rowset_id_str.empty()) {
-            DeleteBitmap subset_map(t->tablet_id());
-            RowsetId base_rowset_id;
-            base_rowset_id.init(base_rowset_id_str);
-            t.get()->tablet_meta()->delete_bitmap().subset(
-                    {base_rowset_id, 0, 0}, {base_rowset_id, UINT32_MAX, UINT64_MAX}, &subset_map);
-            uint64_t base_rowset_delete_bitmap_count = subset_map.get_delete_bitmap_count();
-            if (base_rowset_delete_bitmap_count > *max_base_rowset_delete_bitmap_score) {
-                *max_base_rowset_delete_bitmap_score = base_rowset_delete_bitmap_count;
-                max_base_rowset_delete_bitmap_score_tablet_id = t->tablet_id();
-            }
-        }
+        t->get_base_rowset_delete_bitmap_count(max_base_rowset_delete_bitmap_score,
+                                               &max_base_rowset_delete_bitmap_score_tablet_id);
     };
     auto weak_tablets = get_weak_tablets();
     std::for_each(weak_tablets.begin(), weak_tablets.end(), handler);
