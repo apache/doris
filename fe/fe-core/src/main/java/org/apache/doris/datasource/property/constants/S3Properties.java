@@ -323,6 +323,8 @@ public class S3Properties extends BaseProperties {
             builder.setSk(properties.get(S3Properties.SECRET_KEY));
         }
         if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(properties.get(S3Properties.ROOT_PATH)),
+                    "%s cannot be empty", S3Properties.ROOT_PATH);
             builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
         }
         if (properties.containsKey(S3Properties.BUCKET)) {

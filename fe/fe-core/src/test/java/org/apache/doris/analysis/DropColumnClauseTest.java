@@ -42,7 +42,7 @@ public class DropColumnClauseTest {
         clause.analyze(analyzer);
         Assert.assertEquals("rollup", clause.getRollupName());
         Assert.assertNull("rollup", clause.getProperties());
-        Assert.assertEquals("DROP COLUMN `col` IN `rollup`", clause.toString());
+        Assert.assertEquals("DROP COLUMN `col` FROM `rollup`", clause.toString());
     }
 
     @Test(expected = AnalysisException.class)
