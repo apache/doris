@@ -21,7 +21,7 @@ suite ("await") {
 
     String db = context.config.getDbNameByFile(context.file)
 
-    def tblName = "agg_have_dup_base_no_await"
+    def tblName = "agg_have_dup_base_await"
     def waitDrop = {
         def try_times = 1000
         def result = "null"
