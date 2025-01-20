@@ -295,7 +295,7 @@ constexpr inline int64_t max_i64(int digit_count) {
 
 constexpr inline __int128 max_i128(int digit_count) {
     if (digit_count <= 0) {
-        throw Exception(Status::FatalError("Check failed: digit_count > 0"));
+        throw doris::Exception(doris::Status::FatalError("Check failed: digit_count > 0"));
     }
 
     constexpr __int128 values[] = {

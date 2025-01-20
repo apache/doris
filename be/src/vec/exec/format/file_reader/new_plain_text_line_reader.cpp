@@ -248,7 +248,7 @@ inline bool NewPlainTextLineReader::update_eof() {
 // extend input buf if necessary only when _more_input_bytes > 0
 void NewPlainTextLineReader::extend_input_buf() {
     if (_more_input_bytes <= 0) {
-        throw Exception(Status::FatalError("Check failed: _more_input_bytes > 0")); 
+        throw Exception(Status::FatalError("Check failed: _more_input_bytes > 0"));
     }
 
     // left capacity

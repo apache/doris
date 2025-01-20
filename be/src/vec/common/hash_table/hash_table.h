@@ -306,7 +306,7 @@ public:
     void increase_size_degree(doris::vectorized::UInt8 delta) {
         size_degree_ += delta;
         if (size_degree_ > 64) {
-            throw Exception(Status::FatalError("Check failed: size_degree_ <= 64"));
+            throw doris::Exception(doris::Status::FatalError("Check failed: size_degree_ <= 64"));
         }
         precalculated_mask = (1ULL << size_degree_) - 1;
         precalculated_max_fill = size_degree_ < double_grow_degree

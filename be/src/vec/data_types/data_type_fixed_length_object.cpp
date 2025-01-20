@@ -55,7 +55,7 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
             throw Exception(
                     Status::FatalError("Check failed: src_col.item_size() > 0, "
                                        "[serialize]item size of DataTypeFixedLengthObject should "
-                                       "be greater than 0", ));
+                                       "be greater than 0"));
         }
 
         // item size
@@ -79,7 +79,7 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
             throw Exception(
                     Status::FatalError("Check failed: src_col.item_size() > 0, "
                                        "[serialize]item size of DataTypeFixedLengthObject should "
-                                       "be greater than 0", ));
+                                       "be greater than 0"));
         }
         *reinterpret_cast<size_t*>(buf) = src_col.item_size();
         buf += sizeof(size_t);
@@ -108,7 +108,7 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
             throw Exception(
                     Status::FatalError("Check failed: item_size > 0, "
                                        "[deserialize]item size of DataTypeFixedLengthObject should "
-                                       "be greater than 0", ));
+                                       "be greater than 0"));
         }
 
         auto& dst_col = static_cast<ColumnType&>(*(column->get()));
@@ -134,7 +134,7 @@ const char* DataTypeFixedLengthObject::deserialize(const char* buf, MutableColum
             throw Exception(
                     Status::FatalError("Check failed: item_size > 0, "
                                        "[deserialize]item size of DataTypeFixedLengthObject should "
-                                       "be greater than 0", ));
+                                       "be greater than 0"));
         }
 
         auto& dst_col = static_cast<ColumnType&>(*(column->get()));

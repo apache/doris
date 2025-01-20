@@ -436,8 +436,7 @@ public:
     // set Types::Null explictly and avoid other types
     Field(Types::Which w) : which(w) {
         if (which != Types::Null) {
-            throw Exception(
-                    Status::FatalError("Check failed: Types::Null == which"));
+            throw Exception(Status::FatalError("Check failed: Types::Null == which"));
         }
     }
 

@@ -226,7 +226,7 @@ public:
     }
 
     void insert_many_raw_data(const char* data_ptr, size_t num) override {
-        if (!data_ptr)) {
+        if (!data_ptr) {
             throw Exception(Status::FatalError("Check failed: data_ptr"));
         }
         auto old_size = data.size();

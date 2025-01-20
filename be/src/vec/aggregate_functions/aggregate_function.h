@@ -482,7 +482,6 @@ public:
                                        begin, end, column.size()));
         }
         std::vector<char> deserialized_data(size_of_data());
-        std::vector<char> deserialized_data(size_of_data());
         auto* deserialized_place = (AggregateDataPtr)deserialized_data.data();
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);
         const Derived* derived = assert_cast<const Derived*>(this);
