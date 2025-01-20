@@ -943,6 +943,7 @@ public class Config extends ConfigBase {
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
+    @ConfField(mutable = true)
     @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
 
     /**

@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_schema_change_add_and_drop_index_show_data","p2") {
+suite("test_cloud_schema_change_add_and_drop_index_show_data","p2, nonConcurrent") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -198,5 +198,9 @@ suite("test_cloud_schema_change_add_and_drop_index_show_data","p2") {
         check(tableName)
     }
 
+    set_config_before_show_data_test()
+    sleep(10 * 1000)
     main()
+    set_config_after_show_data_test()
+    sleep(10 * 1000)
 }
