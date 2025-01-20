@@ -41,6 +41,7 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -70,6 +71,7 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -115,6 +117,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -167,6 +170,7 @@ import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
@@ -298,29 +302,31 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
-        Plan child = distribute.child();
-        PlanFragment inputFragment = child.accept(this, context);
-        List<List<Expr>> distributeExprLists = getDistributeExprs(child);
+        Plan upstream = distribute.child(); // now they're in one fragment but will be split by ExchangeNode.
+        PlanFragment upstreamFragment = upstream.accept(this, context);
+        List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
+
+        DistributionSpec targetDistribution = distribute.getDistributionSpec();
+
         // TODO: why need set streaming here? should remove this.
-        if (inputFragment.getPlanRoot() instanceof AggregationNode
-                && child instanceof PhysicalHashAggregate
-                && context.getFirstAggregateInFragment(inputFragment) == child) {
-            PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) child;
+        if (upstreamFragment.getPlanRoot() instanceof AggregationNode && upstream instanceof PhysicalHashAggregate
+                && context.getFirstAggregateInFragment(upstreamFragment) == upstream) {
+            PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) upstream;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
                     && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
                     && hashAggregate.getTopnPushInfo() == null) {
-                AggregationNode aggregationNode = (AggregationNode) inputFragment.getPlanRoot();
+                AggregationNode aggregationNode = (AggregationNode) upstreamFragment.getPlanRoot();
                 aggregationNode.setUseStreamingPreagg(hashAggregate.isMaybeUsingStream());
             }
         }
-
-        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), inputFragment.getPlanRoot());
+        // all PhysicalDistribute translate to ExchangeNode. upstream as input.
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), upstreamFragment.getPlanRoot());
         updateLegacyPlanIdToPhysicalPlan(exchangeNode, distribute);
         List<ExprId> validOutputIds = distribute.getOutputExprIds();
-        if (child instanceof PhysicalHashAggregate) {
+        if (upstream instanceof PhysicalHashAggregate) {
             // we must add group by keys to output list,
             // otherwise we could not process aggregate's output without group by keys
-            List<ExprId> keys = ((PhysicalHashAggregate<?>) child).getGroupByExpressions().stream()
+            List<ExprId> keys = ((PhysicalHashAggregate<?>) upstream).getGroupByExpressions().stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
@@ -328,12 +334,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             keys.addAll(validOutputIds);
             validOutputIds = keys;
         }
-        if (inputFragment instanceof MultiCastPlanFragment) {
+        if (upstreamFragment instanceof MultiCastPlanFragment) {
             // TODO: remove this logic when we split to multi-window in logical window to physical window conversion
-            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
+            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) upstreamFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
-            if (!(child instanceof PhysicalProject)) {
+            if (!(upstream instanceof PhysicalProject)) {
                 List<Expr> projectionExprs = new ArrayList<>();
                 PhysicalCTEConsumer consumer = getCTEConsumerChild(distribute);
                 Preconditions.checkState(consumer != null, "consumer not found");
@@ -345,45 +351,60 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 dataStreamSink.setOutputTupleDesc(projectionTuple);
             }
         }
-        DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
-        exchangeNode.setPartitionType(dataPartition.getType());
-        exchangeNode.setChildrenDistributeExprLists(distributeExprLists);
-        PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
-        if (distribute.getDistributionSpec() instanceof DistributionSpecGather) {
+        // target data partition
+        DataPartition targetDataPartition = toDataPartition(targetDistribution, validOutputIds, context);
+        exchangeNode.setPartitionType(targetDataPartition.getType());
+        exchangeNode.setChildrenDistributeExprLists(upstreamDistributeExprs);
+        // its source partition is targetDataPartition. and outputPartition is UNPARTITIONED now, will be set when
+        // visit its SinkNode
+        PlanFragment downstreamFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, targetDataPartition);
+        if (targetDistribution instanceof DistributionSpecGather
+                || targetDistribution instanceof DistributionSpecStorageGather) {
             // gather to one instance
             exchangeNode.setNumInstances(1);
-        } else {
-            exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
+        } else if (targetDistribution instanceof DistributionSpecAllSingleton) {
+            // instances number = BE number. assign one by one later.
+            int aliveBENumber = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true).size();
+            exchangeNode.setNumInstances(aliveBENumber);
+        } else { // not change instances
+            exchangeNode.setNumInstances(upstreamFragment.getPlanRoot().getNumInstances());
         }
 
         // process multicast sink
-        if (inputFragment instanceof MultiCastPlanFragment) {
-            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
+        if (upstreamFragment instanceof MultiCastPlanFragment) {
+            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) upstreamFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
             exchangeNode.updateTupleIds(dataStreamSink.getOutputTupleDesc());
             dataStreamSink.setExchNodeId(exchangeNode.getId());
-            dataStreamSink.setOutputPartition(dataPartition);
-            parentFragment.addChild(inputFragment);
-            ((MultiCastPlanFragment) inputFragment).addToDest(exchangeNode);
+            dataStreamSink.setOutputPartition(targetDataPartition);
+            downstreamFragment.addChild(upstreamFragment);
+            ((MultiCastPlanFragment) upstreamFragment).addToDest(exchangeNode);
 
-            CTEScanNode cteScanNode = context.getCteScanNodeMap().get(inputFragment.getFragmentId());
+            CTEScanNode cteScanNode = context.getCteScanNodeMap().get(upstreamFragment.getFragmentId());
             Preconditions.checkState(cteScanNode != null, "cte scan node is null");
-            cteScanNode.setFragment(inputFragment);
+            cteScanNode.setFragment(upstreamFragment);
             cteScanNode.setPlanNodeId(exchangeNode.getId());
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
                     runtimeFilterTranslator.getContext().getPlanNodeIdToCTEDataSinkMap()
                             .put(cteScanNode.getId(), dataStreamSink));
         } else {
-            inputFragment.setDestination(exchangeNode);
-            inputFragment.setOutputPartition(dataPartition);
+            /*
+             * FragmentA (NodeA) ---> FragmentB (NodeB)
+             * ↓
+             * FragmentA (NodeA -> DataStreamSink) ---> FragmentB (ExchangeNode -> NodeB)
+             *                                ↓-----------------------↑
+             */
+            upstreamFragment.setDestination(exchangeNode);
+            // by exchange, upstreamFragment transform itselves partition to exchange's partition
+            upstreamFragment.setOutputPartition(targetDataPartition);
             DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
-            streamSink.setOutputPartition(dataPartition);
-            inputFragment.setSink(streamSink);
+            streamSink.setOutputPartition(targetDataPartition);
+            upstreamFragment.setSink(streamSink);
         }
 
-        context.addPlanFragment(parentFragment);
-        return parentFragment;
+        context.addPlanFragment(downstreamFragment);
+        return downstreamFragment;
     }
 
     /* ********************************************************************************************
@@ -408,6 +429,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TFetchOption fetchOption = sink.getOlapTable().generateTwoPhaseReadOption(sink.getSelectedIndexId());
         ((ResultSink) planFragment.getSink()).setFetchOption(fetchOption);
         return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalDictionarySink(PhysicalDictionarySink<? extends Plan> dictionarySink,
+            PlanTranslatorContext context) {
+        // Scan(ABCD) DataStreamSink(ABCD) -> Exchange(ABCD) Sink(CB)
+        // source partition is UNPARTITIONED set by exchange node.
+        // TODO: after changed ABCD to DCB. check what exchange do here.
+        PlanFragment rootFragment = dictionarySink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED); // only used for explain string
+        // set rootFragment output expr
+
+        TupleDescriptor dictionaryTuple = generateTupleDesc(dictionarySink.getTargetDictionarySlots(),
+                dictionarySink.getTargetTable(), context);
+
+        DictionarySink sink = new DictionarySink(dictionarySink.getDictionary(), dictionaryTuple,
+                dictionarySink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
+        rootFragment.setSink(sink);
+        return rootFragment;
     }
 
     @Override
@@ -2607,15 +2647,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         updateLegacyPlanIdToPhysicalPlan(planNode, physicalPlan);
     }
 
-    private DataPartition toDataPartition(DistributionSpec distributionSpec,
-            List<ExprId> childOutputIds, PlanTranslatorContext context) {
+    private DataPartition toDataPartition(DistributionSpec distributionSpec/* target distribution */,
+                    List<ExprId> childOutputIds, PlanTranslatorContext context) {
         if (distributionSpec instanceof DistributionSpecAny
                 || distributionSpec instanceof DistributionSpecStorageAny
                 || distributionSpec instanceof DistributionSpecExecutionAny) {
             return DataPartition.RANDOM;
-        } else if (distributionSpec instanceof DistributionSpecGather
+        } else if (distributionSpec instanceof DistributionSpecGather // gather to one. will set instance later
+                // gather to one which has its storage. not useful now.
                 || distributionSpec instanceof DistributionSpecStorageGather
-                || distributionSpec instanceof DistributionSpecReplicated) {
+                || distributionSpec instanceof DistributionSpecReplicated // broadcast to all
+                || distributionSpec instanceof DistributionSpecAllSingleton // broadcast to all. one BE one instance
+        ) {
+            // broadcast to all (if only one, one equals all)
             return DataPartition.UNPARTITIONED;
         } else if (distributionSpec instanceof DistributionSpecHash) {
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionSpec;

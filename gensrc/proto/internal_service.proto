@@ -989,6 +989,14 @@ message PGetBeResourceResponse {
     optional PGlobalResourceUsage global_be_resource_usage = 2;
 }
 
+message PDeleteDictionaryRequest {
+    optional int64 dictionary_id = 1;
+}
+
+message PDeleteDictionaryResponse {
+    optional PStatus status = 1;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1039,5 +1047,6 @@ service PBackendService {
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
+    rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
 };
 

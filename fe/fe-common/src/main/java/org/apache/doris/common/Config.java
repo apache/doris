@@ -3026,6 +3026,10 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_feature_data_sync_job = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"字典删除时 RPC 的超时时间",
+            "Timeout of dictionary deletion RPC"})
+    public static int dictionary_delete_rpc_timeout_ms = 5000;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

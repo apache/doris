@@ -131,6 +131,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
 
+    // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
@@ -492,11 +493,13 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     public void gsonPostProcess() throws IOException {
         List<Column> keys = Lists.newArrayList();
 
-        for (Column column : fullSchema) {
-            if (column.isKey()) {
-                keys.add(column);
+        if (fullSchema != null) { // for inherited class Dictionary maybe null
+            for (Column column : fullSchema) {
+                if (column.isKey()) {
+                    keys.add(column);
+                }
+                this.nameToColumn.put(column.getName(), column);
             }
-            this.nameToColumn.put(column.getName(), column);
         }
         if (keys.size() > 1) {
             keys.forEach(key -> key.setCompoundKey(true));

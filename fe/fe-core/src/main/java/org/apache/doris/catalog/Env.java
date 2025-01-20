@@ -147,6 +147,7 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
+import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -579,6 +580,8 @@ public class Env {
 
     private TokenManager tokenManager;
 
+    private DictionaryManager dictionaryManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -827,6 +830,7 @@ public class Env {
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
+        this.dictionaryManager = new DictionaryManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1874,6 +1878,7 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
+        dictionaryManager.start();
 
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
@@ -2454,6 +2459,18 @@ public class Env {
     public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
         this.insertOverwriteManager.write(out);
         LOG.info("finished save iot to image");
+        return checksum;
+    }
+
+    public long loadDictionaryManager(DataInputStream in, long checksum) throws IOException {
+        this.dictionaryManager = DictionaryManager.read(in);
+        LOG.info("finished replay dictMgr from image");
+        return checksum;
+    }
+
+    public long saveDictionaryManager(CountingDataOutputStream out, long checksum) throws IOException {
+        this.dictionaryManager.write(out);
+        LOG.info("finished save dictMgr to image");
         return checksum;
     }
 
@@ -4530,6 +4547,10 @@ public class Env {
 
     public RefreshManager getRefreshManager() {
         return this.refreshManager;
+    }
+
+    public DictionaryManager getDictionaryManager() {
+        return this.dictionaryManager;
     }
 
     public long getReplayedJournalId() {

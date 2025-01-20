@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -1738,6 +1739,27 @@ public class Coordinator implements CoordInterface {
             PlanFragment fragment = fragments.get(i);
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
+            // if need, we can abstract it to property function `toAllBackends()` or something.
+            if (fragment.getSink() instanceof DictionarySink) {
+                // set when assign all BE job
+                int expectedInstanceNum = fragment.getParallelExecNum();
+                int count = 0;
+                for (Map.Entry<Long, Backend> entry : this.idToBackend.entrySet()) {
+                    Backend backend = entry.getValue();
+                    TNetworkAddress execHostport = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                    Reference<Long> backendIdRef = new Reference<Long>(backend.getId());
+                    this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, count, params);
+                    params.instanceExecParams.add(instanceParam);
+                    count++;
+                }
+                if (count != expectedInstanceNum) {
+                    throw new UserException("Expected " + expectedInstanceNum + " backends, but got " + count);
+                }
+                // TODO: rethink the whole function logic. could All BE sink naturally merged into other judgements?
+                return;
+            }
+
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
@@ -3352,7 +3374,7 @@ public class Coordinator implements CoordInterface {
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
 
-        int perFragmentInstanceIdx;
+        int perFragmentInstanceIdx; // not useful now
 
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 

@@ -35,8 +35,10 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
@@ -63,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
@@ -123,7 +126,9 @@ public class BindSink implements AnalysisRuleFactory {
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
-                RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink))
+                RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
+                RuleType.BINDING_INSERT_DICTIONARY_TABLE
+                        .build(unboundDictionarySink().thenApply(this::bindDictionarySink))
         );
     }
 
@@ -140,6 +145,7 @@ public class BindSink implements AnalysisRuleFactory {
         boolean needExtraSeqCol = isPartialUpdate && !childHasSeqCol && table.hasSequenceCol()
                 && table.getSequenceMapCol() != null
                 && sink.getColNames().contains(table.getSequenceMapCol());
+        // 1. bind target columns: from sink's column names to target tables' Columns
         Pair<List<Column>, Integer> bindColumnsResult =
                 bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol,
                         sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT);
@@ -268,7 +274,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<NamedExpression> castExprs = Lists.newArrayList();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
-            NamedExpression expr = columnToOutput.get(col.getName());
+            NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
             if (expr == null) {
                 // If `expr` is null, it means that the current load is a partial update
                 // and `col` should not be contained in the output of the sink node so
@@ -619,6 +625,79 @@ public class BindSink implements AnalysisRuleFactory {
         return columnToOutput;
     }
 
+    private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
+        UnboundDictionarySink<?> sink = ctx.root;
+        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
+        Database database = pair.first;
+        Dictionary dictionary = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        // 1. bind target columns: from sink's column names to target tables' Columns
+        // bindTargetColumns for dictionary: now will sink exactly all dictionaries' columns.
+        List<Column> sinkColumns = dictionary.getFullSchema();
+
+        // Dictionary sink is special. It allows sink with columns which not SAME like upstream's output.
+        // e.g. Scan Column(A|B|C|D), Sink Column(D|B|A) is OK.
+        // so we have to re-calculate LogicalDictionarySink's output expr.
+        List<NamedExpression> upstreamOutput = child.getOutput().stream().map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        List<NamedExpression> outputExprs = new ArrayList<>(sinkColumns.size());
+        for (Column column : sinkColumns) {
+            // find the SlotRef from child's output
+            Optional<NamedExpression> output = upstreamOutput.stream()
+                    .filter(expr -> expr.getName().equalsIgnoreCase(column.getName())).findFirst();
+            if (output.isPresent()) {
+                outputExprs.add(output.get());
+            } else {
+                throw new AnalysisException("Unknown column " + column.getName());
+            }
+        }
+
+        // Create LogicalDictionarySink. from child's output to OutputExprs.
+        // if source table has A,B,C,D, dictionary has D,B,A, then outputExprs and sinkColumns are both D,B,A
+        LogicalDictionarySink<?> boundSink = new LogicalDictionarySink<>(database, dictionary, sinkColumns,
+                outputExprs, child);
+
+        // Get column to output mapping and handle type coercion. sink column to its accepted expr
+        Map<String, NamedExpression> sinkColumnToExpr = getDictColumnToOutput(ctx, sinkColumns, boundSink, child);
+        // before we get A|B|C|D and only sink D|B|A. here deal the PROJECT between them.
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(sinkColumns, child, sinkColumnToExpr);
+
+        // Create target slots for each dictionary column
+        List<Slot> targetDictionarySlots = new ArrayList<>(sinkColumns.size());
+        for (Column column : sinkColumns) {
+            targetDictionarySlots.add(SlotReference.fromColumn(dictionary, column, dictionary.getFullQualifiers()));
+        }
+
+        // Return the bound sink with updated child and outputExprs here.
+        return boundSink.withChildAndUpdateOutput(fullOutputProject, targetDictionarySlots);
+    }
+
+    private static Map<String, NamedExpression> getDictColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx, List<Column> sinkSchema,
+            LogicalDictionarySink<?> boundSink, LogicalPlan child) {
+        // as we said, dictionary sink is special - unordered and inconsistent.
+        Map<String, NamedExpression> upstreamOutputs = Maps.newHashMap();
+
+        // push A|B|C|D.
+        for (int i = 0; i < child.getOutput().size(); ++i) {
+            upstreamOutputs.put(child.getOutput().get(i).getName(), child.getOutput().get(i));
+        }
+        Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        // for sink columns D|B|A, link them with child's outputs
+        for (Column column : sinkSchema) {
+            if (upstreamOutputs.containsKey(column.getName())) {
+                // TODO: for dictionary the type should be exactly same. try to remove TypeCoercion here
+                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(upstreamOutputs.get(column.getName()),
+                        DataType.fromCatalogType(column.getType())), column.getName());
+                columnToOutput.put(column.getName(), output);
+            } else {
+                throw new AnalysisException("Unknown column " + column.getName());
+            }
+        }
+        return columnToOutput;
+    }
+
     private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
@@ -669,6 +748,19 @@ public class BindSink implements AnalysisRuleFactory {
         throw new AnalysisException("the target table of insert into is not an jdbc table");
     }
 
+    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
+            UnboundDictionarySink<? extends Plan> sink) {
+        Dictionary dictionary = sink.getDictionary();
+        Database db;
+        try {
+            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
+                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        return Pair.of(db, dictionary);
+    }
+
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {
         return partitions.isEmpty()
                 ? ImmutableList.of()
@@ -682,6 +774,7 @@ public class BindSink implements AnalysisRuleFactory {
                 }).collect(Collectors.toList());
     }
 
+    // bindTargetColumns means bind sink node's target columns' names to target table's columns
     private Pair<List<Column>, Integer> bindTargetColumns(OlapTable table, List<String> colsName,
             boolean childHasSeqCol, boolean needExtraSeqCol, boolean isGroupCommit) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.

@@ -76,9 +76,27 @@ public class DistributePlanner {
         try {
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(statementContext, idToFragments);
+            // assign BE and dop, to instance
             ListMultimap<PlanFragmentId, AssignedJob> instanceJobs = AssignedJobBuilder.buildJobs(fragmentJobs);
             FragmentIdMapping<DistributedPlan> distributedPlans = buildDistributePlans(fragmentJobs, instanceJobs);
+            // for broadcast or something impacts links' shape, they're in Node's property (like exchange's
+            // partitionType). we use them to link plans. no needs of extra modification.
             FragmentIdMapping<DistributedPlan> linkedPlans = linkPlans(distributedPlans);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("=== LinkedPlans Debug Info ===");
+                linkedPlans.forEach((fragmentId, plan) -> {
+                    LOG.debug("Fragment[{}]:", fragmentId);
+                    if (plan instanceof PipelineDistributedPlan) {
+                        PipelineDistributedPlan pPlan = (PipelineDistributedPlan) plan;
+                        LOG.debug("  Jobs: {}", pPlan.getInstanceJobs());
+                        LOG.debug("  Destinations: {}", pPlan.getDestinations());
+                        LOG.debug("  Inputs: {}", pPlan.getInputs());
+                    }
+                });
+                LOG.debug("===========================");
+            }
+
             updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
             return linkedPlans;
         } catch (Throwable t) {

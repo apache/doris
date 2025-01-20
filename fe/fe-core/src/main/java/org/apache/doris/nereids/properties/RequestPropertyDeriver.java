@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -158,6 +159,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
         // Always use gather properties for jdbcTableSink
         addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalDictionarySink(PhysicalDictionarySink<? extends Plan> dictionarySink,
+            PlanContext context) {
+        addRequestPropertyToChildren(dictionarySink.getRequirePhysicalProperties());
         return null;
     }
 

@@ -380,6 +380,9 @@ struct TLakeSoulTable {
   3: optional map<string, string> properties
 }
 
+struct TDictionaryTable {
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -405,6 +408,7 @@ struct TTableDescriptor {
   21: optional TMCTable mcTable
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
+  24: optional TDictionaryTable dictionaryTable
 }
 
 struct TDescriptorTable {
