@@ -336,6 +336,7 @@ public class LoadManager implements Writable {
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId()).add("operation", operation)
                 .add("msg", "replay end load job").build());
 
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(operation.getId());
         // When idToLoadJob size increase 10000 roughly, we run removeOldLoadJob to reduce mem used
         if ((idToLoadJob.size() > 0) && (idToLoadJob.size() % 10000 == 0)) {
             removeOldLoadJob();
