@@ -49,7 +49,7 @@ private:
     std::unordered_map<std::string, std::string> function_alias;
     /// @TEMPORARY: for be_exec_version=2
     /// in order to solve agg of sum/count is not compatibility during the upgrade process
-    constexpr static int AGG_FUNCTION_NEW = 2;
+    constexpr static int AGG_FUNCTION_NEW = 4;
     /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
