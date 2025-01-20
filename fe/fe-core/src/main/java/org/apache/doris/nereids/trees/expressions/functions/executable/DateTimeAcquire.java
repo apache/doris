@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
@@ -86,19 +87,18 @@ public class DateTimeAcquire {
         return DateLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
-    // comment these function temporally until we support TimeLiteral
-    // /**
-    //  * date acquire function: current_time
-    //  */
-    // @ExecFunction(name = "curtime")
-    // public static Expression curTime() {
-    //     return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
-    // }
+    /**
+     * date acquire function: current_time
+     */
+    @ExecFunction(name = "curtime")
+    public static Expression curTime() {
+        return TimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+    }
 
-    // @ExecFunction(name = "current_time")
-    // public static Expression currentTime() {
-    //     return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
-    // }
+    @ExecFunction(name = "current_time")
+    public static Expression currentTime() {
+        return TimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+    }
 
     /**
      * date transformation function: unix_timestamp

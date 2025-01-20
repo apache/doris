@@ -30,6 +30,7 @@ enum TExprNodeType {
   CAST_EXPR,
   COMPOUND_PRED,
   DATE_LITERAL,
+  TIME_LITERAL,
   FLOAT_LITERAL,
   INT_LITERAL,
   DECIMAL_LITERAL,
@@ -116,6 +117,10 @@ struct TCaseExpr {
 }
 
 struct TDateLiteral {
+  1: required string value
+}
+
+struct TTimeLiteral {
   1: required string value
 }
 
@@ -268,6 +273,7 @@ struct TExprNode {
   34: optional TIPv4Literal ipv4_literal
   35: optional TIPv6Literal ipv6_literal
   36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
+  37: optional TTimeLiteral time_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

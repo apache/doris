@@ -23,7 +23,7 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 
 /**
- * Datetime type in Nereids.
+ * Time v2 type in Nereids.
  */
 public class TimeV2Type extends PrimitiveType implements RangeScalable {
 

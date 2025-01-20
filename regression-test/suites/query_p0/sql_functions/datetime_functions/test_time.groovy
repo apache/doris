@@ -16,9 +16,31 @@
 // under the License.
 
 suite("test_time") {
-    for (def min = 0; min < 20; min++) {
-        for (def sec = 20; sec < 40; sec++) {
-            qt_sql """ select time('2025-1-1 12:${min}:${sec}') """
-        }
-    }
+    qt_sql """ select time('2025-1-1 12:12:12') """
+    qt_sql """ select time('2025-1-1 12:12:61') """
+    qt_sql """ select time('2025-1-1 12:61:12') """
+    qt_sql """ select time('2025-1-1 25:12:12') """
+    def tableName = "test_time_function"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                test_time datetimev2 NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_time)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_time) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableName} values 
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:22:03"),
+                ("2019-08-01 14:21:03"),
+                (null);
+    """
+    qt_sql_time "select time(test_time) from ${tableName}";
 }
