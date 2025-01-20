@@ -184,13 +184,16 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
 }
 
 void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
+    if (_partition_slot_index_map.empty()) {
+        return;
+    }
     _runtime_filter_partition_pruning_ctxs.clear();
     for (auto& conjunct : _conjuncts) {
         auto impl = conjunct->root()->get_impl();
-        if (impl) {
-            // If impl is not null, which means this a conjuncts from runtime filter.
-            DCHECK(impl->get_num_children() > 0 && impl->get_child(0)->is_slot_ref());
-            const auto* slot_ref = static_cast<const VSlotRef*>(impl->get_child(0).get());
+        // If impl is not null, which means this a conjuncts from runtime filter.
+        auto expr = impl ? impl : conjunct->root();
+        if (expr->get_num_children() > 0 && expr->get_child(0)->is_slot_ref()) {
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
             if (_partition_slot_index_map.find(slot_ref->slot_id()) !=
                 _partition_slot_index_map.end()) {
                 // If the slot is partition column, add it to runtime filter partition pruning ctxs.
@@ -213,11 +216,11 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         auto test_serde = partition_slot_desc->get_data_type_ptr()->get_serde();
         auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
+        auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
         Slice slice(partition_value.data(), partition_value.size());
         int num_deserialized = 0;
         RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                *partition_value_column, slice, partition_value_column_size, &num_deserialized,
-                {}));
+                *col_ptr, slice, partition_value_column_size, &num_deserialized, {}));
         parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
@@ -845,20 +848,22 @@ Status VFileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
-        // we need get partition columns first for runtime filter partition pruning
-        RETURN_IF_ERROR(_generate_parititon_columns());
-        if (_push_down_conjuncts.size() < _conjuncts.size()) {
-            // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
-            _init_runtime_filter_partition_pruning_ctxs();
-        }
+        if (!_partition_slot_descs.empty()) {
+            // we need get partition columns first for runtime filter partition pruning
+            RETURN_IF_ERROR(_generate_parititon_columns());
+            if (_push_down_conjuncts.size() < _conjuncts.size()) {
+                // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
+                _init_runtime_filter_partition_pruning_ctxs();
+            }
 
-        bool can_filter_all = false;
-        RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(can_filter_all));
-        if (can_filter_all) {
-            // this range can be filtered out by runtime filter partition pruning
-            // so we need to skip this range
-            COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
-            continue;
+            bool can_filter_all = false;
+            RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(can_filter_all));
+            if (can_filter_all) {
+                // this range can be filtered out by runtime filter partition pruning
+                // so we need to skip this range
+                COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
+                continue;
+            }
         }
 
         // create reader for specific format
