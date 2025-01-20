@@ -323,6 +323,9 @@ Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
         return Status::OK();
     };
     auto do_merge = [&]() {
+        // two case we need do local merge:
+        // 1. has remote target
+        // 2. has local target and has global consumer (means target scan has local shuffle)
         if (_has_local_target &&
             _state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
@@ -420,9 +423,14 @@ public:
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
-    if (auto* local_merge_filters =
-                _state->global_runtime_filter_mgr()->get_local_merge_producer_filters(_filter_id);
-        local_merge_filters) {
+    // two case we need do local merge:
+    // 1. has remote target
+    // 2. has local target and has global consumer (means target scan has local shuffle)
+    if (_has_remote_target ||
+        !_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
+        LocalMergeFilters* local_merge_filters = nullptr;
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+                _filter_id, &local_merge_filters));
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
