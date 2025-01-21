@@ -147,6 +147,10 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -164,6 +168,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -1226,6 +1231,30 @@ public class StmtExecutor {
                 && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command));
     }
 
+    private boolean isProfileSafeStmt() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+            if (plan instanceof InsertIntoTableCommand) {
+                LogicalPlan query = ((InsertIntoTableCommand) plan).getLogicalQuery();
+                if (query instanceof UnboundTableSink) {
+                    // if any child node is union node, we should not profile it
+                    if (query.children() == null) {
+                        return false;
+                    }
+
+                    for (Plan child : query.children()) {
+                        if (child instanceof LogicalUnion || child instanceof UnboundOneRowRelation
+                            || child instanceof InlineTable) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     private void forwardToMaster() throws Exception {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
@@ -1261,7 +1290,7 @@ public class StmtExecutor {
     }
 
     public void updateProfile(boolean isFinished) {
-        if (!context.getSessionVariable().enableProfile()) {
+        if (!context.getSessionVariable().enableProfile() || !isProfileSafeStmt()) {
             return;
         }
         // If any error happened in update profile, we should ignore this error
