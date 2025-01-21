@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -59,9 +58,4 @@ public class DropRepositoryCommand extends DropCommand {
         return visitor.visitDropRepositoryCommand(this, context);
     }
 
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("DropRepositoryCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
-    }
 }

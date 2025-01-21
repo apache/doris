@@ -1898,8 +1898,6 @@ public class Env {
             txnCleaner.start();
             // Consistency checker
             getConsistencyChecker().start();
-            // Backup handler
-            getBackupHandler().start();
             // start daemon thread to update global partition version and in memory information periodically
             partitionInfoCollector.start();
         }
@@ -1908,6 +1906,8 @@ public class Env {
         transientTaskManager.start();
         // Alter
         getAlterInstance().start();
+        // Backup handler
+        getBackupHandler().start();
         // catalog recycle bin
         getRecycleBin().start();
         // time printer
