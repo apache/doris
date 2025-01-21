@@ -73,6 +73,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
+import org.apache.doris.nereids.rules.rewrite.EliminateOrderByKey;
 import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
@@ -263,8 +264,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(// must behind NormalizeAggregate/NormalizeSort
                         new MergeProjects(),
                         new PushDownEncodeSlot(),
-                        new DecoupleEncodeDecode()
-                ),
+                        new DecoupleEncodeDecode(),
+                        new EliminateOrderByKey()
+                        ),
 
                 topic("Window analysis",
                         topDown(
