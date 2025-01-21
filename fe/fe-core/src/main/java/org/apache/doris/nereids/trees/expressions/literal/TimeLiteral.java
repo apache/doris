@@ -27,6 +27,7 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 
@@ -75,11 +76,24 @@ public class TimeLiteral extends Literal {
     public static Result<TemporalAccessor, ? extends Exception> parseTime(String s) {
         String originalString = s;
         try {
-            TemporalAccessor time;
+            Integer hour;
+            Integer minute;
+            Integer second;
+            if (s.length() == 8) {
+                hour = readNextInt(s, 0, 2);
+                minute = readNextInt(s, 3, 2);
+                second = readNextInt(s, 6, 2);
+            } else if (s.length() == 9) {
+                hour = readNextInt(s, 0, 3);
+                minute = readNextInt(s, 4, 2);
+                second = readNextInt(s, 7, 2);
+            } else {
+                TemporalAccessor time;
+                time = DateTimeFormatterUtils.TIME_FORMATTER.parse(s);
+                return Result.ok(time);
+            }
 
-            time = DateTimeFormatterUtils.TIME_FORMATTER.parse(s);
-
-            return Result.ok(time);
+            return Result.ok(LocalTime.of(hour, minute, second));
         } catch (DateTimeException e) {
             return Result.err(() ->
                     new DateTimeException("time literal [" + originalString + "] is invalid", e)
@@ -153,5 +167,20 @@ public class TimeLiteral extends Literal {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }
         return new TimeLiteral(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+    }
+
+    private static Integer readNextInt(String str, int offset, int readLength) {
+        int value = 0;
+        int realReadLength = 0;
+        for (int i = offset; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if ('0' <= c && c <= '9') {
+                realReadLength++;
+                value = value * 10 + (c - '0');
+            } else {
+                break;
+            }
+        }
+        return readLength == realReadLength ? value : null;
     }
 }
