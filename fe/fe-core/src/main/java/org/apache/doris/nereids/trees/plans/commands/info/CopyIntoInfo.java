@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.CopyIntoProperties;
-import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LabelName;
@@ -68,8 +68,10 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -126,6 +128,10 @@ public class CopyIntoInfo {
         this.copyIntoProperties = new CopyIntoProperties(newProperties);
         this.optHints = optHints;
         this.stage = copyFromDesc.getStageAndPattern().getStageName();
+    }
+
+    private boolean isAsync() {
+        return this.copyIntoProperties.isAsync();
     }
 
     /**
@@ -233,7 +239,21 @@ public class CopyIntoInfo {
         if (copyFromDesc.getColumnMappingList() != null && !copyFromDesc.getColumnMappingList().isEmpty()) {
             legacyColumnMappingList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                legacyColumnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                Expr columnExpr = translateToLegacyExpr(expression, analyzer, context, cascadesContext);
+                if (!(columnExpr instanceof BinaryPredicate)) {
+                    throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
+                        + "Expr: " + columnExpr.toSql());
+                }
+                BinaryPredicate predicate = (BinaryPredicate) columnExpr;
+                if (predicate.getOp() != BinaryPredicate.Operator.EQ) {
+                    throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
+                        + "The mapping operator error, op: " + predicate.getOp());
+                }
+                Expr child0 = predicate.getChild(0);
+                if (child0 instanceof CastExpr && child0.getChild(0) instanceof SlotRef) {
+                    predicate.setChild(0, child0.getChild(0));
+                }
+                legacyColumnMappingList.add(columnExpr);
             }
         }
         Expr legacyFileFilterExpr = null;
@@ -322,9 +342,13 @@ public class CopyIntoInfo {
     private static class ExpressionToExpr extends ExpressionTranslator {
         @Override
         public Expr visitCast(Cast cast, PlanTranslatorContext context) {
-            // left child of cast is target type, right child of cast is expression
-            return new CastExpr(cast.getDataType().toCatalogDataType(),
+            // left child of cast is expression, right child of cast is target type
+            CastExpr castExpr = new CastExpr(cast.getDataType().toCatalogDataType(),
                     cast.child().accept(this, context), null);
+            // Old planner would replace child of cast, which cause nullable message mismatched
+            // so we follow Old Planner logic by skip setNullableFromNereids
+            // castExpr.setNullableFromNereids(cast.nullable());
+            return castExpr;
         }
     }
 
@@ -351,8 +375,11 @@ public class CopyIntoInfo {
         this.copyIntoProperties.analyze();
     }
 
-    public CopyStmt toLegacyStatement(OriginStatement originStmt) {
-        return new CopyStmt(tableName, legacyCopyFromParam, copyIntoProperties, optHints, label, stageId, stageType,
-            stagePrefix, objectInfo, userName, brokerProperties, properties, dataDescription, brokerDesc, originStmt);
+    public void executeCopyInfoCommand(ConnectContext ctx, ShowResultSetMetaData metaData,
+                                       OriginStatement originStmt) throws Exception {
+        DdlExecutor.executeCopyCommand(ctx.getEnv(), isAsync(), metaData, tableName.getDb(), label.getLabelName(),
+                brokerDesc, originStmt, ConnectContext.get().getCurrentUserIdentity(), stageId, stageType, stagePrefix,
+                copyIntoProperties.getSizeLimit(), legacyCopyFromParam.getStageAndPattern().getPattern(), objectInfo,
+                copyIntoProperties.isForce(), userName, properties, Lists.newArrayList(dataDescription));
     }
 }

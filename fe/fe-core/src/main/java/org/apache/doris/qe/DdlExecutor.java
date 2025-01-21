@@ -51,6 +51,7 @@ import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
@@ -85,6 +86,7 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
+import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCachedStatsStmt;
@@ -129,11 +131,14 @@ import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UnsetDefaultStorageVaultStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
+import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
+import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.profile.ProfileManager;
@@ -510,6 +515,74 @@ public class DdlExecutor {
         entry.add("");
         result.add(entry);
         queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
+        ConnectContext.get().setState(queryState);
+    }
+
+    // execute by Nereids
+    public static void executeCopyCommand(Env env, Boolean isAsync, ShowResultSetMetaData metaData,
+                                          String dbName, String labelName, BrokerDesc brokerDesc,
+                                          OriginStatement originStmt, UserIdentity userInfo, String stageId,
+                                          StageType stageType, String stagePrefix, long sizeLimit, String pattern,
+                                          RemoteBase.ObjectInfo objectInfo, Boolean isForce, String userName,
+                                          Map<String, String> properties,
+                                          List<DataDescription> dataDescriptions) throws Exception {
+        CopyJob job = (CopyJob) (((CloudLoadManager) env.getLoadManager()).createLoadJobFromCommand(dbName, labelName,
+                brokerDesc, originStmt, userInfo, stageId, stageType, stagePrefix, sizeLimit, pattern, objectInfo,
+                isForce, userName, properties, dataDescriptions));
+        if (!isAsync) {
+            // wait for execute finished
+            waitJobCompleted(job);
+            if (job.getState() == JobState.UNKNOWN || job.getState() == JobState.CANCELLED) {
+                QueryState queryState = new QueryState();
+                FailMsg failMsg = job.getFailMsg();
+                EtlStatus loadingStatus = job.getLoadingStatus();
+                List<List<String>> result = Lists.newArrayList();
+                List<String> entry = Lists.newArrayList();
+                entry.add(job.getCopyId());
+                entry.add(job.getState().toString());
+                entry.add(failMsg == null ? "" : failMsg.getCancelType().toString());
+                entry.add(failMsg == null ? "" : failMsg.getMsg());
+                entry.add("");
+                entry.add("");
+                entry.add("");
+                entry.add(loadingStatus.getTrackingUrl());
+                result.add(entry);
+                queryState.setResultSet(new ShowResultSet(metaData, result));
+                ConnectContext.get().setState(queryState);
+                return;
+            } else if (job.getState() == JobState.FINISHED) {
+                EtlStatus loadingStatus = job.getLoadingStatus();
+                Map<String, String> counters = loadingStatus.getCounters();
+                QueryState queryState = new QueryState();
+                List<List<String>> result = Lists.newArrayList();
+                List<String> entry = Lists.newArrayList();
+                entry.add(job.getCopyId());
+                entry.add(job.getState().toString());
+                entry.add("");
+                entry.add("");
+                entry.add(counters.getOrDefault(LoadJob.DPP_NORMAL_ALL, "0"));
+                entry.add(counters.getOrDefault(LoadJob.DPP_ABNORMAL_ALL, "0"));
+                entry.add(counters.getOrDefault(LoadJob.UNSELECTED_ROWS, "0"));
+                entry.add(loadingStatus.getTrackingUrl());
+                result.add(entry);
+                queryState.setResultSet(new ShowResultSet(metaData, result));
+                ConnectContext.get().setState(queryState);
+                return;
+            }
+        }
+        QueryState queryState = new QueryState();
+        List<List<String>> result = Lists.newArrayList();
+        List<String> entry = Lists.newArrayList();
+        entry.add(job.getCopyId());
+        entry.add(job.getState().toString());
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        entry.add("");
+        result.add(entry);
+        queryState.setResultSet(new ShowResultSet(metaData, result));
         ConnectContext.get().setState(queryState);
     }
 
