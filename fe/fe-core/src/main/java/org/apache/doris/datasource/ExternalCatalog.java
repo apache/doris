@@ -134,6 +134,9 @@ public abstract class ExternalCatalog
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
+    @SerializedName(value = "comment")
+    private String comment;
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -142,7 +145,6 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
-    private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
     private byte[] propLock = new byte[0];
