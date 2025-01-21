@@ -1673,7 +1673,7 @@ public class DateLiteral extends LiteralExpr {
 
         // Compute timestamp type
         if ((partUsed & datePart) != 0) { // Ymd part only
-            if ((partUsed & fracPart) != 0) {
+            if (hasMicroSecondPart(format)) {
                 this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             } else if ((partUsed & timePart) != 0) {
                 this.type = ScalarType.getDefaultDateType(Type.DATETIME);
