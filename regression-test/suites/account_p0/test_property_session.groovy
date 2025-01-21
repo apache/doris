@@ -33,10 +33,11 @@ suite("test_property_session") {
     }
 
     connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
-        sql """set query_timeout=1"""
         test {
-            sql """select sleep(3)""
-            exception "timeout"
+              sql """
+                  select sleep(3);
+              """
+              exception "timeout"
         }
     }
 
