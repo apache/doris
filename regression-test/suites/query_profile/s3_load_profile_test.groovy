@@ -29,6 +29,8 @@ def getProfile = { id ->
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
 suite('s3_load_profile_test') {
+    sql "set enable_profile=true;"   
+    sql "set profile_level=2;"
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
     sql "drop table if exists s3_load_profile_test_dup_tbl_basic;"
@@ -106,8 +108,6 @@ PROPERTIES (
     def ak = getS3AK()
     def sk = getS3SK()
 
-    sql "set enable_profile=true;"    
-    
     def label = "test_s3_load_" + UUID.randomUUID().toString().replace("-", "_")
     logger.info("s3_load_profile_test_dup_tbl_basic, label: $label")
     loadAttribute.label = label

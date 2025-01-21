@@ -606,6 +606,8 @@ public:
 
     int task_num() const { return _task_num; }
 
+    int profile_level() const { return _profile_level; }
+
 private:
     Status create_error_log_file();
 
@@ -624,6 +626,10 @@ private:
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
+    // Why 2?
+    // During cluster upgrade, fe will not pass profile_level to be, so we need to set it to 2
+    // to make sure user can see all profile counters like before.
+    int _profile_level = 2;
 
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;

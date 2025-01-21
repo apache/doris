@@ -157,6 +157,9 @@ public class LoadLoadingTask extends LoadTask {
 
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
         curCoordinator.setBatchSize(batchSize);
+        // This is a tricky way to set the profile level
+        // Since session variable is not properly handled by Load job.
+        curCoordinator.setProfileLevel(2);
 
         long leftTimeMs = getLeftTimeMs();
         if (leftTimeMs <= 0) {

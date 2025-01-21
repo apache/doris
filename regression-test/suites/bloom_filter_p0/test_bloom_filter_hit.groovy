@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 
 suite("test_bloom_filter_hit") {
     def tableName = "test_bloom_filter_hit"
+    sql "set profile_level = 2;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
