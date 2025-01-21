@@ -38,6 +38,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RuntimeState;
@@ -218,6 +219,7 @@ private:
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_parititon_columns();
     Status _generate_missing_columns();
+    bool _check_partition_pruning_expr(const VExprSPtr& expr);
     void _init_runtime_filter_partition_pruning_ctxs();
     Status _process_runtime_filters_partition_pruning(bool& is_partition_pruning);
     Status _process_conjuncts_for_dict_filter();

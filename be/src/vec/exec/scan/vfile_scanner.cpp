@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
@@ -71,6 +72,7 @@
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
@@ -183,6 +185,47 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     return Status::OK();
 }
 
+// check if the expr is a partition pruning expr
+bool VFileScanner::_check_partition_pruning_expr(const VExprSPtr& expr) {
+    switch (expr->op()) {
+    case TExprOpcode::COMPOUND_AND:
+    case TExprOpcode::COMPOUND_OR:
+    case TExprOpcode::COMPOUND_NOT:
+        // all children must be partition pruning expr
+        return std::ranges::all_of(expr->children(), [this](const auto& child) {
+            return _check_partition_pruning_expr(child);
+        });
+
+    case TExprOpcode::GE:
+    case TExprOpcode::GT:
+    case TExprOpcode::LE:
+    case TExprOpcode::LT:
+    case TExprOpcode::EQ:
+    case TExprOpcode::NE:
+    case TExprOpcode::FILTER_IN:
+    case TExprOpcode::FILTER_NOT_IN: {
+        DCHECK(expr->children().size() >= 2);
+        // the first child must be partition column slot ref and rest child must be literal
+        if (!expr->children()[0]->is_slot_ref()) {
+            return false;
+        }
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        if (_partition_slot_index_map.find(slot_ref->slot_id()) ==
+            _partition_slot_index_map.end()) {
+            return false;
+        }
+        return std::ranges::all_of(std::next(expr->children().begin()), expr->children().end(),
+                                   [](const auto& child) { return child->is_literal(); });
+    }
+    case TExprOpcode::INVALID_OPCODE:
+        // TODO: should we return false here?
+        return false;
+    default:
+        VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
+        return false;
+    }
+}
+
 void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
     if (_partition_slot_index_map.empty()) {
         return;
@@ -192,13 +235,8 @@ void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
-        if (expr->get_num_children() > 0 && expr->get_child(0)->is_slot_ref()) {
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
-            if (_partition_slot_index_map.find(slot_ref->slot_id()) !=
-                _partition_slot_index_map.end()) {
-                // If the slot is partition column, add it to runtime filter partition pruning ctxs.
-                _runtime_filter_partition_pruning_ctxs.emplace_back(conjunct);
-            }
+        if (_check_partition_pruning_expr(expr)) {
+            _runtime_filter_partition_pruning_ctxs.emplace_back(conjunct);
         }
     }
 }
