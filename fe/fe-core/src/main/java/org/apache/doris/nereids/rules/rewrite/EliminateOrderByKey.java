@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
@@ -61,22 +62,34 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     }
 
     private static <T extends UnaryPlan<Plan> & Sort> Optional<List<OrderKey>> eliminate(T sort) {
-        // eliminate same order by expr. e.g. order by a,a -> order by a
         List<OrderKey> originOrderKeys = sort.getOrderKeys();
-        List<OrderKey> uniqueOrderKeys = new ArrayList<>();
-        Set<Expression> set = new HashSet<>();
-        for (OrderKey orderKey : originOrderKeys) {
-            if (set.contains(orderKey.getExpr())) {
+        List<OrderKey> retainExpression = eliminateByFd(sort);
+        retainExpression = eliminateDuplicate(retainExpression);
+        retainExpression = eliminateByUniform(sort, retainExpression);
+        if (retainExpression.equals(originOrderKeys)) {
+            return Optional.empty();
+        }
+        return Optional.of(retainExpression);
+    }
+
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByUniform(T sort,
+            List<OrderKey> orderKeys) {
+        List<OrderKey> retainExpression = new ArrayList<>();
+        DataTrait dataTrait = sort.child().getLogicalProperties().getTrait();
+        for (OrderKey orderKey : orderKeys) {
+            if (orderKey.getExpr() instanceof Slot && dataTrait.isUniformAndNotNull((Slot) orderKey.getExpr())) {
                 continue;
             }
-            uniqueOrderKeys.add(orderKey);
-            set.add(orderKey.getExpr());
+            retainExpression.add(orderKey);
         }
+        return retainExpression;
+    }
 
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd(T sort) {
         // eliminate order by key by fd. e.g. order by a,abs(a) -> order by a
         Map<OrderKey, Set<Slot>> orderBySlotMap = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
-        for (OrderKey orderKey : uniqueOrderKeys) {
+        for (OrderKey orderKey : sort.getOrderKeys()) {
             Expression expr = orderKey.getExpr();
             orderBySlotMap.put(orderKey, expr.getInputSlots());
             validSlots.addAll(expr.getInputSlots());
@@ -84,23 +97,31 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
 
         FuncDeps funcDeps = sort.child().getLogicalProperties().getTrait().getAllValidFuncDeps(validSlots);
         if (funcDeps.isEmpty()) {
-            if (uniqueOrderKeys.equals(originOrderKeys)) {
-                return Optional.empty();
-            } else {
-                return Optional.of(uniqueOrderKeys);
-            }
+            return sort.getOrderKeys();
         }
 
-        Set<Set<Slot>> minOrderBySlots = funcDeps.eliminateDeps(new HashSet<>(orderBySlotMap.values()), new HashSet<>());
+        Set<Set<Slot>> minOrderBySlots = funcDeps.eliminateDeps(new HashSet<>(orderBySlotMap.values()),
+                new HashSet<>());
         List<OrderKey> retainExpression = new ArrayList<>();
         for (Map.Entry<OrderKey, Set<Slot>> entry : orderBySlotMap.entrySet()) {
             if (minOrderBySlots.contains(entry.getValue())) {
                 retainExpression.add(entry.getKey());
             }
         }
-        if (retainExpression.equals(originOrderKeys)) {
-            return Optional.empty();
+        return retainExpression;
+    }
+
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateDuplicate(List<OrderKey> orderKeys) {
+        // eliminate same order by expr. e.g. order by a,a -> order by a
+        List<OrderKey> uniqueOrderKeys = new ArrayList<>();
+        Set<Expression> set = new HashSet<>();
+        for (OrderKey orderKey : orderKeys) {
+            if (set.contains(orderKey.getExpr())) {
+                continue;
+            }
+            uniqueOrderKeys.add(orderKey);
+            set.add(orderKey.getExpr());
         }
-        return Optional.of(retainExpression);
+        return uniqueOrderKeys;
     }
 }

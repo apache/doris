@@ -17,11 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
 
@@ -38,10 +36,8 @@ public class EliminateOrderByConstant extends OneRewriteRuleFactory {
             List<OrderKey> orderKeys = sort.getOrderKeys();
             ImmutableList.Builder<OrderKey> orderKeysWithoutConstBuilder
                     = ImmutableList.builderWithExpectedSize(orderKeys.size());
-            DataTrait dataTrait = sort.child().getLogicalProperties().getTrait();
             for (OrderKey orderKey : orderKeys) {
-                if (!orderKey.getExpr().isConstant() && !(orderKey.getExpr() instanceof Slot
-                        && dataTrait.isUniformAndNotNull((Slot) orderKey.getExpr()))) {
+                if (!orderKey.getExpr().isConstant()) {
                     orderKeysWithoutConstBuilder.add(orderKey);
                 }
             }
