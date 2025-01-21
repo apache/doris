@@ -287,17 +287,11 @@ public class DBBinlog {
         if (dbBinlogConfig == null) {
             LOG.error("db not found. dbId: {}", dbId);
             return null;
-        }
-
-        BinlogTombstone tombstone;
-        if (dbBinlogConfig.isEnable()) {
-            // db binlog is enabled, only one binlogTombstones
-            tombstone = dbBinlogEnableGc(dbBinlogConfig);
+        } else if (!dbBinlogConfig.isEnable()) {
+            return dbBinlogDisableGc();
         } else {
-            tombstone = dbBinlogDisableGc();
+            return dbBinlogEnableGc(dbBinlogConfig);
         }
-
-        return tombstone;
     }
 
     private BinlogTombstone collectTableTombstone(List<BinlogTombstone> tableTombstones, boolean isDbGc) {
@@ -341,6 +335,7 @@ public class DBBinlog {
                 tombstones.add(tombstone);
             }
         }
+
         BinlogTombstone tombstone = collectTableTombstone(tombstones, false);
         if (tombstone != null) {
             removeExpiredMetaData(tombstone.getCommitSeq());
