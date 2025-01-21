@@ -67,6 +67,35 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
+LocalSnapshotLockGuard LocalSnapshotLock::acquire(const std::string& path) {
+    std::unique_lock<std::mutex> l(_lock);
+    auto& ctx = _local_snapshot_contexts[path];
+    while (ctx._is_locked) {
+        ctx._waiting_count++;
+        ctx._cv.wait(l);
+        ctx._waiting_count--;
+    }
+
+    ctx._is_locked = true;
+    return {path};
+}
+
+void LocalSnapshotLock::release(const std::string& path) {
+    std::lock_guard<std::mutex> l(_lock);
+    auto iter = _local_snapshot_contexts.find(path);
+    if (iter == _local_snapshot_contexts.end()) {
+        return;
+    }
+
+    auto& ctx = iter->second;
+    ctx._is_locked = false;
+    if (ctx._waiting_count > 0) {
+        ctx._cv.notify_one();
+    } else {
+        _local_snapshot_contexts.erase(iter);
+    }
+}
+
 SnapshotManager::SnapshotManager(StorageEngine& engine) : _engine(engine) {
     _mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "SnapshotManager");
@@ -118,6 +147,8 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 }
 
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
+    auto local_snapshot_guard = LocalSnapshotLock::instance().acquire(snapshot_path);
+
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -448,7 +479,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }
             // be would definitely set it as true no matter has missed version or not
-            // but it would take no effets on the following range loop
+            // but it would take no effects on the following range loop
             if (!is_single_rowset_clone && request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
