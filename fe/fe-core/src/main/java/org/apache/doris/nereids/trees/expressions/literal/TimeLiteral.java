@@ -67,9 +67,9 @@ public class TimeLiteral extends Literal {
      */
     public TimeLiteral(TimeType dataType, long hour, long minute, long second) {
         super(dataType);
-        this.hour = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
-        this.minute = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
-        this.second = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
+        this.hour = hour;
+        this.minute = minute;
+        this.second = second;
     }
 
     /** parseTime */
@@ -147,10 +147,14 @@ public class TimeLiteral extends Literal {
 
     @Override
     public String toString() {
-        if (hour > 99) {
-            return String.format("%03d:%02d:%02d", hour, minute, second);
+        long h = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
+        long m = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
+        long s = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
+
+        if (h > 99 || h < -99) {
+            return String.format("%03d:%02d:%02d", h, m, s);
         }
-        return String.format("%02d:%02d:%02d", hour, minute, second);
+        return String.format("%02d:%02d:%02d", h, m, s);
     }
 
     @Override
