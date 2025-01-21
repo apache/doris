@@ -25,9 +25,11 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 
@@ -38,7 +40,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**EliminateOrderByKey*/
@@ -52,24 +53,30 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     }
 
     private static Plan eliminateSort(LogicalSort<Plan> sort) {
-        Optional<List<OrderKey>> retainExpression = eliminate(sort);
-        return retainExpression.map(sort::withOrderKeys).orElse(null);
+        List<OrderKey> retainExpression = eliminate(sort);
+        if (retainExpression.isEmpty()) {
+            return sort.child();
+        } else if (retainExpression.size() == sort.getOrderKeys().size()) {
+            return sort;
+        }
+        return sort.withOrderKeys(retainExpression);
     }
 
     private static Plan eliminateTopN(LogicalTopN<Plan> topN) {
-        Optional<List<OrderKey>> retainExpression = eliminate(topN);
-        return retainExpression.map(topN::withOrderKeys).orElse(null);
+        List<OrderKey> retainExpression = eliminate(topN);
+        if (retainExpression.isEmpty()) {
+            return new LogicalLimit<>(topN.getLimit(), topN.getOffset(), LimitPhase.GLOBAL, topN.child());
+        } else if (retainExpression.size() == topN.getOrderKeys().size()) {
+            return topN;
+        }
+        return topN.withOrderKeys(retainExpression);
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> Optional<List<OrderKey>> eliminate(T sort) {
-        List<OrderKey> originOrderKeys = sort.getOrderKeys();
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminate(T sort) {
         List<OrderKey> retainExpression = eliminateByFd(sort);
         retainExpression = eliminateDuplicate(retainExpression);
         retainExpression = eliminateByUniform(sort, retainExpression);
-        if (retainExpression.equals(originOrderKeys)) {
-            return Optional.empty();
-        }
-        return Optional.of(retainExpression);
+        return retainExpression;
     }
 
     private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByUniform(T sort,
