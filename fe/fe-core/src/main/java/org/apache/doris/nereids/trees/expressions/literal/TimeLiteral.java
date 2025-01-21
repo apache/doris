@@ -25,7 +25,6 @@ import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 
-import java.lang.Math;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoField;
@@ -142,7 +141,7 @@ public class TimeLiteral extends Literal {
 
     @Override
     public Long getValue() {
-        return (hour * 60 + minute * 60 + second) * 1000000L;
+        return (hour * 3600 + minute * 60 + second) * 1000000L;
     }
 
     public static boolean isDateOutOfRange(LocalDateTime dateTime) {

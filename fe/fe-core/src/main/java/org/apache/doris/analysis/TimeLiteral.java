@@ -20,12 +20,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTimeLiteral;
 
-import java.lang.Math;
 import java.time.DateTimeException;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
