@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -330,6 +331,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    IdManager* get_id_manager() { return _id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
@@ -476,6 +478,7 @@ private:
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
+    IdManager* _id_manager = nullptr;
     ProcessProfile* _process_profile = nullptr;
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;

@@ -457,6 +457,7 @@ Status ExecEnv::_init_mem_env() {
         return Status::InternalError(ss.str());
     }
 
+    _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -801,6 +802,7 @@ void ExecEnv::destroy() {
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
+    SAFE_DELETE(_id_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
