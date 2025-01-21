@@ -25,9 +25,11 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
+#include <ranges>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -187,43 +189,17 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
 
 // check if the expr is a partition pruning expr
 bool VFileScanner::_check_partition_pruning_expr(const VExprSPtr& expr) {
-    switch (expr->op()) {
-    case TExprOpcode::COMPOUND_AND:
-    case TExprOpcode::COMPOUND_OR:
-    case TExprOpcode::COMPOUND_NOT:
-        // all children must be partition pruning expr
-        return std::ranges::all_of(expr->children(), [this](const auto& child) {
-            return _check_partition_pruning_expr(child);
-        });
-
-    case TExprOpcode::GE:
-    case TExprOpcode::GT:
-    case TExprOpcode::LE:
-    case TExprOpcode::LT:
-    case TExprOpcode::EQ:
-    case TExprOpcode::NE:
-    case TExprOpcode::FILTER_IN:
-    case TExprOpcode::FILTER_NOT_IN: {
-        DCHECK(expr->children().size() >= 2);
-        // the first child must be partition column slot ref and rest child must be literal
-        if (!expr->children()[0]->is_slot_ref()) {
-            return false;
-        }
-        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-        if (_partition_slot_index_map.find(slot_ref->slot_id()) ==
-            _partition_slot_index_map.end()) {
-            return false;
-        }
-        return std::ranges::all_of(std::next(expr->children().begin()), expr->children().end(),
-                                   [](const auto& child) { return child->is_literal(); });
+    if (expr->is_slot_ref()) {
+        auto* slot_ref = static_cast<VSlotRef*>(expr.get());
+        return _partition_slot_index_map.find(slot_ref->slot_id()) !=
+               _partition_slot_index_map.end();
     }
-    case TExprOpcode::INVALID_OPCODE:
-        // TODO: should we return false here?
-        return false;
-    default:
-        VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
-        return false;
+    if (expr->is_literal()) {
+        return true;
     }
+    return std::ranges::all_of(expr->children(), [this](const auto& child) {
+        return _check_partition_pruning_expr(child);
+    });
 }
 
 void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
