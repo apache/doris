@@ -66,9 +66,9 @@ public class TimeLiteral extends Literal {
      */
     public TimeLiteral(TimeType dataType, long hour, long minute, long second) {
         super(dataType);
-        this.hour = Math.min(hour, MAX_TIME.getHour());
-        this.minute = Math.min(minute, MAX_TIME.getMinute());
-        this.second = Math.min(second, MAX_TIME.getSecond());
+        this.hour = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
+        this.minute = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
+        this.second = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
     }
 
     /** parseTime */
@@ -141,7 +141,7 @@ public class TimeLiteral extends Literal {
 
     @Override
     public Long getValue() {
-        return (hour * 3600 + minute * 60 + second) * 1000000L;
+        return hour * 10000 + minute * 100 + second;
     }
 
     public static boolean isDateOutOfRange(LocalDateTime dateTime) {
