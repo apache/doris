@@ -54,6 +54,7 @@ import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.proto.Cloud.MetaServiceResponseStatus;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
@@ -143,6 +144,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -867,6 +869,22 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}", transactionId,
                                 request, response);
                     }
+                    if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict")) {
+                        DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict");
+                        double percent = debugPoint.param("percent", 0.4);
+                        long timestamp = System.currentTimeMillis();
+                        Random random = new Random(timestamp);
+                        if (Math.abs(random.nextInt()) % 100 < 100 * percent) {
+                            LOG.info("set kv txn conflict for test");
+                            GetDeleteBitmapUpdateLockResponse.Builder getLockResponseBuilder
+                                    = GetDeleteBitmapUpdateLockResponse.newBuilder();
+                            getLockResponseBuilder.setStatus(MetaServiceResponseStatus.newBuilder()
+                                    .setCode(MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES)
+                                    .setMsg("kv txn conflict"));
+                            response = getLockResponseBuilder.build();
+                        }
+                    }
                     if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
                             && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                         break;
@@ -892,7 +910,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}", transactionId,
                         retryTime, response);
                 if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
-                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT) {
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                             "Failed to get delete bitmap lock due to confilct");
