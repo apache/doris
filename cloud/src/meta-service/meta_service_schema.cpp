@@ -317,8 +317,9 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
 }
 
 void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
-                      int64_t index_id, Transaction* txn, GetRowsetResponse* response,
-                      GetRowsetRequest::SchemaOp schema_op) {
+                      int64_t index_id, Transaction* txn,
+                      google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB>* rsp_metas,
+                      SchemaCloudDictionary* rsp_dict, GetRowsetRequest::SchemaOp schema_op) {
     std::stringstream ss;
 
     // read dict if any rowset has dict key list
@@ -341,8 +342,8 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
               << ", index size=" << dict.index_dict_size();
 
     // Return dict, let backend to fill schema with dict info
-    if (schema_op == GetRowsetRequest::RETURN_DICT) {
-        response->mutable_schema_dict()->Swap(&dict);
+    if (schema_op == GetRowsetRequest::RETURN_DICT && rsp_dict != nullptr) {
+        rsp_dict->Swap(&dict);
         return;
     }
 
@@ -381,7 +382,7 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
     };
 
     // fill rowsets's schema with dict info
-    for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+    for (auto& rowset_meta : *rsp_metas) {
         if (rowset_meta.has_schema_dict_key_list()) {
             fill_schema_with_dict(&rowset_meta);
         }
