@@ -54,10 +54,7 @@ public class FuncDeps {
                 return false;
             }
             FuncDepsItem item = (FuncDepsItem) other;
-            if (!item.determinants.equals(determinants) || !item.dependencies.equals(dependencies)) {
-                return false;
-            }
-            return true;
+            return item.determinants.equals(determinants) && item.dependencies.equals(dependencies);
         }
 
         @Override
