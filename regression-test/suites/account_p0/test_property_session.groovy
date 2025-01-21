@@ -33,10 +33,10 @@ suite("test_property_session") {
     }
     sql """GRANT select_PRIV ON *.*.* TO ${userName}""";
     connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """
+              set query_timeout=1;
+          """
         test {
-              sql """
-                  set query_timeout=1;
-              """
               sql """
                   select sleep(3);
               """
