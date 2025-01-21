@@ -32,6 +32,13 @@ suite("test_property_session") {
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${userName}""";
     }
 
+    connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """set query_timeout=1"""
+        test {
+            sql """select sleep(3)""
+            exception "timeout"
+        }
+    }
 
 
     sql """drop user if exists ${userName}"""
