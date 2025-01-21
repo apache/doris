@@ -592,8 +592,10 @@ public class BinlogManager {
                 tombstones.add(dbTombstones);
             }
         }
+
         return tombstones;
     }
+
 
     public void replayGc(BinlogGcInfo binlogGcInfo) {
         lock.writeLock().lock();
