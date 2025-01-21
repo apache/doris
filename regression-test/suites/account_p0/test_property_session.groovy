@@ -17,8 +17,8 @@
 
 import org.junit.Assert;
 
-suite("test_property_session","p0") {
-    String suiteName = "test_paimon_mtmv"
+suite("test_property_session") {
+    String suiteName = "test_property_session"
     String userName = "${suiteName}_user"
     String pwd = 'C123_567p'
     sql """drop user if exists ${userName}"""
