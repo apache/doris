@@ -74,8 +74,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ATAN(1E308)") 
     testFoldConst("SELECT ATAN(-1E308)")
     testFoldConst("SELECT ATAN(NULL)") // NULL handling
-//    testFoldConst("SELECT ATAN(PI())") // PI input
-//    testFoldConst("SELECT ATAN(-PI())") // Negative PI input
+    testFoldConst("SELECT ATAN(PI())") // PI input
+    testFoldConst("SELECT ATAN(-PI())") // Negative PI input
     testFoldConst("SELECT ATAN(1E-308)") // Very small positive number
     testFoldConst("SELECT ATAN(-1E-308)") // Very small negative number
 
@@ -124,14 +124,14 @@ suite("fold_constant_numeric_arithmatic") {
 //Cbrt function cases
     testFoldConst("SELECT CBRT(8) AS cbrt_case_1") //cbrt(8) = 2
     testFoldConst("SELECT CBRT(-8) AS cbrt_case_2") //cbrt(-8) = -2
-//    testFoldConst("SELECT CBRT(1E308)")
-//    testFoldConst("SELECT CBRT(-1E308)")
+    testFoldConst("SELECT CBRT(1E308)")
+    testFoldConst("SELECT CBRT(-1E308)")
     testFoldConst("SELECT CBRT(0)") // Zero case
     testFoldConst("SELECT CBRT(NULL)") // NULL handling
     testFoldConst("SELECT CBRT(1)") // Unit case
     testFoldConst("SELECT CBRT(-1)") // Negative unit case
-//    testFoldConst("SELECT CBRT(27)") // Perfect cube
-//    testFoldConst("SELECT CBRT(-27)") // Negative perfect cube
+    testFoldConst("SELECT CBRT(27)") // Perfect cube
+    testFoldConst("SELECT CBRT(-27)") // Negative perfect cube
 
 //Ceil function cases
     testFoldConst("SELECT CEIL(3.4) AS ceil_case_1")
@@ -191,11 +191,11 @@ suite("fold_constant_numeric_arithmatic") {
 
 //Cosh function cases
     testFoldConst("SELECT COSH(0) AS cosh_case_1") //cosh(0) = 1
-//    expectException({sql "SELECT COSH(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
-//    expectException({sql "SELECT COSH(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+    expectException({sql "SELECT COSH(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+    expectException({sql "SELECT COSH(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
     testFoldConst("SELECT COSH(NULL)") // NULL handling
-//    testFoldConst("SELECT COSH(1)") // Common value
-//    testFoldConst("SELECT COSH(-1)") // Negative common value
+    testFoldConst("SELECT COSH(1)") // Common value
+    testFoldConst("SELECT COSH(-1)") // Negative common value
     testFoldConst("SELECT COSH(PI())") // PI input
     testFoldConst("SELECT COSH(-PI())") // Negative PI input
     testFoldConst("SELECT COSH(709.782712893384)") // Near overflow boundary
@@ -340,8 +340,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG2(NULL)") // NULL handling
     expectException({sql "SELECT LOG2(0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 0.0 is out of boundary")
     expectException({sql "SELECT LOG2(-1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1 is out of boundary")
-//    testFoldConst("SELECT LOG2(1E308)") // Very large number
-//    testFoldConst("SELECT LOG2(1E-308)") // Very small positive number
+    testFoldConst("SELECT LOG2(1E308)") // Very large number
+    testFoldConst("SELECT LOG2(1E-308)") // Very small positive number
     testFoldConst("SELECT LOG2(0.5)") // Fraction
     testFoldConst("SELECT LOG2(32)") // Power of 2
     testFoldConst("SELECT LOG2(1024)") // Larger power of 2
