@@ -32,7 +32,7 @@ public:
     WorkloadGroupPtr workload_group() { return _workload_group; }
     void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
-private:
+protected:
     WorkloadGroupPtr _workload_group = nullptr;
 };
 

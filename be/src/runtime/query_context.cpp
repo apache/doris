@@ -70,6 +70,31 @@ const std::string toString(QuerySource queryType) {
     }
 }
 
+std::unique_ptr<TaskController> QueryContext::QueryTaskController::create(QueryContext* query_ctx) {
+    return QueryContext::QueryTaskController::create_unique(query_ctx->shared_from_this());
+}
+
+bool QueryContext::QueryTaskController::is_cancelled() const {
+    auto query_ctx = ensure_query_ctx();
+    if (query_ctx == nullptr) {
+        return true;
+    }
+    return query_ctx->is_cancelled();
+}
+
+Status QueryContext::QueryTaskController::cancel(const Status& reason, int fragment_id) {
+    auto query_ctx = ensure_query_ctx();
+    if (query_ctx == nullptr) {
+        return Status::InternalError("QueryContext is destroyed");
+    }
+    query_ctx->cancel(reason, fragment_id);
+    return Status::OK();
+}
+
+std::unique_ptr<MemoryContext> QueryContext::QueryMemoryContext::create() {
+    return QueryContext::QueryMemoryContext::create_unique();
+}
+
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
                            bool is_nereids, TNetworkAddress current_connect_fe,
@@ -145,9 +170,11 @@ void QueryContext::_init_query_mem_tracker() {
 
 void QueryContext::_init_resource_context() {
     resource_ctx = ResourceContext::create_shared();
+
+    resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
     resource_ctx->task_controller()->set_task_id(_query_id);
 
-    // TODO, set query cpu/memory/etc. context
+    resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
 }
 

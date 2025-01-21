@@ -56,19 +56,19 @@ public:
     WorkloadGroupContext* workload_group_context() { return workload_group_context_.get(); }
     TaskController* task_controller() { return task_controller_.get(); }
 
-    void set_cpu_context(std::unique_ptr<CPUContext>& cpu_context) {
+    void set_cpu_context(std::unique_ptr<CPUContext> cpu_context) {
         cpu_context_ = std::move(cpu_context);
     }
-    void set_memory_context(std::unique_ptr<MemoryContext>& memory_context) {
+    void set_memory_context(std::unique_ptr<MemoryContext> memory_context) {
         memory_context_ = std::move(memory_context);
     }
-    void set_io_context(std::unique_ptr<IOContext>& io_context) {
+    void set_io_context(std::unique_ptr<IOContext> io_context) {
         io_context_ = std::move(io_context);
     }
-    void set_workload_group_context(std::unique_ptr<WorkloadGroupContext>& wg_context) {
+    void set_workload_group_context(std::unique_ptr<WorkloadGroupContext> wg_context) {
         workload_group_context_ = std::move(wg_context);
     }
-    void set_task_controller(std::unique_ptr<TaskController>& task_controller) {
+    void set_task_controller(std::unique_ptr<TaskController> task_controller) {
         task_controller_ = std::move(task_controller);
     }
 

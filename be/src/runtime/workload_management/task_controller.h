@@ -31,16 +31,18 @@ public:
     TaskController() { task_id_ = TUniqueId(); };
     virtual ~TaskController() = default;
 
+    bool is_attach_task() { return task_id_ != TUniqueId(); }
     const TUniqueId& task_id() const { return task_id_; }
     void set_task_id(TUniqueId task_id) { task_id_ = task_id; }
 
-    virtual Status cancel(Status cancel_reason) { return Status::OK(); }
+    virtual bool is_cancelled() const { return false; }
+    virtual Status cancel(const Status& reason) { return Status::OK(); }
     virtual Status running_time(int64_t* running_time_msecs) {
         *running_time_msecs = 0;
         return Status::OK();
     }
 
-private:
+protected:
     TUniqueId task_id_;
 };
 

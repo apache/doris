@@ -72,7 +72,7 @@ public:
         return nullptr;
     }
 
-private:
+protected:
     Stats stats_;
 };
 

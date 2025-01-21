@@ -106,7 +106,7 @@ Status BaseDeltaWriter::init() {
     auto* t_ctx = doris::thread_context(true);
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
     if (t_ctx) {
-        wg_sptr = t_ctx->workload_group().lock();
+        wg_sptr = t_ctx->resource_ctx()->workload_group_context()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(

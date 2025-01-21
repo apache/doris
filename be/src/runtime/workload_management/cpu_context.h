@@ -54,7 +54,7 @@ public:
         // TODO: Call workload group method to bind current thread to cgroup
     }
 
-private:
+protected:
     Stats stats_;
 };
 

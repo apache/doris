@@ -50,7 +50,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
         return;
     }
 #endif
-    if (doris::thread_context()->skip_memory_check != 0) {
+    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0) {
         return;
     }
 
@@ -60,9 +60,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
         std::bernoulli_distribution fault(doris::config::mem_alloc_fault_probability);
         if (fault(gen)) {
             const std::string injection_err_msg = fmt::format(
-                    "[MemAllocInjectFault] Query {} alloc memory failed due to fault "
+                    "[MemAllocInjectFault] Task {} alloc memory failed due to fault "
                     "injection.",
-                    print_id(doris::thread_context()->task_id()));
+                    print_id(
+                            doris::thread_context()->resource_ctx()->task_controller()->task_id()));
             // Print stack trace for debug.
             [[maybe_unused]] auto stack_trace_st =
                     doris::Status::Error<doris::ErrorCode::MEM_ALLOC_FAILED, true>(
@@ -70,18 +71,15 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             if (!doris::config::enable_stacktrace) {
                 LOG(INFO) << stack_trace_st.to_string();
             }
-            if (!doris::enable_thread_catch_bad_alloc) {
-                doris::thread_context()->thread_mem_tracker_mgr->cancel_query(injection_err_msg);
-            } else {
+            if (doris::enable_thread_catch_bad_alloc) {
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, injection_err_msg);
             }
         }
     }
 
     if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
-        // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
-        // will wait for gc, asynchronous cancel or throw bad::alloc.
-        // Otherwise, if the external catch, directly throw bad::alloc.
+        // Only thread attach task, and has not completely waited for thread_wait_gc_max_milliseconds,
+        // will wait for gc. otherwise, if the outside will catch the exception, throwing an exception.
         std::string err_msg;
         err_msg += fmt::format(
                 "Allocator sys memory check failed: Cannot alloc:{}, consuming "
@@ -97,24 +95,23 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
-        // TODO, Save the query context in the thread context, instead of finding whether the query id is canceled in fragment_mgr.
-        if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
+        if (doris::thread_context()->resource_ctx()->task_controller()->is_cancelled()) {
             if (doris::enable_thread_catch_bad_alloc) {
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
             return;
         }
 
-        if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
+        if (doris::thread_context()->resource_ctx()->task_controller()->is_attach_task() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
             LOG(INFO) << fmt::format(
-                    "Query:{} waiting for enough memory in thread id:{}, maximum {}ms, {}.",
-                    print_id(doris::thread_context()->task_id()),
-                    doris::thread_context()->get_thread_id(),
+                    "Task:{} waiting for enough memory in thread id:{}, maximum {}ms, {}.",
+                    print_id(doris::thread_context()->resource_ctx()->task_controller()->task_id()),
+                    doris::ThreadContext::get_thread_id(),
                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
 
-            // only query thread exceeded memory limit for the first time and wait_gc is true.
+            // only task thread exceeded memory limit for the first time and wait_gc is true.
             // TODO, in the future, try to free memory and waiting for memory to be freed in pipeline scheduling.
             doris::MemInfo::je_thread_tcache_flush();
             doris::MemoryReclamation::je_purge_dirty_pages();
@@ -126,7 +123,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                         doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
                         break;
                     }
-                    if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
+                    if (doris::thread_context()
+                                ->resource_ctx()
+                                ->task_controller()
+                                ->is_cancelled()) {
                         if (doris::enable_thread_catch_bad_alloc) {
                             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
                         }
@@ -135,26 +135,37 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                     wait_milliseconds += 100;
                 }
             }
+
+            // If true, it means that after waiting for a while, there is still not enough memory,
+            // and try to throw an exception.
+            // else, enough memory is available, the task continues execute.
             if (wait_milliseconds >= doris::config::thread_wait_gc_max_milliseconds) {
                 // Make sure to completely wait thread_wait_gc_max_milliseconds only once.
                 doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
                 doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
-                // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
-                if (!doris::enable_thread_catch_bad_alloc) {
+                // If the outside will catch the exception, after throwing an exception,
+                // the task will actively cancel itself.
+                if (doris::enable_thread_catch_bad_alloc) {
                     LOG(INFO) << fmt::format(
-                            "Query:{} canceled asyn, after waiting for memory {}ms, {}.",
-                            print_id(doris::thread_context()->task_id()), wait_milliseconds,
-                            err_msg);
-                    doris::thread_context()->thread_mem_tracker_mgr->cancel_query(err_msg);
+                            "Task:{} sys memory check failed, throw exception, after waiting for "
+                            "memory {}ms, {}.",
+                            print_id(doris::thread_context()
+                                             ->resource_ctx()
+                                             ->task_controller()
+                                             ->task_id()),
+                            wait_milliseconds, err_msg);
+                    throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
                 } else {
                     LOG(INFO) << fmt::format(
-                            "Query:{} throw exception, after waiting for memory {}ms, {}.",
-                            print_id(doris::thread_context()->task_id()), wait_milliseconds,
-                            err_msg);
-                    throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+                            "Task:{} sys memory check failed, will continue to execute, cannot "
+                            "throw exception, after waiting for memory {}ms, {}.",
+                            print_id(doris::thread_context()
+                                             ->resource_ctx()
+                                             ->task_controller()
+                                             ->task_id()),
+                            wait_milliseconds, err_msg);
                 }
             }
-            // else, enough memory is available, the query continues execute.
         } else if (doris::enable_thread_catch_bad_alloc) {
             LOG(INFO) << fmt::format("sys memory check failed, throw exception, {}.", err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
@@ -172,24 +183,35 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
         return;
     }
 #endif
-    if (doris::thread_context()->skip_memory_check != 0) {
+    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0) {
         return;
     }
     auto st = doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->check_limit(size);
     if (!st) {
         auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());
         doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->print_log_usage(err_msg);
-        // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
-        if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query()) {
+        if (doris::thread_context()->resource_ctx()->task_controller()->is_attach_task()) {
             doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
-            if (!doris::enable_thread_catch_bad_alloc) {
-                LOG(INFO) << fmt::format("query/load:{} canceled asyn, {}.",
-                                         print_id(doris::thread_context()->task_id()), err_msg);
-                doris::thread_context()->thread_mem_tracker_mgr->cancel_query(err_msg);
-            } else {
-                LOG(INFO) << fmt::format("query/load:{} throw exception, {}.",
-                                         print_id(doris::thread_context()->task_id()), err_msg);
+            // If the outside will catch the exception, after throwing an exception,
+            // the task will actively cancel itself.
+            if (doris::enable_thread_catch_bad_alloc) {
+                LOG(INFO) << fmt::format(
+                        "Task:{} memory tracker check failed, throw exception, {}.",
+                        print_id(doris::thread_context()
+                                         ->resource_ctx()
+                                         ->task_controller()
+                                         ->task_id()),
+                        err_msg);
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+            } else {
+                LOG(INFO) << fmt::format(
+                        "Task:{} memory tracker check failed, will continue to execute, cannot "
+                        "throw exception, {}.",
+                        print_id(doris::thread_context()
+                                         ->resource_ctx()
+                                         ->task_controller()
+                                         ->task_id()),
+                        err_msg);
             }
         } else if (doris::enable_thread_catch_bad_alloc) {
             LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.", err_msg);

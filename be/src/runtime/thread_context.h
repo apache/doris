@@ -106,52 +106,52 @@
         __VA_ARGS__;                                                                    \
     } while (0)
 
-#define LIMIT_LOCAL_SCAN_IO(data_dir, bytes_read)                            \
-    std::shared_ptr<IOThrottle> iot = nullptr;                               \
-    auto* t_ctx = doris::thread_context(true);                               \
-    if (t_ctx) {                                                             \
-        iot = t_ctx->resource_ctx()                                          \
-                      ->workload_group_context()                             \
-                      ->workload_group()                                     \
-                      ->get_local_scan_io_throttle(data_dir);                \
-    }                                                                        \
-    if (iot) {                                                               \
-        iot->acquire(-1);                                                    \
-    }                                                                        \
-    Defer defer {                                                            \
-        [&]() {                                                              \
-            if (iot) {                                                       \
-                iot->update_next_io_time(*bytes_read);                       \
-                iot = t_ctx->resource_ctx()                                  \
-                              ->workload_group_context()                     \
-                              ->workload_group()                             \
-                              ->update_local_scan_io(data_dir, *bytes_read); \
-            }                                                                \
-        }                                                                    \
+#define LIMIT_LOCAL_SCAN_IO(data_dir, bytes_read)                      \
+    std::shared_ptr<IOThrottle> iot = nullptr;                         \
+    auto* t_ctx = doris::thread_context(true);                         \
+    if (t_ctx) {                                                       \
+        iot = t_ctx->resource_ctx()                                    \
+                      ->workload_group_context()                       \
+                      ->workload_group()                               \
+                      ->get_local_scan_io_throttle(data_dir);          \
+    }                                                                  \
+    if (iot) {                                                         \
+        iot->acquire(-1);                                              \
+    }                                                                  \
+    Defer defer {                                                      \
+        [&]() {                                                        \
+            if (iot) {                                                 \
+                iot->update_next_io_time(*bytes_read);                 \
+                t_ctx->resource_ctx()                                  \
+                        ->workload_group_context()                     \
+                        ->workload_group()                             \
+                        ->update_local_scan_io(data_dir, *bytes_read); \
+            }                                                          \
+        }                                                              \
     }
 
-#define LIMIT_REMOTE_SCAN_IO(bytes_read)                            \
-    std::shared_ptr<IOThrottle> iot = nullptr;                      \
-    auto* t_ctx = doris::thread_context(true);                      \
-    if (t_ctx) {                                                    \
-        iot = t_ctx->resource_ctx()                                 \
-                      ->workload_group_context()                    \
-                      ->workload_group()                            \
-                      ->get_remote_scan_io_throttle(data_dir);      \
-    }                                                               \
-    if (iot) {                                                      \
-        iot->acquire(-1);                                           \
-    }                                                               \
-    Defer defer {                                                   \
-        [&]() {                                                     \
-            if (iot) {                                              \
-                iot->update_next_io_time(*bytes_read);              \
-                iot = t_ctx->resource_ctx()                         \
-                              ->workload_group_context()            \
-                              ->workload_group()                    \
-                              ->update_remote_scan_io(*bytes_read); \
-            }                                                       \
-        }                                                           \
+#define LIMIT_REMOTE_SCAN_IO(bytes_read)                      \
+    std::shared_ptr<IOThrottle> iot = nullptr;                \
+    auto* t_ctx = doris::thread_context(true);                \
+    if (t_ctx) {                                              \
+        iot = t_ctx->resource_ctx()                           \
+                      ->workload_group_context()              \
+                      ->workload_group()                      \
+                      ->get_remote_scan_io_throttle();        \
+    }                                                         \
+    if (iot) {                                                \
+        iot->acquire(-1);                                     \
+    }                                                         \
+    Defer defer {                                             \
+        [&]() {                                               \
+            if (iot) {                                        \
+                iot->update_next_io_time(*bytes_read);        \
+                t_ctx->resource_ctx()                         \
+                        ->workload_group_context()            \
+                        ->workload_group()                    \
+                        ->update_remote_scan_io(*bytes_read); \
+            }                                                 \
+        }                                                     \
     }
 
 namespace doris {

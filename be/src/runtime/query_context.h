@@ -76,10 +76,66 @@ const std::string toString(QuerySource query_source);
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
-class QueryContext {
+class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
+    class QueryTaskController : public TaskController {
+        ENABLE_FACTORY_CREATOR(QueryTaskController);
+
+    public:
+        static std::unique_ptr<TaskController> create(QueryContext* query_ctx);
+
+        bool is_cancelled() const override;
+        Status cancel(const Status& reason, int fragment_id);
+        Status cancel(const Status& reason) override { return cancel(reason, -1); }
+
+    private:
+        QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx)
+                : query_ctx_(query_ctx) {}
+
+        // Gets the shared pointer to the associated query ctx to ensure its
+        // liveness during the query control operation.
+        std::shared_ptr<QueryContext> ensure_query_ctx() const { return query_ctx_.lock(); }
+
+        const std::weak_ptr<QueryContext> query_ctx_;
+    };
+
+    class QueryMemoryContext : public MemoryContext {
+        ENABLE_FACTORY_CREATOR(QueryMemoryContext);
+
+    public:
+        static std::unique_ptr<MemoryContext> create();
+
+        int64_t revokable_bytes() override {
+            // TODO
+            return 0;
+        }
+
+        bool ready_do_revoke() override {
+            // TODO
+            return true;
+        }
+
+        Status revoke(int64_t bytes) override {
+            // TODO
+            return Status::OK();
+        }
+
+        Status enter_arbitration(Status reason) override {
+            // TODO, pause the pipeline
+            return Status::OK();
+        }
+
+        Status leave_arbitration(Status reason) override {
+            // TODO, start pipeline
+            return Status::OK();
+        }
+
+    private:
+        QueryMemoryContext() = default;
+    };
+
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
                  TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
                  QuerySource query_type);

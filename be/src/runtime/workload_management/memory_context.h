@@ -91,7 +91,7 @@ public:
 
     virtual Status leave_arbitration(Status reason) { return Status::OK(); }
 
-private:
+protected:
     Stats stats_;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> mem_tracker_;
