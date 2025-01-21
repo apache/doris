@@ -17,9 +17,11 @@
 
 package org.apache.doris.plugin.audit;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.apache.logging.log4j.LogManager;
@@ -172,11 +174,15 @@ public class AuditStreamLoader {
         public int status;
         public String respMsg;
         public String respContent;
+        public RespContent respContentObj;
 
         public LoadResponse(int status, String respMsg, String respContent) {
             this.status = status;
             this.respMsg = respMsg;
             this.respContent = respContent;
+            if (status == 200 && respContent != null) {
+                respContentObj = GsonUtils.GSON.fromJson(respContent, RespContent.class);
+            }
         }
 
         @Override
@@ -186,6 +192,14 @@ public class AuditStreamLoader {
             sb.append(", resp msg: ").append(respMsg);
             sb.append(", resp content: ").append(respContent);
             return sb.toString();
+        }
+
+        public static class RespContent {
+            @SerializedName(value = "Status")
+            public String status;
+
+            @SerializedName(value = "Message")
+            public String message;
         }
     }
 }

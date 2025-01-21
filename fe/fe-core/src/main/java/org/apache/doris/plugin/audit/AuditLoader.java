@@ -208,14 +208,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private void load(String data) throws Exception {
         String token = Env.getCurrentEnv().getTokenManager().acquireToken();
         AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(data, token);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("audit loader response: {}", response);
-        }
         if (Config.mock_audit_load) {
             throw new Exception(response.respContent);
         }
         LOG.info("audit loader response: {}", response);
-        if (response.status != 200) {
+        if (response.status != 200 || "Fail".equals(response.respContentObj.status)) {
             throw new Exception(response.respContent);
         }
     }
