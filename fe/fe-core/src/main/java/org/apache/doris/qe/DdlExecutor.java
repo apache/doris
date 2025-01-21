@@ -551,10 +551,10 @@ public class DdlExecutor {
         }
 
         if (ddlStmt instanceof BackupStmt
-                || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof CancelBackupStmt
-                || ddlStmt instanceof CreateRepositoryStmt
-                || ddlStmt instanceof DropRepositoryStmt
+                //|| ddlStmt instanceof RestoreStmt
+                //|| ddlStmt instanceof CancelBackupStmt
+                //|| ddlStmt instanceof CreateRepositoryStmt
+                //|| ddlStmt instanceof DropRepositoryStmt
                 || ddlStmt instanceof AdminRepairTableStmt
                 || ddlStmt instanceof AdminCancelRepairTableStmt
                 || ddlStmt instanceof AdminCompactTableStmt
