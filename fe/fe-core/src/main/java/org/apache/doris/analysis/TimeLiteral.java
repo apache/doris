@@ -25,15 +25,15 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTimeLiteral;
 
+import java.lang.Math;
 import java.time.DateTimeException;
-import java.time.LocalTime;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 
 public class TimeLiteral extends LiteralExpr {
 
-    public static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0);
-    public static final TimeLiteral MAX_TIME = new TimeLiteral(23, 59, 59);
+    public static final TimeLiteral MIN_TIME = new TimeLiteral(-838, -59, -59);
+    public static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59);
 
     protected long hour;
     protected long minute;
@@ -51,9 +51,9 @@ public class TimeLiteral extends LiteralExpr {
 
     public TimeLiteral(long hour, long minute, long second) {
         super();
-        this.hour = hour;
-        this.minute = minute;
-        this.second = second;
+        this.hour = Math.min(hour, MAX_TIME.getHour());
+        this.minute = Math.min(minute, MAX_TIME.getMinute());
+        this.second = Math.min(second, MAX_TIME.getSecond());
         analysisDone();
     }
 
@@ -65,9 +65,9 @@ public class TimeLiteral extends LiteralExpr {
 
     protected TimeLiteral(TimeLiteral other) {
         super(other);
-        this.hour = hour;
-        this.minute = minute;
-        this.second = second;
+        this.hour = other.getHour();
+        this.minute = other.getMinute();
+        this.second = other.getSecond();
     }
 
     @Override
@@ -78,17 +78,15 @@ public class TimeLiteral extends LiteralExpr {
     /** parseTime */
     public static Result<TemporalAccessor, ? extends Exception> parseTime(String s) {
         try {
-            Integer hour = readNextInt(s, 0, 2);
-            Integer minute = readNextInt(s, 3, 2);
-            Integer second = readNextInt(s, 6, 2);
+            TemporalAccessor time;
 
-            return Result.ok(LocalTime.of(hour, minute, second));
+            time = DateTimeFormatterUtils.TIME_FORMATTER.parse(s);
+
+            return Result.ok(time);
         } catch (DateTimeException e) {
             return Result.err(() ->
                     new DateTimeException("time literal [" + s + "] is invalid", e)
             );
-        } catch (Exception ex) {
-            return Result.err(() -> new AnalysisException("time literal [" + s + "] is invalid"));
         }
     }
 
@@ -98,7 +96,7 @@ public class TimeLiteral extends LiteralExpr {
         minute = DateUtils.getOrDefault(time, ChronoField.MINUTE_OF_HOUR);
         second = DateUtils.getOrDefault(time, ChronoField.SECOND_OF_MINUTE);
 
-        if (checkTime(time) || checkRange(hour, minute, second) || checkTime(hour, minute, second)) {
+        if (checkTime(time) || checkRange(hour, minute, second)) {
             throw new AnalysisException("time literal [" + s + "] is out of range");
         }
     }
@@ -116,7 +114,7 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     public boolean isMinValue() {
-        return hour == 0 && minute == 0 && second == 0;
+        return hour == MIN_TIME.getHour() && minute == MIN_TIME.getMinute() && second == MIN_TIME.getSecond();
     }
 
     @Override
@@ -126,6 +124,9 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
+        if (hour > 99) {
+            return String.format("%03d:%02d:%02d", hour, minute, second);
+        }
         return String.format("%02d:%02d:%02d", hour, minute, second);
     }
 
@@ -136,13 +137,6 @@ public class TimeLiteral extends LiteralExpr {
 
     protected static boolean checkRange(long hour, long minute, long second) {
         return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond();
-    }
-
-    protected static boolean checkTime(long hour, long minute, long second) {
-        if (hour < 24 && minute < 60 && second < 60) {
-            return true;
-        }
-        return false;
     }
 
     private static boolean checkTime(TemporalAccessor time) {
@@ -162,20 +156,5 @@ public class TimeLiteral extends LiteralExpr {
 
     public long getSecond() {
         return second;
-    }
-
-    private static Integer readNextInt(String str, int offset, int readLength) {
-        int value = 0;
-        int realReadLength = 0;
-        for (int i = offset; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if ('0' <= c && c <= '9') {
-                realReadLength++;
-                value = value * 10 + (c - '0');
-            } else {
-                break;
-            }
-        }
-        return readLength == realReadLength ? value : null;
     }
 }
