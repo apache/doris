@@ -35,6 +35,10 @@ const std::string KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
 const std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 const std::string TICKET_CACHE_PATH = "/tmp/krb5cc_doris_";
 
+namespace kerberos {
+class KerberosTicketCache;
+};
+
 class HDFSCommonBuilder {
     friend Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
                                       HDFSCommonBuilder* builder);
@@ -57,7 +61,7 @@ public:
 
     hdfsBuilder* get() { return hdfs_builder; }
     bool is_kerberos() const { return kerberos_login; }
-    Status check_krb_params();
+    Status gen_ticket_cache_and_renew_thread(doris::kerberos::KerberosTicketCache** ccache);
 
 private:
     hdfsBuilder* hdfs_builder = nullptr;

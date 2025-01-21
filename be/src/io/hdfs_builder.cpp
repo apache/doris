@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/logging.h"
 #ifdef USE_HADOOP_HDFS
 #include "hadoop_hdfs/hdfs.h"
@@ -107,19 +108,37 @@ Status HDFSCommonBuilder::init_hdfs_builder() {
     return Status::OK();
 }
 
-Status HDFSCommonBuilder::check_krb_params() {
-    std::string ticket_path = doris::config::kerberos_ccache_path;
-    if (!ticket_path.empty()) {
-        hdfsBuilderConfSetStr(hdfs_builder, "hadoop.security.kerberos.ticket.cache.path",
-                              ticket_path.c_str());
-        return Status::OK();
+Status HDFSCommonBuilder::gen_ticket_cache_and_renew_thread(
+        kerberos::KerberosTicketCache** ccache) {
+    std::string ticket_path = config::kerberos_ccache_path;
+    if (ticket_path.empty()) {
+        return Status::InvalidArgument("Must set config::kerberos_ccache_path for kerberos");
     }
-    // we should check hdfs_kerberos_principal and hdfs_kerberos_keytab nonnull to login kdc.
-    if (hdfs_kerberos_principal.empty() || hdfs_kerberos_keytab.empty()) {
-        return Status::InvalidArgument("Invalid hdfs_kerberos_principal or hdfs_kerberos_keytab");
-    }
-    // enable auto-renew thread
-    hdfsBuilderConfSetStr(hdfs_builder, "hadoop.kerberos.keytab.login.autorenewal.enabled", "true");
+
+    kerberos::KerberosConfig config;
+    config.set_principal(hdfs_kerberos_principal);
+    config.set_keytab_path(hdfs_kerberos_keytab);
+    config.set_cache_file_path(generate_uuid_string());
+    config.set_krb5_conf_path(config::kerberos_krb5_conf_path);
+    config.set_refresh_interval(config::kerberos_refresh_interval_second);
+    config.set_min_time_before_refresh(600);
+
+    std::unique_ptr<doris::kerberos::KerberosTicketCache> ticket_cache =
+            std::make_unique<doris::kerberos::KerberosTicketCache>(config);
+
+    LOG(INFO) << "Initializing Kerberos ticket cache...";
+    RETURN_IF_ERROR(ticket_cache->initialize());
+
+    LOG(INFO) << "Logging in using keytab: " << config.get_keytab_path();
+    RETURN_IF_ERROR(ticket_cache->login());
+
+    LOG(INFO) << "Writing ticket cache to: " << config.get_cache_file_path();
+    RETURN_IF_ERROR(ticket_cache->write_ticket_cache());
+
+    LOG(INFO) << "Starting periodic refresh...";
+    ticket_cache->start_periodic_refresh();
+
+    *ccache = ticket_cache.release();
     return Status::OK();
 }
 
@@ -159,43 +178,36 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
                            HDFSCommonBuilder* builder) {
     RETURN_IF_ERROR(builder->init_hdfs_builder());
     hdfsBuilderSetNameNode(builder->get(), fs_name.c_str());
-    // set kerberos conf
-    if (hdfsParams.__isset.hdfs_kerberos_keytab) {
-        builder->kerberos_login = true;
-        builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
-#ifdef USE_HADOOP_HDFS
-        hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
-        hdfsBuilderSetKeyTabFile(builder->get(), hdfsParams.hdfs_kerberos_keytab.c_str());
-#endif
-    }
-    if (hdfsParams.__isset.hdfs_kerberos_principal) {
-        builder->kerberos_login = true;
-        builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
-        hdfsBuilderSetPrincipal(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
-    } else if (hdfsParams.__isset.user) {
-        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
-#ifdef USE_HADOOP_HDFS
-        hdfsBuilderSetKerb5Conf(builder->get(), nullptr);
-        hdfsBuilderSetKeyTabFile(builder->get(), nullptr);
-#endif
-    }
-    // set other conf
+    std::string auth_type = "simple";
     if (hdfsParams.__isset.hdfs_conf) {
+        // set other conf
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
             hdfsBuilderConfSetStr(builder->get(), conf.key.c_str(), conf.value.c_str());
             LOG(INFO) << "set hdfs config: " << conf.key << ", value: " << conf.value;
-#ifdef USE_HADOOP_HDFS
-            // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
-            if (strcmp(conf.key.c_str(), "java.security.krb5.conf") == 0) {
-                hdfsBuilderSetKerb5Conf(builder->get(), conf.value.c_str());
+            if (strcmp(conf.key.c_str(), "hadoop.security.authentication") == 0) {
+                auth_type = conf.value;
             }
-#endif
         }
     }
-    if (builder->is_kerberos()) {
-        RETURN_IF_ERROR(builder->check_krb_params());
+
+    if (auth_type == "kerberos") {
+        // set kerberos conf
+        if (!hdfsParams.__isset.hdfs_kerberos_principal ||
+            !hdfsParams.__isset.hdfs_kerberos_keytab) {
+            return Status::InvalidArgument("Must set both principal and keytab");
+        }
+
+        builder->kerberos_login = true;
+        builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
+        builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
+        hdfsBuilderConfSetStr(builder->get(), "ipc.client.fallback-to-simple-auth-allowed", "true");
+    } else {
+        // simple
+        if (hdfsParams.__isset.user) {
+            hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
+        }
     }
-    hdfsBuilderConfSetStr(builder->get(), "ipc.client.fallback-to-simple-auth-allowed", "true");
+
     return Status::OK();
 }
 
