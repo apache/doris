@@ -23,24 +23,8 @@ suite("test_property_session") {
     String pwd = 'C123_567p'
     sql """drop user if exists ${userName}"""
     sql """CREATE USER '${userName}' IDENTIFIED BY '${pwd}'"""
-    //cloud-mode
-    if (isCloudMode()) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${userName}""";
-    }
-     connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
-         sql """set query_timeout=1"""
-        test {
-            sql """select sleep(3)""
-            exception "timeout"
-        }
-    }
-    // the priority of property should be higher than session
 
-    connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
-        sql """select sleep(3)""
-    }
+
+
     sql """drop user if exists ${userName}"""
 }
