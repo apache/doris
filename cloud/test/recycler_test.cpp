@@ -36,6 +36,7 @@
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/txn_kv_error.h"
+#include "mock_accessor.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/checker.h"
@@ -118,6 +119,24 @@ static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, in
     rowset.set_resource_id(resource_id);
     rowset.set_schema_version(schema.schema_version());
     rowset.mutable_tablet_schema()->CopyFrom(schema);
+    return rowset;
+}
+
+static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, int64_t tablet_id,
+                                              int64_t index_id, int num_segments,
+                                              const doris::TabletSchemaCloudPB& schema,
+                                              RowsetStatePB rowset_state, int64_t txn_id = 0) {
+    doris::RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2(next_rowset_id());
+    rowset.set_txn_id(txn_id);
+    rowset.set_num_segments(num_segments);
+    rowset.set_tablet_id(tablet_id);
+    rowset.set_index_id(index_id);
+    rowset.set_resource_id(resource_id);
+    rowset.set_schema_version(schema.schema_version());
+    rowset.mutable_tablet_schema()->CopyFrom(schema);
+    rowset.set_rowset_state(rowset_state);
     return rowset;
 }
 
@@ -922,6 +941,69 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     // Check InvertedIndexIdCache
     EXPECT_EQ(insert_inverted_index, 16);
     EXPECT_EQ(insert_no_inverted_index, 4);
+}
+
+TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tmp_rowsets_partial_update");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tmp_rowsets_partial_update");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    doris::TabletSchemaCloudPB schema;
+
+    auto accessor = recycler.accessor_map_.begin()->second;
+    int64_t tablet_id = 10015;
+    int64_t index_id = 1000;
+    int64_t txn_id_base = 293039;
+    for (int j = 0; j < 20; ++j) {
+        int64_t txn_id = txn_id_base + j;
+        int segment_num = 5;
+        if (j < 15) {
+            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, index_id,
+                                        segment_num, schema, RowsetStatePB::VISIBLE, txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false);
+        } else {
+            auto rowset =
+                    create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
+                                  segment_num, schema, RowsetStatePB::BEGIN_PARTIAL_UPDATE, txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false);
+
+            // partial update may write new segment to an existing tmp rowsets
+            // we simulate that partial update load fails after it writes a segment
+            // and before it updates the segments num in tmp rowset meta
+            int extra_segment_id = segment_num;
+            auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), extra_segment_id);
+            accessor->put_file(path, path);
+        }
+    }
+
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    // check rowset does not exist on obj store
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
+    ASSERT_FALSE(list_iter->has_next());
+    // check all tmp rowset kv have been deleted
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
+    auto end_key = meta_rowset_tmp_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
 }
 
 TEST(RecyclerTest, recycle_tablet) {
@@ -3180,6 +3262,136 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
     }
+}
+
+TEST(RecyclerTest, init_vault_accessor_failed_test) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    // failed to init because S3Conf::from_obj_store_info() fails
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("test_failed_s3_vault_1");
+        vault.set_id("failed_s3_1");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
+    }
+
+    // succeed to init but unuseful
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("test_failed_s3_vault_2");
+        vault.set_id("failed_s3_2");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    }
+
+    // failed to init because accessor->init() fails
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("test_failed_hdfs_vault_1");
+        vault.set_id("failed_hdfs_1");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "3"}), vault.SerializeAsString());
+    }
+
+    auto accessor = std::make_shared<MockAccessor>();
+    EXPECT_EQ(accessor->put_file("data/0/test.csv", ""), 0);
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
+        auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
+        auto* rs = resp->add_rowset_meta();
+        rs->set_resource_id("failed_s3_2");
+        rs = resp->add_rowset_meta();
+        rs->set_resource_id("success_vault");
+    });
+    sp->enable_processing();
+
+    // succeed to init MockAccessor
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("test_success_hdfs_vault");
+        vault.set_id("success_vault");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "4"}), vault.SerializeAsString());
+    }
+
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), 0);
+    EXPECT_EQ(recycler.accessor_map_.size(), 2);
+
+    // unuseful obj accessor
+    EXPECT_EQ(recycler.accessor_map_.at("failed_s3_2")->exists("data/0/test.csv"), -1);
+    // useful mock accessor
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
+
+    // recycle tablet will fail because unuseful obj accessor can not connectted
+    EXPECT_EQ(recycler.recycle_tablet(0), -1);
+    // however, useful mock accessor can recycle tablet
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 1);
 }
 
 } // namespace doris::cloud

@@ -286,7 +286,7 @@ public class StructInfo {
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
         EquivalenceClass equivalenceClass = new EquivalenceClass();
-        for (Expression expression : ExpressionUtils.extractConjunction(splitPredicate.getEqualPredicate())) {
+        for (Expression expression : splitPredicate.getEqualPredicateMap().keySet()) {
             if (expression instanceof Literal) {
                 continue;
             }

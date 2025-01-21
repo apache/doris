@@ -17,10 +17,16 @@
 
 package org.apache.doris.nereids.hint;
 
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * rule hint.
@@ -31,74 +37,127 @@ public class UseMvHint extends Hint {
 
     private final boolean isAllMv;
 
-    private final List<String> parameters;
+    private final List<List<String>> tables;
 
-    private final Map<String, String> useMvTableColumnMap;
+    private Map<List<String>, Boolean> useMvTableColumnMap = new HashMap<>();
 
-    private final Map<String, List<String>> noUseMvTableColumnMap;
+    private Map<List<String>, Boolean> noUseMvTableColumnMap = new HashMap<>();
 
     /**
      * constructor of use mv hint
      * @param hintName use mv
-     * @param parameters original parameters
+     * @param tables original parameters
      * @param isUseMv use_mv hint or no_use_mv hint
      * @param isAllMv should all mv be controlled
      */
-    public UseMvHint(String hintName, List<String> parameters, boolean isUseMv, boolean isAllMv) {
+    public UseMvHint(String hintName, List<List<String>> tables, boolean isUseMv, boolean isAllMv, List<Hint> hints) {
         super(hintName);
         this.isUseMv = isUseMv;
         this.isAllMv = isAllMv;
-        this.parameters = parameters;
-        this.useMvTableColumnMap = initUseMvTableColumnMap(parameters);
-        this.noUseMvTableColumnMap = initNoUseMvTableColumnMap(parameters);
+        this.tables = tables;
+        this.useMvTableColumnMap = initMvTableColumnMap(tables, true);
+        this.noUseMvTableColumnMap = initMvTableColumnMap(tables, false);
+        checkConflicts(hints);
     }
 
-    private Map<String, String> initUseMvTableColumnMap(List<String> parameters) {
-        Map<String, String> tempUseMvTableColumnMap = new HashMap<>();
-        if (!isUseMv) {
-            return tempUseMvTableColumnMap;
+    public Map<List<String>, Boolean> getNoUseMvTableColumnMap() {
+        return noUseMvTableColumnMap;
+    }
+
+    public Map<List<String>, Boolean> getUseMvTableColumnMap() {
+        return useMvTableColumnMap;
+    }
+
+    private void checkConflicts(List<Hint> hints) {
+        String otherUseMv = isUseMv ? "NO_USE_MV" : "USE_MV";
+        Optional<UseMvHint> otherUseMvHint = Optional.empty();
+        for (Hint hint : hints) {
+            if (hint.getHintName().equals(otherUseMv)) {
+                otherUseMvHint = Optional.of((UseMvHint) hint);
+            }
         }
-        if (parameters.size() % 2 == 1) {
-            this.setStatus(HintStatus.SYNTAX_ERROR);
-            this.setErrorMessage("parameter of use_mv hint must be in pairs");
-            return tempUseMvTableColumnMap;
+        if (!otherUseMvHint.isPresent()) {
+            return;
         }
-        for (int i = 0; i < parameters.size(); i += 2) {
-            String tableName = parameters.get(i);
-            String columnName = parameters.get(i + 1);
-            if (tempUseMvTableColumnMap.containsKey(tableName)) {
+        Map<List<String>, Boolean> otherUseMvTableColumnMap = isUseMv
+                ? otherUseMvHint.get().getNoUseMvTableColumnMap() : otherUseMvHint.get().getUseMvTableColumnMap();
+        Map<List<String>, Boolean> thisUseMvTableColumnMap = isUseMv ? useMvTableColumnMap : noUseMvTableColumnMap;
+        for (Map.Entry<List<String>, Boolean> entry : thisUseMvTableColumnMap.entrySet()) {
+            List<String> mv = entry.getKey();
+            if (otherUseMvTableColumnMap.get(mv) != null) {
+                String errorMsg = "conflict mv exist in use_mv and no_use_mv in the same time. Mv name: "
+                        + mv;
+                super.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                super.setErrorMessage(errorMsg);
+                otherUseMvHint.get().setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                otherUseMvHint.get().setErrorMessage(errorMsg);
+            }
+        }
+    }
+
+    private Map<List<String>, Boolean> initMvTableColumnMap(List<List<String>> parameters, boolean initUseMv) {
+        Map<List<String>, Boolean> mvTableColumnMap;
+        if (initUseMv && !isUseMv) {
+            return useMvTableColumnMap;
+        } else if (!initUseMv && isUseMv) {
+            return noUseMvTableColumnMap;
+        } else if (initUseMv && isUseMv) {
+            mvTableColumnMap = useMvTableColumnMap;
+        } else {
+            mvTableColumnMap = noUseMvTableColumnMap;
+        }
+        for (List<String> table : parameters) {
+            // materialize view qualifier should have length between 1 and 4
+            // which 1 and 3 represent of async materialize view, 2 and 4 represent of sync materialize view
+            // number of parameters          meaning
+            // 1                             async materialize view, mvName
+            // 2                             sync materialize view, tableName.mvName
+            // 3                             async materialize view, catalogName.dbName.mvName
+            // 3                             sync materialize view, catalogName.dbName.tableName.mvName
+            if (table.size() < 1 || table.size() > 4) {
                 this.setStatus(HintStatus.SYNTAX_ERROR);
-                this.setErrorMessage("use_mv hint should only have one mv in one table: "
-                        + tableName + "." + columnName);
-                break;
+                this.setErrorMessage("parameters number of no_use_mv hint must between 1 and 4");
+                return mvTableColumnMap;
             }
-            tempUseMvTableColumnMap.put(tableName, columnName);
-        }
-        return tempUseMvTableColumnMap;
-    }
-
-    private Map<String, List<String>> initNoUseMvTableColumnMap(List<String> parameters) {
-        Map<String, List<String>> tempNoUseMvTableColumnMap = new HashMap<>();
-        if (isUseMv) {
-            return tempNoUseMvTableColumnMap;
-        }
-        if (parameters.size() % 2 == 1) {
-            this.setStatus(HintStatus.SYNTAX_ERROR);
-            this.setErrorMessage("parameter of no_use_mv hint must be in pairs");
-            return tempNoUseMvTableColumnMap;
-        }
-        for (int i = 0; i < parameters.size(); i += 2) {
-            String tableName = parameters.get(i);
-            String columnName = parameters.get(i + 1);
-            if (tempNoUseMvTableColumnMap.containsKey(tableName)) {
-                tempNoUseMvTableColumnMap.get(tableName).add(columnName);
+            String mvName = table.get(table.size() - 1);
+            if (mvName.equals("`*`") && isUseMv) {
+                this.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("use_mv hint should only have one mv in one table");
+                return mvTableColumnMap;
+            }
+            List<String> dbQualifier = new ArrayList<>();
+            if (table.size() == 3 || table.size() == 4) {
+                mvTableColumnMap.put(table, false);
+                return mvTableColumnMap;
+            }
+            CatalogIf catalogIf = ConnectContext.get().getCurrentCatalog();
+            if (catalogIf == null) {
+                this.setStatus(HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("Current catalog is not set.");
+                return mvTableColumnMap;
+            }
+            String catalogName = catalogIf.getName();
+            String dbName = ConnectContext.get().getDatabase();
+            if (Strings.isNullOrEmpty(dbName)) {
+                this.setStatus(HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("Current database is not set.");
+                return mvTableColumnMap;
+            }
+            dbQualifier.add(catalogName);
+            dbQualifier.add(dbName);
+            if (table.size() == 2) {
+                dbQualifier.add(table.get(0));
+            }
+            dbQualifier.add(mvName);
+            if (mvTableColumnMap.containsKey(dbQualifier)) {
+                this.setStatus(HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("repeated parameters in use_mv hint: " + dbQualifier);
+                return mvTableColumnMap;
             } else {
-                List<String> list = new ArrayList<>();
-                list.add(columnName);
-                tempNoUseMvTableColumnMap.put(tableName, list);
+                mvTableColumnMap.put(dbQualifier, false);
             }
         }
-        return tempNoUseMvTableColumnMap;
+        return mvTableColumnMap;
     }
 
     public boolean isUseMv() {
@@ -109,14 +168,6 @@ public class UseMvHint extends Hint {
         return isAllMv;
     }
 
-    public String getUseMvName(String tableName) {
-        return useMvTableColumnMap.get(tableName);
-    }
-
-    public List<String> getNoUseMVName(String tableName) {
-        return noUseMvTableColumnMap.get(tableName);
-    }
-
     @Override
     public String getExplainString() {
         StringBuilder out = new StringBuilder();
@@ -125,14 +176,14 @@ public class UseMvHint extends Hint {
         } else {
             out.append("no_use_mv");
         }
-        if (!parameters.isEmpty()) {
+        if (!tables.isEmpty()) {
             out.append("(");
-            for (int i = 0; i < parameters.size(); i++) {
+            for (int i = 0; i < tables.size(); i++) {
                 if (i % 2 == 0) {
-                    out.append(parameters.get(i));
+                    out.append(tables.get(i));
                 } else {
                     out.append(".");
-                    out.append(parameters.get(i));
+                    out.append(tables.get(i));
                     out.append(" ");
                 }
             }

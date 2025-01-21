@@ -126,12 +126,12 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
 }
 
 PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                         const TPlanNode& tnode,
+                                                         int dest_id, const TPlanNode& tnode,
                                                          const DescriptorTbl& descs,
                                                          bool require_bucket_distribution)
-        : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
-    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs,
-                                                            require_bucket_distribution);
+        : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id, dest_id) {
+    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, dest_id, tnode,
+                                                            descs, require_bucket_distribution);
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -140,8 +140,6 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     if (state->query_options().__isset.external_agg_partition_bits) {
         _spill_partition_count_bits = state->query_options().external_agg_partition_bits;
     }
-
-    _agg_sink_operator->set_dests_id(DataSinkOperatorX<PartitionedAggSinkLocalState>::dests_id());
     RETURN_IF_ERROR(
             _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);

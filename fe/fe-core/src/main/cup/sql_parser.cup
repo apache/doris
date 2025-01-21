@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;

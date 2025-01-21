@@ -47,23 +47,22 @@ public class HudiCachedMetaClientProcessor {
                 true,
                 null);
 
-        this.hudiTableMetaClientCache =
-                partitionCacheFactory.buildCache(
-                        this::createHoodieTableMetaClient,
-                        null,
-                        executor);
+        this.hudiTableMetaClientCache = partitionCacheFactory.buildCache(
+                this::createHoodieTableMetaClient,
+                null,
+                executor);
     }
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiCachedClientKey key) {
         LOG.debug("create hudi table meta client for {}.{}", key.getDbName(), key.getTbName());
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(key.getConf());
         return HiveMetaStoreClientHelper.ugiDoAs(
-            key.getConf(),
-            () -> HoodieTableMetaClient
-                .builder()
-                .setConf(hadoopStorageConfiguration)
-                .setBasePath(key.getHudiBasePath())
-                .build());
+                key.getConf(),
+                () -> HoodieTableMetaClient
+                        .builder()
+                        .setConf(hadoopStorageConfiguration)
+                        .setBasePath(key.getHudiBasePath())
+                        .build());
     }
 
     public HoodieTableMetaClient getHoodieTableMetaClient(

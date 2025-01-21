@@ -62,7 +62,9 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         // Disable add default limit rule to avoid refresh data wrong
         ctx.getSessionVariable().setDisableNereidsRules(
-                String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+                String.join(",", ImmutableSet.of(
+                        "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
+                        RuleType.ADD_DEFAULT_LIMIT.name())));
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());

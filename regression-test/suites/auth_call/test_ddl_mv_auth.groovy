@@ -30,7 +30,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -80,9 +80,9 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
-        waitingMVTaskFinishedByMvName(dbName, tableName)
+        waitingMVTaskFinishedByMvName(dbName, tableName, mvName)
         sql """alter table ${dbName}.${tableName} add rollup ${rollupName}(username)"""
-        waitingMVTaskFinishedByMvName(dbName, tableName)
+        waitingMVTaskFinishedByMvName(dbName, tableName, rollupName)
 
         def mv_res = sql """desc ${dbName}.${tableName} all;"""
         logger.info("mv_res: " + mv_res)

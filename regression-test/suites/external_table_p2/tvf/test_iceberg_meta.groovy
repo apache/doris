@@ -63,7 +63,7 @@ suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_
              def clusters = sql " SHOW CLUSTERS; "
              assertTrue(!clusters.isEmpty())
              def validCluster = clusters[0][0]
-             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+             sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
          }
 
          sql """grant select_priv on regression_test to ${user}"""

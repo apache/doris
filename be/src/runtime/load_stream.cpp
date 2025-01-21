@@ -64,7 +64,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
           _load_id(load_id),
           _txn_id(txn_id),
           _load_stream_mgr(load_stream_mgr) {
-    load_stream_mgr->create_tokens(_flush_tokens);
+    load_stream_mgr->create_token(_flush_token);
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
@@ -178,7 +178,6 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(WARNING) << "write data failed " << st << ", " << *this;
         }
     };
-    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
     auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
     auto load_stream_max_wait_flush_token_time_ms =
             config::load_stream_max_wait_flush_token_time_ms;
@@ -188,7 +187,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     });
     MonotonicStopWatch timer;
     timer.start();
-    while (flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
+    while (_flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
         if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
             _status.update(
                     Status::Error<true>("wait flush token back pressure time is more than "
@@ -206,7 +205,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     DBUG_EXECUTE_IF("TabletStream.append_data.submit_func_failed",
                     { st = Status::InternalError("fault injection"); });
     if (st.ok()) {
-        st = flush_token->submit_func(flush_func);
+        st = _flush_token->submit_func(flush_func);
     }
     if (!st.ok()) {
         _status.update(st);
@@ -263,12 +262,11 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "add segment failed " << *this;
         }
     };
-    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
     Status st = Status::OK();
     DBUG_EXECUTE_IF("TabletStream.add_segment.submit_func_failed",
                     { st = Status::InternalError("fault injection"); });
     if (st.ok()) {
-        st = flush_token->submit_func(add_segment_func);
+        st = _flush_token->submit_func(add_segment_func);
     }
     if (!st.ok()) {
         _status.update(st);
@@ -303,9 +301,7 @@ void TabletStream::pre_close() {
 
     SCOPED_TIMER(_close_wait_timer);
     _status.update(_run_in_heavy_work_pool([this]() {
-        for (auto& token : _flush_tokens) {
-            token->wait();
-        }
+        _flush_token->wait();
         return Status::OK();
     }));
     // it is necessary to check status after wait_func,

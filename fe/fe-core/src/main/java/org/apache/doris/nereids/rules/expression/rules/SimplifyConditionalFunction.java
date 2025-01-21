@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -37,9 +38,12 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Coalesce.class).then(SimplifyConditionalFunction::rewriteCoalesce),
-                matchesType(Nvl.class).then(SimplifyConditionalFunction::rewriteNvl),
+                matchesType(Coalesce.class).then(SimplifyConditionalFunction::rewriteCoalesce)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION),
+                matchesType(Nvl.class).then(SimplifyConditionalFunction::rewriteNvl)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION),
                 matchesType(NullIf.class).then(SimplifyConditionalFunction::rewriteNullIf)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION)
         );
     }
 

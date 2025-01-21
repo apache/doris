@@ -246,6 +246,7 @@ public:
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
+    // Default value in `ColumnNullable` is null
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
@@ -263,13 +264,6 @@ public:
     void insert_not_null_elements(size_t num) {
         get_nested_column().insert_many_defaults(num);
         _push_false_to_nullmap(num);
-    }
-
-    void insert_null_elements(int num) {
-        get_nested_column().insert_many_defaults(num);
-        get_null_map_column().insert_many_vals(1, num);
-        _has_null = true;
-        _need_update_has_null = false;
     }
 
     void pop_back(size_t n) override;

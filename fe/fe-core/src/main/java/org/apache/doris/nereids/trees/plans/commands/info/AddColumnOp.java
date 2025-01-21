@@ -162,7 +162,7 @@ public class AddColumnOp extends AlterTableOp {
                     }
                 }
             } else if (keysType == KeysType.UNIQUE_KEYS) {
-                if (aggregateType != null && columnDef.isVisible()) {
+                if (aggregateType != null && !aggregateType.isReplaceFamily() && columnDef.isVisible()) {
                     throw new AnalysisException(
                             String.format("Can not assign aggregation method on column in Unique data model table: %s",
                                     columnDef.getName()));

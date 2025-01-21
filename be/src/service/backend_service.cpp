@@ -654,47 +654,6 @@ Status BaseBackendService::start_plan_fragment_execution(
                                                          QuerySource::INTERNAL_FRONTEND);
 }
 
-void BaseBackendService::transmit_data(TTransmitDataResult& return_val,
-                                       const TTransmitDataParams& params) {
-    VLOG_ROW << "transmit_data(): instance_id=" << params.dest_fragment_instance_id
-             << " node_id=" << params.dest_node_id << " #rows=" << params.row_batch.num_rows
-             << " eos=" << (params.eos ? "true" : "false");
-    // VLOG_ROW << "transmit_data params: " << apache::thrift::ThriftDebugString(params).c_str();
-
-    if (params.__isset.packet_seq) {
-        return_val.__set_packet_seq(params.packet_seq);
-        return_val.__set_dest_fragment_instance_id(params.dest_fragment_instance_id);
-        return_val.__set_dest_node_id(params.dest_node_id);
-    }
-
-    // TODO: fix Thrift so we can simply take ownership of thrift_batch instead
-    // of having to copy its data
-    if (params.row_batch.num_rows > 0) {
-        // Status status = _exec_env->stream_mgr()->add_data(
-        //         params.dest_fragment_instance_id,
-        //         params.dest_node_id,
-        //         params.row_batch,
-        //         params.sender_id);
-        // status.set_t_status(&return_val);
-
-        // if (!status.ok()) {
-        //     // should we close the channel here as well?
-        //     return;
-        // }
-    }
-
-    if (params.eos) {
-        // Status status = _exec_env->stream_mgr()->close_sender(
-        //        params.dest_fragment_instance_id,
-        //        params.dest_node_id,
-        //        params.sender_id,
-        //        params.be_number);
-        //VLOG_ROW << "params.eos: " << (params.eos ? "true" : "false")
-        //        << " close_sender status: " << status;
-        //status.set_t_status(&return_val);
-    }
-}
-
 void BaseBackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
     //    VLOG_ROW << "submit_export_task. request  is "
     //            << apache::thrift::ThriftDebugString(request).c_str();

@@ -20,6 +20,7 @@
 #include <brpc/controller.h>
 #include <brpc/http_status_code.h>
 #include <brpc/uri.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
@@ -44,7 +45,9 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/logging.h"
+#include "common/string_util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
@@ -448,6 +451,40 @@ static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Con
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
 }
 
+static HttpResponse process_update_config(MetaServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    bool persist = (http_query(uri, "persist") == "true");
+    auto configs = std::string {http_query(uri, "configs")};
+    auto reason = std::string {http_query(uri, "reason")};
+    LOG(INFO) << "modify configs for reason=" << reason << ", configs=" << configs
+              << ", persist=" << http_query(uri, "persist");
+    if (configs.empty()) [[unlikely]] {
+        LOG(WARNING) << "query param `config` should not be empty";
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "query param `config` should not be empty");
+    }
+    std::unordered_map<std::string, std::string> conf_map;
+    auto conf_list = split(configs, ',');
+    for (const auto& conf : conf_list) {
+        auto conf_pair = split(conf, '=');
+        if (conf_pair.size() != 2) [[unlikely]] {
+            LOG(WARNING) << "failed to split config=[{}] from `k=v` pattern" << conf;
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   fmt::format("config {} is invalid", configs));
+        }
+        trim(conf_pair[0]);
+        trim(conf_pair[1]);
+        conf_map.emplace(std::move(conf_pair[0]), std::move(conf_pair[1]));
+    }
+    if (auto [succ, cause] =
+                config::set_config(std::move(conf_map), persist, config::custom_conf_path);
+        !succ) {
+        LOG(WARNING) << cause;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, cause);
+    }
+    return http_json_reply(MetaServiceCode::OK, "");
+}
+
 static HttpResponse process_decode_key(MetaServiceImpl*, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string_view key = http_query(uri, "key");
@@ -732,12 +769,14 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"alter_iam", process_alter_iam},
             {"adjust_rate_limit", process_adjust_rate_limit},
             {"list_rate_limit", process_query_rate_limit},
+            {"update_config", process_update_config},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
             {"v1/alter_iam", process_alter_iam},
             {"v1/adjust_rate_limit", process_adjust_rate_limit},
             {"v1/list_rate_limit", process_query_rate_limit},
+            {"v1/update_config", process_update_config},
     };
 
     auto* cntl = static_cast<brpc::Controller*>(controller);

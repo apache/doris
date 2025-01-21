@@ -49,6 +49,34 @@ suite("test_jdbc_row_count", "p0,external,mysql,external_docker,external_docker_
         assertEquals("5", result[0][2])
         sql """drop catalog ${catalog_name}"""
 
+        // Test mysql lower
+        catalog_name = "test_mysql_lower_jdbc_row_count";
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.jdbc.Driver",
+            "lower_case_meta_names" = "true",
+             "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
+        );"""
+
+        sql """use ${catalog_name}.doris_test"""
+        result = sql """show table stats doris_2.doris_1"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 60; i++) {
+            result = sql """show table stats doris_2.doris_1""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertEquals("1", result[0][2])
+        sql """drop catalog ${catalog_name}"""
+
         // Test pg
         catalog_name = "test_pg_jdbc_row_count";
         driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
@@ -74,6 +102,32 @@ suite("test_jdbc_row_count", "p0,external,mysql,external_docker,external_docker_
             Thread.sleep(1000)
         }
         assertEquals("1026", result[0][2])
+        sql """drop catalog ${catalog_name}"""
+
+        // Test pg lower
+        catalog_name = "test_pg_lower_jdbc_row_count";
+        sql """drop catalog if exists ${catalog_name} """
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="postgres",
+            "password"="123456",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "org.postgresql.Driver",
+            "lower_case_meta_names" = "true"
+            );"""
+        sql """use ${catalog_name}.doris_test"""
+        result = sql """show table stats test_lower"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 60; i++) {
+            result = sql """show table stats test_lower""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertEquals("1", result[0][2])
         sql """drop catalog ${catalog_name}"""
 
         // Test sqlserver
@@ -103,6 +157,32 @@ suite("test_jdbc_row_count", "p0,external,mysql,external_docker,external_docker_
         assertEquals("3", result[0][2])
         sql """drop catalog ${catalog_name}"""
 
+        // Test sqlserver lower
+        catalog_name = "test_sqlserver_lower_jdbc_row_count";
+        sql """drop catalog if exists ${catalog_name} """
+        sql """ create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                    "lower_case_meta_names" = "true"
+        );"""
+        sql """use ${catalog_name}.dbo"""
+        result = sql """show table stats test_lower"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 60; i++) {
+            result = sql """show table stats test_lower""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertEquals("1", result[0][2])
+        sql """drop catalog ${catalog_name}"""
+
         // Test oracle
         catalog_name = "test_oracle_jdbc_row_count";
         String oracle_port = context.config.otherConfigs.get("oracle_11_port");
@@ -124,6 +204,34 @@ suite("test_jdbc_row_count", "p0,external,mysql,external_docker,external_docker_
         Thread.sleep(1000)
         for (int i = 0; i < 30; i++) {
             result = sql """show table stats STUDENT""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertTrue("4".equals(result[0][2]) || "-1".equals(result[0][2]))
+        sql """drop catalog ${catalog_name}"""
+
+        // Test oracle lower
+        catalog_name = "test_oracle_lower_jdbc_row_count";
+        sql """drop catalog if exists ${catalog_name} """
+        sql """
+            create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_meta_names" = "true"
+            );
+        """
+        sql """use ${catalog_name}.doris_test"""
+        result = sql """show table stats student"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 30; i++) {
+            result = sql """show table stats student""";
             if (result[0][2] != "-1") {
                 break;
             }

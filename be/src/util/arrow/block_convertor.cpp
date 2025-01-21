@@ -392,7 +392,7 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
                                                           _timezone_obj);
         } catch (std::exception& e) {
             return Status::InternalError(
-                    "Fail to convert block data to arrow data, tyep: {}, name: {}, error: {}",
+                    "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
                     _cur_type->get_name(), e.what());
         }
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);

@@ -768,10 +768,6 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
 
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("Not supported next_batch_of_zone_map");
-    }
-
     ordinal_t get_current_ordinal() const override {
         if (_sibling_iter) {
             return _sibling_iter->get_current_ordinal();

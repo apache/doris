@@ -227,6 +227,7 @@ function clean_fdb() {
         fdbcli --exec "writemode on;clearrange \x01\x10recycle\x00\x01\x10${instance_id}\x00\x01 \x01\x10recycle\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10job\x00\x01\x10${instance_id}\x00\x01 \x01\x10job\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10copy\x00\x01\x10${instance_id}\x00\x01 \x01\x10copy\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x00 \xff" &&
         rm -f /var/log/foundationdb/*; then
         echo "INFO: fdb cleaned."
     else
@@ -474,6 +475,16 @@ set_session_variable() {
         fi
     else
         return 1
+    fi
+}
+
+set_default_storage_vault() {
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    if ${cl} -e"set built_in_storage_vault as default storage vault;"; then
+        echo "INFO:      set built_in_storage_vault as default storage vault;"
+    else
+        echo "ERROR:     set built_in_storage_vault as default storage vault;" && return 1
     fi
 }
 
@@ -736,6 +747,34 @@ function create_warehouse() {
             \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
             \"ak\": \"${oss_ak}\",
             \"sk\": \"${oss_sk}\"
+        }
+    }"; then
+        echo
+    else
+        return 1
+    fi
+}
+
+function create_warehouse_vault() {
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
+    fi
+
+    if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"name\":\"cloud_instance_0\",
+        \"user_id\":\"user-id\",
+        \"vault\": {
+            \"obj_info\": {
+                \"provider\": \"OSS\",
+                \"region\": \"oss-cn-hongkong\",
+                \"bucket\": \"doris-community-test\",
+                \"prefix\": \"cloud_regression_vault\",
+                \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+                \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+                \"ak\": \"${oss_ak}\",
+                \"sk\": \"${oss_sk}\"
+            }
         }
     }"; then
         echo

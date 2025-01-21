@@ -29,6 +29,7 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -133,7 +134,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
                 ctx.getSessionVariable().enableProfile,
                 ctx.getSessionVariable().profileLevel,
                 ctx.getSessionVariable().getAutoProfileThresholdMs());
-        profile.getSummaryProfile().setQueryBeginTime();
+        profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
                     Optional.of(labelName), Optional.empty(), Optional.empty()));

@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.Statistics;
@@ -202,9 +201,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return UnboundLogicalProperties.INSTANCE;
         } else {
             Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
-            Supplier<DataTrait> fdSupplier = () -> this instanceof LogicalPlan
-                    ? ((LogicalPlan) this).computeDataTrait()
-                    : DataTrait.EMPTY_TRAIT;
+            Supplier<DataTrait> fdSupplier = () -> computeDataTrait();
             return new LogicalProperties(outputSupplier, fdSupplier);
         }
     }
@@ -228,6 +225,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     public void updateActualRowCount(long actualRowCount) {
-        statistics.setActualRowCount(actualRowCount);
+        if (statistics != null) {
+            statistics.setActualRowCount(actualRowCount);
+        }
     }
 }

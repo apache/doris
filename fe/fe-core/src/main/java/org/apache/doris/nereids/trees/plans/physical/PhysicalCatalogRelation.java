@@ -17,12 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -36,10 +40,12 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * relation generated from TableIf
@@ -147,5 +153,48 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                     .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
         return shapeBuilder.toString();
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
+        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+            Set<Column> columns = c.getPrimaryKeys(table);
+            builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
+
+        for (UniqueConstraint c : table.getUniqueConstraints()) {
+            Set<Column> columns = c.getUniqueKeys(table);
+            builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        // No uniform slot for catalog relation
+    }
+
+    private ImmutableSet<SlotReference> findSlotsByColumn(Set<Slot> outputSet, Set<Column> columns) {
+        ImmutableSet.Builder<SlotReference> slotSet = ImmutableSet.builderWithExpectedSize(columns.size());
+        for (Slot slot : outputSet) {
+            if (!(slot instanceof SlotReference)) {
+                continue;
+            }
+            SlotReference slotRef = (SlotReference) slot;
+            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+                slotSet.add(slotRef);
+            }
+        }
+        return slotSet.build();
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        // don't generate any equal pair
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        // don't generate any equal pair
     }
 }

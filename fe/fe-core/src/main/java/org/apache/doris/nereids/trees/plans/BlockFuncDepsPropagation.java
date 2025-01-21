@@ -18,12 +18,11 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 /**
  * Block fd propagation, it always returns an empty fd
  */
-public interface BlockFuncDepsPropagation extends LogicalPlan {
+public interface BlockFuncDepsPropagation extends Plan {
     @Override
     default DataTrait computeDataTrait() {
         return DataTrait.EMPTY_TRAIT;

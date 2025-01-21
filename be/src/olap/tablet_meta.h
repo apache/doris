@@ -100,6 +100,7 @@ public:
             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
 
     TabletMeta();
+    ~TabletMeta() override;
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int64_t replica_id,
                int32_t schema_hash, int32_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
@@ -321,6 +322,7 @@ private:
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
     TabletSchemaSPtr _schema;
+    Cache::Handle* _handle = nullptr;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.

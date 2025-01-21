@@ -54,6 +54,10 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
+// Custom conf path is default the same as conf path, and configs will be append to it.
+// Otherwise, will a new custom conf file will be created.
+CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
@@ -225,6 +229,15 @@ CONF_mInt64(max_s3_client_retry, "10");
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
 
+// Max byte txn commit when updating delete bitmap, default is 7MB.
+// Because the size of one fdb transaction can't exceed 10MB, and
+// fdb does not have an accurate way to estimate the size of txn.
+// In my test, when txn->approximate_bytes() bigger than 8MB,
+// it may meet Transaction exceeds byte limit error. We'd better
+// reserve 1MB of buffer, so setting the default value to 7MB is
+// more reasonable.
+CONF_mInt64(max_txn_commit_byte, "7340032");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
@@ -236,4 +249,7 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_mInt64(max_num_aborted_txn, "100");
 
 CONF_Bool(enable_check_instance_id, "true");
+
+// Check if ip eq 127.0.0.1, ms/recycler exit
+CONF_Bool(enable_loopback_address_for_ms, "false");
 } // namespace doris::cloud::config

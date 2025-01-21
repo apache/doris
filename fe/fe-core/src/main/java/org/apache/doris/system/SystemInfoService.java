@@ -34,8 +34,6 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TNodeInfo;
-import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -160,16 +158,6 @@ public class SystemInfoService {
             }
         }
     };
-
-    public static TPaloNodesInfo createAliveNodesInfo() {
-        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendByCurrentCluster(true)) {
-            Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
-        return nodesInfo;
-    }
 
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
@@ -1057,6 +1045,16 @@ public class SystemInfoService {
     // CloudSystemInfoService override
     public int getTabletNumByBackendId(long beId) {
         return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+    }
+
+    public List<Backend> getBackendsByPolicy(BeSelectionPolicy beSelectionPolicy) {
+        try {
+            return beSelectionPolicy.getCandidateBackends(Env.getCurrentSystemInfo()
+                    .getBackendsByCurrentCluster().values().asList());
+        } catch (Throwable t) {
+            LOG.warn("get backends by policy failed, policy: {}", beSelectionPolicy.toString());
+        }
+        return Lists.newArrayList();
     }
 
 }

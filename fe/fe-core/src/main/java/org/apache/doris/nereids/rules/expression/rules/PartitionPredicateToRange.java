@@ -84,13 +84,7 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
                 intersects = childRanges;
                 continue;
             }
-
-            for (Range<MultiColumnBound> childRange : childRanges.asRanges()) {
-                intersects = intersects.subRangeSet(childRange);
-                if (intersects.isEmpty()) {
-                    break;
-                }
-            }
+            intersects = intersection(childRanges, intersects);
             if (intersects.isEmpty()) {
                 break;
             }
@@ -263,5 +257,13 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
 
         Range<MultiColumnBound> range = Range.range(lowerBound, lowerBoundType, upperBound, upperBoundType);
         return ImmutableRangeSet.of(range);
+    }
+
+    public static <T extends Comparable<?>> RangeSet<T> intersection(RangeSet<T> rangeSet1, RangeSet<T> rangeSet2) {
+        RangeSet<T> result = TreeRangeSet.create();
+        for (Range<T> range : rangeSet1.asRanges()) {
+            result.addAll(rangeSet2.subRangeSet(range));
+        }
+        return result;
     }
 }

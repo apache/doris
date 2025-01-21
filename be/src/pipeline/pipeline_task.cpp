@@ -74,8 +74,8 @@ PipelineTask::PipelineTask(
     }
 }
 
-Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
-                             QueryContext* query_ctx) {
+Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
+                             const TDataSink& tsink, QueryContext* query_ctx) {
     DCHECK(_sink);
     _init_profile();
     SCOPED_TIMER(_task_profile->total_time_counter());
@@ -87,17 +87,13 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     });
     {
         // set sink local state
-        LocalSinkStateInfo info {_task_idx,
-                                 _task_profile.get(),
-                                 local_params.sender_id,
-                                 get_sink_shared_state().get(),
-                                 _le_state_map,
-                                 tsink};
+        LocalSinkStateInfo info {_task_idx,     _task_profile.get(),
+                                 sender_id,     get_sink_shared_state().get(),
+                                 _le_state_map, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     }
 
-    _scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                     _operators.front()->node_id(), _scan_ranges);
+    _scan_ranges = scan_range;
     auto* parent_profile = _state->get_sink_local_state()->profile();
     query_ctx->register_query_statistics(
             _state->get_sink_local_state()->get_query_statistics_ptr());

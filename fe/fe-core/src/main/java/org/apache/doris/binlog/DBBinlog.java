@@ -75,6 +75,10 @@ public class DBBinlog {
 
     private BinlogConfigCache binlogConfigCache;
 
+    // The binlogs that are locked by the syncer.
+    // syncer id => commit seq
+    private Map<String, Long> lockedBinlogs;
+
     public DBBinlog(BinlogConfigCache binlogConfigCache, TBinlog binlog) {
         lock = new ReentrantReadWriteLock();
         this.dbId = binlog.getDbId();
@@ -89,6 +93,7 @@ public class DBBinlog {
         droppedPartitions = Lists.newArrayList();
         droppedTables = Lists.newArrayList();
         droppedIndexes = Lists.newArrayList();
+        lockedBinlogs = Maps.newHashMap();
 
         TBinlog dummy;
         if (binlog.getType() == TBinlogType.DUMMY) {
@@ -261,7 +266,7 @@ public class DBBinlog {
         }
     }
 
-    public Pair<TStatus, Long> getBinlogLag(long tableId, long prevCommitSeq) {
+    public Pair<TStatus, BinlogLagInfo> getBinlogLag(long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -281,23 +286,66 @@ public class DBBinlog {
         }
     }
 
+    public Pair<TStatus, Long> lockBinlog(long tableId, String jobUniqueId, long lockCommitSeq) {
+        TableBinlog tableBinlog = null;
+
+        lock.writeLock().lock();
+        try {
+            if (tableId < 0) {
+                return lockDbBinlog(jobUniqueId, lockCommitSeq);
+            }
+
+            tableBinlog = tableBinlogMap.get(tableId);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        if (tableBinlog == null) {
+            LOG.warn("table binlog not found. dbId: {}, tableId: {}", dbId, tableId);
+            return Pair.of(new TStatus(TStatusCode.BINLOG_NOT_FOUND_TABLE), -1L);
+        }
+        return tableBinlog.lockBinlog(jobUniqueId, lockCommitSeq);
+    }
+
+    // Require: the write lock is held by the caller.
+    private Pair<TStatus, Long> lockDbBinlog(String jobUniqueId, long lockCommitSeq) {
+        TBinlog firstBinlog = allBinlogs.first();
+        TBinlog lastBinlog = allBinlogs.last();
+
+        if (lockCommitSeq < 0) {
+            // lock the latest binlog
+            lockCommitSeq = lastBinlog.getCommitSeq();
+        } else if (lockCommitSeq < firstBinlog.getCommitSeq()) {
+            // lock the first binlog
+            lockCommitSeq = firstBinlog.getCommitSeq();
+        } else if (lastBinlog.getCommitSeq() < lockCommitSeq) {
+            LOG.warn("try lock future binlogs, dbId: {}, lockCommitSeq: {}, lastCommitSeq: {}, jobId: {}",
+                    dbId, lockCommitSeq, lastBinlog.getCommitSeq(), jobUniqueId);
+            return Pair.of(new TStatus(TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ), -1L);
+        }
+
+        // keep idempotent
+        Long commitSeq = lockedBinlogs.get(jobUniqueId);
+        if (commitSeq != null && lockCommitSeq <= commitSeq) {
+            LOG.debug("binlog is locked, commitSeq: {}, jobId: {}, dbId: {}", commitSeq, jobUniqueId, dbId);
+            return Pair.of(new TStatus(TStatusCode.OK), commitSeq);
+        }
+
+        lockedBinlogs.put(jobUniqueId, lockCommitSeq);
+        return Pair.of(new TStatus(TStatusCode.OK), lockCommitSeq);
+    }
+
     public BinlogTombstone gc() {
         // check db
         BinlogConfig dbBinlogConfig = binlogConfigCache.getDBBinlogConfig(dbId);
         if (dbBinlogConfig == null) {
             LOG.error("db not found. dbId: {}", dbId);
             return null;
-        }
-
-        BinlogTombstone tombstone;
-        if (dbBinlogConfig.isEnable()) {
-            // db binlog is enabled, only one binlogTombstones
-            tombstone = dbBinlogEnableGc(dbBinlogConfig);
+        } else if (!dbBinlogConfig.isEnable()) {
+            return dbBinlogDisableGc();
         } else {
-            tombstone = dbBinlogDisableGc();
+            return dbBinlogEnableGc(dbBinlogConfig);
         }
-
-        return tombstone;
     }
 
     private BinlogTombstone collectTableTombstone(List<BinlogTombstone> tableTombstones, boolean isDbGc) {
@@ -341,6 +389,7 @@ public class DBBinlog {
                 tombstones.add(tombstone);
             }
         }
+
         BinlogTombstone tombstone = collectTableTombstone(tombstones, false);
         if (tombstone != null) {
             removeExpiredMetaData(tombstone.getCommitSeq());
@@ -723,4 +772,5 @@ public class DBBinlog {
             }
         }
     }
+
 }

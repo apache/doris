@@ -612,7 +612,6 @@ struct HashJoinSharedState : public JoinSharedState {
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    bool probe_ignore_null = false;
 };
 
 struct PartitionedHashJoinSharedState
@@ -661,7 +660,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetDataVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetDataVariants> hash_table_variants =
+            std::make_unique<SetDataVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     // The SET operator's child might have different nullable attributes.

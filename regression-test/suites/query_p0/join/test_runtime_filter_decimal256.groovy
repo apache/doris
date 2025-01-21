@@ -19,7 +19,7 @@ suite("test_runtime_filter_decimal256", "query_p0") {
     sql "set enable_runtime_filter_prune=false;"
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
-    sql "set parallel_fragment_exec_instance_num = 4;"
+    sql "set parallel_pipeline_task_num = 4;"
 
     sql "drop table if exists test_runtime_filter_decimal256_0;"
     sql """ create table test_runtime_filter_decimal256_0(k1 int, v1 decimal(38, 6), v2 decimal(38, 6))

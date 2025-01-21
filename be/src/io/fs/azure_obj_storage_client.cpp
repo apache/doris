@@ -311,7 +311,7 @@ ObjectStorageResponse AzureObjStorageClient::list_objects(const ObjectStoragePat
                     return _client->ListBlobs(list_opts);
                 });
                 get_file_file(resp);
-                while (!resp.NextPageToken->empty()) {
+                while (resp.NextPageToken.HasValue()) {
                     list_opts.ContinuationToken = resp.NextPageToken;
                     resp = s3_get_rate_limit([&]() {
                         SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);

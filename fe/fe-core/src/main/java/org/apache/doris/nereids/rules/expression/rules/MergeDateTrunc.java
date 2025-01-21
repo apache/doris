@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
@@ -47,6 +48,7 @@ public class MergeDateTrunc implements ExpressionPatternRuleFactory {
                 matchesTopType(DateTrunc.class)
                         .when(dateTrunc -> dateTrunc.getArgument(0) instanceof DateTrunc)
                         .then(MergeDateTrunc::rewrite)
+                        .toRule(ExpressionRuleType.MERGE_DATE_TRUNC)
         );
     }
 

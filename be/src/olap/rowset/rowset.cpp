@@ -67,8 +67,6 @@ Status Rowset::load(bool use_cache) {
         std::lock_guard load_lock(_lock);
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-            // first do load, then change the state
-            RETURN_IF_ERROR(do_load(use_cache));
             RETURN_IF_ERROR(_rowset_state_machine.on_load());
         }
     }

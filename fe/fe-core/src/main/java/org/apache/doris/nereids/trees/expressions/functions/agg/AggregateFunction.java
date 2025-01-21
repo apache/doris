@@ -92,7 +92,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(distinct, getName(), children);
     }
 

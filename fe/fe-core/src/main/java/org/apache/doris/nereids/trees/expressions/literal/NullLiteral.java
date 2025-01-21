@@ -80,7 +80,7 @@ public class NullLiteral extends Literal {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), dataType);
+    protected int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), dataType);
     }
 }

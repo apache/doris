@@ -265,7 +265,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundAlias(UnboundAlias unboundAlias, ExpressionRewriteContext context) {
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
-            return new Alias(child, unboundAlias.getAlias().get());
+            return new Alias(child, unboundAlias.getAlias().get(), unboundAlias.isNameFromChild());
             // TODO: the variant bind element_at(slot, 'name') will return a slot, and we should
             //       assign an Alias to this function, this is trick and should refactor it
         } else if (!(unboundAlias.child() instanceof ElementAt) && child instanceof NamedExpression) {
@@ -447,6 +447,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
+
+        if (!buildResult.second.isDeterministic() && context != null) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            statementContext.setHasNondeterministic(true);
+        }
         if (wantToParseSqlFromSqlCache) {
             StatementContext statementContext = context.cascadesContext.getStatementContext();
             if (!buildResult.second.isDeterministic()) {

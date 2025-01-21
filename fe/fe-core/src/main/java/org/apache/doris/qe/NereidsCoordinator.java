@@ -477,8 +477,8 @@ public class NereidsCoordinator extends Coordinator {
                     }
                     QueueToken queueToken = queryQueue.getToken();
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
-                    queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
+                    queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
                 }
             } else {
                 context.setWorkloadGroupName("");

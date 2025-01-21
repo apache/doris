@@ -497,7 +497,7 @@ Status DataDir::load() {
     }
     if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
         throw Exception(Status::FatalError(
-                "roswet partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
+                "rowset partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
                 rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num));
     }
 

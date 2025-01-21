@@ -166,7 +166,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
@@ -175,7 +175,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size

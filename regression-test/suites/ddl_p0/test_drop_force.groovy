@@ -71,5 +71,12 @@ suite("sql_force_drop") {
     sql " drop database test_force_drop_database "
     sql " recover database test_force_drop_database "
     sql " drop database test_force_drop_database FORCE"
+
+    sql "CREATE DATABASE IF NOT EXISTS test_drop_database_nereids"
+    sql "CREATE DATABASE IF NOT EXISTS test_drop_catalog_database_nereids"
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "drop database test_drop_database_nereids FORCE"
+    sql "drop database internal.test_drop_catalog_database_nereids FORCE"
 }
 

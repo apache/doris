@@ -679,8 +679,8 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto mutable_column = doris_column->assume_mutable();
+        auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
     } else {
@@ -730,8 +730,8 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto mutable_column = doris_column->assume_mutable();
+        auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
     } else {
@@ -799,8 +799,8 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto mutable_column = doris_column->assume_mutable();
+        auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
     } else {
@@ -880,9 +880,9 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
         DCHECK(doris_type->is_nullable());
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_field)).mutate().get());
-        nullable_column->insert_null_elements(missing_column_sz);
+        auto mutable_column = doris_field->assume_mutable();
+        auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
+        nullable_column->insert_many_defaults(missing_column_sz);
     }
 
     if (null_map_ptr != nullptr) {

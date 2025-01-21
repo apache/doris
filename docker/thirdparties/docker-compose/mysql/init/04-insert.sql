@@ -1208,3 +1208,7 @@ INSERT INTO doris_test.t_char (char_col) VALUES (REPEAT('中', 255));
 
 INSERT INTO doris_test.`test_cast` VALUES (1, '1', '2022-01-01', '2022-01-01 00:00:01');
 INSERT INTO doris_test.`test_cast` VALUES (2, '2', '2022-01-02', '2022-01-02 00:00:01');
+
+ANALYZE TABLE Doris.doris;
+ANALYZE TABLE Doris.DORIS;
+ANALYZE TABLE Doris.Doris;

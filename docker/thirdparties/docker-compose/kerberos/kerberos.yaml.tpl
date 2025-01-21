@@ -16,58 +16,55 @@
 # under the License.
 version: "3"
 services:
-  hive-krb:
+  hive-krb1:
     image: doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized_96
-    container_name: doris--kerberos1
+    container_name: doris-${CONTAINER_UID}-kerberos1
     volumes:
+      - ../common:/usr/local/common
       - ./two-kerberos-hives:/keytabs
       - ./sql:/usr/local/sql
       - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
       - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
-      - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
+      - ./health-checks/health.sh:/usr/local/health.sh
+      - ./health-checks/supervisorctl-check.sh:/etc/health.d/supervisorctl-check.sh
+      - ./health-checks/hive-health-check.sh:/etc/health.d/hive-health-check.sh
       - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
+      - ./conf/kerberos1/my.cnf:/etc/my.cnf
+      - ./conf/kerberos1/kdc.conf:/var/kerberos/krb5kdc/kdc.conf
+      - ./conf/kerberos1/krb5.conf:/etc/krb5.conf
     hostname: hadoop-master
-    entrypoint: /usr/local/entrypoint-hive-master.sh
+    entrypoint: /usr/local/entrypoint-hive-master.sh 1
     healthcheck:
-      test: ./health-checks/health.sh
-    ports:
-      - "5806:5006"
-      - "8820:8020"
-      - "8842:8042"
-      - "9800:9000"
-      - "9883:9083"
-      - "18000:10000"
-    networks:
-      doris--krb_net:
-        ipv4_address: 172.31.71.25
-
+      test: ["CMD", "ls", "/tmp/SUCCESS"]
+      interval: 5s
+      timeout: 10s
+      retries: 120
+    network_mode: "host"
+    env_file:
+      - ./hadoop-hive-1.env
   hive-krb2:
     image: doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized-2_96
-    container_name: doris--kerberos2
+    container_name: doris-${CONTAINER_UID}-kerberos2
     hostname: hadoop-master-2
     volumes:
+      - ../common:/usr/local/common
       - ./two-kerberos-hives:/keytabs
       - ./sql:/usr/local/sql
       - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
       - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
-      - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
-      - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
-    entrypoint: /usr/local/entrypoint-hive-master-2.sh
+      - ./health-checks/health.sh:/usr/local/health.sh
+      - ./health-checks/supervisorctl-check.sh:/etc/health.d/supervisorctl-check.sh
+      - ./health-checks/hive-health-check-2.sh:/etc/health.d/hive-health-check-2.sh
+      - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
+      - ./conf/kerberos2/my.cnf:/etc/my.cnf
+      - ./conf/kerberos2/kdc.conf:/var/kerberos/krb5kdc/kdc.conf
+      - ./conf/kerberos2/krb5.conf:/etc/krb5.conf
+    entrypoint: /usr/local/entrypoint-hive-master.sh 2
     healthcheck:
-      test: ./health-checks/health.sh
-    ports:
-      - "15806:5006"
-      - "18820:8020"
-      - "18842:8042"
-      - "19800:9000"
-      - "19883:9083"
-      - "18800:10000"
-    networks:
-      doris--krb_net:
-        ipv4_address: 172.31.71.26
-
-networks:
-  doris--krb_net:
-    ipam:
-      config:
-        - subnet: 172.31.71.0/24
+      test: ["CMD", "ls", "/tmp/SUCCESS"]
+      interval: 5s
+      timeout: 10s
+      retries: 120
+    network_mode: "host"
+    env_file:
+      - ./hadoop-hive-2.env

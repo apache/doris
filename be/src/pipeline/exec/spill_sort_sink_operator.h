@@ -61,7 +61,7 @@ private:
 class SpillSortSinkOperatorX final : public DataSinkOperatorX<SpillSortSinkLocalState> {
 public:
     using LocalStateType = SpillSortSinkLocalState;
-    SpillSortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    SpillSortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                            const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",

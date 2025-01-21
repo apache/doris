@@ -44,6 +44,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<ConnectionInfo> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<ConnectionInfo> threadLocalMasterConn = new ThreadLocal<>()
     public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHive2DockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHive3DockerConn = new ThreadLocal<>()
@@ -145,9 +146,22 @@ class SuiteContext implements Closeable {
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
             threadConnInfo.conn = config.getConnectionByDbName(dbName)
-            threadConnInfo.username = config.jdbcUser 
+            threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
+        }
+        return threadConnInfo.conn
+    }
+
+    // like getConnection, but connect to FE master
+    Connection getMasterConnection() {
+        def threadConnInfo = threadLocalMasterConn.get()
+        if (threadConnInfo == null) {
+            threadConnInfo = new ConnectionInfo()
+            threadConnInfo.conn = getMasterConnectionByDbName(dbName)
+            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.password = config.jdbcPassword
+            threadLocalMasterConn.set(threadConnInfo)
         }
         return threadConnInfo.conn
     }
@@ -316,6 +330,27 @@ class SuiteContext implements Closeable {
         }
     }
 
+    Connection getMasterConnectionByDbName(String dbName) {
+        def result = JdbcUtils.executeToMapArray(getConnection(), "SHOW FRONTENDS")
+        def master = null
+        for (def row : result) {
+            if (row.IsMaster == "true") {
+                master = row
+                break
+            }
+        }
+        if (master) {
+            log.info("master found: ${master.Host}:${master.HttpPort}")
+            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            def username = config.jdbcUser
+            def password = config.jdbcPassword
+
+            return DriverManager.getConnection(url, username, password)
+        } else {
+            throw new Exception("No master found to reconnect")
+        }
+    }
+
     def reconnectToMasterFe = { ->
         log.info("Reconnecting to a new master frontend...")
         def result = JdbcUtils.executeToMapArray(getConnection(), "SHOW FRONTENDS")
@@ -465,6 +500,16 @@ class SuiteContext implements Closeable {
                 conn.conn.close()
             } catch (Throwable t) {
                 log.warn("Close connection failed", t)
+            }
+        }
+
+        ConnectionInfo master_conn = threadLocalMasterConn.get()
+        if (master_conn != null) {
+            threadLocalMasterConn.remove()
+            try {
+                master_conn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close master connection failed", t)
             }
         }
 

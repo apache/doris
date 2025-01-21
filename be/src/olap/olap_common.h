@@ -74,7 +74,7 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
-    std::string bvar_name;
+    std::string metric_name;
 };
 struct PredicateFilterInfo {
     int type = 0;
@@ -420,8 +420,6 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
-struct RowsetId;
-RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -442,7 +440,7 @@ struct RowsetId {
             if (ec != std::errc {}) [[unlikely]] {
                 if (config::force_regenerate_rowsetid_on_start_error) {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                    high = next_rowset_id().hi;
+                    high = MAX_ROWSET_ID - 1;
                 } else {
                     throw Exception(
                             Status::FatalError("failed to init rowset id: {}", rowset_id_str));

@@ -42,6 +42,7 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/crc32c.h"
@@ -68,13 +69,27 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::do_load(bool /*use_cache*/) {
-    // do nothing.
-    // the segments in this rowset will be loaded by calling load_segments() explicitly.
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
+    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
+        auto segment_count = num_segments();
+        _segments_rows.resize(segment_count);
+        for (int64_t i = 0; i != segment_count; ++i) {
+            SegmentCacheHandle segment_cache_handle;
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
+                    std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
+                    &segment_cache_handle, false, false));
+            const auto& tmp_segments = segment_cache_handle.get_segments();
+            _segments_rows[i] = tmp_segments[0]->num_rows();
+        }
+        return Status::OK();
+    }));
+    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
 }
 
-Status BetaRowset::get_inverted_index_size(size_t* index_size) {
+Status BetaRowset::get_inverted_index_size(int64_t* index_size) {
     const auto& fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed, resource_id={}",

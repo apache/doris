@@ -15,20 +15,60 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
 set -euo pipefail
+source /usr/local/common/hive-configure.sh
+source /usr/local/common/event-hook.sh
+
+echo "Configuring hive"
+configure /etc/hive/conf/hive-site.xml hive HIVE_SITE_CONF
+configure /etc/hive/conf/hiveserver2-site.xml hive HIVE_SITE_CONF
+configure /etc/hadoop/conf/core-site.xml core CORE_CONF
+configure /etc/hadoop/conf/hdfs-site.xml hdfs HDFS_CONF
+configure /etc/hadoop/conf/yarn-site.xml yarn YARN_CONF
+configure /etc/hadoop/conf/mapred-site.xml mapred MAPRED_CONF
+configure /etc/hive/conf/beeline-site.xml beeline BEELINE_SITE_CONF
 
 echo "Copying kerberos keytabs to keytabs/"
 mkdir -p /etc/hadoop-init.d/
-cp /etc/trino/conf/* /keytabs/
+
+if [ "$1" == "1" ]; then
+    cp /etc/trino/conf/* /keytabs/
+elif [ "$1" == "2" ]; then
+    cp /etc/trino/conf/hive-presto-master.keytab /keytabs/other-hive-presto-master.keytab
+    cp /etc/trino/conf/presto-server.keytab /keytabs/other-presto-server.keytab
+else
+    echo "Invalid index parameter. Exiting."
+    exit 1
+fi
 /usr/local/hadoop-run.sh &
 
-sleep 30
+# check healthy hear
+echo "Waiting for hadoop to be healthy"
+
+for i in {1..60}; do
+    if /usr/local/health.sh; then
+        echo "Hadoop is healthy"
+        break
+    fi
+    echo "Hadoop is not healthy yet. Retrying in 60 seconds..."
+    sleep 5
+done
+
+if [ $i -eq 60 ]; then
+    echo "Hadoop did not become healthy after 60 attempts. Exiting."
+    exit 1
+fi
 
 echo "Init kerberos test data"
-kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master@LABS.TERADATA.COM
+
+if [ "$1" == "1" ]; then
+    kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master@LABS.TERADATA.COM
+elif [ "$1" == "2" ]; then
+    kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master-2@OTHERREALM.COM
+else
+    echo "Invalid index parameter. Exiting."
+    exit 1
+fi
 hive  -f /usr/local/sql/create_kerberos_hive_table.sql
 
-sleep 20
-
-tail -f /dev/null
+exec_success_hook

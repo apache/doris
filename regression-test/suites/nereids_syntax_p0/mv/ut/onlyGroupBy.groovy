@@ -43,12 +43,11 @@ suite ("onlyGroupBy") {
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table onlyGroupBy with sync;"
+    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 
     sql """set enable_stats=true;"""
-    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='4');"""
-
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 }

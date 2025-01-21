@@ -23,6 +23,7 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
+#include "common/consts.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
@@ -109,7 +110,6 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
-        // TODO: decimal256
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
@@ -202,7 +202,8 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
-        LOG(WARNING) << "Unsuppoted convertion to decimal from " << column.get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 }
 

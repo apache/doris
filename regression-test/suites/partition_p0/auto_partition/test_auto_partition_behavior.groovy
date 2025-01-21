@@ -333,7 +333,7 @@ suite("test_auto_partition_behavior") {
             INDEX idx_level (`level`) USING INVERTED COMMENT '',
             INDEX idx_component (`component`) USING INVERTED COMMENT '',
             INDEX idx_clientRequestId (`clientRequestId`) USING INVERTED COMMENT '',
-            INDEX idx_message (`message`) USING INVERTED PROPERTIES("parser"="english") COMMENT '',
+            INDEX idx_message (`message`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT '',
             -- INDEX idx_properties (`properties`) USING INVERTED COMMENT '',
             ) ENGINE=OLAP
             DUPLICATE KEY(`timestamp`)

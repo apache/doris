@@ -171,7 +171,7 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
         _is_canceled = true;
         return st;
     }
-    LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << "closed, written "
+    LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << " closed, written "
               << file_writer->bytes_appended() << " bytes"
               << ", file type is " << file_type;
     if (file_writer->bytes_appended() == 0) {

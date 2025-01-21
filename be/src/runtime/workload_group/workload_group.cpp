@@ -72,7 +72,7 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
           _need_create_query_thread_pool(need_create_query_thread_pool) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
-        _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>(data_dir.bvar_name);
+        _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>(data_dir.metric_name);
     }
     _remote_scan_io_throttle = std::make_shared<IOThrottle>();
 
@@ -487,7 +487,7 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     if (_scan_task_sched == nullptr) {
         std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + wg_name,
-                                                                      cg_cpu_ctl_ptr);
+                                                                      cg_cpu_ctl_ptr, wg_name);
         Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_thread_num,
                                            config::doris_scanner_thread_pool_queue_size);
@@ -507,7 +507,7 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
         std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
                 std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + wg_name,
-                                                                      cg_cpu_ctl_ptr);
+                                                                      cg_cpu_ctl_ptr, wg_name);
         Status ret = remote_scan_scheduler->start(remote_max_thread_num,
                                                   config::doris_scanner_min_thread_pool_thread_num,
                                                   remote_scan_thread_queue_size);

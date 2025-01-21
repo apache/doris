@@ -71,6 +71,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -372,22 +373,15 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     );
                 }
                 List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
-                if (!intersectGroupingKeys.isEmpty() && intersectGroupingKeys.size()
-                        >= Sets.newHashSet(orderedShuffledColumns).size()) {
-                    boolean hashColumnsChanged = false;
-                    for (Expression intersectGroupingKey : intersectGroupingKeys) {
-                        if (!(intersectGroupingKey instanceof SlotReference)) {
-                            hashColumnsChanged = true;
-                            break;
-                        }
-                        if (!(orderedShuffledColumns.contains(((SlotReference) intersectGroupingKey).getExprId()))) {
-                            hashColumnsChanged = true;
-                            break;
-                        }
+                Set<ExprId> intersectGroupingKeysId = new HashSet<>();
+                for (Expression key : intersectGroupingKeys) {
+                    if (!(key instanceof SlotReference)) {
+                        break;
                     }
-                    if (!hashColumnsChanged) {
-                        return childrenOutputProperties.get(0);
-                    }
+                    intersectGroupingKeysId.add(((SlotReference) key).getExprId());
+                }
+                if (intersectGroupingKeysId.containsAll(orderedShuffledColumns)) {
+                    return childrenOutputProperties.get(0);
                 }
             }
             output = PhysicalProperties.createAnyFromHash((DistributionSpecHash) childDistributionSpec);

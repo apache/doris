@@ -14,8 +14,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-be/src/io/* @platoneko @gavinchou @dataroaring
+
+# for more syntax help and usage example
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#codeowners-syntax
+
+be/src/io/ @gavinchou @dataroaring
 be/src/agent/be_exec_version_manager.cpp @BiteTheDDDDt
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
+fe/fe-core/src/main/java/org/apache/doris/cloud/ @luwei16 @gavinchou @dearding @dataroaring
+cloud/src/meta-service/*job* @luwei16 @gavinchou @dataroaring
+cloud/src/meta-service/*meta_service_txn* @swjtu-zhanglei @gavinchou @dataroaring
+cloud/src/meta-service/*resource* @deardeng @gavinchou @dataroaring
+cloud/src/resource-manager/* @deardeng @gavinchou @dataroaring
+cloud/src/recycler/* @swjtu-zhanglei @gavinchou @dataroaring
+be/src/cloud/*compact* @luwei16 @gavinchou @dataroaring
+be/src/cloud/*schema* @luwei16 @gavinchou @dataroaring
+cloud/ @gavinchou @dataroaring @w41ter
+be/src/cloud/ @gavinchou @dataroaring
+gensrc/proto/olap_file.proto @gavinchou @dataroaring @yiguolei
+gensrc/proto/cloud.proto @gavinchou @dataroaring @w41ter
