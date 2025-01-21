@@ -24,6 +24,14 @@ suite("test_property_session") {
     sql """drop user if exists ${userName}"""
     sql """CREATE USER '${userName}' IDENTIFIED BY '${pwd}'"""
 
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${userName}""";
+    }
+
 
 
     sql """drop user if exists ${userName}"""
