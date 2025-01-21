@@ -25,6 +25,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 
@@ -35,6 +37,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**EliminateOrderByKey*/
@@ -43,61 +46,61 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalSort(any()).then(EliminateOrderByKey::eliminate).toRule(RuleType.ELIMINATE_ORDER_BY_KEY),
-                logicalTopN(any()).then(EliminateOrderByKey::eliminate).toRule(RuleType.ELIMINATE_GROUP_BY_KEY));
+                logicalSort(any()).then(EliminateOrderByKey::eliminateSort).toRule(RuleType.ELIMINATE_ORDER_BY_KEY),
+                logicalTopN(any()).then(EliminateOrderByKey::eliminateTopN).toRule(RuleType.ELIMINATE_ORDER_BY_KEY));
     }
 
-    private static Plan eliminate(LogicalSort<Plan> sort) {
-        Map<OrderKey, Set<Slot>> orderBySlots = new HashMap<>();
+    private static Plan eliminateSort(LogicalSort<Plan> sort) {
+        Optional<List<OrderKey>> retainExpression = eliminate(sort);
+        return retainExpression.map(sort::withOrderKeys).orElse(null);
+    }
+
+    private static Plan eliminateTopN(LogicalTopN<Plan> topN) {
+        Optional<List<OrderKey>> retainExpression = eliminate(topN);
+        return retainExpression.map(topN::withOrderKeys).orElse(null);
+    }
+
+    private static <T extends UnaryPlan<Plan> & Sort> Optional<List<OrderKey>> eliminate(T sort) {
+        // eliminate same order by expr. e.g. order by a,a -> order by a
+        List<OrderKey> originOrderKeys = sort.getOrderKeys();
+        List<OrderKey> uniqueOrderKeys = new ArrayList<>();
+        Set<Expression> set = new HashSet<>();
+        for (OrderKey orderKey : originOrderKeys) {
+            if (set.contains(orderKey.getExpr())) {
+                continue;
+            }
+            uniqueOrderKeys.add(orderKey);
+            set.add(orderKey.getExpr());
+        }
+
+        // eliminate order by key by fd. e.g. order by a,abs(a) -> order by a
+        Map<OrderKey, Set<Slot>> orderBySlotMap = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
-        for (OrderKey orderKey : sort.getOrderKeys()) {
+        for (OrderKey orderKey : uniqueOrderKeys) {
             Expression expr = orderKey.getExpr();
-            orderBySlots.put(orderKey, expr.getInputSlots());
+            orderBySlotMap.put(orderKey, expr.getInputSlots());
             validSlots.addAll(expr.getInputSlots());
         }
 
         FuncDeps funcDeps = sort.child().getLogicalProperties().getTrait().getAllValidFuncDeps(validSlots);
         if (funcDeps.isEmpty()) {
-            return null;
+            if (uniqueOrderKeys.equals(originOrderKeys)) {
+                return Optional.empty();
+            } else {
+                return Optional.of(uniqueOrderKeys);
+            }
         }
 
-        Set<Set<Slot>> minOrderBySlots = funcDeps.eliminateDeps(new HashSet<>(orderBySlots.values()), new HashSet<>());
+        Set<Set<Slot>> minOrderBySlots = funcDeps.eliminateDeps(new HashSet<>(orderBySlotMap.values()), new HashSet<>());
         List<OrderKey> retainExpression = new ArrayList<>();
-        for (Map.Entry<OrderKey, Set<Slot>> entry : orderBySlots.entrySet()) {
+        for (Map.Entry<OrderKey, Set<Slot>> entry : orderBySlotMap.entrySet()) {
             if (minOrderBySlots.contains(entry.getValue())) {
                 retainExpression.add(entry.getKey());
             }
         }
-        if (retainExpression.equals(sort.getOrderKeys())) {
-            return null;
+        if (retainExpression.equals(originOrderKeys)) {
+            return Optional.empty();
         }
-        return sort.withOrderKeys(retainExpression);
-    }
-
-    private static Plan eliminate(LogicalTopN<Plan> topN) {
-        Map<OrderKey, Set<Slot>> orderBySlots = new HashMap<>();
-        Set<Slot> validSlots = new HashSet<>();
-        for (OrderKey orderKey : topN.getOrderKeys()) {
-            Expression expr = orderKey.getExpr();
-            orderBySlots.put(orderKey, expr.getInputSlots());
-            validSlots.addAll(expr.getInputSlots());
-        }
-
-        FuncDeps funcDeps = topN.child().getLogicalProperties().getTrait().getAllValidFuncDeps(validSlots);
-        if (funcDeps.isEmpty()) {
-            return null;
-        }
-
-        Set<Set<Slot>> minOrderBySlots = funcDeps.eliminateDeps(new HashSet<>(orderBySlots.values()), new HashSet<>());
-        List<OrderKey> retainExpression = new ArrayList<>();
-        for (Map.Entry<OrderKey, Set<Slot>> entry : orderBySlots.entrySet()) {
-            if (minOrderBySlots.contains(entry.getValue())) {
-                retainExpression.add(entry.getKey());
-            }
-        }
-        if (retainExpression.equals(topN.getOrderKeys())) {
-            return null;
-        }
-        return topN.withOrderKeys(retainExpression);
+        return Optional.of(retainExpression);
     }
 }
