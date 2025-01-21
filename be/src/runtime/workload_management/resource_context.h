@@ -17,44 +17,19 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <atomic>
 #include <memory>
-#include <queue>
-#include <shared_mutex>
-#include <string>
 
-#include "common/status.h"
+#include "common/factory_creator.h"
+#include "common/multi_version.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/cpu_context.h"
+#include "runtime/workload_management/io_context.h"
+#include "runtime/workload_management/memory_context.h"
+#include "runtime/workload_management/task_controller.h"
+#include "runtime/workload_management/workload_group_context.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
-
-// Any task that allow cancel should implement this class.
-class TaskController {
-    ENABLE_FACTORY_CREATOR(TaskController);
-
-public:
-    virtual Status cancel(Status cancel_reason) { return Status::OK(); }
-    virtual Status running_time(int64_t* running_time_msecs) {
-        *running_time_msecs = 0;
-        return Status::OK();
-    }
-};
-
-class WorkloadGroupContext {
-    ENABLE_FACTORY_CREATOR(WorkloadGroupContext);
-
-public:
-    WorkloadGroupContext() = default;
-    virtual ~WorkloadGroupContext() = default;
-
-    WorkloadGroupPtr workload_group() { return _workload_group; }
-    void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
-
-private:
-    WorkloadGroupPtr _workload_group = nullptr;
-};
 
 // Every task should have its own resource context. And BE may adjust the resource
 // context during running.
@@ -66,12 +41,13 @@ class ResourceContext : public std::enable_shared_from_this<ResourceContext> {
 public:
     ResourceContext() {
         // These all default values, it may be reset.
-        cpu_context_ = std::make_shared<CPUContext>();
-        memory_context_ = std::make_shared<MemoryContext>();
-        io_context_ = std::make_shared<IOContext>();
-        reclaimer_ = std::make_shared<ResourceReclaimer>();
+        cpu_context_ = CPUContext::create_unique();
+        memory_context_ = MemoryContext::create_unique();
+        io_context_ = IOContext::create_unique();
+        workload_group_context_ = WorkloadGroupContext::create_unique();
+        task_controller_ = TaskController::create_unique();
     }
-    virtual ~ResourceContext() = default;
+    ~ResourceContext() = default;
 
     // Only return the raw pointer to the caller, so that the caller should not save it to other variables.
     CPUContext* cpu_context() { return cpu_context_.get(); }
@@ -80,25 +56,50 @@ public:
     WorkloadGroupContext* workload_group_context() { return workload_group_context_.get(); }
     TaskController* task_controller() { return task_controller_.get(); }
 
-    void set_cpu_context(std::shared_ptr<CPUContext> cpu_context) { cpu_context_ = cpu_context; }
-    void set_memory_context(std::shared_ptr<MemoryContext> memory_context) {
-        memory_context_ = memory_context;
+    void set_cpu_context(std::unique_ptr<CPUContext>& cpu_context) {
+        cpu_context_ = std::move(cpu_context);
     }
-    void set_io_context(std::shared_ptr<IOContext> io_context) { io_context_ = io_context; }
-    void set_workload_group_context(std::shared_ptr<WorkloadGroupContext> wg_context) {
-        workload_group_context_ = wg_context;
+    void set_memory_context(std::unique_ptr<MemoryContext>& memory_context) {
+        memory_context_ = std::move(memory_context);
     }
-    void set_task_controller(std::shared_ptr<TaskController> task_controller) {
-        task_controller_ = task_controller;
+    void set_io_context(std::unique_ptr<IOContext>& io_context) {
+        io_context_ = std::move(io_context);
+    }
+    void set_workload_group_context(std::unique_ptr<WorkloadGroupContext>& wg_context) {
+        workload_group_context_ = std::move(wg_context);
+    }
+    void set_task_controller(std::unique_ptr<TaskController>& task_controller) {
+        task_controller_ = std::move(task_controller);
+    }
+
+    RuntimeProfile* profile() { return const_cast<RuntimeProfile*>(resource_profile_.get().get()); }
+    std::string debug_string() { return resource_profile_.get()->pretty_print(); }
+    void refresh_resource_profile() {
+        std::unique_ptr<RuntimeProfile> resource_profile =
+                std::make_unique<RuntimeProfile>("ResourceContext");
+
+        RuntimeProfile* cpu_profile = resource_profile->create_child(
+                cpu_context_->stats()->profile()->name(), true, false);
+        cpu_profile->merge(cpu_context_->stats()->profile());
+        RuntimeProfile* memory_profile = resource_profile->create_child(
+                memory_context_->stats()->profile()->name(), true, false);
+        memory_profile->merge(memory_context_->stats()->profile());
+        RuntimeProfile* io_profile = resource_profile->create_child(
+                io_context_->stats()->profile()->name(), true, false);
+        io_profile->merge(io_context_->stats()->profile());
+
+        resource_profile_.set(std::move(resource_profile));
     }
 
 private:
     // The controller's init value is nullptr, it means the resource context will ignore this controller.
-    std::shared_ptr<CPUContext> cpu_context_ = nullptr;
-    std::shared_ptr<MemoryContext> memory_context_ = nullptr;
-    std::shared_ptr<IOContext> io_context_ = nullptr;
-    std::shared_ptr<WorkloadGroupContext> workload_group_context_ = nullptr;
-    std::shared_ptr<TaskController> task_controller_ = nullptr;
+    std::unique_ptr<CPUContext> cpu_context_ = nullptr;
+    std::unique_ptr<MemoryContext> memory_context_ = nullptr;
+    std::unique_ptr<IOContext> io_context_ = nullptr;
+    std::unique_ptr<WorkloadGroupContext> workload_group_context_ = nullptr;
+    std::unique_ptr<TaskController> task_controller_ = nullptr;
+
+    MultiVersion<RuntimeProfile> resource_profile_;
 };
 
 } // namespace doris

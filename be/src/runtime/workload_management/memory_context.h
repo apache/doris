@@ -17,60 +17,66 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <atomic>
-#include <memory>
-#include <queue>
-#include <shared_mutex>
+#include <cstdint>
 #include <string>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
+
+class MemTrackerLimiter;
 
 class MemoryContext : public std::enable_shared_from_this<MemoryContext> {
     ENABLE_FACTORY_CREATOR(MemoryContext);
 
 public:
-    // Used to collect memory execution stats.
-    // The stats class is not thread safe, should not do concurrent modifications.
-    class MemoryStats {
-    public:
-        MemoryStats() = default;
-        virtual ~MemoryStats() = default;
-        void merge(MemoryStats& stats);
-        void reset();
-        std::string debug_string();
-        int64_t revoke_attempts() { return revoke_attempts_; }
-        int64_t revoke_wait_time_ms() { return revoke_wait_time_ms_; }
-        int64_t revoked_bytes() { return revoked_bytes_; }
-        int64_t max_peak_memory_bytes() { return max_peak_memory_bytes_; }
-        int64_t current_used_memory_bytes() { return current_used_memory_bytes_; }
-
-    private:
+    /*
+    * 1. operate them thread-safe.
+    * 2. all tasks are unified.
+    * 3. should not be operated frequently, use local variables to update Counter.
+    */
+    struct Stats {
+        RuntimeProfile::Counter* current_memory_bytes_counter_;
+        RuntimeProfile::Counter* peak_memory_bytes_counter_;
         // Maximum memory peak for all backends.
         // only set once by result sink when closing.
-        int64_t max_peak_memory_bytes_ = 0;
-        int64_t current_used_memory_bytes_ = 0;
+        RuntimeProfile::Counter* max_peak_memory_bytes_counter_;
         // The total number of times that the revoke method is called.
-        int64_t revoke_attempts_ = 0;
+        RuntimeProfile::Counter* revoke_attempts_counter_;
         // The time that waiting for revoke finished.
-        int64_t revoke_wait_time_ms_ = 0;
+        RuntimeProfile::Counter* revoke_wait_time_ms_counter_;
         // The revoked bytes
-        int64_t revoked_bytes_ = 0;
+        RuntimeProfile::Counter* revoked_bytes_counter_;
+
+        RuntimeProfile* profile() { return profile_.get(); }
+        void init_profile() {
+            profile_ = std::make_unique<RuntimeProfile>("MemoryContext");
+            current_memory_bytes_counter_ =
+                    ADD_COUNTER(profile_, "CurrentMemoryBytes", TUnit::BYTES);
+            peak_memory_bytes_counter_ = ADD_COUNTER(profile_, "PeakMemoryBytes", TUnit::BYTES);
+            max_peak_memory_bytes_counter_ =
+                    ADD_COUNTER(profile_, "MaxPeakMemoryBytes", TUnit::BYTES);
+            revoke_attempts_counter_ = ADD_COUNTER(profile_, "RevokeAttempts", TUnit::UNIT);
+            revoke_wait_time_ms_counter_ =
+                    ADD_COUNTER(profile_, "RevokeWaitTimeMs", TUnit::TIME_MS);
+            revoked_bytes_counter_ = ADD_COUNTER(profile_, "RevokedBytes", TUnit::BYTES);
+        }
+        std::string debug_string() { return profile_->pretty_print(); }
+
+    private:
+        std::unique_ptr<RuntimeProfile> profile_;
     };
 
-public:
-    MemoryContext(std::shared_ptr<MemtrackerLimiter> memtracker)
-            : memtracker_limiter_(memtracker) {}
-
+    MemoryContext() { stats_.init_profile(); }
     virtual ~MemoryContext() = default;
+    Stats* stats() { return &stats_; }
 
-    MemtrackerLimiter* memtracker_limiter() { return memtracker_limiter_.get(); }
-
-    MemoryStats* stats() { return &stats_; }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return mem_tracker_; }
+    void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+        mem_tracker_ = mem_tracker;
+    }
 
     // Following method is related with spill disk.
     // Compute the number of bytes could be released.
@@ -86,8 +92,9 @@ public:
     virtual Status leave_arbitration(Status reason) { return Status::OK(); }
 
 private:
-    MemoryStats stats_;
-    std::shared_ptr<MemtrackerLimiter> memtracker_limiter_;
+    Stats stats_;
+    // MemTracker that is shared by all fragment instances running on this host.
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_;
 };
 
 } // namespace doris

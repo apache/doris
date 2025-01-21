@@ -17,16 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <atomic>
-#include <memory>
-#include <queue>
-#include <shared_mutex>
-#include <string>
-
-#include "common/status.h"
+#include "common/factory_creator.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -34,28 +26,36 @@ class CPUContext : public std::enable_shared_from_this<CPUContext> {
     ENABLE_FACTORY_CREATOR(CPUContext);
 
 public:
-    // Used to collect cpu execution stats.
-    // The stats is not thread safe.
-    // For example, you should use a seperate object for every scanner and do merge and reset
-    class CPUStats {
-    public:
-        // Should add some cpu stats relared method here.
-        void reset();
-        void merge(CPUStats& stats);
-        std::string debug_string();
+    /*
+    * 1. operate them thread-safe.
+    * 2. all tasks are unified.
+    * 3. should not be operated frequently, use local variables to update Counter.
+    */
+    struct Stats {
+        RuntimeProfile::Counter* cpu_cost_ms_counter_;
+
+        RuntimeProfile* profile() { return profile_.get(); }
+        void init_profile() {
+            profile_ = std::make_unique<RuntimeProfile>("MemoryContext");
+            cpu_cost_ms_counter_ = ADD_COUNTER(profile_, "RevokeWaitTimeMs", TUnit::TIME_MS);
+        }
+        std::string debug_string() { return profile_->pretty_print(); }
+
+    private:
+        std::unique_ptr<RuntimeProfile> profile_;
     };
 
-public:
-    CPUContext() {}
+    CPUContext() { stats_.init_profile(); }
     virtual ~CPUContext() = default;
+    Stats* stats() { return &stats_; }
+
     // Bind current thread to cgroup, only some load thread should do this.
     void bind_workload_group() {
-        // Call workload group method to bind current thread to cgroup
+        // TODO: Call workload group method to bind current thread to cgroup
     }
-    CPUStats* cpu_stats() { return &stats_; }
 
 private:
-    CPUStats stats_;
+    Stats stats_;
 };
 
 } // namespace doris

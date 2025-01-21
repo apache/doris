@@ -354,7 +354,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
     return _thread_pool->submit_func([this, req, ctx]() {
-        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
+        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
         coordinator_callback(req);
         if (!req.done) {
             ctx->refresh_next_report_time();
@@ -744,7 +744,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         query_ctx = QueryContext::create_shared(
                                 query_id, _exec_env, params.query_options, params.coord,
                                 params.is_nereids, params.current_connect_fe, query_source);
-                        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
+                        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker());
                         RETURN_IF_ERROR(DescriptorTbl::create(
                                 &(query_ctx->obj_pool), params.desc_tbl, &(query_ctx->desc_tbl)));
                         // set file scan range params
@@ -1290,7 +1290,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     int64_t start_apply = MonotonicMillis();
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    QueryThreadContext query_thread_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
 
@@ -1305,9 +1304,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
             DCHECK(pip_context != nullptr);
             runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-            query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                    pip_context->get_query_ctx()->query_mem_tracker,
-                                    pip_context->get_query_ctx()->workload_group()};
             break;
         }
     }
@@ -1317,7 +1313,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         return Status::OK();
     }
 
-    SCOPED_ATTACH_TASK(query_thread_context);
+    SCOPED_ATTACH_TASK(pip_context->get_query_ctx());
     // 1. get the target filters
     std::vector<std::shared_ptr<IRuntimeFilter>> filters;
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
