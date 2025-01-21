@@ -262,6 +262,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             Batch batch = new Batch(data, discardCount);
             failedDataQueue.add(batch);
             failedDataBytes.addAndGet(data.length());
+            LOG.info("[shi] add failed audit data to queue");
         }
 
         @Override
@@ -283,7 +284,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
             try {
                 load(batch.data);
-                LOG.info("Successfully loaded previously failed audit log");
+                LOG.info("[shi] Successfully loaded previously failed audit log");
             } catch (Exception e) {
                 handleLoadFailure(batch, e);
             }
@@ -294,11 +295,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 failedDataBytes.addAndGet(-batch.data.length());
                 discardLogNum += batch.discardCount;
                 MetricRepo.COUNTER_AUDIT_LOG_DISCARD_NUM.update(batch.discardCount);
-                LOG.warn("discarded {}/{} audit log", batch.discardCount, discardLogNum);
+                LOG.warn("[shi] discarded {}/{} audit log", batch.discardCount, discardLogNum);
                 return;
             }
             failedDataQueue.addFirst(batch);
-            LOG.warn("Failed to load audit logs, will retry", e);
+            LOG.warn("[shi] Failed to load audit logs, will retry", e);
             try {
                 TimeUnit.SECONDS.sleep(RETRY_INTERVAL_S);
             } catch (InterruptedException ex) {
