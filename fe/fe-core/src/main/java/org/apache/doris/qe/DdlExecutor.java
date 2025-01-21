@@ -314,10 +314,5 @@ public class DdlExecutor {
         if (Config.isNotCloudMode()) {
             return;
         }
-
-        if (ddlStmt instanceof DropRepositoryStmt) {
-            LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
-            throw new DdlException("Unsupported operation");
-        }
     }
 }

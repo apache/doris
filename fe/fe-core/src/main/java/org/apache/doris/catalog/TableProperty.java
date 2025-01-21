@@ -189,6 +189,8 @@ public class TableProperty implements GsonPostProcessable {
         if (!reserveReplica) {
             setReplicaAlloc(replicaAlloc);
         }
+        // reset storage vault
+        clearStorageVault();
         return this;
     }
 
@@ -234,6 +236,12 @@ public class TableProperty implements GsonPostProcessable {
 
     public TableProperty clearInAtomicRestore() {
         properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
+        return this;
+    }
+
+    public TableProperty clearStorageVault() {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
         return this;
     }
 

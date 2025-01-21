@@ -30,6 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -356,7 +357,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void process(BackupCommand command) throws DdlException {
         if (Config.isCloudMode()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+                    "BACKUP are not supported by the cloud mode yet");
         }
 
         // check if repo exist
@@ -395,11 +396,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void process(RestoreCommand command) throws DdlException {
-        if (Config.isCloudMode()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "BACKUP and RESTORE are not supported by the cloud mode yet");
-        }
-
         // check if repo exist
         String repoName = command.getRepoName();
         Repository repository = null;
@@ -608,6 +604,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void restore(Repository repository, Database db, RestoreCommand command) throws DdlException {
         BackupJobInfo jobInfo;
+        if ((command.isLocal() || command.isAtomicRestore() || command.reserveColocate() || command.isForceReplace())
+                && Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "not supported now.");
+        }
         if (command.isLocal()) {
             String jobInfoString = new String(command.getJobInfo());
             jobInfo = BackupJobInfo.genFromJson(jobInfoString);
@@ -663,12 +663,21 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
                 env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
-            restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
-                db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
-                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
-                command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
-                command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
-                env, repository.getId());
+            if (Config.isCloudMode()) {
+                restoreJob = new CloudRestoreJob(command.getLabel(), command.getBackupTimestamp(),
+                    db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
+                    command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
+                    command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
+                    command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
+                    env, repository.getId(), command.getStorageVaultName());
+            } else {
+                restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
+                    db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
+                    command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
+                    command.reserveColocate(), command.reserveDynamicPartitionEnable(), command.isBeingSynced(),
+                    command.isCleanTables(), command.isCleanPartitions(), command.isAtomicRestore(),
+                    command.isForceReplace(), env, repository.getId());
+            }
         }
 
         env.getEditLog().logRestoreJob(restoreJob);
