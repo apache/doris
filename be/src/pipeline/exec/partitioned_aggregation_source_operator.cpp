@@ -111,7 +111,6 @@ Status PartitionedAggLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    dec_running_big_mem_op_num(state);
     return Base::close(state);
 }
 PartitionedAggSourceOperatorX::PartitionedAggSourceOperatorX(ObjectPool* pool,
@@ -153,7 +152,6 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
         }
     }};
 
-    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
     if (local_state._shared_state->is_spilled &&

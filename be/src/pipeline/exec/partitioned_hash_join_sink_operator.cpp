@@ -87,7 +87,6 @@ Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec
     if (PipelineXSpillSinkLocalState::_closed) {
         return Status::OK();
     }
-    dec_running_big_mem_op_num(state);
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     if (!_shared_state->need_to_spill && _shared_state->inner_runtime_state) {
         RETURN_IF_ERROR(p._inner_sink_operator->close(_shared_state->inner_runtime_state.get(),
@@ -571,7 +570,6 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                                               bool eos) {
     auto& local_state = get_local_state(state);
     CHECK_EQ(local_state._spill_dependency->is_blocked_by(nullptr), nullptr);
-    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
     local_state._child_eos = eos;

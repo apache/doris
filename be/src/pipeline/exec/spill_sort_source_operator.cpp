@@ -61,7 +61,6 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    dec_running_big_mem_op_num(state);
     return Base::close(state);
 }
 int SpillSortLocalState::_calc_spill_blocks_to_merge(RuntimeState* state) const {
@@ -260,7 +259,6 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
             local_state._current_merging_streams.clear();
         }
     }};
-    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
     if (local_state._shared_state->is_spilled) {

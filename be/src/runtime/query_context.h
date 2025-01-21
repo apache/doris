@@ -222,16 +222,6 @@ public:
 
     WorkloadGroupPtr workload_group() const { return _workload_group; }
 
-    void inc_running_big_mem_op_num() {
-        _running_big_mem_op_num.fetch_add(1, std::memory_order_relaxed);
-    }
-    void dec_running_big_mem_op_num() {
-        _running_big_mem_op_num.fetch_sub(1, std::memory_order_relaxed);
-    }
-    int32_t get_running_big_mem_op_num() {
-        return _running_big_mem_op_num.load(std::memory_order_relaxed);
-    }
-
     void increase_revoking_tasks_count() { _revoking_tasks_count.fetch_add(1); }
 
     void decrease_revoking_tasks_count();
@@ -351,7 +341,6 @@ private:
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     bool _is_nereids = false;
-    std::atomic<int> _running_big_mem_op_num = 0;
 
     std::mutex _revoking_tasks_mutex;
     std::atomic<int> _revoking_tasks_count = 0;

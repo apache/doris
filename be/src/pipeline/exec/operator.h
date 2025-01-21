@@ -260,27 +260,9 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
-    void inc_running_big_mem_op_num(RuntimeState* state) {
-        if (!_big_mem_op_num_added) {
-            state->get_query_ctx()->inc_running_big_mem_op_num();
-            _big_mem_op_num_added = true;
-        }
-    }
-
-    void dec_running_big_mem_op_num(RuntimeState* state) {
-        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
-            state->get_query_ctx()->dec_running_big_mem_op_num();
-            _big_mem_op_num_deced = true;
-        }
-    }
-
 protected:
     Dependency* _dependency = nullptr;
     SharedStateArg* _shared_state = nullptr;
-
-private:
-    bool _big_mem_op_num_added = false;
-    bool _big_mem_op_num_deced = false;
 };
 
 template <typename SharedStateArg>
@@ -527,28 +509,10 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
-    void inc_running_big_mem_op_num(RuntimeState* state) {
-        if (!_big_mem_op_num_added) {
-            state->get_query_ctx()->inc_running_big_mem_op_num();
-            _big_mem_op_num_added = true;
-        }
-    }
-
-    void dec_running_big_mem_op_num(RuntimeState* state) {
-        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
-            state->get_query_ctx()->dec_running_big_mem_op_num();
-            _big_mem_op_num_deced = true;
-        }
-    }
-
 protected:
     Dependency* _dependency = nullptr;
     std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
-
-private:
-    bool _big_mem_op_num_added = false;
-    bool _big_mem_op_num_deced = false;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {

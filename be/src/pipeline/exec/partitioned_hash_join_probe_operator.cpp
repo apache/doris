@@ -168,7 +168,6 @@ Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    dec_running_big_mem_op_num(state);
     RETURN_IF_ERROR(PipelineXSpillLocalState::close(state));
     return Status::OK();
 }
@@ -546,7 +545,6 @@ Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
 Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                                                bool eos) const {
     auto& local_state = get_local_state(state);
-    local_state.inc_running_big_mem_op_num(state);
     const auto rows = input_block->rows();
     auto& partitioned_blocks = local_state._partitioned_blocks;
     if (rows == 0) {

@@ -77,7 +77,6 @@ void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
 }
 
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
-    dec_running_big_mem_op_num(state);
     return Base::close(state, execsink_status);
 }
 
@@ -151,7 +150,6 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
 Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                     bool eos) {
     auto& local_state = get_local_state(state);
-    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
