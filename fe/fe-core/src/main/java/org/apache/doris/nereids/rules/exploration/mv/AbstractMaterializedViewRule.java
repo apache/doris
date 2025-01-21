@@ -27,7 +27,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
-import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -82,7 +81,6 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -468,17 +466,22 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         // Collect the mv related base table partitions which query used
-        Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
-        queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
-        queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
-        // Bail out, not check invalid partition if not olap scan, support later
-        if (queryUsedBaseTablePartitions.isEmpty()) {
+        Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions =
+                cascadesContext.getStatementContext().getTableUsedPartitionNameMap();
+        // If query doesn't used any partition, bail out
+        if (queryUsedBaseTablePartitions.get(relatedPartitionTable) == null) {
+            LOG.error(String.format("queryUsedBaseTablePartitions get relatedPartitionTable is null,"
+                    + "relatedPartitionTable is %s, queryPlan is %s", relatedPartitionTable,
+                    queryPlan.treeString()));
+            return null;
+        }
+        if (queryUsedBaseTablePartitions.get(relatedPartitionTable).isEmpty()) {
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable);
 
-        Collection<Partition> mvValidPartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
-                cascadesContext.getConnectContext(), System.currentTimeMillis(), false);
+        Collection<Partition> mvValidPartitions = cascadesContext.getStatementContext()
+                .getMvCanRewritePartitionsMap().get(new BaseTableInfo(mtmv));
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();

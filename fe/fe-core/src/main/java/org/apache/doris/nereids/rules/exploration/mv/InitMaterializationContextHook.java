@@ -62,7 +62,7 @@ public class InitMaterializationContextHook implements PlannerHook {
     public static final InitMaterializationContextHook INSTANCE = new InitMaterializationContextHook();
 
     @Override
-    public void afterAnalyze(NereidsPlanner planner) {
+    public void afterRewrite(NereidsPlanner planner) {
         initMaterializationContext(planner.getCascadesContext());
     }
 

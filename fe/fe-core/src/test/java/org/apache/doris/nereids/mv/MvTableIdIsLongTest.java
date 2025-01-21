@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
@@ -31,6 +32,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Test mv rewrite when base table id is lager then integer
@@ -49,7 +52,8 @@ public class MvTableIdIsLongTest extends SqlTestBase {
         };
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
+                    Map<BaseTableInfo, Set<String>> queryUsedRelatedTablePartitionsMap) {
                 return true;
             }
         };

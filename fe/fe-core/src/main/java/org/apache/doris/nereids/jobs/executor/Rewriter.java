@@ -133,6 +133,7 @@ import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
@@ -461,7 +462,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CollectCteConsumerOutput()
                         )
                 ),
-                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new)
+                topic("Collect used column and partitions",
+                        custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new),
+                        custom(RuleType.COLLECT_PARTITIONS, QueryPartitionCollector::new)
             )
         )
     );
