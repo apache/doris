@@ -1407,6 +1407,8 @@ DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 DEFINE_mInt32(compaction_num_per_round, "1");
 
+DEFINE_mInt32(bvar_max_dump_multi_dimension_metric_number, "2048");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
