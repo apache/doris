@@ -617,7 +617,6 @@ start_kerberos() {
     sudo chmod a+w /etc/hosts
     sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
     sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
-    sudo cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
     if [[ "${STOP}" -ne 1 ]]; then
@@ -625,7 +624,7 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d --wait
+        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
         sudo rm -f /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
