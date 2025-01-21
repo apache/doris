@@ -183,11 +183,11 @@ suite("test_cloud_delete_table_rows_show_data","p2, nonConcurrent") {
 
     def main = {
         def tableName = "test_cloud_delete_table_rows_show_data"
-        //create_normal_table(tableName) 
-        //check(tableName)
-        //tableName = "test_cloud_delete_table_rows_dynamic_partition_show_data"
-        //create_dynamic_partition_table(tableName) 
-        //check(tableName)
+        create_normal_table(tableName) 
+        check(tableName)
+        tableName = "test_cloud_delete_table_rows_dynamic_partition_show_data"
+        create_dynamic_partition_table(tableName) 
+        check(tableName)
         tableName = "test_cloud_delete_table_rows_auto_partition_show_data"
         create_auto_partition_table(tableName) 
         check(tableName)
