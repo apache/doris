@@ -101,6 +101,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_CACHE_HIT_SQL;
     public static LongCounterMetric COUNTER_CACHE_HIT_PARTITION;
 
+    public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
+
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
     public static LongCounterMetric COUNTER_EDIT_LOG_CURRENT;
@@ -495,6 +497,10 @@ public final class MetricRepo {
                 "counter of failed transactions");
         COUNTER_TXN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_FAILED);
+        COUNTER_UPDATE_TABLET_STAT_FAILED = new LongCounterMetric("update_tablet_stat_failed", MetricUnit.REQUESTS,
+            "counter of failed to update tablet stat");
+        COUNTER_UPDATE_TABLET_STAT_FAILED.addLabel(new MetricLabel("type", "failed"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_UPDATE_TABLET_STAT_FAILED);
         HISTO_TXN_EXEC_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("txn", "exec", "latency", "ms"));
         HISTO_TXN_PUBLISH_LATENCY = METRIC_REGISTER.histogram(

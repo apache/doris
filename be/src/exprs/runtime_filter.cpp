@@ -323,25 +323,31 @@ Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
         return Status::OK();
     };
     auto do_merge = [&]() {
-        if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
-            LocalMergeFilters* local_merge_filters = nullptr;
-            RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                    _filter_id, &local_merge_filters));
-            local_merge_filters->merge_watcher.start();
-            std::lock_guard l(*local_merge_filters->lock);
-            RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
-            local_merge_filters->merge_time--;
-            local_merge_filters->merge_watcher.stop();
-            if (local_merge_filters->merge_time == 0) {
-                if (_has_local_target) {
-                    RETURN_IF_ERROR(send_to_local_targets(
-                            local_merge_filters->filters[0]->_wrapper, true,
-                            local_merge_filters->merge_watcher.elapsed_time()));
-                } else {
-                    RETURN_IF_ERROR(send_to_remote_targets(
-                            local_merge_filters->filters[0].get(),
-                            local_merge_filters->merge_watcher.elapsed_time()));
-                }
+        // two case we need do local merge:
+        // 1. has remote target
+        // 2. has local target and has global consumer (means target scan has local shuffle)
+        if (_has_local_target &&
+            _state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
+            // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
+            return Status::OK();
+        }
+        LocalMergeFilters* local_merge_filters = nullptr;
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+                _filter_id, &local_merge_filters));
+        local_merge_filters->merge_watcher.start();
+        std::lock_guard l(*local_merge_filters->lock);
+        RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
+        local_merge_filters->merge_time--;
+        local_merge_filters->merge_watcher.stop();
+        if (local_merge_filters->merge_time == 0) {
+            if (_has_local_target) {
+                RETURN_IF_ERROR(
+                        send_to_local_targets(local_merge_filters->filters[0]->_wrapper, true,
+                                              local_merge_filters->merge_watcher.elapsed_time()));
+            } else {
+                RETURN_IF_ERROR(
+                        send_to_remote_targets(local_merge_filters->filters[0].get(),
+                                               local_merge_filters->merge_watcher.elapsed_time()));
             }
         }
         return Status::OK();
@@ -417,7 +423,11 @@ public:
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
-    if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
+    // two case we need do local merge:
+    // 1. has remote target
+    // 2. has local target and has global consumer (means target scan has local shuffle)
+    if (_has_remote_target ||
+        !_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
         LocalMergeFilters* local_merge_filters = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _filter_id, &local_merge_filters));
@@ -867,11 +877,12 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, disabled: {}, "
             "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
             "has_remote_target: {}, error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->_context->ignored, _wrapper->get_build_bf_cardinality(),
+            _wrapper->_context->ignored, _wrapper->_context->disabled,
+            _wrapper->get_build_bf_cardinality(),
             _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
             _has_remote_target, _wrapper->_context->err_msg);
 }
@@ -1182,11 +1193,7 @@ Status RuntimePredicateWrapper::init_bloom_filter(const size_t build_bf_cardinal
 }
 
 bool RuntimePredicateWrapper::get_build_bf_cardinality() const {
-    if (_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-        _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-        return _context->bloom_filter_func->get_build_bf_cardinality();
-    }
-    return false;
+    return _context->bloom_filter_func && _context->bloom_filter_func->get_build_bf_cardinality();
 }
 
 void RuntimePredicateWrapper::insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {

@@ -379,6 +379,7 @@ under the License.
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
+        <awssdk.version>2.29.26</awssdk.version>
     </properties>
     <profiles>
         <profile>
@@ -1306,11 +1307,6 @@ under the License.
             <dependency>
                 <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-aws</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-aws-bundle</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
             <dependency>

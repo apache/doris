@@ -198,6 +198,7 @@ under the License.
 
     <build>
         <finalName>hadoop-hudi-scanner</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

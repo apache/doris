@@ -946,6 +946,29 @@ struct TQueryStatsResult {
     5: optional map<i64, i64> tablet_stats
 }
 
+// Lock the binlogs, to avoid being GC during sync.
+//
+// The caller should lock the binlog before backup, and bumps lock commit seq intervally.
+//
+// The locked binlogs will be kept until the binlog properties ttl_seconds, max_bytes ... are reached.
+struct TLockBinlogRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional i64 table_id
+    7: optional string token
+    8: optional string job_unique_id
+    9: optional i64 lock_commit_seq // if not set, lock the latest binlog
+}
+
+struct TLockBinlogResult {
+    1: optional Status.TStatus status
+    2: optional i64 locked_commit_seq
+    3: optional Types.TNetworkAddress master_address
+}
+
 struct TGetBinlogRequest {
     1: optional string cluster
     2: optional string user
@@ -1252,6 +1275,10 @@ struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
     3: optional Types.TNetworkAddress master_address
+    4: optional i64 first_commit_seq
+    5: optional i64 last_commit_seq
+    6: optional i64 first_binlog_timestamp
+    7: optional i64 last_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
@@ -1532,6 +1559,7 @@ service FrontendService {
     TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
     TGetSnapshotResult getSnapshot(1: TGetSnapshotRequest request)
     TRestoreSnapshotResult restoreSnapshot(1: TRestoreSnapshotRequest request)
+    TLockBinlogResult lockBinlog(1: TLockBinlogRequest request)
 
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
