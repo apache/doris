@@ -394,7 +394,7 @@ suite("test_scalar_types_load", "p0") {
             INDEX idx_c_datetimev2 (c_datetimev2) USING INVERTED,
             INDEX idx_c_char (c_char) USING INVERTED,
             INDEX idx_c_varchar (c_varchar) USING INVERTED,
-            INDEX idx_c_string (c_string) USING INVERTED PROPERTIES("parser"="english")
+            INDEX idx_c_string (c_string) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true")
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
@@ -443,7 +443,7 @@ suite("test_scalar_types_load", "p0") {
             INDEX idx_c_datetimev2 (c_datetimev2) USING INVERTED,
             INDEX idx_c_char (c_char) USING INVERTED,
             INDEX idx_c_varchar (c_varchar) USING INVERTED,
-            INDEX idx_c_string (c_string) USING INVERTED PROPERTIES("parser"="english")
+            INDEX idx_c_string (c_string) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true")
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
@@ -491,7 +491,7 @@ suite("test_scalar_types_load", "p0") {
             INDEX idx_c_datetimev2 (c_datetimev2) USING INVERTED,
             INDEX idx_c_char (c_char) USING INVERTED,
             INDEX idx_c_varchar (c_varchar) USING INVERTED,
-            INDEX idx_c_string (c_string) USING INVERTED PROPERTIES("parser"="english")
+            INDEX idx_c_string (c_string) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true")
         ) ENGINE=OLAP
         UNIQUE KEY(`c_datetimev2`, `c_bigint`, `c_decimalv3`)
         COMMENT 'OLAP'
