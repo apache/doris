@@ -483,12 +483,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     LOG.info("backend {} not found", beId);
                     continue;
                 }
-                // here check wal
-                if (!backend.isDecommissioning() || (tabletNum != 0 || backend.isActive()) && beList.size() != 1) {
+                if (!backend.isDecommissioning()) {
                     continue;
                 }
-                LOG.info("check decommission be {} state {} tabletNum {} isActive {} beList {}",
-                        backend.getId(), backend.isDecommissioning(), tabletNum, backend.isActive(), beList);
+                // here check wal
+                long walNum = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
+                LOG.info("check decommissioning be {} state {} tabletNum {} isActive {} beList {}, wal num {}",
+                        backend.getId(), backend.isDecommissioning(), tabletNum, backend.isActive(), beList, walNum);
+                if ((tabletNum != 0 || backend.isActive() || walNum != 0) && beList.size() != 1) {
+                    continue;
+                }
                 if (beToDecommissionedTime.containsKey(beId)) {
                     continue;
                 }
