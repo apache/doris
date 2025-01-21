@@ -205,29 +205,6 @@ public class ConnectContextTest {
     }
 
     @Test
-    public void testGetWorkloadGroup() {
-        ConnectContext context = new ConnectContext();
-        context.setQualifiedUser("a");
-        context.setEnv(env);
-        String sessionGroup = "session_g1";
-        String propertyGroup = "property_g1";
-        // only session
-        context.getSessionVariable().setWorkloadGroup(sessionGroup);
-        String result = context.getWorkloadGroup();
-        Assert.assertEquals(sessionGroup, result);
-        // has property
-        new Expectations() {
-            {
-                auth.getWorkloadGroup(anyString);
-                minTimes = 0;
-                result = propertyGroup;
-            }
-        };
-        result = context.getWorkloadGroup();
-        Assert.assertEquals(propertyGroup, result);
-    }
-
-    @Test
     public void testGetMaxExecMemByte() {
         ConnectContext context = new ConnectContext();
         context.setQualifiedUser("a");

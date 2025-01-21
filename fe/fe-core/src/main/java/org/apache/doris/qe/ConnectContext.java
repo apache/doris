@@ -1097,26 +1097,6 @@ public class ConnectContext {
         return env.getAuth().getExecMemLimit(getQualifiedUser());
     }
 
-    /**
-     * First, retrieve from the user's attributes. If not, retrieve from the session variable
-     *
-     * @return workloadGroup
-     */
-    public String getWorkloadGroup() {
-        String groupName = getWorkloadGroupFromProperty();
-        if (!Strings.isNullOrEmpty(groupName)) {
-            return groupName;
-        }
-        return sessionVariable.getWorkloadGroup();
-    }
-
-    private String getWorkloadGroupFromProperty() {
-        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
-            return null;
-        }
-        return env.getAuth().getWorkloadGroup(getQualifiedUser());
-    }
-
     public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
         this.resultAttachedInfo = resultAttachedInfo;
     }

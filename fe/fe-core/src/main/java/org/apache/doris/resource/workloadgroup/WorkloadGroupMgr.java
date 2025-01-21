@@ -342,7 +342,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     }
 
     private String getWorkloadGroupNameAndCheckPriv(ConnectContext context) throws AnalysisException {
-        String groupName = context.getWorkloadGroup();
+        String groupName = context.getSessionVariable().getWorkloadGroup();
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
+        }
         if (Strings.isNullOrEmpty(groupName)) {
             groupName = DEFAULT_GROUP_NAME;
         }
