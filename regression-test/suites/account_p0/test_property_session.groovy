@@ -31,9 +31,12 @@ suite("test_property_session") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${userName}""";
     }
-
+    sql """GRANT select_PRIV ON *.*.* TO ${userName}""";
     connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
         test {
+              sql """
+                  set query_timeout=1;
+              """
               sql """
                   select sleep(3);
               """
