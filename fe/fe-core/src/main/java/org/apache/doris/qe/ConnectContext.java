@@ -76,6 +76,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.netty.util.concurrent.FastThreadLocal;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -1042,11 +1043,18 @@ public class ConnectContext {
      * @return insertTimeoutS
      */
     public int getInsertTimeoutS() {
-        int userInsertTimeout = getEnv().getAuth().getInsertTimeout(getQualifiedUser());
+        int userInsertTimeout = getInsertTimeoutSFromProperty();
         if (userInsertTimeout > 0) {
             return userInsertTimeout;
         }
         return sessionVariable.getInsertTimeoutS();
+    }
+
+    private int getInsertTimeoutSFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0;
+        }
+        return env.getAuth().getInsertTimeout(getQualifiedUser());
     }
 
     /**
@@ -1055,11 +1063,18 @@ public class ConnectContext {
      * @return queryTimeoutS
      */
     public int getQueryTimeoutS() {
-        int userQueryTimeout = getEnv().getAuth().getQueryTimeout(getQualifiedUser());
+        int userQueryTimeout = getQueryTimeoutSFromProperty();
         if (userQueryTimeout > 0) {
             return userQueryTimeout;
         }
         return sessionVariable.getQueryTimeoutS();
+    }
+
+    private int getQueryTimeoutSFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0;
+        }
+        return env.getAuth().getQueryTimeout(getQualifiedUser());
     }
 
     /**
@@ -1068,11 +1083,18 @@ public class ConnectContext {
      * @return maxExecMemByte
      */
     public long getMaxExecMemByte() {
-        long userLimit = getEnv().getAuth().getExecMemLimit(getQualifiedUser());
+        long userLimit = getMaxExecMemByteFromProperty();
         if (userLimit > 0) {
             return userLimit;
         }
         return sessionVariable.getMaxExecMemByte();
+    }
+
+    private long getMaxExecMemByteFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0L;
+        }
+        return env.getAuth().getExecMemLimit(getQualifiedUser());
     }
 
     /**
@@ -1081,11 +1103,18 @@ public class ConnectContext {
      * @return workloadGroup
      */
     public String getWorkloadGroup() {
-        String groupName = getEnv().getAuth().getWorkloadGroup(getQualifiedUser());
+        String groupName = getWorkloadGroupFromProperty();
         if (!Strings.isNullOrEmpty(groupName)) {
             return groupName;
         }
         return sessionVariable.getWorkloadGroup();
+    }
+
+    private String getWorkloadGroupFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return null;
+        }
+        return env.getAuth().getWorkloadGroup(getQualifiedUser());
     }
 
     public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
