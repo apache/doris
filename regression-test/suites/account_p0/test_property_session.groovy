@@ -38,7 +38,7 @@ suite("test_property_session") {
         }
     }
     // the priority of property should be higher than session
-    set property for '${userName}' 'query_timeout' = '10';
+    sql """set property for '${userName}' 'query_timeout' = '10';"""
     connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
         sql """select sleep(3)""
     }
