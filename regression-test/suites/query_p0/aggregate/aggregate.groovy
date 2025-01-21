@@ -141,6 +141,23 @@ suite("aggregate") {
     qt_aggregate32" select topn_weighted(c_string,c_bigint,3) from ${tableName}"
     qt_aggregate33" select avg_weighted(c_double,c_bigint) from ${tableName};"
     qt_aggregate34" select percentile_array(c_bigint,[0.2,0.5,0.9]) from ${tableName};"
+    
+    try {
+        sql "select percentile_array(c_bigint,[-1,0.5,0.9]) from ${tableName};"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+    try {
+        sql "select percentile_array(c_bigint,[0.5,0.9,3000]) from ${tableName};"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
+    try {
+        sql "select percentile_array(c_bigint,[0.5,0.9,null]) from ${tableName};"
+    } catch (Exception ex) {
+        assert("${ex}".contains("null"))
+    }
+
     qt_aggregate """
                 SELECT c_bigint,  
                     CASE
