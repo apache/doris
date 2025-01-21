@@ -25,9 +25,12 @@ services:
     hostname: doris--spark-iceberg
     build: spark/
     depends_on:
-      - rest
-      - minio
-      - mc
+      rest:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mc:
+        condition: service_healthy
     volumes:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
@@ -69,7 +72,8 @@ services:
     volumes:
       - ./data:/mnt/data
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
@@ -111,7 +115,8 @@ services:
 
   mc:
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     image: minio/mc
     container_name: doris--mc
     environment:
