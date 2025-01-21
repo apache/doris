@@ -1187,9 +1187,9 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", num_segments=" << rowset_meta.num_segments()
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
-            ss << ". The data in key columns are too large, or too many partitions are being "
-                  "imported at once. Please reduce the length of the key columns data or reduce "
-                  "the number of partitions involved in a single import.";
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
         }
         msg = ss.str();
         return;
@@ -1294,9 +1294,9 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
                          << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
-            ss << ". The data in key columns are too large, or too many partitions are being "
-                  "imported at once. Please reduce the length of the key columns data or reduce "
-                  "the number of partitions involved in a single import.";
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
         }
         msg = ss.str();
         return;
