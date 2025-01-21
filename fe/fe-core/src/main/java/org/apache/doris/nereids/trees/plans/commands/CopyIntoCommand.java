@@ -17,18 +17,30 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CopyStmt;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CopyIntoInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 /**
  * copy into command
  */
 public class CopyIntoCommand extends Command implements ForwardWithSync {
+    private static final ShowResultSetMetaData COPY_INTO_META_DATA =
+            ShowResultSetMetaData.builder()
+            .addColumn(new Column("id", ScalarType.createVarchar(64)))
+            .addColumn(new Column("state", ScalarType.createVarchar(64)))
+            .addColumn(new Column("type", ScalarType.createVarchar(64)))
+            .addColumn(new Column("msg", ScalarType.createVarchar(128)))
+            .addColumn(new Column("loadedRows", ScalarType.createVarchar(64)))
+            .addColumn(new Column("filterRows", ScalarType.createVarchar(64)))
+            .addColumn(new Column("unselectRows", ScalarType.createVarchar(64)))
+            .addColumn(new Column("url", ScalarType.createVarchar(128)))
+            .build();
 
     CopyIntoInfo copyIntoInfo;
 
@@ -43,8 +55,7 @@ public class CopyIntoCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         copyIntoInfo.validate(ctx);
-        CopyStmt copyStmt = copyIntoInfo.toLegacyStatement(executor.getOriginStmt());
-        DdlExecutor.executeCopyStmt(ctx.getEnv(), copyStmt);
+        copyIntoInfo.executeCopyInfoCommand(ctx, this.COPY_INTO_META_DATA, executor.getOriginStmt());
         // copy into used
         if (executor.getContext().getState().getResultSet() != null) {
             if (executor.isProxy()) {
