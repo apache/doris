@@ -372,6 +372,8 @@ struct TDownloadReq {
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
     6: optional string location // root path
     7: optional list<TRemoteTabletSnapshot> remote_tablet_snapshots
+    8: optional map<string, string> cloud_src_dest_map // for cloud restore
+    9: optional string vault_id // for cloud restore
 }
 
 struct TSnapshotRequest {
@@ -395,6 +397,7 @@ struct TSnapshotRequest {
 
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
+    2: optional Types.TTabletId tablet_id
 }
 
 struct TClearRemoteFileReq {

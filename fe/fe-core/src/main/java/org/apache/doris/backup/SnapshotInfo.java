@@ -57,6 +57,10 @@ public class SnapshotInfo implements Writable {
     @SerializedName("f")
     private List<String> files = Lists.newArrayList();
 
+    // for cloud
+    @SerializedName("storageVaultId")
+    private String storageVaultId;
+
     public SnapshotInfo() {
         // for persist
     }
@@ -72,6 +76,13 @@ public class SnapshotInfo implements Writable {
         this.schemaHash = schemaHash;
         this.path = path;
         this.files = files;
+    }
+
+    // for cloud
+    public SnapshotInfo(long dbId, long tblId, long partitionId, long indexId, long tabletId,
+                             long beId, int schemaHash, String storageVaultId) {
+        this(dbId, tblId, partitionId, indexId, tabletId, beId, schemaHash, "", Lists.newArrayList());
+        this.storageVaultId = storageVaultId;
     }
 
     public long getDbId() {
@@ -108,6 +119,10 @@ public class SnapshotInfo implements Writable {
 
     public List<String> getFiles() {
         return files;
+    }
+
+    public String getStorageVaultId() {
+        return storageVaultId;
     }
 
     public void setFiles(List<String> files) {
