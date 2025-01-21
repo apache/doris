@@ -67,8 +67,6 @@ services:
         condition: service_healthy
       namenode:
         condition: service_healthy
-      hive-metastore:
-        condition: service_healthy
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
       interval: 10s
