@@ -47,7 +47,6 @@ Status VIcebergTableWriter::init_properties(ObjectPool* pool) {
 
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
-    _profile = profile;
 
     // add all counter
     _written_rows_counter = ADD_COUNTER(_profile, "WrittenRows", TUnit::UNIT);
