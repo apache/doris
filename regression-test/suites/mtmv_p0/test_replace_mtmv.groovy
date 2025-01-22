@@ -112,8 +112,7 @@ suite("test_replace_mtmv","mtmv") {
         """
     order_qt_mv1_replace "SELECT * FROM ${mvName1}"
     order_qt_mv2_replace "SELECT * FROM ${mvName2}"
-    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName2}")
-    mv_rewrite_success_without_check_chosen("""${querySql2}""", "${mvName1}")
+
     sql """
         insert into ${tableName1} values(3,3);
         """
@@ -135,6 +134,8 @@ suite("test_replace_mtmv","mtmv") {
 
     order_qt_mv2_refresh "SELECT * FROM ${mvName2}"
 
+    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName2}")
+    mv_rewrite_success_without_check_chosen("""${querySql2}""", "${mvName1}")
 
     sql """
         alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${mvName2} PROPERTIES('swap' = 'false');
@@ -149,7 +150,6 @@ suite("test_replace_mtmv","mtmv") {
     assertFalse(jobResult.toString().contains("${mvName2}"))
 
     order_qt_mv1_replace_not_swap "SELECT * FROM ${mvName1}"
-    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName1}")
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
     sql """drop materialized view if exists ${mvName1};"""
