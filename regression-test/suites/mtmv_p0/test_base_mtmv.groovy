@@ -48,7 +48,9 @@ suite("test_base_mtmv","mtmv") {
     sql """
         INSERT INTO ${tableName} VALUES("2022-10-26",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
     """
-
+    sql """
+        INSERT INTO ${newTableName} VALUES("2022-10-27",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
+    """
     sql """drop materialized view if exists ${mvName};"""
     String querySql = "SELECT event_day,id,username FROM ${tableName}";
 
