@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefinition;
 import org.apache.doris.thrift.TDataSink;
@@ -34,13 +33,10 @@ import java.util.List;
  */
 public class DictionarySink extends DataSink {
     private final Dictionary dictionary;
-
-    private final TupleDescriptor tupleDesc; // TODO: operator already has one. remove this.
     private final List<String> columnNames;
 
-    public DictionarySink(Dictionary dictionary, TupleDescriptor tupleDesc, List<String> columnNames) {
+    public DictionarySink(Dictionary dictionary, List<String> columnNames) {
         this.dictionary = dictionary;
-        this.tupleDesc = tupleDesc;
         this.columnNames = columnNames;
     }
 

@@ -492,13 +492,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     public void gsonPostProcess() throws IOException {
         List<Column> keys = Lists.newArrayList();
 
-        if (fullSchema != null) { // for inherited class Dictionary maybe null
-            for (Column column : fullSchema) {
-                if (column.isKey()) {
-                    keys.add(column);
-                }
-                this.nameToColumn.put(column.getName(), column);
+        for (Column column : fullSchema) {
+            if (column.isKey()) {
+                keys.add(column);
             }
+            this.nameToColumn.put(column.getName(), column);
         }
         if (keys.size() > 1) {
             keys.forEach(key -> key.setCompoundKey(true));
