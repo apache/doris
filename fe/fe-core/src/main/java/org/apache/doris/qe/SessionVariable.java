@@ -3566,11 +3566,10 @@ public class SessionVariable implements Serializable, Writable {
             }
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
             // TODO: support other sink
-            if ((logicalPlan instanceof UnboundResultSink
+            if (!(logicalPlan instanceof UnboundResultSink
                     || logicalPlan instanceof LogicalFileSink
-                    || logicalPlan instanceof InsertIntoTableCommand)
-                    && sessionVariable.enableNereidsDistributePlanner) {
-                return true;
+                    || logicalPlan instanceof InsertIntoTableCommand)) {
+                return false;
             }
         }
         return sessionVariable.enableNereidsDistributePlanner;
