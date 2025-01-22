@@ -140,7 +140,7 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
-         // lagacy logic for one-master-multi-observer mode
+        // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
         FE_FOLLOWER = 3;
@@ -1095,6 +1095,8 @@ message AlterClusterRequest {
     optional string cloud_unique_id = 2; // For auth
     optional ClusterPB cluster = 3;
     optional Operation op = 4;
+    // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
+    optional bool replace_if_existing_empty_target_cluster = 5;
 }
 
 message AlterClusterResponse {
@@ -1381,7 +1383,6 @@ enum MetaServiceCode {
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
-    PENDING_DELETE_BITMAP_WRONG = 8004;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
@@ -1447,7 +1448,6 @@ message RemoveDeleteBitmapResponse {
 
 message PendingDeleteBitmapPB {
     repeated bytes delete_bitmap_keys = 1;
-    optional int64 lock_id = 2;
 }
 
 message DeleteBitmapUpdateLockPB {

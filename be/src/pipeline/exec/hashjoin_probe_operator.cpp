@@ -144,8 +144,6 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     }
     _process_hashtable_ctx_variants = nullptr;
     _null_map_column = nullptr;
-    _tuple_is_null_left_flag_column = nullptr;
-    _tuple_is_null_right_flag_column = nullptr;
     _probe_block.clear();
     return JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>::close(state);
 }
@@ -159,33 +157,6 @@ bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
         }
     }
     return false;
-}
-
-void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
-    DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
-    if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
-        return;
-    }
-    auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
-    auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
-    auto& left_null_map = reinterpret_cast<vectorized::ColumnUInt8&>(*p0);
-    auto& right_null_map = reinterpret_cast<vectorized::ColumnUInt8&>(*p1);
-    auto left_size = left_null_map.size();
-    auto right_size = right_null_map.size();
-
-    if (left_size == 0) {
-        DCHECK_EQ(right_size, block->rows());
-        left_null_map.get_data().resize_fill(right_size, 0);
-    }
-    if (right_size == 0) {
-        DCHECK_EQ(left_size, block->rows());
-        right_null_map.get_data().resize_fill(left_size, 0);
-    }
-
-    block->insert(
-            {std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(), "left_tuples_is_null"});
-    block->insert(
-            {std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(), "right_tuples_is_null"});
 }
 
 void HashJoinProbeLocalState::_prepare_probe_block() {
@@ -257,16 +228,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                                                       std::move(null_map_column));
             local_state._probe_block.insert({std::move(nullable_column), make_nullable(type),
                                              _right_table_column_names[i]});
-        }
-        if (_is_outer_join) {
-            reinterpret_cast<vectorized::ColumnUInt8*>(
-                    local_state._tuple_is_null_left_flag_column.get())
-                    ->get_data()
-                    .resize_fill(block_rows, 0);
-            reinterpret_cast<vectorized::ColumnUInt8*>(
-                    local_state._tuple_is_null_right_flag_column.get())
-                    ->get_data()
-                    .resize_fill(block_rows, 1);
         }
 
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
@@ -414,10 +375,6 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                              bool* eos,
                                                              vectorized::Block* temp_block,
                                                              bool check_rows_count) {
-    auto& p = _parent->cast<HashJoinProbeOperatorX>();
-    if (p._is_outer_join) {
-        add_tuple_is_null_column(temp_block);
-    }
     auto output_rows = temp_block->rows();
     if (check_rows_count) {
         DCHECK(output_rows <= state->batch_size());
@@ -428,8 +385,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                                temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
-    _reset_tuple_is_null_column();
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block));
     reached_limit(output_block, eos);
     return Status::OK();
 }

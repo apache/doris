@@ -324,9 +324,25 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
 
 void CompactionMixin::build_basic_info() {
     for (auto& rowset : _input_rowsets) {
-        _input_rowsets_data_size += rowset->data_disk_size();
-        _input_rowsets_index_size += rowset->index_disk_size();
-        _input_rowsets_total_size += rowset->total_disk_size();
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto index_size = rowset_meta->index_disk_size();
+        auto total_size = rowset_meta->total_disk_size();
+        auto data_size = rowset_meta->data_disk_size();
+        // corrupted index size caused by bug before 2.1.5 or 3.0.0 version
+        // try to get real index size from disk.
+        if (index_size < 0 || index_size > total_size * 2) {
+            LOG(ERROR) << "invalid index size:" << index_size << " total size:" << total_size
+                       << " data size:" << data_size << " tablet:" << rowset_meta->tablet_id()
+                       << " rowset:" << rowset_meta->rowset_id();
+            index_size = 0;
+            auto st = rowset->get_inverted_index_size(&index_size);
+            if (!st.ok()) {
+                LOG(ERROR) << "failed to get inverted index size. res=" << st;
+            }
+        }
+        _input_rowsets_data_size += data_size;
+        _input_rowsets_index_size += index_size;
+        _input_rowsets_total_size += total_size;
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
@@ -468,6 +484,9 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << ", output_version=" << _output_version << ", permits: " << permits;
 
     RETURN_IF_ERROR(merge_input_rowsets());
+
+    // Currently, updates are only made in the time_series.
+    update_compaction_level();
 
     RETURN_IF_ERROR(modify_rowsets());
 
@@ -1317,6 +1336,15 @@ bool CompactionMixin::_check_if_includes_input_rowsets(
                          input_rowset_ids.begin(), input_rowset_ids.end());
 }
 
+void CompactionMixin::update_compaction_level() {
+    auto* cumu_policy = tablet()->cumulative_compaction_policy();
+    if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+        int64_t compaction_level =
+                cumu_policy->get_compaction_level(tablet(), _input_rowsets, _output_rowset);
+        _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
+    }
+}
+
 Status Compaction::check_correctness() {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + _stats.merged_rows + _stats.filtered_rows) {
@@ -1395,6 +1423,9 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
                   << _output_rowset->rowset_meta()->rowset_id().to_string();
     })
 
+    // Currently, updates are only made in the time_series.
+    update_compaction_level();
+
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
@@ -1440,11 +1471,6 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
 
-    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
-        ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
-                                       ->new_compaction_level(_input_rowsets);
-    }
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
@@ -1469,6 +1495,16 @@ void CloudCompactionMixin::garbage_collection() {
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached(file_key);
         }
+    }
+}
+
+void CloudCompactionMixin::update_compaction_level() {
+    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+    auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
+    if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+        int64_t compaction_level =
+                cumu_policy->get_compaction_level(cloud_tablet(), _input_rowsets, _output_rowset);
+        _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
     }
 }
 

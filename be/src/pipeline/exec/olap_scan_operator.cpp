@@ -81,10 +81,13 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _rows_short_circuit_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredFiltered", TUnit::UNIT);
+    _rows_expr_cond_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsExprPredFiltered", TUnit::UNIT);
     _rows_vec_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredInput", TUnit::UNIT);
     _rows_short_circuit_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredInput", TUnit::UNIT);
+    _rows_expr_cond_input_counter = ADD_COUNTER(_segment_profile, "RowsExprPredInput", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");
@@ -322,15 +325,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
     if (config::is_cloud_mode()) {
         int64_t duration_ns = 0;
-        SCOPED_RAW_TIMER(&duration_ns);
-        std::vector<std::function<Status()>> tasks;
-        tasks.reserve(_scan_ranges.size());
-        for (auto&& [tablet, version] : tablets) {
-            tasks.emplace_back([tablet, version]() {
-                return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
-            });
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            std::vector<std::function<Status()>> tasks;
+            tasks.reserve(_scan_ranges.size());
+            for (auto&& [tablet, version] : tablets) {
+                tasks.emplace_back([tablet, version]() {
+                    return std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(version);
+                });
+            }
+            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
-        RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         _sync_rowset_timer->update(duration_ns);
     }
 

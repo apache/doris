@@ -117,7 +117,7 @@ public class PaimonUtil {
     }
 
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<PaimonPartition> paimonPartitions) throws AnalysisException {
+            List<PaimonPartition> paimonPartitions) {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, PaimonPartition> nameToPartition = Maps.newHashMap();
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
@@ -127,7 +127,14 @@ public class PaimonUtil {
         for (PaimonPartition paimonPartition : paimonPartitions) {
             String partitionName = getPartitionName(partitionColumns, paimonPartition.getPartitionValues());
             nameToPartition.put(partitionName, paimonPartition);
-            nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+            try {
+                // partition values return by paimon api, may have problem,
+                // to avoid affecting the query, we catch exceptions here
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+            } catch (Exception e) {
+                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}", partitionColumns,
+                        paimonPartition.getPartitionValues(), e);
+            }
         }
         return partitionInfo;
     }

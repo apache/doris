@@ -524,14 +524,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    // olap scan node will call scanner.close() when finished
-    // will release resources here
-    // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but
-    // deconstructor in reader references runtime state
-    // so that it will core
-    _tablet_reader_params.rs_splits.clear();
-    _tablet_reader.reset();
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
@@ -600,10 +592,12 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_filtered_counter,
                    stats.rows_short_circuit_cond_filtered);
+    COUNTER_UPDATE(local_state->_rows_expr_cond_filtered_counter, stats.rows_expr_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
-    for (auto& [id, info] : stats.filter_info) {
+    COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
+    for (const auto& [id, info] : stats.filter_info) {
         local_state->add_filter_info(id, info);
     }
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);

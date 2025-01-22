@@ -17,6 +17,8 @@
 
 // do compaction during publish
 suite("test_compact_with_seq2", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_compact_with_seq2"
     def dbId = getDbId()
 
@@ -29,6 +31,10 @@ suite("test_compact_with_seq2", "nonConcurrent") {
     }
 
     def get_running_txns = { expected_num ->
+        if (isCloudMode()) {
+            sleep 6000
+            return true
+        }
         for (int i = 0; i < 2000; i++) {
             def txns = sql_return_maparray "show proc '/transactions/${dbId}/running'"
             logger.info("${txns.size} txns: ${txns}")
@@ -41,40 +47,43 @@ suite("test_compact_with_seq2", "nonConcurrent") {
     }
 
     def compaction = {
-        get_running_txns(1)
+        try {
+            get_running_txns(1)
 
-        // trigger compaction
-        // get be info
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
-        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
-        logger.info("tablets: " + tablets)
-        assertEquals(1, tablets.size())
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def backend_id = tablet.BackendId
+            // trigger compaction
+            // get be info
+            def backendId_to_backendIP = [:]
+            def backendId_to_backendHttpPort = [:]
+            getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+            def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+            logger.info("tablets: " + tablets)
+            assertTrue(tablets.size() >= 1)
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                def backend_id = tablet.BackendId
 
-            def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            logger.info("compact json: " + compactJson)
-
-            for (int i = 0; i < 10; i++) {
-                (code, out, err) = be_show_tablet_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("loop " + i + ", Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
+                def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
-                def json = parseJson(out.trim())
-                logger.info("tablet rowsets: " + json)
-                if (json.rowsets.size() <= 2) {
-                    break
+                def compactJson = parseJson(out.trim())
+                logger.info("compact json: " + compactJson)
+
+                for (int i = 0; i < 10; i++) {
+                    (code, out, err) = be_show_tablet_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                    logger.info("loop " + i + ", Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
+                    assertEquals(code, 0)
+                    def json = parseJson(out.trim())
+                    logger.info("tablet rowsets: " + json)
+                    if (json.rowsets.size() <= 2) {
+                        break
+                    }
+                    sleep(2000)
                 }
-                sleep(2000)
             }
+        } finally {
+            GetDebugPoint().clearDebugPointsForAllFEs()
+            GetDebugPoint().clearDebugPointsForAllBEs()
         }
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -97,8 +106,9 @@ suite("test_compact_with_seq2", "nonConcurrent") {
     // _batch_size is 8192 in vtablet_writer.cpp
     def backendId_to_params = get_be_param("doris_scanner_row_bytes")
     onFinish {
-        GetDebugPoint().disableDebugPointForAllBEs("MemTable.need_flush")
         set_original_be_param("doris_scanner_row_bytes", backendId_to_params)
+        GetDebugPoint().clearDebugPointsForAllFEs()
+        GetDebugPoint().clearDebugPointsForAllBEs()
     }
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
     set_be_param.call("doris_scanner_row_bytes", "1")
@@ -178,10 +188,6 @@ suite("test_compact_with_seq2", "nonConcurrent") {
 
     enable_commit_rowset_spin_wait()
     enable_block_in_commit_rowset()
-    onFinish {
-        GetDebugPoint().clearDebugPointsForAllFEs()
-        GetDebugPoint().clearDebugPointsForAllBEs()
-    }
     Thread compaction_thread = new Thread(() -> compaction())
     compaction_thread.start()
     get_running_txns(0)

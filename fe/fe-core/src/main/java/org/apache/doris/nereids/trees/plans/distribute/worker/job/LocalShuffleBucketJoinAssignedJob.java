@@ -30,11 +30,11 @@ public class LocalShuffleBucketJoinAssignedJob extends LocalShuffleAssignedJob {
     private volatile Set<Integer> assignedJoinBucketIndexes;
 
     public LocalShuffleBucketJoinAssignedJob(
-            int indexInUnassignedJob, int shareScanId, boolean receiveDataFromLocal,
+            int indexInUnassignedJob, int shareScanId,
             TUniqueId instanceId, UnassignedJob unassignedJob,
             DistributedPlanWorker worker, ScanSource scanSource,
             Set<Integer> assignedJoinBucketIndexes) {
-        super(indexInUnassignedJob, shareScanId, receiveDataFromLocal, instanceId, unassignedJob, worker, scanSource);
+        super(indexInUnassignedJob, shareScanId, instanceId, unassignedJob, worker, scanSource);
         this.assignedJoinBucketIndexes = Utils.fastToImmutableSet(assignedJoinBucketIndexes);
     }
 
@@ -42,7 +42,7 @@ public class LocalShuffleBucketJoinAssignedJob extends LocalShuffleAssignedJob {
         return assignedJoinBucketIndexes;
     }
 
-    public void addAssignedJoinBucketIndexes(Set<Integer> joinBucketIndexes) {
+    public synchronized void addAssignedJoinBucketIndexes(Set<Integer> joinBucketIndexes) {
         this.assignedJoinBucketIndexes = ImmutableSet.<Integer>builder()
                 .addAll(assignedJoinBucketIndexes)
                 .addAll(joinBucketIndexes)

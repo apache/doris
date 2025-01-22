@@ -221,7 +221,7 @@ PhysicalResultSink
 
 -- !filter_aggregation_filtered_agg_func --
 PhysicalResultSink
---filter((count(*) > 10))
+--filter((count() > 10))
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[t1]

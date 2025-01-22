@@ -25,7 +25,7 @@ suite("test_resource_tag") {
                 def clusters = sql " SHOW CLUSTERS; "
                 assertTrue(!clusters.isEmpty())
                 def validCluster = clusters[0][0]
-                sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_rg""";
+                sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_rg""";
         }
 
         // test query

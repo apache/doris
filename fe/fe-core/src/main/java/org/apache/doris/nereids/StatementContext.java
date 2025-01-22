@@ -235,7 +235,7 @@ public class StatementContext implements Closeable {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
             if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
         } else {
             this.sqlCacheContext = null;

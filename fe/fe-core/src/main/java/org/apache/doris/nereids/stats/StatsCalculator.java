@@ -449,6 +449,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    private boolean isRegisteredRowCount(OlapScan olapScan) {
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        return tableMeta != null && tableMeta.userInjected;
+    }
+
     /**
      * if the table is not analyzed and BE does not report row count, return -1
      */
@@ -495,8 +501,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // mv is selected, return its estimated stats
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
-            LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}",
-                    optStats.isPresent(), tableRowCount);
+            LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
+                    optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
                 LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
@@ -554,7 +560,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
-        if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
+        if (!isRegisteredRowCount(olapScan)
+                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);

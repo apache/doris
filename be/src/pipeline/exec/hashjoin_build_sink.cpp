@@ -405,9 +405,9 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 }
 
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                       const TPlanNode& tnode,
+                                                       int dest_id, const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
+        : JoinBuildSinkOperatorX(pool, operator_id, dest_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&

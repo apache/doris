@@ -33,8 +33,9 @@ Usage: $0 <options>
      [no option]        start all components
      --help,-h          show this usage
      -c mysql           start MySQL
-     -c mysql,hive3      start MySQL and Hive3
+     -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
+     --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos
@@ -44,6 +45,7 @@ Usage: $0 <options>
 COMPONENTS=$2
 HELP=0
 STOP=0
+NEED_RESERVE_PORTS=0
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -78,6 +80,10 @@ else
         -c)
             COMPONENTS=$2
             shift 2
+            ;;
+        --reserve-ports)
+            NEED_RESERVE_PORTS=1
+            shift
             ;;
         --)
             shift
@@ -140,6 +146,8 @@ RUN_LAKESOUL=0
 RUN_KERBEROS=0
 RUN_MINIO=0
 
+RESERVED_PORTS=""
+
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -155,6 +163,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive2"x ]]; then
         RUN_HIVE2=1
+        RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
@@ -184,6 +193,17 @@ for element in "${COMPONENTS_ARR[@]}"; do
         usage
     fi
 done
+
+reserve_ports() {
+    if [[ "${NEED_RESERVE_PORTS}" -eq 0 ]]; then
+        return
+    fi
+
+    if [[ "${RESERVED_PORTS}"x != ""x ]]; then
+        echo "Reserve ports: ${RESERVED_PORTS}"
+        sudo sysctl -w net.ipv4.ip_local_reserved_ports="${RESERVED_PORTS}"
+    fi
+}
 
 start_es() {
     # elasticsearch
@@ -582,8 +602,21 @@ start_lakesoul() {
 
 start_kerberos() {
     echo "RUN_KERBEROS"
-    cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
+    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
+    export IP_HOST=${IP_HOST}
+    export CONTAINER_UID=${CONTAINER_UID}
+    envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    for i in {1..2}; do
+        . "${ROOT}"/docker-compose/kerberos/kerberos${i}_settings.env
+        envsubst <"${ROOT}"/docker-compose/kerberos/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/kerberos/hadoop-hive-${i}.env
+        envsubst <"${ROOT}"/docker-compose/kerberos/conf/my.cnf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/my.cnf
+        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf
+        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf
+    done
+    sudo chmod a+w /etc/hosts
+    sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
+    sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
     sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
     if [[ "${STOP}" -ne 1 ]]; then
@@ -591,15 +624,11 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
         sudo rm -f /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
-
-        sudo chmod a+w /etc/hosts
-        echo '172.31.71.25 hadoop-master' >> /etc/hosts
-        echo '172.31.71.26 hadoop-master-2' >> /etc/hosts
         sleep 2
     fi
 }
@@ -614,7 +643,9 @@ start_minio() {
     fi
 }
 
-echo "starting dockers in parrallel"
+echo "starting dockers in parallel"
+
+reserve_ports
 
 declare -A pids
 
@@ -703,14 +734,14 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     pids["lakesoul"]=$!
 fi
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > start_kerberos.log 2>&1 &
-    pids["kerberos"]=$!
-fi
-
 if [[ "${RUN_MINIO}" -eq 1 ]]; then
     start_minio > start_minio.log 2>&1 &
     pids["minio"]=$!
+fi
+
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    start_kerberos > start_kerberos.log 2>&1 &
+    pids["kerberos"]=$!
 fi
 
 echo "waiting all dockers starting done"
@@ -723,8 +754,15 @@ for compose in "${!pids[@]}"; do
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
         cat start_${compose}.log
+
+        echo ""
+        echo "print last 100 logs of the latest unhealthy container"
+        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+
         exit 1
     fi
 done
 
+echo "docker started"
+docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"

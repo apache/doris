@@ -27,6 +27,7 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/hash_table/join_hash_table.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -38,16 +39,6 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
         : _parent(parent),
           _batch_size(batch_size),
           _build_block(parent->build_block()),
-          _tuple_is_null_left_flags(parent->is_outer_join()
-                                            ? &(reinterpret_cast<vectorized::ColumnUInt8&>(
-                                                        *parent->_tuple_is_null_left_flag_column)
-                                                        .get_data())
-                                            : nullptr),
-          _tuple_is_null_right_flags(parent->is_outer_join()
-                                             ? &(reinterpret_cast<vectorized::ColumnUInt8&>(
-                                                         *parent->_tuple_is_null_right_flag_column)
-                                                         .get_data())
-                                             : nullptr),
           _have_other_join_conjunct(parent->have_other_join_conjunct()),
           _is_right_semi_anti(parent->is_right_semi_anti()),
           _left_output_slot_flags(parent->left_output_slot_flags()),
@@ -68,91 +59,79 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         vectorized::MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         bool have_other_join_conjunct, bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
-    constexpr auto is_semi_anti_join = JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
-                                       JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::LEFT_SEMI_JOIN;
-
-    constexpr auto probe_all =
-            JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
     // indicates whether build_indexs contain 0
     bool build_index_has_zero =
             (JoinOpType != TJoinOp::INNER_JOIN && JoinOpType != TJoinOp::RIGHT_OUTER_JOIN) ||
             have_other_join_conjunct || is_mark_join;
-    bool need_output = (!is_semi_anti_join || have_other_join_conjunct ||
-                        (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
-                       size;
-    // Dispose right tuple is null flags columns
-    if (probe_all && !have_other_join_conjunct) {
-        _tuple_is_null_right_flags->resize(size);
-        auto* __restrict null_data = _tuple_is_null_right_flags->data();
-        for (int i = 0; i < size; ++i) {
-            null_data[i] = _build_indexs[i] == 0;
-        }
-        if (need_output && _need_calculate_build_index_has_zero) {
-            build_index_has_zero = simd::contain_byte(null_data, size, 1);
+    if (!size) {
+        return;
+    }
+
+    if (!build_index_has_zero && _build_column_has_null.empty()) {
+        _need_calculate_build_index_has_zero = false;
+        _build_column_has_null.resize(output_slot_flags.size());
+        for (int i = 0; i < _right_col_len; i++) {
+            const auto& column = *_build_block->safe_get_by_position(i).column;
+            _build_column_has_null[i] = false;
+            if (output_slot_flags[i] && column.is_nullable()) {
+                const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
+                _build_column_has_null[i] = !simd::contain_byte(
+                        nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
+                _need_calculate_build_index_has_zero |= _build_column_has_null[i];
+            }
         }
     }
 
-    if (need_output) {
-        if (!build_index_has_zero && _build_column_has_null.empty()) {
-            _need_calculate_build_index_has_zero = false;
-            _build_column_has_null.resize(output_slot_flags.size());
-            for (int i = 0; i < _right_col_len; i++) {
-                const auto& column = *_build_block->safe_get_by_position(i).column;
-                _build_column_has_null[i] = false;
-                if (output_slot_flags[i] && column.is_nullable()) {
-                    const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
-                    _build_column_has_null[i] = !simd::contain_byte(
-                            nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
-                    _need_calculate_build_index_has_zero |= _build_column_has_null[i];
-                }
-            }
-        }
-
-        for (int i = 0; i < _right_col_len; i++) {
-            const auto& column = *_build_block->safe_get_by_position(i).column;
-            if (output_slot_flags[i]) {
-                if (!build_index_has_zero && _build_column_has_null[i]) {
-                    assert_cast<vectorized::ColumnNullable*>(mcol[i + _right_col_idx].get())
-                            ->insert_indices_from_not_has_null(column, _build_indexs.data(),
-                                                               _build_indexs.data() + size);
-                } else {
-                    mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
-                                                                  _build_indexs.data() + size);
-                }
+    for (size_t i = 0; i < _right_col_len && i + _right_col_idx < mcol.size(); i++) {
+        const auto& column = *_build_block->safe_get_by_position(i).column;
+        if (output_slot_flags[i]) {
+            if (!build_index_has_zero && _build_column_has_null[i]) {
+                assert_cast<vectorized::ColumnNullable*>(mcol[i + _right_col_idx].get())
+                        ->insert_indices_from_not_has_null(column, _build_indexs.data(),
+                                                           _build_indexs.data() + size);
             } else {
-                mcol[i + _right_col_idx]->insert_many_defaults(size);
+                mcol[i + _right_col_idx]->insert_indices_from(column, _build_indexs.data(),
+                                                              _build_indexs.data() + size);
             }
+        } else if (i + _right_col_idx != _parent->_mark_column_id) {
+            mcol[i + _right_col_idx]->insert_default();
+            mcol[i + _right_col_idx] =
+                    vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
         }
+    }
+    if (_parent->_mark_column_id != -1) {
+        // resize mark column and fill with true
+        auto& mark_column =
+                assert_cast<vectorized::ColumnNullable&>(*mcol[_parent->_mark_column_id]);
+        mark_column.resize(size);
+        auto* null_map = mark_column.get_null_map_column().get_data().data();
+        auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
+                             .get_data()
+                             .data();
+        std::fill(null_map, null_map + size, 0);
+        std::fill(data, data + size, 1);
     }
 }
 
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
         vectorized::MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
-        int last_probe_index, bool all_match_one, bool have_other_join_conjunct) {
+        bool all_match_one, bool have_other_join_conjunct) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
     for (int i = 0; i < output_slot_flags.size(); ++i) {
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
-                mcol[i]->insert_range_from(*column, last_probe_index, size);
+                mcol[i]->insert_range_from(*column, _probe_indexs[0], size);
             } else {
                 mcol[i]->insert_indices_from(*column, _probe_indexs.data(),
                                              _probe_indexs.data() + size);
             }
         } else {
-            mcol[i]->insert_many_defaults(size);
-        }
-    }
-
-    if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
-        if (!have_other_join_conjunct) {
-            _tuple_is_null_left_flags->resize_fill(size, 0);
+            mcol[i]->insert_default();
+            mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), size);
         }
     }
 }
@@ -203,7 +182,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     auto& probe_index = _parent->_probe_index;
     auto& build_index = _parent->_build_index;
-    auto last_probe_index = probe_index;
     {
         SCOPED_TIMER(_init_probe_side_timer);
         _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts, null_map);
@@ -219,7 +197,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
         /// If `_build_index_for_null_probe_key` is not zero, it means we are in progress of handling probe null key.
         if (_build_index_for_null_probe_key) {
-            DCHECK(null_map && null_map[probe_index]);
+            if (!null_map || !null_map[probe_index]) {
+                return Status::InternalError(
+                        "null_map is nullptr or null_map[probe_index] is false");
+            }
             current_offset = _process_probe_null_key(probe_index);
             if (!_build_index_for_null_probe_key) {
                 probe_index++;
@@ -236,7 +217,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             current_offset = new_current_offset;
             _picking_null_keys = picking_null_keys;
 
-            if (null_map && null_map[probe_index]) {
+            if (probe_index < probe_rows && null_map && null_map[probe_index]) {
                 _build_index_for_null_probe_key = 1;
                 if (current_offset == 0) {
                     current_offset = _process_probe_null_key(probe_index);
@@ -265,9 +246,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     if constexpr (with_other_conjuncts || (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                                            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
-        auto check_all_match_one = [](const std::vector<uint32_t>& vecs, uint32_t probe_idx,
-                                      int size) {
-            if (!size || vecs[0] != probe_idx || vecs[size - 1] != probe_idx + size - 1) {
+        auto check_all_match_one = [](const std::vector<uint32_t>& vecs, int size) {
+            if (!size || vecs[size - 1] != vecs[0] + size - 1) {
                 return false;
             }
             for (int i = 1; i < size; i++) {
@@ -278,10 +258,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             return true;
         };
 
-        probe_side_output_column(
-                mcol, *_left_output_slot_flags, current_offset, last_probe_index,
-                check_all_match_one(_probe_indexs, last_probe_index, current_offset),
-                with_other_conjuncts);
+        probe_side_output_column(mcol, *_left_output_slot_flags, current_offset,
+                                 check_all_match_one(_probe_indexs, current_offset),
+                                 with_other_conjuncts);
     }
 
     output_block->swap(mutable_block.to_block());
@@ -528,8 +507,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
 
         for (size_t i = 0; i < row_count; ++i) {
             if (filter_map[i]) {
-                _tuple_is_null_right_flags->emplace_back(!_build_indexs[i] ||
-                                                         !filter_column_ptr[i]);
                 if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
                     visited[_build_indexs[i]] = 1;
                 }
@@ -573,12 +550,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
             visited[_build_indexs[i]] |= filter_column_ptr[i];
         }
     } else if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
-        auto filter_size = 0;
         for (int i = 0; i < row_count; ++i) {
             visited[_build_indexs[i]] |= filter_column_ptr[i];
-            filter_size += filter_column_ptr[i];
         }
-        _tuple_is_null_left_flags->resize_fill(filter_size, 0);
     }
 
     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
@@ -647,7 +621,6 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                 assert_cast<vectorized::ColumnNullable*>(mcol[i].get())
                         ->insert_many_defaults(block_size);
             }
-            _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
         output_block->swap(mutable_block.to_block(0));
         DCHECK(block_size <= _batch_size);
