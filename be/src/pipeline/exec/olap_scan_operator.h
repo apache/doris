@@ -85,7 +85,7 @@ private:
 
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
-    void add_filter_info(int id, const PredicateFilterInfo& info);
+    void add_predicate_rf_info(int id, const PredicateRuntimeFilterInfo& info);
 
     Status _build_key_ranges_and_filters();
 
@@ -117,7 +117,6 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
-    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
@@ -210,8 +209,6 @@ private:
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
-
-    std::mutex _profile_mtx;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {

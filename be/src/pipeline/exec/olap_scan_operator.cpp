@@ -588,18 +588,19 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& update_info) {
+void OlapScanLocalState::add_predicate_rf_info(int id,
+                                               const PredicateRuntimeFilterInfo& update_info) {
     std::unique_lock lock(_profile_mtx);
     // update
-    _filter_info[id].filtered_row += update_info.filtered_row;
-    _filter_info[id].input_row += update_info.input_row;
-    _filter_info[id].type = update_info.type;
+    _predicate_rf_info[id].filtered_row += update_info.filtered_row;
+    _predicate_rf_info[id].input_row += update_info.input_row;
+    _predicate_rf_info[id].type = update_info.type;
     // to string
-    auto& info = _filter_info[id];
+    auto& info = _predicate_rf_info[id];
     std::string filter_name = "RuntimeFilterInfo id ";
     filter_name += std::to_string(id);
     std::string info_str;
-    info_str += "type = " + type_to_string(static_cast<PredicateType>(info.type)) + ", ";
+    info_str += "type = " + type_to_string(info.type) + ", ";
     info_str += "input = " + std::to_string(info.input_row) + ", ";
     info_str += "filtered = " + std::to_string(info.filtered_row);
     info_str = "[" + info_str + "]";

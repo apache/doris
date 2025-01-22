@@ -596,7 +596,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
     for (auto& [id, info] : stats.filter_info) {
-        local_state->add_filter_info(id, info);
+        local_state->add_predicate_rf_info(id, info);
     }
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);

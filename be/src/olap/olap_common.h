@@ -76,8 +76,26 @@ struct DataDirInfo {
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
     std::string metric_name;
 };
-struct PredicateFilterInfo {
-    int type = 0;
+
+enum class PredicateType {
+    UNKNOWN = 0,
+    EQ = 1,
+    NE = 2,
+    LT = 3,
+    LE = 4,
+    GT = 5,
+    GE = 6,
+    IN_LIST = 7,
+    NOT_IN_LIST = 8,
+    IS_NULL = 9,
+    IS_NOT_NULL = 10,
+    BF = 11,            // BloomFilter
+    BITMAP_FILTER = 12, // BitmapFilter
+    MATCH = 13,         // fulltext match
+};
+
+struct PredicateRuntimeFilterInfo {
+    PredicateType type;
     uint64_t input_row = 0;
     uint64_t filtered_row = 0;
 };
@@ -335,7 +353,7 @@ struct OlapReaderStatistics {
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
 
-    std::map<int, PredicateFilterInfo> filter_info;
+    std::map<int, PredicateRuntimeFilterInfo> filter_info;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
