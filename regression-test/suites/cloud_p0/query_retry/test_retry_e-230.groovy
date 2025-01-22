@@ -133,15 +133,18 @@ suite("test_retry_e-230", 'docker') {
                 cost = System.currentTimeMillis() - begin;
                 log.info("time cost insert into select : {}", cost)
                 futrue3.get()
+                def tbl1Ret = sql_return_maparray """select * from ${tbl1}"""
+                log.info("tbl1 ret {}", tbl1Ret)
+                def tbl2Ret = sql_return_maparray """select * from ${tbl2}"""
+                log.info("tbl2 ret {}", tbl2Ret)
+                // Compare the results from both tables
+                assertEquals(tbl1Ret, tbl2Ret, "Data in ${tbl1} and ${tbl2} should be identical")
                 // fe StmtExecutor retry time, at most 25 * 1.5s + 25 * 2.5s
                 assertTrue(cost > 4000 && cost < 100000)
 
             } finally {
                 cluster.clearFrontendDebugPoints()
                 cluster.clearBackendDebugPoints()   
-                sql """ DROP TABLE IF EXISTS ${tbl} """
-                sql """ DROP TABLE IF EXISTS ${tbl1} """
-                sql """ DROP TABLE IF EXISTS ${tbl2} """
             }
         }
         // 2. connect to follower
