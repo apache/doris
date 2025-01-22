@@ -27,7 +27,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -45,28 +44,21 @@ import java.util.Optional;
  * PhysicalDictionarySink
  */
 public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTableSink<CHILD_TYPE> implements Sink {
-
     private final Database database;
-
     private final Dictionary dictionary;
-
     private final List<Column> cols;
-
-    private final List<Slot> targetDictionarySlots;
 
     /**
      * constructor
      */
     public PhysicalDictionarySink(Database database, Dictionary dictionary, List<Column> cols,
-            List<NamedExpression> outputExprs, List<Slot> targetDictionarySlots,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, Statistics statistics,
-            CHILD_TYPE child) {
+            List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DICTIONARY_SINK, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.ALL_SINGLETON, statistics, child);
         this.database = Objects.requireNonNull(database, "database cannot be null");
         this.dictionary = Objects.requireNonNull(dictionary, "dictionary cannot be null");
         this.cols = ImmutableList.copyOf(cols);
-        this.targetDictionarySlots = ImmutableList.copyOf(targetDictionarySlots);
     }
 
     @Override
@@ -86,10 +78,6 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
         return cols;
     }
 
-    public List<Slot> getTargetDictionarySlots() {
-        return targetDictionarySlots;
-    }
-
     @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
@@ -107,38 +95,38 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, targetDictionarySlots,
-                groupExpression, getLogicalProperties(), statistics, children.get(0));
+        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+                getLogicalProperties(), statistics, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, targetDictionarySlots,
-                groupExpression, getLogicalProperties(), statistics, child());
+        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+                getLogicalProperties(), statistics, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, targetDictionarySlots,
-                groupExpression, logicalProperties.get(), statistics, children.get(0));
+        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+                logicalProperties.get(), statistics, children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, targetDictionarySlots,
-                groupExpression, getLogicalProperties(), statistics, child());
+        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+                getLogicalProperties(), statistics, child());
     }
 
     @Override
     public PhysicalDictionarySink<Plan> resetLogicalProperties() {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, targetDictionarySlots,
-                groupExpression, getLogicalProperties(), null, child());
+        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+                getLogicalProperties(), null, child());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, dictionary, cols, targetDictionarySlots);
+        return Objects.hash(super.hashCode(), database, dictionary, cols);
     }
 
     @Override
@@ -154,7 +142,7 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
         }
         PhysicalDictionarySink<?> that = (PhysicalDictionarySink<?>) o;
         return Objects.equals(database, that.database) && Objects.equals(dictionary, that.dictionary)
-                && Objects.equals(cols, that.cols) && Objects.equals(targetDictionarySlots, that.targetDictionarySlots);
+                && Objects.equals(cols, that.cols);
     }
 
     @Override

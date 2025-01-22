@@ -37,7 +37,6 @@ public class LogicalDictionarySinkToPhysicalDictionarySink extends OneImplementa
                                                 sink.getDictionary(),
                                                 sink.getCols(),
                                                 sink.getOutputExprs(),
-                                                sink.getTargetDictionarySlots(),
                                                 Optional.empty(),                   // group expression is not useful
                                                 sink.getLogicalProperties(),
                                                 null,                               // statistics

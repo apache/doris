@@ -441,11 +441,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED); // only used for explain string
         // set rootFragment output expr
 
-        TupleDescriptor dictionaryTuple = generateTupleDesc(dictionarySink.getTargetDictionarySlots(),
-                dictionarySink.getTargetTable(), context);
-
-        DictionarySink sink = new DictionarySink(dictionarySink.getDictionary(), dictionaryTuple,
-                dictionarySink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
+        DictionarySink sink = new DictionarySink(dictionarySink.getDictionary(),
+                        dictionarySink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
         rootFragment.setSink(sink);
         return rootFragment;
     }

@@ -663,14 +663,8 @@ public class BindSink implements AnalysisRuleFactory {
         // before we get A|B|C|D and only sink D|B|A. here deal the PROJECT between them.
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(sinkColumns, child, sinkColumnToExpr);
 
-        // Create target slots for each dictionary column
-        List<Slot> targetDictionarySlots = new ArrayList<>(sinkColumns.size());
-        for (Column column : sinkColumns) {
-            targetDictionarySlots.add(SlotReference.fromColumn(dictionary, column, dictionary.getFullQualifiers()));
-        }
-
         // Return the bound sink with updated child and outputExprs here.
-        return boundSink.withChildAndUpdateOutput(fullOutputProject, targetDictionarySlots);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
     private static Map<String, NamedExpression> getDictColumnToOutput(
