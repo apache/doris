@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
  * Function dependence items.
  */
 public class FuncDeps {
+    /**FuncDepsItem*/
     public static class FuncDepsItem {
         public final Set<Slot> determinants;
         public final Set<Slot> dependencies;
