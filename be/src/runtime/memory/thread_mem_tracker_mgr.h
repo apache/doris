@@ -69,17 +69,12 @@ public:
     void attach_task(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                      const std::weak_ptr<WorkloadGroup>& wg_wptr) {
         DCHECK(mem_tracker);
-        // Orphan is thread default tracker.
-        // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
-        DCHECK(_limiter_tracker->label() == "Orphan")
-                << ", thread mem tracker label: " << _limiter_tracker->label()
-                << ", attach mem tracker label: " << mem_tracker->label();
         attach_limiter_tracker(mem_tracker);
         _wg_wptr = wg_wptr;
         enable_wait_gc();
     }
-    void detach_task() {
-        detach_limiter_tracker();
+    void detach_task(const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
+        detach_limiter_tracker(old_mem_tracker);
         _wg_wptr.reset();
         disable_wait_gc();
     }
@@ -102,7 +97,7 @@ public:
 
     void shrink_reserved();
 
-    std::shared_ptr<MemTrackerLimiter> mem_tracker() {
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
         CHECK(init());
         return _limiter_tracker;
     }
@@ -119,7 +114,7 @@ public:
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), _limiter_tracker->make_profile_str(),
+                std::to_string(_untracked_mem), limiter_mem_tracker()->make_profile_str(),
                 fmt::to_string(consumer_tracker_buf));
     }
 
@@ -132,7 +127,7 @@ public:
     void memory_orphan_check() {
 #ifdef USE_MEM_TRACKER
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
-               _limiter_tracker->label() != "Orphan")
+               limiter_mem_tracker()->label() != "Orphan")
                 << doris::MEMORY_ORPHAN_CHECK_MSG;
 #endif
     }
@@ -333,8 +328,8 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size) {
 }
 
 inline void ThreadMemTrackerMgr::shrink_reserved() {
-    memory_orphan_check();
     if (_reserved_mem != 0) {
+        memory_orphan_check();
         doris::GlobalMemoryArbitrator::shrink_process_reserved(_reserved_mem + _untracked_mem);
         _limiter_tracker->shrink_reserved(_reserved_mem + _untracked_mem);
         _limiter_tracker->release(_reserved_mem);

@@ -30,7 +30,7 @@ PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB 
     if (use_cache) {
         _mem_tracker_by_allocator = StoragePageCache::instance()->mem_tracker(page_type);
     } else {
-        _mem_tracker_by_allocator = thread_context()->thread_mem_tracker_mgr->mem_tracker();
+        _mem_tracker_by_allocator = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
     }
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);

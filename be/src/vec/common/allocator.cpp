@@ -84,9 +84,14 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
         err_msg += fmt::format(
                 "Allocator sys memory check failed: Cannot alloc:{}, consuming "
                 "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
-                size, doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->label(),
-                doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->peak_consumption(),
-                doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->consumption(),
+                size,
+                doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label(),
+                doris::thread_context()
+                        ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                        ->peak_consumption(),
+                doris::thread_context()
+                        ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                        ->consumption(),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
@@ -186,10 +191,12 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
     if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0) {
         return;
     }
-    auto st = doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->check_limit(size);
+    auto st = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+            size);
     if (!st) {
         auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());
-        doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->print_log_usage(err_msg);
+        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->print_log_usage(
+                err_msg);
         if (doris::thread_context()->resource_ctx()->task_controller()->is_attach_task()) {
             doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
             // If the outside will catch the exception, after throwing an exception,
@@ -261,8 +268,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_add
         return;
     }
 #endif
-    doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->add_address_sanitizers(buf,
-                                                                                           size);
+    doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->add_address_sanitizers(
+            buf, size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
@@ -273,8 +280,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_
         return;
     }
 #endif
-    doris::thread_context()->thread_mem_tracker_mgr->mem_tracker()->remove_address_sanitizers(buf,
-                                                                                              size);
+    doris::thread_context()
+            ->thread_mem_tracker_mgr->limiter_mem_tracker()
+            ->remove_address_sanitizers(buf, size);
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>

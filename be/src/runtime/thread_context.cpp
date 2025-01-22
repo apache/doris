@@ -58,8 +58,8 @@ SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
         const std::shared_ptr<doris::MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
-    if (mem_tracker != thread_context()->thread_mem_tracker_mgr->mem_tracker()) {
-        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->mem_tracker();
+    if (mem_tracker != thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
     }
 }
@@ -71,8 +71,8 @@ SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(ResourceContext* rc
            rc->task_controller()->task_id());
     DCHECK(rc->memory_context()->mem_tracker());
     if (rc->memory_context()->mem_tracker() !=
-        thread_context()->thread_mem_tracker_mgr->mem_tracker()) {
-        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->mem_tracker();
+        thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
                 rc->memory_context()->mem_tracker());
     }

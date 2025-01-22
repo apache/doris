@@ -94,10 +94,6 @@ public:
         QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx)
                 : query_ctx_(query_ctx) {}
 
-        // Gets the shared pointer to the associated query ctx to ensure its
-        // liveness during the query control operation.
-        std::shared_ptr<QueryContext> ensure_query_ctx() const { return query_ctx_.lock(); }
-
         const std::weak_ptr<QueryContext> query_ctx_;
     };
 
@@ -136,11 +132,20 @@ public:
         QueryMemoryContext() = default;
     };
 
+    static std::shared_ptr<QueryContext> create(TUniqueId query_id, ExecEnv* exec_env,
+                                                const TQueryOptions& query_options,
+                                                TNetworkAddress coord_addr, bool is_nereids,
+                                                TNetworkAddress current_connect_fe,
+                                                QuerySource query_type);
+
+    // use QueryContext::create, cannot be made private because of ENABLE_FACTORY_CREATOR::create_shared.
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
                  TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
                  QuerySource query_type);
 
     ~QueryContext();
+
+    void init_query_task_controller();
 
     ExecEnv* exec_env() { return _exec_env; }
 

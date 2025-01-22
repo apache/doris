@@ -75,7 +75,7 @@ std::unique_ptr<TaskController> QueryContext::QueryTaskController::create(QueryC
 }
 
 bool QueryContext::QueryTaskController::is_cancelled() const {
-    auto query_ctx = ensure_query_ctx();
+    auto query_ctx = query_ctx_.lock();
     if (query_ctx == nullptr) {
         return true;
     }
@@ -83,7 +83,7 @@ bool QueryContext::QueryTaskController::is_cancelled() const {
 }
 
 Status QueryContext::QueryTaskController::cancel(const Status& reason, int fragment_id) {
-    auto query_ctx = ensure_query_ctx();
+    auto query_ctx = query_ctx_.lock();
     if (query_ctx == nullptr) {
         return Status::InternalError("QueryContext is destroyed");
     }
@@ -93,6 +93,17 @@ Status QueryContext::QueryTaskController::cancel(const Status& reason, int fragm
 
 std::unique_ptr<MemoryContext> QueryContext::QueryMemoryContext::create() {
     return QueryContext::QueryMemoryContext::create_unique();
+}
+
+std::shared_ptr<QueryContext> QueryContext::create(TUniqueId query_id, ExecEnv* exec_env,
+                                                   const TQueryOptions& query_options,
+                                                   TNetworkAddress coord_addr, bool is_nereids,
+                                                   TNetworkAddress current_connect_fe,
+                                                   QuerySource query_type) {
+    auto ctx = QueryContext::create_shared(query_id, exec_env, query_options, coord_addr,
+                                           is_nereids, current_connect_fe, query_type);
+    ctx->init_query_task_controller();
+    return ctx;
 }
 
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
@@ -170,12 +181,13 @@ void QueryContext::_init_query_mem_tracker() {
 
 void QueryContext::_init_resource_context() {
     resource_ctx = ResourceContext::create_shared();
-
-    resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
-    resource_ctx->task_controller()->set_task_id(_query_id);
-
     resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
+}
+
+void QueryContext::init_query_task_controller() {
+    resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
+    resource_ctx->task_controller()->set_task_id(_query_id);
 }
 
 QueryContext::~QueryContext() {

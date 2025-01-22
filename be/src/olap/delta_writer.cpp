@@ -105,7 +105,7 @@ Status BaseDeltaWriter::init() {
     }
     auto* t_ctx = doris::thread_context(true);
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
-    if (t_ctx) {
+    if (t_ctx && t_ctx->is_attach_task()) {
         wg_sptr = t_ctx->resource_ctx()->workload_group_context()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
