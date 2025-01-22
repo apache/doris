@@ -34,7 +34,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -61,7 +60,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         );
     }
 
-    private static Expression extractCommonFactor(@NotNull CompoundPredicate originExpr) {
+    private static Expression extractCommonFactor(CompoundPredicate originExpr) {
         // fast return
         boolean canExtract = originExpr.children().stream().anyMatch(
                 child -> child instanceof CompoundPredicate || child instanceof BooleanLiteral);
