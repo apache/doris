@@ -732,6 +732,15 @@ class Suite implements GroovyInterceptable {
         runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
+    void checkNereidsExecute(String sqlString) {
+        sql (sqlString)
+    }
+
+    String checkNereidsExecuteWithResult(String sqlString) {
+        String result = sql (sqlString);
+        return result
+    }
+
     void createMV(String sql) {
         (new CreateMVAction(context, sql)).run()
     }
