@@ -119,6 +119,17 @@ suite("test_retry_e-230", 'docker') {
                 // dp again
                 cluster.injectDebugPoints(NodeType.BE, ['CloudTablet.capture_rs_readers.return.e-230' : null])
 
+                cluster.clearFrontendDebugPoints()
+                try {
+                    sql """insert into ${tbl2} select * from ${tbl1}"""
+                    assertFalse(true)
+                } catch (Exception e) {
+                    logger.info("Received expected exception when insert into select: {}", e.getMessage())
+                    assert e.getMessage().contains("[E-230]injected error"), "Unexpected exception message when insert into select"
+                }
+                
+                cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.retry.longtime' : null]) 
+
                 def futrue3 = thread {
                     Thread.sleep(4000)
                     cluster.clearBackendDebugPoints()
