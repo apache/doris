@@ -298,7 +298,11 @@ public:
     Status serialize_one_row_to_string(size_t row, BufferWritable& output) const;
 
     // serialize one row to json format
+<<<<<<< HEAD
     Status serialize_one_row_to_json_format(int64_t row, BufferWritable& output,
+=======
+    Status serialize_one_row_to_json_format(size_t row, rapidjson::StringBuffer* output,
+>>>>>>> upstream-apache/master
                                             bool* is_null) const;
 
     // Fill the `serialized_sparse_column`
