@@ -1680,6 +1680,12 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
+        // rowset [0-1] doesn't have resource id and object file
+        // rowset [0-1] only has meta
+        if (rs_meta.end_version() == 1) {
+            LOG_INFO("recycle [0-1] rs meta").tag("rs_meta", rs_meta.ShortDebugString());
+            continue;
+        }
         if (!rs_meta.has_resource_id()) {
             LOG_WARNING("rowset meta does not have a resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString())
