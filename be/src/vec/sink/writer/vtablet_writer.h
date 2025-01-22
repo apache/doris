@@ -683,8 +683,7 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
 
-    RuntimeState* _state = nullptr;     // not owned, set when open
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeState* _state = nullptr; // not owned, set when open
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
