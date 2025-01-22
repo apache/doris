@@ -3340,6 +3340,60 @@ TEST(function_string_test, function_rpad_test) {
             {{Null(), std::int32_t(0), Null()}, Null()},
     };
 
+    TEST(function_string_test, function_compress_uncompress_test) {
+        {
+            std::string func_name = "compress";
+            InputTypeSet input_types = {TypeIndex::String};
+
+            // Compress multiple different strings
+            DataSet data_set = {
+                {{Null()}, Null()},
+                // Example 1: Compress a regular string
+                {{std::string("Hello, world!")},
+                 "0x0D000000789CF348CDC9C9D75128CF2FCA49510400205E048A"},
+                // Example 2: Compress an empty string
+                {{std::string("")}, "0x"},
+                // Example 3: Compress a string with special characters
+                {{std::string("String with special characters! @#$%^&*()")},
+                 "0x29000000789C0B2E29CACC4B5728CF2CC950282E484DCE4CCC5148CE482C4A4C2E492D2A565
+                 4705056518D53D3D2D004003C2A0D81 "},
+                 // Example 4: Compress a string with leading and trailing spaces
+                 {{std::string("   This is a string with leading and trailing spaces   ")},
+                  "0x37000000789C15C7510A00101045D1ADDC45D9C00B3125C94CD93EEAFC1C2075731EE1B16D3
+                  68E456754951FCD426CD9F8F1A55C1DB8054B12C9 "}};
+
+                  static_cast<void>(
+                          check_function<DataTypeString, true>(func_name, input_types, data_set));
+        }
+
+        {
+            std::string func_name = "uncompress";
+            InputTypeSet input_types = {TypeIndex::String};
+
+            // Decompress multiple compressed strings
+            DataSet data_set = {
+                    {{Null()}, Null()},
+                    // Example 1: Decompress the result of compressing 'Hello, world!'
+                    {{std::string("0x0D000000789CF348CDC9C9D75128CF2FCA49510400205E048A")},
+                     "Hello, world!"},
+                    // Example 2: Decompress the result of compressing an empty string
+                    {{std::string("0x")}, ""},
+                    // Example 3: Decompress the result of compressing a string with special characters
+                    {{std::string("0x29000000789C0B2E29CACC4B5728CF2CC950282E484DCE4CCC5148CE482C4A
+                                  4C2E492D2A565
+                                  4705056518D53D3D2D004003C2A0D81")},
+                     "String with special characters! @#$%^&*()"},
+                    // Example 4: Decompress the result of compressing a string with leading and trailing spaces
+                    {{std::string("0x37000000789C15C7510A00101045D1ADDC45D9C00B3125C94CD93EEAFC1C20
+                                  75731EE1B16D3
+                                  68E456754951FCD426CD9F8F1A55C1DB8054B12C9")},
+                     "   This is a string with leading and trailing spaces   "}};
+
+            static_cast<void>(
+                    check_function<DataTypeString, true>(func_name, input_types, data_set));
+        }
+    }
+
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
