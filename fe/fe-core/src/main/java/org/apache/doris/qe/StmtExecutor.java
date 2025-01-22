@@ -1233,32 +1233,35 @@ public class StmtExecutor {
     }
 
     private boolean isProfileSafeStmt() {
-        if (parsedStmt instanceof LogicalPlanAdapter) {
-            LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        // fe/fe-core/src/main/java/org/apache/doris/nereids/NereidsPlanner.java:131
+        // Only generate profile for NereidsPlanner.
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
 
-            if (plan instanceof InsertIntoTableCommand) {
-                LogicalPlan query = ((InsertIntoTableCommand) plan).getLogicalQuery();
-                if (query instanceof UnboundTableSink) {
-                    // if any child node is union node, we should not profile it
-                    if (query.children() == null) {
+        LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        if (plan instanceof InsertIntoTableCommand) {
+            LogicalPlan query = ((InsertIntoTableCommand) plan).getLogicalQuery();
+            if (query instanceof UnboundTableSink) {
+                // if any child node is union node, we should not profile it
+                if (query.children() == null) {
+                    return false;
+                }
+
+                for (Plan child : query.children()) {
+                    if (child instanceof LogicalUnion || child instanceof UnboundOneRowRelation
+                            || child instanceof InlineTable) {
                         return false;
                     }
-
-                    for (Plan child : query.children()) {
-                        if (child instanceof LogicalUnion || child instanceof UnboundOneRowRelation
-                            || child instanceof InlineTable) {
-                            return false;
-                        }
-                    }
-                    return true;
                 }
-            } else if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                        && !(plan instanceof CreateTableCommand)) {
-                return false;
-            } else {
                 return true;
             }
+        } else if ((plan instanceof Command) && !(plan instanceof LoadCommand)
+                    && !(plan instanceof CreateTableCommand)) {
+            return false;
         }
+
         return true;
     }
 
