@@ -40,23 +40,6 @@ struct PredicateParams {
     bool marked_by_runtime_filter = false;
 };
 
-enum class PredicateType {
-    UNKNOWN = 0,
-    EQ = 1,
-    NE = 2,
-    LT = 3,
-    LE = 4,
-    GT = 5,
-    GE = 6,
-    IN_LIST = 7,
-    NOT_IN_LIST = 8,
-    IS_NULL = 9,
-    IS_NOT_NULL = 10,
-    BF = 11,            // BloomFilter
-    BITMAP_FILTER = 12, // BitmapFilter
-    MATCH = 13,         // fulltext match
-};
-
 template <PrimitiveType primitive_type, typename ResultType>
 ResultType get_zone_map_value(void* data_ptr) {
     ResultType res;
@@ -263,9 +246,9 @@ public:
     }
 
     virtual int get_filter_id() const { return -1; }
-    PredicateFilterInfo get_filtered_info() const {
-        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
-                                    _evaluated_rows - 1 - _passed_rows};
+    PredicateRuntimeFilterInfo get_filtered_info() const {
+        return PredicateRuntimeFilterInfo {type(), _evaluated_rows - 1,
+                                           _evaluated_rows - 1 - _passed_rows};
     }
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
