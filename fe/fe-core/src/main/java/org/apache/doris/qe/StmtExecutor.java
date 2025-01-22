@@ -142,7 +142,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -169,7 +168,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -1242,27 +1240,28 @@ public class StmtExecutor {
         LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
         if (plan instanceof InsertIntoTableCommand) {
-            LogicalPlan query = ((InsertIntoTableCommand) plan).getLogicalQuery();
-            if (query instanceof UnboundTableSink) {
-                // if any child node is union node, we should not profile it
-                if (query.children() == null) {
+            LogicalPlan logicalPlan = ((InsertIntoTableCommand) plan).getLogicalQuery();
+            if (logicalPlan instanceof UnboundTableSink) {
+                if (logicalPlan.children() == null || logicalPlan.children().isEmpty()) {
                     return false;
                 }
 
-                for (Plan child : query.children()) {
-                    if (child instanceof LogicalUnion || child instanceof UnboundOneRowRelation
-                            || child instanceof InlineTable) {
+                for (Plan child : logicalPlan.children()) {
+                    if (child instanceof InlineTable) {
                         return false;
                     }
                 }
-                return true;
             }
-        } else if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                    && !(plan instanceof CreateTableCommand)) {
-            return false;
+            return true;
         }
 
-        return true;
+        // Generate profile for CreateTableCommand(mainly for create as select).
+        if ((plan instanceof Command) && !(plan instanceof LoadCommand)
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+            return false;
+        } else {
+            return true;
+        }
     }
 
     private void forwardToMaster() throws Exception {
