@@ -77,6 +77,7 @@ suite("test_base_mtmv","mtmv") {
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_add_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // rename column
     sql """
         alter table ${tableName} rename COLUMN new_col new_col_1;
@@ -88,7 +89,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // modify column
     sql """
         alter table ${tableName} modify COLUMN new_col_1 BIGINT;
@@ -100,7 +101,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // drop column
     sql """
         alter table ${tableName} drop COLUMN new_col_1;
@@ -112,7 +113,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // replace table
      sql """
     ALTER TABLE ${tableName} REPLACE WITH TABLE ${newTableName} PROPERTIES('swap' = 'false');
@@ -123,7 +124,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // rename table
      sql """
     ALTER TABLE ${tableName} rename ${newTableName};
