@@ -110,6 +110,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static String MICRO_SECOND_FORMATTER = "%f";
     private static final int ALLOW_SPACE_MASK = 4 | 64;
     private static final int MAX_DATE_PARTS = 8;
     private static final int YY_PART_YEAR = 70;
@@ -998,6 +999,10 @@ public class DateLiteral extends LiteralExpr {
 
     public static boolean hasTimePart(String format) {
         return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
+    }
+
+    public static boolean hasMicroSecondPart(String format) {
+        return format.indexOf(MICRO_SECOND_FORMATTER) != -1;
     }
 
     // Return the date stored in the dateliteral as pattern format.
