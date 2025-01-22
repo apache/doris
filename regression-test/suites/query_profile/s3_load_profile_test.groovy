@@ -203,10 +203,8 @@ PROPERTIES (
     }
     def masterAddress = masterIP + ":" + masterHTTPPort
     logger.info("masterIP:masterHTTPPort is:${masterAddress}")
-    
-    def wholeString = getProfileList(masterAddress)
 
-    def profileString = getProfile(jobId)
+    def profileString = getProfile(masterAddress, jobId)
     logger.info("profileDataString:" + profileString)
     assertTrue(profileString.contains("NumScanners"))
     assertTrue(profileString.contains("RowsProduced"))
