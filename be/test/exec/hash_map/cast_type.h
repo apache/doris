@@ -29,4 +29,4 @@ static inline bool cast_type(const IDataType* type, F&& f) {
                                DataTypeInt128, DataTypeFloat32, DataTypeFloat64, DataTypeString>(
             type, std::forward<F>(f));
 }
-} // namespace doris
+} // namespace doris::vectorized

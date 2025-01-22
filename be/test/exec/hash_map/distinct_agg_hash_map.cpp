@@ -74,12 +74,12 @@ std::pair<ColumnPtr, size_t> create_column_duplicates() {
     return std::make_pair(std::move(column_ptr), datas.size());
 }
 
-void create_key_column(DataTypes types, DistinctAggHashMapParams& params) {
+void create_key_column(DistinctAggHashMapParams& params) {
     std::vector<ColumnPtr> key_columns;
     std::vector<ColumnPtr> key_columns_holder;
     std::vector<size_t> except_sizes;
     // using LeftDataType = std::decay_t<decltype(left)>;
-    for (auto type : types) {
+    for (auto type : params.key_types) {
         auto vaild = cast_type(type.get(), [&](auto&& t) {
             using Type = std::decay_t<decltype(t)>;
             auto [column, size] = create_column_duplicates<Type>();
@@ -93,15 +93,10 @@ void create_key_column(DataTypes types, DistinctAggHashMapParams& params) {
     }
 }
 
-void test_for_types(DataTypes types) {
-    DistinctAggHashMapParams params;
-    params.key_types = types;
-
+void test_for_params(DistinctAggHashMapParams& params) {
     DistinctDataVariants distinct_data;
 
-    EXPECT_TRUE(init_hash_method(&distinct_data, types, true).ok());
-
-    create_key_column(types, params);
+    EXPECT_TRUE(init_hash_method(&distinct_data, params.key_types, true).ok());
 
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
@@ -127,14 +122,23 @@ void test_for_types(DataTypes types) {
                        }},
                distinct_data.method_variant);
 
-    std::visit(vectorized::Overload {[&](std::monostate& arg) {
-                                         // Do nothing
-                                     },
-                                     [&](auto& agg_method) {
-                                         EXPECT_EQ(agg_method.hash_table->size(),
-                                                   params.except_size);
-                                     }},
-               distinct_data.method_variant);
+    std::visit(
+            vectorized::Overload {[&](std::monostate& arg) {
+                                      // Do nothing
+                                  },
+                                  [&](auto& agg_method) {
+                                      EXPECT_EQ(agg_method.hash_table->size(), params.except_size);
+                                      std::cout << "hasmap size : " << agg_method.hash_table->size()
+                                                << std::endl;
+                                  }},
+            distinct_data.method_variant);
+}
+
+void test_for_types(DataTypes types) {
+    DistinctAggHashMapParams params;
+    params.key_types = types;
+    create_key_column(params);
+    test_for_params(params);
 }
 
 TEST(DistinctAggHashMapTest, optimismtest) {
@@ -167,4 +171,33 @@ TEST(DistinctAggHashMapTest, enumeratetest) {
         }
     }
 }
+
+TEST(DistinctAggHashMapTest, specialtest) {
+    DistinctAggHashMapParams params;
+    params.key_types = {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()};
+
+    {
+        auto column = ColumnInt32::create();
+        column->insert_value(1);
+        column->insert_value(1);
+        column->insert_value(1);
+
+        params.key_columns.push_back(column.get());
+        params.key_columns_holder.push_back(std::move(column));
+    }
+    {
+        auto column = ColumnInt32::create();
+        column->insert_value(1);
+        column->insert_value(2);
+        column->insert_value(1);
+
+        params.key_columns.push_back(column.get());
+        params.key_columns_holder.push_back(std::move(column));
+    }
+
+    params.except_size = 2; // except size
+    // {1,1} {1,2} {1,1}
+    test_for_params(params);
+}
+
 } // namespace doris::vectorized
