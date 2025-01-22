@@ -62,6 +62,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -173,7 +174,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     private boolean reserveReplica = false;
     private boolean reserveDynamicPartitionEnable = false;
-
+    private long createReplicasTimeStamp = -1;
     // this 2 members is to save all newly restored objs
     // tbl name -> part
     @SerializedName("rp")
@@ -981,6 +982,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // No log here, PENDING state restore job will redo this method
         state = RestoreJobState.CREATING;
+        createReplicasTimeStamp = System.currentTimeMillis();
     }
 
     private void waitingAllReplicasCreated() {
@@ -989,6 +991,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (!createReplicaTasksLatch.await(0, TimeUnit.SECONDS)) {
                 LOG.info("waiting {} create replica tasks for restore to finish. {}",
                         createReplicaTasksLatch.getCount(), this);
+                long createReplicasTimeOut = DbUtil.getCreateReplicasTimeoutMs(createReplicaTasksLatch.getMarkCount());
+                long tryCreateTime = System.currentTimeMillis() - createReplicasTimeStamp;
+                if (tryCreateTime > createReplicasTimeOut) {
+                    status = new Status(ErrCode.TIMEOUT,
+                            "restore job with create replicas timeout: " + tryCreateTime + " with label: " + label);
+                    cancelInternal(false);
+                    LOG.warn("restore job {} create replicas timeout, cancel {}", jobId, this);
+                }
                 return;
             }
         } catch (InterruptedException e) {
@@ -2378,6 +2388,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             snapshotInfos.clear();
             fileMapping.clear();
             jobInfo.releaseSnapshotInfo();
+            createReplicasTimeStamp = -1;
 
             RestoreJobState curState = state;
             finishedTime = System.currentTimeMillis();
