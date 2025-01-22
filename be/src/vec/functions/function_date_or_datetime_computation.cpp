@@ -136,6 +136,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMicroSecToDateTime>();
     factory.register_function<FunctionMilliSecToDateTime>();
     factory.register_function<FunctionSecToDateTime>();
+    factory.register_function<FunctionTime>();
 
     // alias
     factory.register_alias("days_add", "date_add");
