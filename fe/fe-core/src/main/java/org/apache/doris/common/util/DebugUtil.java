@@ -246,18 +246,21 @@ public class DebugUtil {
             return result.toString();
         }
 
-        result.append(String.format("%-10s %-10s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-15s\n", 
-            "NodeID", "InstanceNum", "InputRows", "OutputRows", "CommonFilterRows", "RuntimeFilterRows", 
-            "JoinBuilderRows", "JoinProbeRows", "JoinBuilderSkewRatio", "JoinProbeSkewRatio"));
+        result.append(String.format("%-10s %-10s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-15s\n",
+            "NodeID", "InstanceNum", "InputRows", "OutputRows", "CommonFilterRows", "CommonFilterInputRows",
+                "RuntimeFilterRows", "RuntimeFilterInputRows", "JoinBuilderRows", "JoinProbeRows",
+                "JoinBuilderSkewRatio", "JoinProbeSkewRatio"));
 
         for (TPlanNodeRuntimeStatsItem item : planNodeRuntimeStatsItems) {
-            result.append(String.format("%-10d %-10d %-15d %-15d %-15d %-15d %-15d %-15d %-15.2f %-15.2f\n", 
+            result.append(String.format("%-10d %-10d %-15d %-15d %-15d %-15d %-15d %-15d %-15d %-15d %-15.2f %-15.2f\n",
                 item.getNodeId(),
                 item.getInstanceNum(),
                 item.getInputRows(),
                 item.getOutputRows(),
                 item.getCommonFilterRows(),
+                item.getCommonFilterInputRows(),
                 item.getRuntimeFilterRows(),
+                item.getRuntimeFilterInputRows(),
                 item.getJoinBuilderRows(),
                 item.getJoinProbeRows(),
                 item.getJoinBuilderSkewRatio(),
