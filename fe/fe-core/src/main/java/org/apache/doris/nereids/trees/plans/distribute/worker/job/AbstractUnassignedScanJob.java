@@ -74,7 +74,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             DistributeContext distributeContext) {
 
         ConnectContext context = statementContext.getConnectContext();
-        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel();
+        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel(distributeContext);
         List<AssignedJob> instances = Lists.newArrayList();
         for (Entry<DistributedPlanWorker, UninstancedScanSource> entry : workerToScanRanges.entrySet()) {
             DistributedPlanWorker worker = entry.getKey();
@@ -103,8 +103,8 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         return instances;
     }
 
-    protected boolean useLocalShuffleToAddParallel() {
-        return fragment.useSerialSource(statementContext.getConnectContext());
+    protected boolean useLocalShuffleToAddParallel(DistributeContext distributeContext) {
+        return fragment.useSerialSource(distributeContext.isLoadJob ? null : statementContext.getConnectContext());
     }
 
     protected void assignedDefaultJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,

@@ -52,7 +52,8 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        useSerialSource = fragment.useSerialSource(statementContext.getConnectContext());
+        useSerialSource = fragment.useSerialSource(
+                distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
         int expectInstanceNum = degreeOfParallelism();
         List<AssignedJob> biggestParallelChildFragment = getInstancesOfBiggestParallelChildFragment(inputJobs);

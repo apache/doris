@@ -25,9 +25,11 @@ import java.util.Objects;
 public class DistributeContext {
     public final DistributedPlanWorkerManager workerManager;
     public final SelectedWorkers selectedWorkers;
+    public final boolean isLoadJob;
 
-    public DistributeContext(DistributedPlanWorkerManager workerManager) {
+    public DistributeContext(DistributedPlanWorkerManager workerManager, boolean isLoadJob) {
         this.workerManager = Objects.requireNonNull(workerManager, "workerManager can not be null");
         this.selectedWorkers = new SelectedWorkers(workerManager);
+        this.isLoadJob = isLoadJob;
     }
 }

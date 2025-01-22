@@ -35,8 +35,9 @@ import java.util.Map.Entry;
 public class AssignedJobBuilder {
     /** buildJobs */
     public static ListMultimap<PlanFragmentId, AssignedJob> buildJobs(
-            Map<PlanFragmentId, UnassignedJob> unassignedJobs, BackendDistributedPlanWorkerManager workerManager) {
-        DistributeContext distributeContext = new DistributeContext(workerManager);
+            Map<PlanFragmentId, UnassignedJob> unassignedJobs, BackendDistributedPlanWorkerManager workerManager,
+            boolean isLoadJob) {
+        DistributeContext distributeContext = new DistributeContext(workerManager, isLoadJob);
         ListMultimap<PlanFragmentId, AssignedJob> allAssignedJobs = ArrayListMultimap.create();
         for (Entry<PlanFragmentId, UnassignedJob> kv : unassignedJobs.entrySet()) {
             PlanFragmentId fragmentId = kv.getKey();

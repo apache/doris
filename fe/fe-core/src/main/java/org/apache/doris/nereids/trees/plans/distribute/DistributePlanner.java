@@ -74,7 +74,7 @@ public class DistributePlanner {
     }
 
     /** plan */
-    public FragmentIdMapping<DistributedPlan> plan() {
+    public FragmentIdMapping<DistributedPlan> plan(boolean isLoadJob) {
         updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
         try {
             BackendDistributedPlanWorkerManager workerManager
@@ -83,7 +83,7 @@ public class DistributePlanner {
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
             ListMultimap<PlanFragmentId, AssignedJob> instanceJobs
-                    = AssignedJobBuilder.buildJobs(fragmentJobs, workerManager);
+                    = AssignedJobBuilder.buildJobs(fragmentJobs, workerManager, isLoadJob);
             FragmentIdMapping<DistributedPlan> distributedPlans = buildDistributePlans(fragmentJobs, instanceJobs);
             FragmentIdMapping<DistributedPlan> linkedPlans = linkPlans(distributedPlans);
             updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
