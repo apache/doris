@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -30,6 +32,8 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -575,8 +579,16 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "str_to_date", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression strToDate(VarcharLiteral str, VarcharLiteral format) {
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
-            return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
+            if (returnType instanceof DateTimeV2Type) {
+                boolean hasMicroPart = org.apache.doris.analysis.DateLiteral
+                        .hasMicroSecondPart(format.getStringValue());
+                return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                    .toFormatter(), str.getValue()), hasMicroPart ? 6 : 0);
+            } else {
+                return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
                     .toFormatter(), str.getValue()));
+            }
         } else {
             return DateV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
                     .toFormatter(), str.getValue()));
