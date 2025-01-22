@@ -73,6 +73,11 @@ public:
     static UInt128 get_parts_hash(const Parts& parts_);
     bool empty() const { return parts.empty(); }
     const vectorized::String& get_path() const { return path; }
+    // if path is v.a.b, then relative path will return a.b
+    // make sure the parts is not empty
+    std::string_view get_relative_path() const {
+        return {path.begin() + parts[0].key.size() + 1, path.end()};
+    }
     const Parts& get_parts() const { return parts; }
     bool is_nested(size_t i) const { return parts[i].is_nested; }
     bool has_nested_part() const { return has_nested; }

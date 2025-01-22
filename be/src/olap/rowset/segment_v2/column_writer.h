@@ -35,6 +35,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
+#include "vec/columns/column.h"
 
 namespace doris {
 
@@ -473,6 +474,56 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
+};
+
+// used for compaction to write sub variant column
+class VariantSubcolumnWriter : public ColumnWriter {
+public:
+    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                    std::unique_ptr<Field> field);
+
+    ~VariantSubcolumnWriter() override = default;
+
+    Status init() override;
+
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+
+    Status write_zone_map() override;
+
+    Status write_bitmap_index() override;
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override;
+    ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("variant writer can not append_nulls");
+    }
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+
+    Status finish_current_page() override {
+        return Status::NotSupported("variant writer has no data, can not finish_current_page");
+    }
+
+    size_t get_non_null_size() const { return none_null_size; }
+
+    Status finalize();
+
+private:
+    bool is_finalized() const;
+    bool _is_finalized = false;
+    ordinal_t _next_rowid = 0;
+    size_t none_null_size = 0;
+    vectorized::MutableColumnPtr _column;
+    const TabletColumn* _tablet_column = nullptr;
+    ColumnWriterOptions _opts;
+    std::unique_ptr<ColumnWriter> _writer;
+    std::unique_ptr<TabletIndex> _index;
 };
 
 class VariantColumnWriter : public ColumnWriter {

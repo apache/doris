@@ -37,6 +37,7 @@ struct SubstreamIterator {
     vectorized::MutableColumnPtr column;
     std::unique_ptr<ColumnIterator> iterator;
     std::shared_ptr<const vectorized::IDataType> type;
+    std::shared_ptr<vectorized::DataTypeSerDe> serde;
     bool inited = false;
     size_t rows_read = 0;
     SubstreamIterator() = default;

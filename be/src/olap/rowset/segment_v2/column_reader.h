@@ -144,6 +144,8 @@ public:
                                  std::unique_ptr<ColumnReader>* reader);
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
+    static bool is_compaction_reader_type(ReaderType type);
+
     ~ColumnReader() override;
 
     // create a new column iterator. Client should delete returned iterator
@@ -329,15 +331,21 @@ public:
 
     TabletIndex* find_subcolumn_tablet_index(const std::string&);
 
+    bool exist_in_sparse_column(const vectorized::PathInData& path) const;
+
 private:
-    bool _read_flat_leaves(ReaderType type, const TabletColumn& target_col);
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIterator** iterator, const TabletColumn& col);
-    Status _new_iterator_with_flat_leaves(ColumnIterator** iterator, const TabletColumn& col);
+    Status _new_iterator_with_flat_leaves(ColumnIterator** iterator, const TabletColumn& col,
+                                          const StorageReadOptions* opts,
+                                          bool exceeded_sparse_column_limit,
+                                          bool existed_in_sparse_column);
 
     Status _create_hierarchical_reader(ColumnIterator** reader, vectorized::PathInData path,
                                        const SubcolumnColumnReaders::Node* node,
                                        const SubcolumnColumnReaders::Node* root);
+    Status _create_sparse_merge_reader(ColumnIterator** iterator, const StorageReadOptions* opts,
+                                       const TabletColumn& target_col, ColumnIterator* inner_iter);
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;

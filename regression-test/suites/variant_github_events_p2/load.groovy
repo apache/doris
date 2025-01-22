@@ -150,6 +150,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
+    int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
+    // int rand_subcolumns_count = 0;
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -158,7 +160,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
     """
     
     // 2015
@@ -227,7 +229,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false",
+                            "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""

@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -41,7 +42,9 @@
 
 namespace doris {
 enum class FieldType;
-
+namespace segment_v2 {
+struct VariantStatisticsPB;
+} // namespace segment_v2
 namespace vectorized {
 class Block;
 class IColumn;
@@ -87,7 +90,7 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config);
-Status encode_variant_sparse_subcolumns(ColumnObject& column);
+// Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -129,5 +132,12 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 
 // create ColumnMap<String, String>
 TabletColumn create_sparse_column(const TabletColumn& variant);
+
+// Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
+Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
+
+// Calculate statistics about variant data paths from the encoded sparse column
+void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                             segment_v2::VariantStatisticsPB* stats);
 
 } // namespace  doris::vectorized::schema_util

@@ -175,6 +175,7 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
+    void _maybe_calculate_variant_stats(const vectorized::Block* block, size_t id, size_t cid);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos);
     // used for unique-key with merge on write and segment min_max key
