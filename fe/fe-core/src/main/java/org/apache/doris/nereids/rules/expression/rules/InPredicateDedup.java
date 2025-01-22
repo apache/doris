@@ -22,12 +22,11 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * Deduplicate InPredicate, For example:
@@ -52,12 +51,7 @@ public class InPredicateDedup implements ExpressionPatternRuleFactory {
 
     /** dedup */
     public static Expression dedup(InPredicate inPredicate) {
-        ImmutableSet.Builder<Expression> newOptionsBuilder = ImmutableSet.builderWithExpectedSize(inPredicate.arity());
-        for (Expression option : inPredicate.getOptions()) {
-            newOptionsBuilder.add(option);
-        }
-
-        Set<Expression> newOptions = newOptionsBuilder.build();
+        List<Expression> newOptions = ExpressionUtils.dedupFoldableExpression(inPredicate.getOptions());
         if (newOptions.size() == inPredicate.getOptions().size()) {
             return inPredicate;
         }

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -210,5 +211,21 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
         System.out.println(rewritten);
+    }
+
+    @Test
+    void testNonfoldable() {
+        testExtractMode("(a=random(1, 10) and b = random(1, 10)) or (a=random(1, 20) and b = random(1, 20))",
+                "OR[AND[(a = random(1, 10)),(b = random(1, 10))],AND[(a = random(1, 20)),(b = random(1, 20))]]");
+        testExtractMode("(a=random(1, 10) and b = random(1, 10)) or (a=random(1, 10) and b = random(1, 10))",
+                "OR[AND[(a = random(1, 10)),(b = random(1, 10))],AND[(a = random(1, 10)),(b = random(1, 10))]]");
+        testExtractMode("(a + random(1, 10) = 4 and b + random(1, 10) = 4) or (a + random(1, 10) = 8 and b + random(1, 10) = 8)",
+                "OR[AND[((a + random(1, 10)) = 4),((b + random(1, 10)) = 4)],AND[((a + random(1, 10)) = 8),((b + random(1, 10)) = 8)]]");
+    }
+
+    private void testExtractMode(String expr, String result) {
+        Expression expression = typeCoercion(replaceUnboundSlot(PARSER.parseExpression(expr), Maps.newHashMap()));
+        Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
+        Assertions.assertEquals(result, rewritten.toSql());
     }
 }

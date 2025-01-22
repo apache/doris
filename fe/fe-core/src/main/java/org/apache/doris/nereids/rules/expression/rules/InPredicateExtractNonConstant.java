@@ -26,16 +26,13 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
 import org.apache.hadoop.util.Lists;
 
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Extract non-constant of InPredicate, For example:
- * where k1 in (k2, k3, 10, 20, 30) ==> where k1 in (10, 20, 30) or k1 = k2 or k1 = k3.
+ * where k1 in (k2, k3, 10, 20, 30) ==> where k1 = k2 or k1 = k3 or k1 in (10, 20, 30).
  * It's because backend handle in predicate which contains none-constant column will reduce performance.
  */
 public class InPredicateExtractNonConstant implements ExpressionPatternRuleFactory {
@@ -53,24 +50,21 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
     }
 
     private Expression rewrite(InPredicate inPredicate) {
-        Set<Expression> nonConstants = Sets.newLinkedHashSetWithExpectedSize(inPredicate.arity());
+        Expression key = inPredicate.getCompareExpr();
+        List<Expression> constants = Lists.newArrayListWithExpectedSize(inPredicate.getOptions().size());
+        List<Expression> disjunctions = Lists.newArrayList();
         for (Expression option : inPredicate.getOptions()) {
-            if (!option.isConstant()) {
-                nonConstants.add(option);
+            if (option.isConstant()) {
+                constants.add(option);
+            } else {
+                disjunctions.add(new EqualTo(key, option));
             }
         }
-        if (nonConstants.isEmpty()) {
+        if (disjunctions.isEmpty()) {
             return inPredicate;
         }
-        Expression key = inPredicate.getCompareExpr();
-        List<Expression> disjunctions = Lists.newArrayListWithExpectedSize(inPredicate.getOptions().size());
-        List<Expression> constants = inPredicate.getOptions().stream().filter(Expression::isConstant)
-                .collect(Collectors.toList());
         if (!constants.isEmpty()) {
             disjunctions.add(ExpressionUtils.toInPredicateOrEqualTo(key, constants));
-        }
-        for (Expression option : nonConstants) {
-            disjunctions.add(new EqualTo(key, option));
         }
         return ExpressionUtils.or(disjunctions);
     }
