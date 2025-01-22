@@ -369,7 +369,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public boolean isBatchMode() {
         // TODO Use a better judgment method to decide whether to use batch mode.
-        return sessionVariable.getNumPartitionsInBatchMode() > SessionVariable.NUM_PARTITIONS_IN_BATCH_MODE_DEFAULT;
+        return sessionVariable.getNumPartitionsInBatchMode() > 1024;
     }
 
     public Long getSpecifiedSnapshot() throws UserException {
