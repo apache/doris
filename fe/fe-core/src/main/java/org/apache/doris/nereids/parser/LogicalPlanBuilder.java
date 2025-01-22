@@ -2387,37 +2387,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCurrentDate(DorisParser.CurrentDateContext ctx) {
-        return new CurrentDate().alias("CURRENT_DATE");
+        return new CurrentDate();
     }
 
     @Override
     public Expression visitCurrentTime(DorisParser.CurrentTimeContext ctx) {
-        return new CurrentTime().alias("CURRENT_TIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitCurrentTimestamp(DorisParser.CurrentTimestampContext ctx) {
-        return new Now().alias("CURRENT_TIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitLocalTime(DorisParser.LocalTimeContext ctx) {
-        return new CurrentTime().alias("LOCALTIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitLocalTimestamp(DorisParser.LocalTimestampContext ctx) {
-        return new Now().alias("LOCALTIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitCurrentUser(DorisParser.CurrentUserContext ctx) {
-        return new CurrentUser().alias("CURRENT_USER");
+        return new CurrentUser();
     }
 
     @Override
     public Expression visitSessionUser(DorisParser.SessionUserContext ctx) {
-        return new SessionUser().alias("SESSION_USER");
+        return new SessionUser();
     }
 
     @Override
