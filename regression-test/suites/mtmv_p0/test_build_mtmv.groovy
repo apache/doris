@@ -483,7 +483,7 @@ suite("test_build_mtmv") {
     jobName = getJobName("regression_test_mtmv_p0", mvNameRenamed);
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvNameRenamed}"
-    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvNameRenamed}")
     sql """
         DROP MATERIALIZED VIEW ${mvNameRenamed}
     """
