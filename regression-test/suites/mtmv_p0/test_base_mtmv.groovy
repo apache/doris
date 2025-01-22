@@ -158,6 +158,9 @@ suite("test_base_mtmv","mtmv") {
         );
     """
     sql """
+        INSERT INTO ${tableName} VALUES("2022-10-26",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
+    """
+    sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
