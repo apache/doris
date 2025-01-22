@@ -17,7 +17,6 @@
 
 #include "vec/functions/function_date_or_datetime_computation.h"
 
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -137,7 +136,6 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMicroSecToDateTime>();
     factory.register_function<FunctionMilliSecToDateTime>();
     factory.register_function<FunctionSecToDateTime>();
-    factory.register_function<FunctionTime>();
 
     // alias
     factory.register_alias("days_add", "date_add");

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeLiteral;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -489,10 +488,5 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral((int) date.getDay());
-    }
-
-    @ExecFunction(name = "time")
-    public static Expression time(DateTimeV2Literal date) {
-        return new TimeLiteral(date.getHour(), date.getMinute(), date.getSecond());
     }
 }

@@ -33,7 +33,7 @@ import java.time.temporal.TemporalAccessor;
 
 public class TimeLiteral extends LiteralExpr {
 
-    public static final TimeLiteral MIN_TIME = new TimeLiteral(-838, -59, -59);
+    public static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0);
     public static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59);
 
     protected long hour;
@@ -141,7 +141,7 @@ public class TimeLiteral extends LiteralExpr {
         long m = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
         long s = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
 
-        if (h > 99 || h < -99) {
+        if (h > 99) {
             return String.format("%03d:%02d:%02d", h, m, s);
         }
         return String.format("%02d:%02d:%02d", h, m, s);
