@@ -93,7 +93,8 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return retainExpression;
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd2(T sort, List<OrderKey> inputOrderKeys) {
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd2(T sort,
+            List<OrderKey> inputOrderKeys) {
         Map<Expression, Integer> slotToIndex = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
         List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
