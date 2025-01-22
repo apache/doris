@@ -259,7 +259,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        scan = scan.planWith(source.getCatalog().getThreadPool());
+        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
         return scan;
     }

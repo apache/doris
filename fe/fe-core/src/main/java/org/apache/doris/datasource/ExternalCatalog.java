@@ -160,7 +160,7 @@ public abstract class ExternalCatalog
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected PreExecutionAuthenticator preExecutionAuthenticator;
-    protected ThreadPoolExecutor threadPool;
+    protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -719,8 +719,8 @@ public abstract class ExternalCatalog
     @Override
     public void onClose() {
         removeAccessController();
-        if (threadPool != null) {
-            ThreadPoolManager.shutdownExecutorService(threadPool);
+        if (threadPoolWithPreAuth != null) {
+            ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
         CatalogIf.super.onClose();
     }
