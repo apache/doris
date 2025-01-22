@@ -50,6 +50,7 @@ suite("test_base_mtmv","mtmv") {
     """
 
     sql """drop materialized view if exists ${mvName};"""
+    String querySql = "SELECT event_day,id,username FROM ${tableName}";
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -57,7 +58,7 @@ suite("test_base_mtmv","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
-        SELECT event_day,id,username FROM ${tableName};
+        ${querySql};
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     order_qt_init "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
@@ -66,6 +67,8 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
 
     // add column
     sql """
