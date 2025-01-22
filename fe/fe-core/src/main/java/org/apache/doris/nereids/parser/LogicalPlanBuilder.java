@@ -854,6 +854,8 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
+    private static String JOB_NAME = "jobName";
+    private static String TASK_ID = "taskId";
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
     private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
@@ -932,27 +934,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitPauseJob(DorisParser.PauseJobContext ctx) {
-        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName", ctx);
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), JOB_NAME, ctx);
         return new PauseJobCommand(stripQuotes(ctx.jobNameValue.getText()));
     }
 
     @Override
     public LogicalPlan visitDropJob(DorisParser.DropJobContext ctx) {
-        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName", ctx);
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), JOB_NAME, ctx);
         boolean ifExists = ctx.EXISTS() != null;
         return new DropJobCommand(stripQuotes(ctx.jobNameValue.getText()), ifExists);
     }
 
     @Override
     public LogicalPlan visitResumeJob(DorisParser.ResumeJobContext ctx) {
-        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName", ctx);
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), JOB_NAME, ctx);
         return new ResumeJobCommand(stripQuotes(ctx.jobNameValue.getText()));
     }
 
     @Override
     public LogicalPlan visitCancelJobTask(DorisParser.CancelJobTaskContext ctx) {
-        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName", ctx);
-        checkJobNameKey(stripQuotes(ctx.taskIdKey.getText()), "taskId", ctx);
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), JOB_NAME, ctx);
+        checkJobNameKey(stripQuotes(ctx.taskIdKey.getText()), TASK_ID, ctx);
         String jobName = stripQuotes(ctx.jobNameValue.getText());
         Long taskId = Long.valueOf(ctx.taskIdValue.getText());
         return new CancelJobTaskCommand(jobName, taskId);
