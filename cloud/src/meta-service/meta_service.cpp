@@ -939,15 +939,27 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
     }
 }
 
+/**
+ * Fills schema information into the rowset meta from the dictionary.
+ * Handles schemas with variant types by retrieving the complete schema from the dictionary.
+ *
+ * @param code Result code indicating the operation status.
+ * @param msg Error description for failed operations.
+ * @param instance_id Identifier for the specific instance.
+ * @param txn Pointer to the transaction object for transactional operations.
+ * @param existed_rowset_meta Rowset meta object to be updated with schema information.
+ */
 static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
                                   const std::string& instance_id, Transaction* txn,
                                   doris::RowsetMetaCloudPB* existed_rowset_meta) {
     google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB> metas;
     metas.Add()->CopyFrom(*existed_rowset_meta);
+    // Retrieve schema from the dictionary and update metas.
     read_schema_dict(code, msg, instance_id, existed_rowset_meta->index_id(), txn, &metas, nullptr);
     if (code != MetaServiceCode::OK) {
         return;
     }
+    // Update the original rowset meta with the complete schema from metas.
     existed_rowset_meta->CopyFrom(metas.Get(0));
 }
 
