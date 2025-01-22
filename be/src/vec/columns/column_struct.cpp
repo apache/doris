@@ -350,6 +350,14 @@ size_t ColumnStruct::allocated_bytes() const {
     return res;
 }
 
+size_t ColumnStruct::capacity() const {
+    size_t res = 0;
+    for (const auto& column : columns) {
+        res += column->capacity();
+    }
+    return res;
+}
+
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {
     for (auto& column : columns) {
         callback(column);

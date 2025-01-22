@@ -416,6 +416,24 @@ size_t Block::bytes() const {
     return res;
 }
 
+size_t Block::capacity() const {
+    size_t res = 0;
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method capacity. All Columns are {}",
+                            elem.name, ss.str());
+        }
+        res += elem.column->capacity();
+    }
+
+    return res;
+}
+
 std::string Block::columns_bytes() const {
     std::stringstream res;
     res << "column bytes: [";

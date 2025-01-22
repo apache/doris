@@ -321,6 +321,8 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    size_t capacity() const override { return data.capacity(); }
+
     void reserve(size_t n) override { data.reserve(n); }
 
     std::string get_name() const override { return TypeName<T>::get(); }
