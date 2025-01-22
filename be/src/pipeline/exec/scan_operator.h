@@ -97,6 +97,22 @@ protected:
 
     virtual Status _init_profile() = 0;
 
+    // Collect bloom runtime filter filtering statistics.
+    // Runtime filters can be executed either as expressions or predicates.
+    // When executed as predicates, some filters may be transformed into other predicates
+    // (e.g., minmax filters become max/min predicates for index lookup, or combined with
+    // other predicates into key ranges). In such cases, it's difficult to track the filter id.
+    // Therefore, we only collect statistics for bloom filters here to help optimizer analysis.
+    void collect_bloom_runtime_filter_statistics();
+
+    // mapping from filter id to filter info
+    // there are two types of filter info, since runtime filter can be executed as predicate or expression.
+    std::map<int, PredicateRuntimeFilterInfo> _predicate_rf_info;
+    // _expr_rf_info in RuntimeFilterConsumer
+
+    // use to lock _predicate_rf_info
+    std::mutex _profile_mtx;
+
     std::atomic<bool> _opened {false};
 
     DependencySPtr _scan_dependency = nullptr;

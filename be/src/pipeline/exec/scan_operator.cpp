@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "exprs/runtime_filter.h"
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
@@ -1094,6 +1095,36 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     return Status::OK();
 }
 
+void ScanLocalStateBase::collect_bloom_runtime_filter_statistics() {
+    ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "BloomRuntimeFilterInfo", 1);
+    for (auto& [rf_id, expr_rf_info] : _expr_rf_info) {
+        if (expr_rf_info.type == RuntimeFilterType::BLOOM_FILTER) {
+            int64_t input_rows = expr_rf_info.expr_input_rows_counter->value();
+            int64_t filtered_rows = expr_rf_info.expr_filtered_rows_counter->value();
+            {
+                //update predicate bloom filter statistics
+                std::unique_lock l(_profile_mtx);
+                if (_predicate_rf_info.contains(rf_id)) {
+                    auto& pred_rf_info = _predicate_rf_info[rf_id];
+                    input_rows += pred_rf_info.input_row;
+                    filtered_rows += pred_rf_info.filtered_row;
+                }
+            }
+
+            const std::string rf_name = "bloom filter id = " + std::to_string(rf_id) + " ";
+            // add counter
+            auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                    _runtime_profile, rf_name + "input", TUnit::UNIT, "BloomRuntimeFilterInfo", 1);
+            auto* filtered_count =
+                    ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
+                                                 TUnit::UNIT, "BloomRuntimeFilterInfo", 1);
+
+            COUNTER_SET(input_count, input_rows);
+            COUNTER_SET(filtered_count, filtered_rows);
+        }
+    }
+}
+
 template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const vectorized::VExpr* expr,
@@ -1254,6 +1285,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
 
+    collect_bloom_runtime_filter_statistics();
     return PipelineXLocalState<>::close(state);
 }
 
