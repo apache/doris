@@ -288,7 +288,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     @Test
     void testBetweenToEqual() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(BetweenToEqual.INSTANCE )
+                bottomUp(BetweenToEqual.INSTANCE)
         ));
 
         assertRewriteAfterTypeCoercion("a >= 10 and a <= 10", "a = 10");
