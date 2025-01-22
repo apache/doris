@@ -32,9 +32,9 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
-#include "common/be_mock_util.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "olap/utils.h"
