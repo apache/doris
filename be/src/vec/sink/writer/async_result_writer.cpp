@@ -87,6 +87,10 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 }
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+    // Attention!!!
+    // AsyncResultWriter::open is called asynchronously,
+    // so we need to setupt the profile and memory counter here,
+    // or else the counter can be nullptr when AsyncResultWriter::sink is called.
     _profile = profile;
     _memory_used_counter = _profile->get_counter("MemoryUsage");
 
