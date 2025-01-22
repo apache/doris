@@ -36,8 +36,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,7 +94,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
 
     private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd(T sort) {
         // eliminate order by key by fd. e.g. order by a,abs(a) -> order by a
-        Map<OrderKey, Set<Slot>> orderBySlotMap = new HashMap<>();
+        Map<OrderKey, Set<Slot>> orderBySlotMap = new LinkedHashMap<>();
         Set<Slot> validSlots = new HashSet<>();
         for (OrderKey orderKey : sort.getOrderKeys()) {
             Expression expr = orderKey.getExpr();
