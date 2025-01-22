@@ -216,7 +216,7 @@ TEST_F(ExchangeSInkTest, test_queue_size) {
 
         EXPECT_EQ(buffer->_total_queue_size, 6);
 
-        std::cout << "ecch queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
+        std::cout << "each queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
 
         pop_block(dest_ins_id_2, PopState::eof);
 
@@ -224,7 +224,7 @@ TEST_F(ExchangeSInkTest, test_queue_size) {
 
         EXPECT_EQ(buffer->_total_queue_size, 4);
 
-        std::cout << "ecch queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
+        std::cout << "each queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
 
         clear_all_done();
     }
