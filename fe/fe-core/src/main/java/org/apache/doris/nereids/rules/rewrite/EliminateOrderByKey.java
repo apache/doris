@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
+import org.apache.doris.nereids.properties.FuncDeps.FuncDepsItem;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -36,8 +37,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -73,8 +74,8 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     }
 
     private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminate(T sort) {
-        List<OrderKey> retainExpression = eliminateByFd(sort);
-        retainExpression = eliminateDuplicate(retainExpression);
+        List<OrderKey> retainExpression = eliminateDuplicate(sort.getOrderKeys());
+        retainExpression = eliminateByFd2(sort, retainExpression);
         retainExpression = eliminateByUniform(sort, retainExpression);
         return retainExpression;
     }
@@ -92,33 +93,56 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return retainExpression;
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd(T sort) {
-        // eliminate order by key by fd. e.g. order by a,abs(a) -> order by a
-        Map<OrderKey, Set<Slot>> orderBySlotMap = new LinkedHashMap<>();
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd2(T sort, List<OrderKey> inputOrderKeys) {
+        Map<Expression, Integer> slotToIndex = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
-        for (OrderKey orderKey : sort.getOrderKeys()) {
-            Expression expr = orderKey.getExpr();
-            orderBySlotMap.put(orderKey, expr.getInputSlots());
+        List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
+        for (int i = 0; i < inputOrderKeys.size(); ++i) {
+            Expression expr = inputOrderKeys.get(i).getExpr();
             validSlots.addAll(expr.getInputSlots());
+            slotToIndex.put(expr, i);
+            retainOrderKey.add(true);
         }
-
         FuncDeps funcDeps = sort.child().getLogicalProperties().getTrait().getAllValidFuncDeps(validSlots);
         if (funcDeps.isEmpty()) {
-            return sort.getOrderKeys();
+            return inputOrderKeys;
         }
 
-        Set<Set<Slot>> minOrderBySlots = funcDeps.eliminateDeps(new HashSet<>(orderBySlotMap.values()),
-                new HashSet<>());
+        for (FuncDepsItem funcDep : funcDeps.getItems()) {
+            Set<Slot> determinants = funcDep.determinants;
+            Set<Slot> dependencies = funcDep.dependencies;
+            if (!canEliminateSortKey(determinants, dependencies, slotToIndex)) {
+                continue;
+            }
+            for (Slot slot : dependencies) {
+                retainOrderKey.set(slotToIndex.get(slot), false);
+            }
+        }
         List<OrderKey> retainExpression = new ArrayList<>();
-        for (Map.Entry<OrderKey, Set<Slot>> entry : orderBySlotMap.entrySet()) {
-            if (minOrderBySlots.contains(entry.getValue())) {
-                retainExpression.add(entry.getKey());
+        for (int i = 0; i < retainOrderKey.size(); ++i) {
+            if (retainOrderKey.get(i)) {
+                retainExpression.add(inputOrderKeys.get(i));
             }
         }
         return retainExpression;
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateDuplicate(List<OrderKey> orderKeys) {
+    private static boolean canEliminateSortKey(Set<Slot> determinants, Set<Slot> dependencies,
+            Map<Expression, Integer> slotToIndex) {
+        // determinants的最大值比dependencies最小值小
+        int max = -1;
+        for (Slot slot : determinants) {
+            // 这里不可能找不到
+            max = slotToIndex.get(slot) > max ? slotToIndex.get(slot) : max;
+        }
+        int min = Integer.MAX_VALUE;
+        for (Slot slot : dependencies) {
+            min = slotToIndex.get(slot) < min ? slotToIndex.get(slot) : min;
+        }
+        return max < min;
+    }
+
+    private static List<OrderKey> eliminateDuplicate(List<OrderKey> orderKeys) {
         // eliminate same order by expr. e.g. order by a,a -> order by a
         List<OrderKey> uniqueOrderKeys = new ArrayList<>();
         Set<Expression> set = new HashSet<>();
