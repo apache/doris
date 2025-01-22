@@ -49,4 +49,6 @@ suite("select_with_const") {
     """
 
     sql "select all 1"
+
+    sql "select `1  + 2` from (select 1  + 2) t"
 }
