@@ -104,6 +104,10 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         desc.type = doris::PrimitiveType::TYPE_OBJECT;
         type = std::make_shared<DataTypeBitMap>();
         return 1;
+    case TypeIndex::HLL:
+        desc.type = doris::PrimitiveType::TYPE_OBJECT;
+        type = std::make_shared<DataTypeHLL>();
+        return 1;
     case TypeIndex::IPv4:
         desc.type = doris::PrimitiveType::TYPE_IPV4;
         type = std::make_shared<DataTypeIPv4>();
@@ -331,6 +335,9 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     } else if (type.idx == TypeIndex::BitMap) {
         auto* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
+    } else if (type.idx == TypeIndex::HLL) {
+        auto* hll = any_cast<HyperLogLog*>(cell);
+        column->insert_data((char*)hll, sizeof(HyperLogLog));
     } else if (type.is_ipv4()) {
         auto value = any_cast<ut_type::IPV4>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);

@@ -996,7 +996,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.is_serial_operator(), p.is_file_scan_operator());
+            _scan_dependency, p.is_serial_operator(), p.is_file_scan_operator(),
+            p.query_parallel_instance_num());
     return Status::OK();
 }
 
@@ -1204,6 +1205,8 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
             }
         }
     }
+
+    _query_parallel_instance_num = state->query_parallel_instance_num();
 
     return Status::OK();
 }
