@@ -29,14 +29,14 @@ suite("test_conditional_function") {
             DISTRIBUTED BY HASH(user_id) BUCKETS 5 properties("replication_num" = "1");
         """
     sql """
-        INSERT INTO ${tbName} VALUES 
+        INSERT INTO ${tbName} VALUES
             (1),
             (2),
             (3),
             (4);
         """
     sql """
-        INSERT INTO ${tbName} VALUES 
+        INSERT INTO ${tbName} VALUES
             (null),
             (null),
             (null),
@@ -147,6 +147,10 @@ suite("test_conditional_function") {
     qt_if_false_else_nullable """select IF(false, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
 
     qt_sql "select date_add('9999-08-01 00:00:00',1);"
+
+    qt_sql "select if(256,1,0)"
+    qt_sql "select if(256,0,1)"
+    qt_sql "select if(NULL,1,0)"
 
     sql "DROP TABLE ${tbName};"
 }
