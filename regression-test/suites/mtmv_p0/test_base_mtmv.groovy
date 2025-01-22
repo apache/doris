@@ -140,7 +140,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // drop table
     sql """
         drop table ${tableName}
@@ -162,6 +162,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${newTableName}`"""
