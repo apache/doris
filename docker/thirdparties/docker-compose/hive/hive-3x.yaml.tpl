@@ -63,8 +63,10 @@ services:
     expose:
       - "${HS_PORT}"
     depends_on:
-      - datanode
-      - namenode
+      datanode:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
       interval: 10s
@@ -86,7 +88,8 @@ services:
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      - hive-metastore-postgresql
+      hive-metastore-postgresql:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "sh", "-c", "/mnt/scripts/healthy_check.sh"]
       interval: 20s
