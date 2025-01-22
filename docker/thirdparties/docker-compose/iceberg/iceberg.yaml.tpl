@@ -26,11 +26,9 @@ services:
     build: spark/
     depends_on:
       rest:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+        condition: service_started
       mc:
-        condition: service_healthy
+        condition: service_completed_successfully
     volumes:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
@@ -59,13 +57,18 @@ services:
       POSTGRES_PASSWORD: 123456
       POSTGRES_USER: root
       POSTGRES_DB: iceberg
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U root" ]
+      interval: 5s
+      timeout: 60s
+      retries: 120
     volumes:
       - ./data/input/pgdata:/var/lib/postgresql/data
     networks:
       - doris--iceberg
 
   rest:
-    image: tabulario/iceberg-rest
+    image: tabulario/iceberg-rest:1.6.0
     container_name: doris--iceberg-rest
     ports:
       - ${REST_CATALOG_PORT}:8181
@@ -89,11 +92,6 @@ services:
     networks:
       - doris--iceberg
     entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh
-    healthcheck:
-      test: ["CMD", "curl", --fail", "http://localhost:8181/v1/config"]
-      interval: 10s
-      timeout: 60s
-      retries: 30
 
   minio:
     image: minio/minio
@@ -137,7 +135,6 @@ services:
       /usr/bin/mc policy set public minio/warehouse;
       echo 'copy data';
       mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
-      tail -f /dev/null
       "
   
   iceberg-hello-world:
