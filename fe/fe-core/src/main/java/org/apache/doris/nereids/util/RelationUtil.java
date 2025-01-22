@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -146,14 +147,30 @@ public class RelationUtil {
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
                 LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
 
-                logicalPlan
-                        .collect(plan -> plan instanceof LogicalProject
-                                && ((LogicalProject<?>) plan).child() instanceof LogicalCatalogRelation)
-                        .stream().forEach(plan -> {
-                            LogicalProject logicalProject = (LogicalProject) plan;
-                            columns.addAll(logicalProject.getInputSlots().stream().map(Slot::getName)
-                                    .collect(Collectors.toList()));
-                        });
+                Map<Boolean, List<Object>> partitionedPlan = logicalPlan
+                        .collect(plan -> true)
+                        .stream()
+                        .collect(Collectors.partitioningBy(
+                                plan -> plan instanceof LogicalProject
+                                        && ((LogicalProject<?>) plan).child() instanceof LogicalCatalogRelation
+                        ));
+                List<Object> projects = partitionedPlan.get(true);
+                if (projects.isEmpty()) {
+                    // for scan
+                    partitionedPlan.get(false)
+                            .stream()
+                            .filter(plan -> plan instanceof LogicalCatalogRelation)
+                            .map(plan -> (LogicalCatalogRelation) plan)
+                            .forEach(plan -> columns.addAll(logicalPlan.getOutput().stream().map(Slot::getName).collect(
+                                    Collectors.toList())));
+                } else {
+                    // for projects
+                    projects
+                            .stream()
+                            .map(plan -> (LogicalProject<?>) plan)
+                            .forEach(plan -> columns.addAll(plan.getInputSlots().stream().map(Slot::getName).collect(
+                                    Collectors.toList())));
+                }
             } else {
                 throw new AnalysisException(String.format("can't parse %s ", createMvSql));
             }
