@@ -48,6 +48,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -844,6 +845,44 @@ public class RuntimeProfile {
                 }
             }
         }
+
+        // Handle runtime profile structure
+        /* 
+        -  BloomRuntimeFilterInfo:  sum  ,  avg  ,  max  ,  min  
+            -  bloom  filter  id  =  3  filtered:  sum  4.809288M  (4809288),  avg  4.809288M  (4809288),  max  4.809288M  (4809288),  min  4.809288M  (4809288)
+            -  bloom  filter  id  =  3  input:  sum  5.995884M  (5995884),  avg  5.995884M  (5995884),  max  5.995884M  (5995884),  min  5.995884M  (5995884)
+            -  bloom  filter  id  =  5  filtered:  sum  712.946K  (712946),  avg  712.946K  (712946),  max  712.946K  (712946),  min  712.946K  (712946)
+            -  bloom  filter  id  =  5  input:  sum  1.186596M  (1186596),  avg  1.186596M  (1186596),  max  1.186596M  (1186596),  min  1.186596M  (1186596)
+        */
+        for (Entry<String, TreeSet<String>> entry : this.childCounterMap.entrySet()) {
+            if (entry.getKey().equals("BloomRuntimeFilterInfo")) {
+                AggCounter filteredAggCounter = new AggCounter(TUnit.UNIT);
+                AggCounter inputAggCounter = new AggCounter(TUnit.UNIT);
+                Set<String> childCounterSet = entry.getValue();
+                for (String childCounterName : childCounterSet) {
+                    Counter rhsAggCounter = this.counterMap.get(childCounterName);
+                    if (rhsAggCounter == null) {
+                        LOG.warn("Should not happen, childCounter {} not found.", childCounterName);
+                        throw new RuntimeException("Invalid profile");
+                    }
+                    if (!(rhsAggCounter instanceof AggCounter)) {
+                        LOG.warn("Should not happen, invalid counter type, counter name: {}", childCounterName);
+                        throw new RuntimeException("Invalid profile");
+                    }
+
+                    if (childCounterName.endsWith("filtered")) {
+                        filteredAggCounter.mergeCounter((AggCounter) rhsAggCounter);
+                    } else if (childCounterName.endsWith("input")) {
+                        inputAggCounter.mergeCounter((AggCounter) rhsAggCounter);
+                    } else {
+                        LOG.warn("Should not happen, childCounterName: " + childCounterName);
+                    }
+                }
+                item.setRuntimeFilterInputRows(inputAggCounter.sum.getValue());
+                item.setRuntimeFilterRows(filteredAggCounter.sum.getValue());
+            }
+        }
+
         return item;
     }
 

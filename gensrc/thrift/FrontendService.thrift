@@ -1593,12 +1593,14 @@ struct TPlanNodeRuntimeStatsItem {
     2: optional i64 input_rows
     3: optional i64 output_rows
     4: optional i64 common_filter_rows
-    5: optional i64 runtime_filter_rows
-    6: optional i64 join_builder_rows
-    7: optional i64 join_probe_rows
-    8: optional double join_builder_skew_ratio
-    9: optional double join_prober_skew_ratio
-    10: optional i32 instance_num
+    5: optional i64 common_filter_input_rows
+    6: optional i64 runtime_filter_rows
+    7: optional i64 runtime_filter_input_rows
+    8: optional i64 join_builder_rows
+    9: optional i64 join_probe_rows
+    10: optional double join_builder_skew_ratio
+    11: optional double join_prober_skew_ratio
+    12: optional i32 instance_num
 }
 
 service FrontendService {
