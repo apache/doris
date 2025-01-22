@@ -33,9 +33,9 @@ import java.util.stream.Collectors;
  * Function dependence items.
  */
 public class FuncDeps {
-    static class FuncDepsItem {
-        final Set<Slot> determinants;
-        final Set<Slot> dependencies;
+    public static class FuncDepsItem {
+        public final Set<Slot> determinants;
+        public final Set<Slot> dependencies;
 
         public FuncDepsItem(Set<Slot> determinants, Set<Slot> dependencies) {
             this.determinants = ImmutableSet.copyOf(determinants);
@@ -183,6 +183,10 @@ public class FuncDeps {
 
     public Set<FuncDeps.FuncDepsItem> getItems() {
         return items;
+    }
+
+    public Map<Set<Slot>, Set<Set<Slot>>> getEdges() {
+        return edges;
     }
 
     /**
