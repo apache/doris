@@ -239,6 +239,8 @@ public:
         _queue_deps[sender_ins_id] = queue_dependency;
         _parents[sender_ins_id] = local_state;
     }
+
+    std::string debug_each_instance_queue_size();
 #ifdef BE_TEST
 public:
 #else

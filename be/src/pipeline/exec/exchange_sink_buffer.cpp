@@ -42,6 +42,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/proto_util.h"
 #include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -442,7 +443,8 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     // When the receiving side reaches eof, it means the receiver has finished early.
     // The remaining data in the current rpc_channel does not need to be sent,
     // and the rpc_channel should be turned off immediately.
-    _turn_off_channel(id, lock);
+    Defer turn_off([&]() { _turn_off_channel(id, lock); });
+
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
@@ -458,9 +460,16 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
+        _total_queue_size--;
         if (q.front().block) {
             COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
                            -q.front().block->ByteSizeLong());
+        }
+    }
+
+    if (_total_queue_size <= _queue_capacity) {
+        for (auto& [_, dep] : _queue_deps) {
+            dep->set_ready();
         }
     }
 
@@ -573,6 +582,16 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
             }
         }
     }
+}
+
+std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
+    fmt::memory_buffer debug_string_buffer;
+    for (auto& [id, m] : _instance_to_package_queue_mutex) {
+        std::unique_lock<std::mutex> lock(*m);
+        fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}\n", id,
+                       _instance_to_package_queue[id].size());
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace pipeline
