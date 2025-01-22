@@ -701,11 +701,6 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     pids["kerberos"]=$!
 fi
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > start_kerberos.log 2>&1 &
-    pids["kerberos"]=$!
-fi
-
 echo "waiting all dockers starting done"
 
 for compose in "${!pids[@]}"; do
