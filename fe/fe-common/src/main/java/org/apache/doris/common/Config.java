@@ -930,7 +930,8 @@ public class Config extends ConfigBase {
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
-    @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
+    @ConfField(mutable = true)
+    public static int tablet_stat_update_interval_second = 60;  // 1 min
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
