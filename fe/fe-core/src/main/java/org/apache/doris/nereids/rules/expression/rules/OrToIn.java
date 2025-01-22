@@ -96,11 +96,17 @@ public class OrToIn {
         if (expr instanceof And) {
             // filter out duplicated conjunct
             // example: OrToInTest.testDeDup()
-            Set<Expression> dedupSet = new LinkedHashSet<>();
-            for (Expression newChild : newChildren) {
-                dedupSet.addAll(ExpressionUtils.extractConjunction(newChild));
+            Set<Expression> dedupFoldableSet = Sets.newHashSet();
+            List<Expression> flatternChildren = Lists.newArrayListWithExpectedSize(newChildren.size());
+            for (Expression child : newChildren) {
+                for (Expression flatternChild : ExpressionUtils.extractConjunction(child)) {
+                    if (!dedupFoldableSet.contains(flatternChild) || flatternChild.containsNonfoldable()) {
+                        flatternChildren.add(flatternChild);
+                        dedupFoldableSet.add(flatternChild);
+                    }
+                }
             }
-            newChildren = Lists.newArrayList(dedupSet);
+            newChildren = flatternChildren;
         }
         if (expr instanceof CompoundPredicate && newChildren.size() == 1) {
             // (a=1) and (a=1)
@@ -236,12 +242,12 @@ public class OrToIn {
         Map<Expression, Set<Literal>> candidates = new LinkedHashMap<>();
         // collect candidates from the first disjunction
         for (int idx = 0; idx < conjuncts.size(); idx++) {
-            if (!independentConjunct(idx, conjuncts)) {
+            Expression conjunct = conjuncts.get(idx);
+            if (conjunct.containsNonfoldable() || !independentConjunct(idx, conjuncts)) {
                 continue;
             }
             // find pattern: A=1 / A in (1, 2, 3 ...)
             // candidates: A->[1] / A -> [1, 2, 3, ...]
-            Expression conjunct = conjuncts.get(idx);
             Expression compareExpr = null;
             if (conjunct instanceof EqualTo) {
                 EqualTo eq = (EqualTo) conjunct;
@@ -312,6 +318,9 @@ public class OrToIn {
         }
         List<Expression> commons = Lists.newArrayList();
         for (Expression a : conjunctsList.get(0)) {
+            if (a.containsNonfoldable()) {
+                continue;
+            }
             boolean isCommon = true;
             for (int i = 1; i < disjuncts.size(); i++) {
                 if (!conjunctsList.get(i).contains(a)) {

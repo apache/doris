@@ -21,11 +21,11 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -34,6 +34,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -41,7 +42,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Extract common expr for `CompoundPredicate`.
@@ -61,24 +61,11 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         );
     }
 
-    private static Expression extractCommonFactor(CompoundPredicate originExpr) {
+    private static Expression extractCommonFactor(@NotNull CompoundPredicate originExpr) {
         // fast return
-        boolean canExtract = false;
-        Set<Expression> childrenSet = new LinkedHashSet<>();
-        for (Expression child : originExpr.children()) {
-            if ((child instanceof CompoundPredicate || child instanceof BooleanLiteral)) {
-                canExtract = true;
-            }
-            childrenSet.add(child);
-        }
+        boolean canExtract = originExpr.children().stream().anyMatch(
+                child -> child instanceof CompoundPredicate || child instanceof BooleanLiteral);
         if (!canExtract) {
-            if (childrenSet.size() != originExpr.children().size()) {
-                if (childrenSet.size() == 1) {
-                    return childrenSet.iterator().next();
-                } else {
-                    return originExpr.withChildren(childrenSet.stream().collect(Collectors.toList()));
-                }
-            }
             return originExpr;
         }
         // flatten same type to a list
@@ -87,27 +74,25 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
 
         // combine and delete some boolean literal predicate
         // e.g. (a and true) -> true
-        Expression simplified = ExpressionUtils.combineAsLeftDeepTree(originExpr.getClass(), flatten);
+        Expression simplified = originExpr instanceof And ? ExpressionUtils.and(flatten) : ExpressionUtils.or(flatten);
         if (!(simplified instanceof CompoundPredicate)) {
             return simplified;
         }
 
         // separate two levels CompoundPredicate to partitions
-        // e.g. ((a and (b or c)) and c) -> [[a], [b, c], c]
-        CompoundPredicate leftDeapTree = (CompoundPredicate) simplified;
-        ImmutableSet.Builder<List<Expression>> partitionsBuilder
-                = ImmutableSet.builderWithExpectedSize(flatten.size());
-        for (Expression onPartition : ExpressionUtils.extract(leftDeapTree)) {
-            if (onPartition instanceof CompoundPredicate) {
-                partitionsBuilder.add(ExpressionUtils.extract((CompoundPredicate) onPartition));
-            } else {
-                partitionsBuilder.add(ImmutableList.of(onPartition));
+        // e.g. ((a and (b or c)) and c) -> [[a], [b, c], [c]]
+        ImmutableList.Builder<List<Expression>> partitionsBuilder
+                = ImmutableList.builderWithExpectedSize(flatten.size());
+        Set<List<Expression>> partitionsSet = Sets.newHashSet();
+        for (Expression onPartition : flatten) {
+            List<Expression> flattenPartition = onPartition instanceof CompoundPredicate
+                    ? ExpressionUtils.extract((CompoundPredicate) onPartition) : ImmutableList.of(onPartition);
+            if (!partitionsSet.contains(flattenPartition) || onPartition.containsNonfoldable()) {
+                partitionsBuilder.add(flattenPartition);
+                partitionsSet.add(flattenPartition);
             }
         }
-        Set<List<Expression>> partitions = partitionsBuilder.build();
-
-        Expression result = extractCommonFactors(originExpr, leftDeapTree, Utils.fastToImmutableList(partitions));
-        return result;
+        return extractCommonFactors(originExpr, (CompoundPredicate) simplified, partitionsBuilder.build());
     }
 
     private static Expression extractCommonFactors(CompoundPredicate originPredicate,
@@ -127,6 +112,10 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         int partId = 0;
         for (List<Expression> partition : initPartitions) {
             for (Expression expression : partition) {
+                // a non-foldable expression exists multi times, then don't extract the factor.
+                if (expression.containsNonfoldable() && commonFactorToPartIds.containsKey(expression)) {
+                    return originPredicate;
+                }
                 commonFactorToPartIds.put(expression, partId);
                 originExpressionNum++;
             }

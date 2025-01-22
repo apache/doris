@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rules;
+package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Test;
 
-class InPredicateExtractNonConstantTest extends SqlTestBase {
+class ExpressionRewriteSqlTest extends SqlTestBase {
+
     @Test
-    public void testExtractNonConstant() {
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+    public void testRewriteInPredicate() {
         String sql = "select * from T1 where id in (score, score, score + 100)";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -41,7 +41,31 @@ class InPredicateExtractNonConstantTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toString().equals(
-                                "OR[id#0 IN (20, 10, 300, 30),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
+                                "OR[(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1)),id#0 IN (20, 10, 300, 30)]"
                 )));
     }
+
+    @Test
+    public void testRewriteNonfoldable() {
+        // test in predicate
+        String sql = "select * from T1 where id in (10,  20, score + 30, random(1, 10) + 2, 10, 20, random(1, 10) + 2, score + 30)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "OR[(id#0 = (score#1 + 30)),(id#0 = (random(1, 10) + 2)),(id#0 = (random(1, 10) + 2)),id#0 IN (20, 10)]"
+                        )));
+
+        // test or to in
+        sql = "select * from T1 where (id + random(1, 10) = 4 and score + random(1, 10) = 4) or (id + random(1, 10) = 8 and score + random(1, 10) = 8)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "OR[AND[((id#0 + random(1, 10)) = 4),((score#1 + random(1, 10)) = 4)],AND[((id#0 + random(1, 10)) = 8),((score#1 + random(1, 10)) = 8)]]"
+                        )));
+    }
+
 }

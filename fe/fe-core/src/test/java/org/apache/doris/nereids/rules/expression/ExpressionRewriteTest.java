@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
+import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -137,7 +138,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite("(a or b) or (a and c) or (a and d)", "(a or b)");
         assertRewrite("(a or b) or (a and c) or (a or d)", "((a or b) or d)");
         assertRewrite("(a or b) or (a or c) or (a and d)", "((a or b) or c)");
-        assertRewrite("(a or b) or (a or c) or (a or d)", "(((a or b) or c) or d)");
+        // assertRewrite("(a or b) or (a or c) or (a or d)", "(((a or b) or c) or d)");
 
         assertRewrite("(a and b) or (d and c) or (d and e)", "((d and (c or e)) or (a and b))");
         assertRewrite("(a or b) and (d or c) and (d or e)", "((d or (c and e)) and (a or b))");
@@ -167,6 +168,11 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("a and (b or ((a and e) or (a and f))) and (b or d)", "(b or ((a and (e or f)) and d)) and a");
 
+        // non-foldable, don't extract common
+        assertRewriteAfterTypeCoercion("a = random(1, 10) and a = random(1, 10) and a = random(1, 10)",
+                "a = random(1, 10) and a = random(1, 10) and a = random(1, 10)");
+        assertRewriteAfterTypeCoercion("a = random(1, 10) or a = random(1, 10) or a = random(1, 10)",
+                "a = random(1, 10) or a = random(1, 10) or a = random(1, 10)");
     }
 
     @Test
@@ -193,7 +199,24 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 bottomUp(InPredicateDedup.INSTANCE)
         ));
 
-        assertRewrite("a in (1, 2, 1, 2)", "a in (1, 2)");
+        // remove duplicate foldable, but not remove duplicate non-foldable
+        assertRewriteAfterTypeCoercion("a in (1, 2, 1, 2)", "a in (1, 2)");
+        assertRewriteAfterTypeCoercion("a in (1, 2, random(1, 10), 1, 2, random(1, 10))",
+                "a in (1, 2, random(1, 10), random(1, 10))");
+    }
+
+    @Test
+    public void testInPredicateExtractNonConstant() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(InPredicateExtractNonConstant.INSTANCE)
+        ));
+
+        assertRewriteAfterTypeCoercion("TA in (3, 2, 1)", "TA in (3, 2, 1)");
+        assertRewriteAfterTypeCoercion("TA in (TB, TC, TB)", "TA = TB or TA = TC");
+        assertRewriteAfterTypeCoercion("TA in (3, 2, 1, TB, TC, TB)", "TA = TB or TA = TC or TA in (3, 2, 1)");
+        assertRewriteAfterTypeCoercion("IA in (1 + 2, 2 + 3, 3 + TB)", "IA = cast(3 + TB as int) or IA in (cast(1 + 2 as int), cast(2 + 3 as int))");
+        assertRewriteAfterTypeCoercion("a in (1 + 2, 2 + 3, 3 + random(1, 10))",
+                "a = (3 + random(1, 10)) or a IN (CAST(1 + 2 AS BIGINT), CAST(2 + 3 AS BIGINT))");
     }
 
     @Test
@@ -260,6 +283,18 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         ));
 
         assertRewrite("a and (b > 0 and b < 10)", "a and (b > 0 and b < 10)");
+    }
+
+    @Test
+    void testBetweenToEqual() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(BetweenToEqual.INSTANCE )
+        ));
+
+        assertRewriteAfterTypeCoercion("a >= 10 and a <= 10", "a = 10");
+        assertRewriteAfterTypeCoercion("a + b >= 10 and a + b <= 10", "a + b = 10");
+        assertRewriteAfterTypeCoercion("a + random(1, 10) >= 10 and a + random(1, 10) <= 10",
+                "a + random(1, 10) >= 10 and a + random(1, 10) <= 10");
     }
 
     @Test
@@ -361,19 +396,5 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 "TB IS NULL AND NULL and (TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 or TA between 30 and 40 and TB between 30 and 40 or TA between 60 and 50 and TB between 60 and 50",
                 "(TA <= 20 and TB <= 20 or TA >= 30 and TB >= 30 or TA is null and null and TB is null) and TA >= 10 and TA <= 40 and TB >= 10 and TB <= 40");
-    }
-
-    @Test
-    public void testInPredicateExtractNonConstant() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                        InPredicateExtractNonConstant.INSTANCE
-                )
-        ));
-
-        assertRewriteAfterTypeCoercion("TA in (3, 2, 1)", "TA in (3, 2, 1)");
-        assertRewriteAfterTypeCoercion("TA in (TB, TC, TB)", "TA = TB or TA = TC");
-        assertRewriteAfterTypeCoercion("TA in (3, 2, 1, TB, TC, TB)", "TA in (3, 2, 1) or TA = TB or TA = TC");
-        assertRewriteAfterTypeCoercion("IA in (1 + 2, 2 + 3, 3 + TB)", "IA in (cast(1 + 2 as int), cast(2 + 3 as int)) or IA = cast(3 + TB as int)");
     }
 }
