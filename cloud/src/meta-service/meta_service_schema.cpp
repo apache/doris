@@ -312,7 +312,8 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
         LOG(INFO) << "Dictionary saved, key=" << hex(dict_key)
                   << " txn_id=" << rowset_meta->txn_id() << " Dict size=" << dict.column_dict_size()
                   << ", Current column ID=" << dict.current_column_dict_id()
-                  << ", Current index ID=" << dict.current_index_dict_id();
+                  << ", Current index ID=" << dict.current_index_dict_id()
+                  << ", Dict bytes=" << dict_val.size();
     }
 }
 
