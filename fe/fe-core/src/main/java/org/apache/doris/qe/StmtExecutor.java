@@ -1242,12 +1242,15 @@ public class StmtExecutor {
 
         if (plan instanceof InsertIntoTableCommand) {
             LogicalPlan logicalPlan = ((InsertIntoTableCommand) plan).getLogicalQuery();
+            // Do not generate profile for insert into t values xxx.
+            // t could be an olap-table or an external-table.
             if ((logicalPlan instanceof UnboundTableSink) || (logicalPlan instanceof UnboundBaseExternalTableSink)) {
                 if (logicalPlan.children() == null || logicalPlan.children().isEmpty()) {
                     return false;
                 }
 
                 for (Plan child : logicalPlan.children()) {
+                    // InlineTable means insert into t VALUES xxx.
                     if (child instanceof InlineTable) {
                         return false;
                     }
@@ -1256,11 +1259,16 @@ public class StmtExecutor {
             return true;
         }
 
-        // Generate profile for CreateTableCommand(mainly for create as select).
+        // Generate profile for:
+        // 1. CreateTableCommand(mainly for create as select).
+        // 2. LoadCommand.
+        // 3. InsertOverwriteTableCommand.
         if ((plan instanceof Command) && !(plan instanceof LoadCommand)
                 && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+            // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {
+            // 4. For all the other statements.
             return true;
         }
     }
