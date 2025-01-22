@@ -30,7 +30,6 @@ enum TExprNodeType {
   CAST_EXPR,
   COMPOUND_PRED,
   DATE_LITERAL,
-  TIME_LITERAL,
   FLOAT_LITERAL,
   INT_LITERAL,
   DECIMAL_LITERAL,
@@ -83,6 +82,7 @@ enum TExprNodeType {
   // to prevent push to storage layer
   NULL_AWARE_IN_PRED,
   NULL_AWARE_BINARY_PRED,
+  TIME_LITERAL,
 }
 
 //enum TAggregationOp {
