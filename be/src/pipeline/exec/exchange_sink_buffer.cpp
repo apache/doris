@@ -431,9 +431,14 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
+        _total_queue_size--;
         if (q.front().block) {
             COUNTER_UPDATE(_parent->memory_used_counter(), -q.front().block->ByteSizeLong());
         }
+    }
+
+    if (_queue_dependency && _total_queue_size <= _queue_capacity) {
+        _queue_dependency->set_ready();
     }
 
     {
