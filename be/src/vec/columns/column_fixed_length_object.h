@@ -262,6 +262,8 @@ public:
 
     size_t allocated_bytes() const override { return _data.allocated_bytes(); }
 
+    size_t capacity() const override { return _data.capacity(); }
+
     //NOTICE: here is replace: this[self_row] = rhs[row]
     //But column string is replaced all when self_row = 0
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {

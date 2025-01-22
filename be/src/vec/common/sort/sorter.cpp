@@ -29,6 +29,7 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -213,8 +214,9 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
 
-    if (_reach_limit() && block->bytes() > _state->unsorted_block()->allocated_bytes() -
-                                                   _state->unsorted_block()->bytes()) {
+    // iff have reach limit and the unsorted block capacity can't hold the block data size
+    if (_reach_limit() &&
+        block->bytes() > _state->unsorted_block()->capacity() - _state->unsorted_block()->bytes()) {
         RETURN_IF_ERROR(_do_sort());
     }
 
@@ -260,6 +262,7 @@ Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectori
 Status FullSorter::_do_sort() {
     Block* src_block = _state->unsorted_block().get();
     Block desc_block = src_block->clone_without_columns();
+    COUNTER_UPDATE(_partial_sort_counter, 1);
     RETURN_IF_ERROR(partial_sort(*src_block, desc_block));
 
     // dispose TOP-N logic

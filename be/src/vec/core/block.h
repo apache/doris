@@ -204,6 +204,8 @@ public:
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
 
+    size_t capacity() const;
+
     std::string columns_bytes() const;
 
     /// Approximate number of allocated bytes in memory - for profiling and limits.

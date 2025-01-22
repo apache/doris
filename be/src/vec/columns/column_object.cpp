@@ -387,6 +387,14 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
+size_t ColumnObject::Subcolumn::Subcolumn::capacity() const {
+    size_t res = 0;
+    for (const auto& part : data) {
+        res += part->capacity();
+    }
+    return res;
+}
+
 void ColumnObject::Subcolumn::insert(Field field) {
     FieldInfo info;
     get_field_info(field, &info);
@@ -856,6 +864,14 @@ size_t ColumnObject::allocated_bytes() const {
     size_t res = 0;
     for (const auto& entry : subcolumns) {
         res += entry->data.allocatedBytes();
+    }
+    return res;
+}
+
+size_t ColumnObject::capacity() const {
+    size_t res = 0;
+    for (const auto& entry : subcolumns) {
+        res += entry->data.capacity();
     }
     return res;
 }

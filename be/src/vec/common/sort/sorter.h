@@ -114,6 +114,7 @@ public:
     virtual void init_profile(RuntimeProfile* runtime_profile) {
         _partial_sort_timer = ADD_TIMER(runtime_profile, "PartialSortTime");
         _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
+        _partial_sort_counter = ADD_COUNTER(runtime_profile, "PartialSortCounter", TUnit::UNIT);
     }
 
     virtual Status append_block(Block* block) = 0;
@@ -151,6 +152,7 @@ protected:
 
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _partial_sort_counter = nullptr;
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
