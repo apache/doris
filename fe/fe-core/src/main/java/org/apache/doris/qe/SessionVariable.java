@@ -1219,7 +1219,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
 
-    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, needForward = true)
+    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
     private boolean runtimeFilterWaitInfinitely = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
@@ -2268,7 +2268,7 @@ public class SessionVariable implements Serializable, Writable {
             name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
             description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
                     "Disable the runtime filter on the BE for testing purposes."},
-            needForward = true, fuzzy = false)
+            needForward = true, fuzzy = true)
     public boolean fuzzyDisableRuntimeFilterInBE = false;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
@@ -2533,8 +2533,9 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableFoldConstantByBe = false;
             }
 
-            this.fuzzyDisableRuntimeFilterInBE = true;
         }
+        this.fuzzyDisableRuntimeFilterInBE = random.nextBoolean();
+        this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
