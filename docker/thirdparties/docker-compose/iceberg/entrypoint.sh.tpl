@@ -18,6 +18,13 @@
 
 export SPARK_MASTER_HOST=doris--spark-iceberg
 
+# wait iceberg-rest start
+if [[ -n $(curl -s --fail http://rest:8181/v1/config) ]]; then
+    sleep 1
+fi
+
+set -ex
+
 start-master.sh -p 7077
 start-worker.sh spark://doris--spark-iceberg:7077
 start-history-server.sh

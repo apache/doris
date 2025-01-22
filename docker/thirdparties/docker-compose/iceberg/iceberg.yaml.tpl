@@ -41,11 +41,11 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
-    entrypoint: /bin/sh /mnt/scripts/entrypoint.sh 
+    entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
     networks:
       - doris--iceberg
     healthcheck:
-      test: ["CMD", "ls", "/mnt/SUCCESS"]
+      test: ls /mnt/SUCCESS
       interval: 5s
       timeout: 120s
       retries: 120
@@ -94,7 +94,7 @@ services:
     entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh
 
   minio:
-    image: minio/minio
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--minio
     ports:
       - ${MINIO_API_PORT}:9000
@@ -102,7 +102,7 @@ services:
       test: [ "CMD", "mc", "ready", "local" ]
       interval: 10s
       timeout: 60s
-      retries: 10
+      retries: 120
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
@@ -117,7 +117,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: minio/mc
+    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: doris--mc
     environment:
       - AWS_ACCESS_KEY_ID=admin
