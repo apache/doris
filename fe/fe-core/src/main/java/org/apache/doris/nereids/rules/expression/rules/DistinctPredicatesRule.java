@@ -20,16 +20,15 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Remove redundant expr for 'CompoundPredicate'.
@@ -50,9 +49,13 @@ public class DistinctPredicatesRule implements ExpressionPatternRuleFactory {
 
     private static Expression distinct(CompoundPredicate expr) {
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
-        Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
+        List<Expression> distinctExpressions = ExpressionUtils.dedupFoldableExpression(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {
-            return ExpressionUtils.combineAsLeftDeepTree(expr.getClass(), Lists.newArrayList(distinctExpressions));
+            if (distinctExpressions.size() == 1) {
+                return distinctExpressions.get(0);
+            } else {
+                return expr instanceof And ? new And(distinctExpressions) : new Or(distinctExpressions);
+            }
         }
         return expr;
     }
