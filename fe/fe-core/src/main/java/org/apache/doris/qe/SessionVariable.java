@@ -3568,7 +3568,8 @@ public class SessionVariable implements Serializable, Writable {
             // TODO: support other sink
             if ((logicalPlan instanceof UnboundResultSink
                     || logicalPlan instanceof LogicalFileSink
-                    || logicalPlan instanceof InsertIntoTableCommand) && sessionVariable.enableNereidsDistributePlanner) {
+                    || logicalPlan instanceof InsertIntoTableCommand)
+                    && sessionVariable.enableNereidsDistributePlanner) {
                 return true;
             }
         }
