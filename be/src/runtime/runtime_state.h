@@ -40,6 +40,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/factory_creator.h"
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
@@ -96,7 +97,7 @@ public:
     RuntimeState();
 
     // Empty d'tor to avoid issues with unique_ptr.
-    ~RuntimeState();
+    MOCK_DEFINE(virtual) ~RuntimeState();
 
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -118,7 +119,7 @@ public:
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    int batch_size() const { return _query_options.batch_size; }
+    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
     int wait_full_block_schedule_times() const {
         return _query_options.wait_full_block_schedule_times;
     }

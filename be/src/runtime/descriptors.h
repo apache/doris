@@ -34,12 +34,13 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
+#include "common/be_mock_util.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "olap/utils.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
-
 namespace google::protobuf {
 template <typename Element>
 class RepeatedField;
@@ -53,7 +54,7 @@ class PSlotDescriptor;
 
 class SlotDescriptor {
 public:
-    // virtual ~SlotDescriptor() {};
+    MOCK_DEFINE(virtual ~SlotDescriptor() = default;)
     SlotId id() const { return _id; }
     const TypeDescriptor& type() const { return _type; }
     TupleId parent() const { return _parent; }
@@ -74,7 +75,7 @@ public:
 
     vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
-    doris::vectorized::DataTypePtr get_data_type_ptr() const;
+    MOCK_FUNCTION doris::vectorized::DataTypePtr get_data_type_ptr() const;
 
     int32_t col_unique_id() const { return _col_unique_id; }
 
@@ -131,6 +132,7 @@ private:
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
+    MOCK_DEFINE(SlotDescriptor();)
 };
 
 // Base class for table descriptors.
@@ -342,15 +344,18 @@ public:
     TupleDescriptor(TupleDescriptor&&) = delete;
     void operator=(const TupleDescriptor&) = delete;
 
-    ~TupleDescriptor() {
+    MOCK_DEFINE(virtual) ~TupleDescriptor() {
         if (_own_slots) {
             for (SlotDescriptor* slot : _slots) {
                 delete slot;
             }
         }
     }
+
+    MOCK_DEFINE(TupleDescriptor() : _id {0} {};)
+
     int num_materialized_slots() const { return _num_materialized_slots; }
-    const std::vector<SlotDescriptor*>& slots() const { return _slots; }
+    MOCK_FUNCTION const std::vector<SlotDescriptor*>& slots() const { return _slots; }
 
     bool has_varlen_slots() const { return _has_varlen_slots; }
     const TableDescriptor* table_desc() const { return _table_desc; }
@@ -461,6 +466,8 @@ public:
     // dummy descriptor, needed for the JNI EvalPredicate() function
     RowDescriptor() = default;
 
+    MOCK_DEFINE(virtual ~RowDescriptor() = default;)
+
     int num_materialized_slots() const { return _num_materialized_slots; }
 
     int num_slots() const { return _num_slots; }
@@ -474,7 +481,9 @@ public:
     bool has_varlen_slots() const { return _has_varlen_slots; }
 
     // Return descriptors for all tuples in this row, in order of appearance.
-    const std::vector<TupleDescriptor*>& tuple_descriptors() const { return _tuple_desc_map; }
+    MOCK_FUNCTION const std::vector<TupleDescriptor*>& tuple_descriptors() const {
+        return _tuple_desc_map;
+    }
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
