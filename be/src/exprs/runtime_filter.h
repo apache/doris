@@ -115,6 +115,15 @@ static RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc)
 
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
+// ExprRuntimeFilterInfo is used to record the filtering information of runtime filter as an Expr
+// runtime filter may also be executed as a predicate, so it is necessary to separate expr and predicate
+struct ExprRuntimeFilterInfo {
+    RuntimeFilterType type;
+    RuntimeProfile::Counter* expr_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* expr_input_rows_counter = nullptr;
+    RuntimeProfile::Counter* always_true_counter = nullptr;
+};
+
 struct RuntimeFilterParams {
     RuntimeFilterParams()
             : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
@@ -232,7 +241,7 @@ public:
 
     Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                               std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
-                              bool is_late_arrival);
+                              ExprRuntimeFilterInfo& expr_rf_info, bool is_late_arrival);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
