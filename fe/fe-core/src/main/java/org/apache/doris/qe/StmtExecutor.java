@@ -142,6 +142,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -1241,7 +1242,7 @@ public class StmtExecutor {
 
         if (plan instanceof InsertIntoTableCommand) {
             LogicalPlan logicalPlan = ((InsertIntoTableCommand) plan).getLogicalQuery();
-            if (logicalPlan instanceof UnboundTableSink) {
+            if ((logicalPlan instanceof UnboundTableSink) || (logicalPlan instanceof UnboundBaseExternalTableSink)) {
                 if (logicalPlan.children() == null || logicalPlan.children().isEmpty()) {
                     return false;
                 }
