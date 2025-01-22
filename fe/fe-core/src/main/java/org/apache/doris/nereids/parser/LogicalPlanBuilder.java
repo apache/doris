@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-import jdk.internal.org.jline.reader.Parser;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
@@ -925,7 +924,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new CreateJobCommand(createJobInfo);
     }
 
-    private void checkJobNameKey(String key, String keyFormat, Parser.ParseContext parseContext) {
+    private void checkJobNameKey(String key, String keyFormat, DorisParser.SupportedJobStatementContext parseContext) {
         if (key.isEmpty() || !key.equalsIgnoreCase(keyFormat)) {
             throw new ParseException(keyFormat + " should be: '" + keyFormat + "'", parseContext);
         }
