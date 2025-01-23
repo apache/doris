@@ -300,40 +300,9 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
             "StorageEngine", "lease_compaction_thread",
             [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
 
-    if (config::file_cache_ttl_valid_check_interval_second != 0) {
-        RETURN_IF_ERROR(Thread::create(
-                "StorageEngine", "check_file_cache_ttl_block_valid_thread",
-                [this]() { this->_check_file_cache_ttl_block_valid(); },
-                &_bg_threads.emplace_back()));
-        LOG(INFO) << "check file cache ttl block valid thread started";
-    }
-
     LOG(INFO) << "lease compaction thread started";
 
     return Status::OK();
-}
-
-void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
-    int64_t interval_seconds = config::file_cache_ttl_valid_check_interval_second / 2;
-    auto check_ttl = [](const std::weak_ptr<CloudTablet>& tablet_wk) {
-        auto tablet = tablet_wk.lock();
-        if (!tablet) return;
-        if (tablet->tablet_meta()->ttl_seconds() == 0) return;
-        auto rowsets = tablet->get_snapshot_rowset();
-        for (const auto& rowset : rowsets) {
-            int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
-            if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
-            for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
-                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(), seg_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
-                file_cache->update_ttl_atime(hash);
-            }
-        }
-    };
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
-        auto weak_tablets = tablet_mgr().get_weak_tablets();
-        std::for_each(weak_tablets.begin(), weak_tablets.end(), check_ttl);
-    }
 }
 
 void CloudStorageEngine::sync_storage_vault() {
