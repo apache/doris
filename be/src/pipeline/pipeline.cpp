@@ -112,10 +112,18 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
 }
 
 void Pipeline::make_all_runnable() {
+    DBUG_EXECUTE_IF("PipelineFragmentContext::close_a_pipeline.sleep", {
+        auto sleep_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "PipelineFragmentContext::close_a_pipeline.sleep", "pipeline_id", 0);
+        if (sleep_id == id()) {
+            sleep(10);
+        }
+    });
+
     if (_sink->count_down_destination()) {
         for (auto* task : _tasks) {
             if (task) {
-                task->set_wake_up_early();
+                task->set_wake_up_early("all downstream tasks are finished");
             }
         }
         for (auto* task : _tasks) {

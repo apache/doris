@@ -316,11 +316,11 @@ Status PipelineTask::execute(bool* eos) {
         RETURN_IF_ERROR(_open());
     }
 
-    auto set_wake_up_and_dep_ready = [&]() {
+    auto set_wake_up_and_dep_ready = [&](const std::string& reason) {
         if (wake_up_early()) {
             return;
         }
-        set_wake_up_early();
+        set_wake_up_early(reason);
         clear_blocking_state();
     };
 
@@ -357,7 +357,7 @@ Status PipelineTask::execute(bool* eos) {
         });
         // `_sink->is_finished(_state)` means sink operator should be finished
         if (_sink->is_finished(_state)) {
-            set_wake_up_and_dep_ready();
+            set_wake_up_and_dep_ready("sink is finished");
         }
 
         // `_dry_run` means sink operator need no more data
@@ -377,7 +377,7 @@ Status PipelineTask::execute(bool* eos) {
             Status status = _sink->sink(_state, block, *eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
-                set_wake_up_and_dep_ready();
+                set_wake_up_and_dep_ready(status.to_string());
             } else if (!status) {
                 return status;
             }
@@ -481,6 +481,9 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
 
     if (close_sink && _opened) {
         _task_profile->add_info_string("WakeUpEarly", wake_up_early() ? "true" : "false");
+        if (wake_up_early()) {
+            _task_profile->add_info_string("WakeUpEarlyReason", _wake_up_early_reason);
+        }
         _fresh_profile_counter();
     }
 
@@ -502,10 +505,11 @@ std::string PipelineTask::debug_string() {
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
-                   "{}, elapse time = {}s, _wake_up_early = {}], block dependency = {}, is "
+                   "{}, elapse time = {}s, _wake_up_early = {}, _wake_up_early_reason = {}], block "
+                   "dependency = {}, is "
                    "running = {}\noperators: ",
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
-                   _wake_up_early.load(),
+                   _wake_up_early.load(), _wake_up_early_reason,
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
