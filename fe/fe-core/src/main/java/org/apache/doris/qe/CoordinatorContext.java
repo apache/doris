@@ -304,6 +304,7 @@ public class CoordinatorContext {
             boolean enableProfile) {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setEnableProfile(enableProfile);
+        queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();

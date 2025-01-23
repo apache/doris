@@ -33,8 +33,9 @@ Usage: $0 <options>
      [no option]        start all components
      --help,-h          show this usage
      -c mysql           start MySQL
-     -c mysql,hive3      start MySQL and Hive3
+     -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
+     --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos
@@ -44,12 +45,14 @@ Usage: $0 <options>
 COMPONENTS=$2
 HELP=0
 STOP=0
+NEED_RESERVE_PORTS=0
 
 if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -l 'help' \
     -l 'stop' \
+    -l 'reserve-ports' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -78,6 +81,10 @@ else
         -c)
             COMPONENTS=$2
             shift 2
+            ;;
+        --reserve-ports)
+            NEED_RESERVE_PORTS=1
+            shift
             ;;
         --)
             shift
@@ -140,6 +147,8 @@ RUN_LAKESOUL=0
 RUN_KERBEROS=0
 RUN_MINIO=0
 
+RESERVED_PORTS=""
+
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -155,6 +164,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive2"x ]]; then
         RUN_HIVE2=1
+        RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
@@ -184,6 +194,17 @@ for element in "${COMPONENTS_ARR[@]}"; do
         usage
     fi
 done
+
+reserve_ports() {
+    if [[ "${NEED_RESERVE_PORTS}" -eq 0 ]]; then
+        return
+    fi
+
+    if [[ "${RESERVED_PORTS}"x != ""x ]]; then
+        echo "Reserve ports: ${RESERVED_PORTS}"
+        sudo sysctl -w net.ipv4.ip_local_reserved_ports="${RESERVED_PORTS}"
+    fi
+}
 
 start_es() {
     # elasticsearch
@@ -625,6 +646,8 @@ start_minio() {
 
 echo "starting dockers in parallel"
 
+reserve_ports
+
 declare -A pids
 
 if [[ "${RUN_ES}" -eq 1 ]]; then
@@ -731,7 +754,7 @@ for compose in "${!pids[@]}"; do
     if [ $status -ne 0 ] && [ $compose != "db2" ]; then
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
-        cat start_${compose}.log
+        cat start_${compose}.log || true
 
         echo ""
         echo "print last 100 logs of the latest unhealthy container"

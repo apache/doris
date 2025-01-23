@@ -234,14 +234,25 @@ Status JdbcConnector::query() {
 }
 
 Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
+    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer); // Timer for the entire method
+
     if (!_is_open) {
         return Status::InternalError("get_next before open of jdbc connector.");
     }
-    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer);
+
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jboolean has_next =
-            env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz, _executor_has_next_id);
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._jni_setup_timer); // Timer for setting up JNI environment
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    } // _jni_setup_timer stops when going out of this scope
+
+    jboolean has_next = JNI_FALSE;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._has_next_timer); // Timer for hasNext check
+        has_next = env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz,
+                                                    _executor_has_next_id);
+    } // _has_next_timer stops here
+
     if (has_next != JNI_TRUE) {
         *eos = true;
         return Status::OK();
@@ -252,10 +263,21 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     auto column_size = _tuple_desc->slots().size();
     auto slots = _tuple_desc->slots();
 
-    jobject map = _get_reader_params(block, env, column_size);
-    SCOPED_RAW_TIMER(&_jdbc_statistic._get_block_address_timer);
-    long address =
-            env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
+    jobject map;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._prepare_params_timer); // Timer for preparing params
+        map = _get_reader_params(block, env, column_size);
+    } // _prepare_params_timer stops here
+
+    long address = 0;
+    {
+        SCOPED_RAW_TIMER(
+                &_jdbc_statistic
+                         ._read_and_fill_vector_table_timer); // Timer for getBlockAddress call
+        address =
+                env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
+    } // _get_block_address_timer stops here
+
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteLocalRef(map);
 
@@ -263,17 +285,22 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     for (uint32_t i = 0; i < column_size; ++i) {
         all_columns.push_back(i);
     }
-    SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer);
-    Status fill_block_status = JniConnector::fill_block(block, all_columns, address);
+
+    Status fill_block_status;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer); // Timer for fill_block
+        fill_block_status = JniConnector::fill_block(block, all_columns, address);
+    } // _fill_block_timer stops here
+
     if (!fill_block_status) {
         return fill_block_status;
     }
 
-    Status cast_status = _cast_string_to_special(block, env, column_size);
-
-    if (!cast_status) {
-        return cast_status;
-    }
+    Status cast_status;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._cast_timer); // Timer for casting process
+        cast_status = _cast_string_to_special(block, env, column_size);
+    } // _cast_timer stops here
 
     return JniUtil::GetJniExceptionMsg(env);
 }
