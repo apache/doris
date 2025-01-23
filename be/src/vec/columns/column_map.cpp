@@ -532,7 +532,8 @@ size_t ColumnMap::allocated_bytes() const {
 }
 
 size_t ColumnMap::capacity_bytes() const {
-    return keys_column->capacity_bytes() + values_column->capacity_bytes() + offsets_column->capacity_bytes();
+    return keys_column->capacity_bytes() + values_column->capacity_bytes() +
+           offsets_column->capacity_bytes();
 }
 
 ColumnPtr ColumnMap::convert_to_full_column_if_const() const {

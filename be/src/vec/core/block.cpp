@@ -428,7 +428,7 @@ size_t Block::capacity() const {
                             "Column {} in block is nullptr, in method capacity. All Columns are {}",
                             elem.name, ss.str());
         }
-        res += elem.column->capacity();
+        res += elem.column->capacity_bytes();
     }
 
     return res;
