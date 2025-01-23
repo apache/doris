@@ -93,7 +93,6 @@ ScannerContext::ScannerContext(
 // After init function call, should not access _parent
 Status ScannerContext::init() {
     _scanner_profile = _local_state->_scanner_profile;
-    _scanner_sched_counter = _local_state->_scanner_sched_counter;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
@@ -155,7 +154,8 @@ Status ScannerContext::init() {
 
     // The overall target of our system is to make full utilization of the resources.
     // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
-    if (_max_concurrency = _state->num_scanner_threads(); _max_concurrency == 0) {
+    _max_concurrency = _state->num_scanner_threads();
+    if (_max_concurrency == 0) {
         if (_serial_scan_operator) {
             // If the scan operator is serial, we need to boost the concurrency to ensure a single scan operator
             // could make full utilization of the resource.
@@ -252,12 +252,13 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
 
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
                                         std::unique_lock<std::mutex>& /*transfer_lock*/) {
-    Status res = _scanner_scheduler_global->submit(shared_from_this(), scan_task);
-    if (res.ok()) {
-        _scanner_sched_counter->update(1);
-        _num_scheduled_scanners++;
-    }
-    return res;
+    // increase _num_finished_scanners no matter the scan_task is submitted successfully or not.
+    // since if submit failed, it will be added back by ScannerContext::push_back_scan_task
+    // and _num_finished_scanners will be reduced.
+    // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
+    // see ScannerScheduler::_scanner_scan.
+    _num_scheduled_scanners++;
+    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
 }
 
 void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
@@ -279,6 +280,7 @@ void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
             _process_status = scan_task->get_status();
         }
         _tasks_queue.push_back(scan_task);
+        _num_scheduled_scanners--;
     }
 
     _dependency->set_ready();

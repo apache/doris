@@ -1045,9 +1045,6 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    // time of transfer thread to wait for block from scan thread
-    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
