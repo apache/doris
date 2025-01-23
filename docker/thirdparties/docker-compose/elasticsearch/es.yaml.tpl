@@ -135,6 +135,13 @@ services:
         condition: service_healthy
     networks:
       - doris--es
+  doris--wait-init:
+    image: hello-world
+    depends_on:
+      doris--_init_data:
+        condition: service_completed_successfully
+    networks:
+      - doris--es
 
 networks:
   doris--es:
