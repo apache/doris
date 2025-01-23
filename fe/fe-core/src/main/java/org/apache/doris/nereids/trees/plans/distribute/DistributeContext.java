@@ -17,16 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
-import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
+
+import java.util.Objects;
 
 /** DistributeContext */
 public class DistributeContext {
     public final DistributedPlanWorkerManager workerManager;
     public final SelectedWorkers selectedWorkers;
+    public final boolean isLoadJob;
 
-    public DistributeContext() {
-        this.workerManager = new BackendDistributedPlanWorkerManager();
+    public DistributeContext(DistributedPlanWorkerManager workerManager, boolean isLoadJob) {
+        this.workerManager = Objects.requireNonNull(workerManager, "workerManager can not be null");
         this.selectedWorkers = new SelectedWorkers(workerManager);
+        this.isLoadJob = isLoadJob;
     }
 }

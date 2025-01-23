@@ -3553,31 +3553,26 @@ public class SessionVariable implements Serializable, Writable {
 
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
-        // TODO: support cloud mode
-        if (Config.isCloudMode()) {
-            return false;
-        }
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
             return true;
         }
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext == null) {
-            return true;
-        }
-        StatementBase parsedStatement = statementContext.getParsedStatement();
-        if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-            return false;
-        }
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        // TODO: support other sink
-        if ((logicalPlan instanceof UnboundResultSink
-                || logicalPlan instanceof LogicalFileSink
-                || logicalPlan instanceof InsertIntoTableCommand) && sessionVariable.enableNereidsDistributePlanner) {
-            return true;
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext != null) {
+            StatementBase parsedStatement = statementContext.getParsedStatement();
+            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
+                return false;
+            }
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
+            // TODO: support other sink
+            if (!(logicalPlan instanceof UnboundResultSink
+                    || logicalPlan instanceof LogicalFileSink
+                    || logicalPlan instanceof InsertIntoTableCommand)) {
+                return false;
+            }
         }
-        return false;
+        return sessionVariable.enableNereidsDistributePlanner;
     }
 
     public boolean isEnableNereidsDistributePlanner() {
