@@ -1060,6 +1060,9 @@ DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
 DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
+// encoding segment file info into file cache key for tracing, clean cache
+// after change
+DEFINE_Bool(enable_file_cache_debug_hash, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
