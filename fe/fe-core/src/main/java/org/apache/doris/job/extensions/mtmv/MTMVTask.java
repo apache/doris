@@ -252,6 +252,7 @@ public class MTMVTask extends AbstractTask {
         int retryCount = 0;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        Exception lastException = null;
         while (retryCount < retryTime) {
             try {
                 exec(execPartitionNames, tableWithPartKey);
@@ -260,6 +261,7 @@ public class MTMVTask extends AbstractTask {
                 if (!(Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230))) {
                     throw e; // Re-throw if it's not a retryable exception
                 }
+                lastException = e;
 
                 int randomMillis = 10 + (int) (Math.random() * 10);
                 if (retryCount > retryTime / 2) {
@@ -270,13 +272,15 @@ public class MTMVTask extends AbstractTask {
                 }
 
                 retryCount++;
-                LOG.warn("Retrying execution due to exception: {}. Attempt {}/{}, lastQueryId {}, randomMillis {}",
-                        e.getMessage(), retryCount, retryTime, lastQueryId, randomMillis);
+                LOG.warn("Retrying execution due to exception: {}. Attempt {}/{}, "
+                        + "taskId {} execPartitionNames {} lastQueryId {}, randomMillis {}",
+                        e.getMessage(), retryCount, retryTime, getTaskId(),
+                        execPartitionNames, lastQueryId, randomMillis);
                 Thread.sleep(randomMillis);
             }
         }
         if (retryCount == retryTime) {
-            throw new Exception("Max retry attempts reached");
+            throw new Exception("Max retry attempts reached, original: " + lastException);
         }
     }
 

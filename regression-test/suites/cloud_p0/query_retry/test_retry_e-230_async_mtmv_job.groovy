@@ -93,7 +93,7 @@ suite("test_retry_e-230_async_mtmv_job", 'p0, docker') {
                 }
 
                 // due to inject -230, so after retry, task still failed
-                assertEquals("Max retry attempts reached", firstTask.ErrorMsg[0])
+                assertTrue(firstTask.ErrorMsg[0].contains("Max retry attempts reached"))
 
 
                 cluster.injectDebugPoints(NodeType.FE, ['MTMVTask.retry.longtime' : null])
@@ -123,6 +123,10 @@ suite("test_retry_e-230_async_mtmv_job", 'p0, docker') {
                 log.info("time cost: {}", cost)
                 futrue1.get()
                 assertTrue(cost > 50 * 1000)
+
+                // check view succ
+                def ret = sql """select * from $tbl_view order by k2;"""
+                assertEquals([[1, 1], [2, 2], [3, 3]], ret)
             } finally {
                 cluster.clearFrontendDebugPoints()
                 cluster.clearBackendDebugPoints()   
