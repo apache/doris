@@ -2089,9 +2089,9 @@ void OrcReader::_build_delete_row_filter(const Block* block, size_t rows) {
         const auto& row_id_column = assert_cast<const ColumnInt64&>(
                 *remove_nullable(block->get_by_name(TransactionalHive::ROW_ID_LOWER_CASE).column));
         for (int i = 0; i < rows; ++i) {
-            Int64 original_transaction = original_transaction_column.get_int(i);
-            Int64 bucket_id = bucket_id_column.get_int(i);
-            Int64 row_id = row_id_column.get_int(i);
+            auto original_transaction = original_transaction_column.get_int(i);
+            auto bucket_id = bucket_id_column.get_int(i);
+            auto row_id = row_id_column.get_int(i);
 
             TransactionalHiveReader::AcidRowID transactional_row_id = {original_transaction,
                                                                        bucket_id, row_id};

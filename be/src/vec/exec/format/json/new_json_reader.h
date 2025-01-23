@@ -224,7 +224,7 @@ private:
     std::string _line_delimiter;
     size_t _line_delimiter_length;
 
-    uint32_t _next_row;
+    size_t _next_row;
     size_t _total_rows;
 
     std::string _jsonpaths;
