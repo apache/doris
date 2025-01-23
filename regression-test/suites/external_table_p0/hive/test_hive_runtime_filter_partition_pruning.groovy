@@ -17,29 +17,65 @@
 
 suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_docker,external_docker_hive") {
     def test_runtime_filter_partition_pruning = {
-        qt_runtime_filter_partition_pruning1 """
-            select count(*) from partition_table where nation =
-                (select nation from partition_table
-                group by nation having count(*) > 0
-                order by nation desc limit 1);
+        qt_runtime_filter_partition_pruning_decimal1 """
+            select count(*) from decimal_partition_table where partition_col =
+                (select partition_col from decimal_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 1);
         """
-        qt_runtime_filter_partition_pruning2 """
-            select count(*) from partition_table where nation in
-                (select nation from partition_table
-                group by nation having count(*) > 0
-                order by nation desc limit 2);
+        qt_runtime_filter_partition_pruning_decimal2 """
+            select count(*) from decimal_partition_table where partition_col in
+                (select partition_col from decimal_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 2);
         """
-        qt_runtime_filter_partition_pruning3 """
-            select count(*) from partition_table where city =
-                (select city from partition_table
-                group by city having count(*) > 0
-                order by city desc limit 1);
+        qt_runtime_filter_partition_pruning_decimal3 """
+            select count(*) from decimal_partition_table where abs(partition_col) =
+                (select partition_col from decimal_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 1);
         """
-        qt_runtime_filter_partition_pruning4 """
-            select count(*) from partition_table where city in
-                (select city from partition_table
-                group by city having count(*) > 0
-                order by city desc limit 2);
+        qt_runtime_filter_partition_pruning_int1 """
+            select count(*) from int_partition_table where partition_col =
+                (select partition_col from int_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 1);
+        """
+        qt_runtime_filter_partition_pruning_int2 """
+            select count(*) from int_partition_table where partition_col in
+                (select partition_col from int_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 2);
+        """
+        qt_runtime_filter_partition_pruning_int3 """
+            select count(*) from int_partition_table where abs(partition_col) =
+                (select partition_col from int_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 1);
+        """
+        qt_runtime_filter_partition_pruning_string1 """
+            select count(*) from string_partition_table where partition_col =
+                (select partition_col from string_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 1);
+        """
+        qt_runtime_filter_partition_pruning_string2 """
+            select count(*) from string_partition_table where partition_col in
+                (select partition_col from string_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 2);
+        """
+        qt_runtime_filter_partition_pruning_date1 """
+            select count(*) from date_partition_table where partition_col =
+                (select partition_col from date_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 1);
+        """
+        qt_runtime_filter_partition_pruning_decimal2 """
+            select count(*) from date_partition_table where partition_col in
+                (select partition_col from date_partition_table
+                group by partition_col having count(*) > 0
+                order by partition_col desc limit 2);
         """
     }
 
@@ -52,7 +88,7 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_d
     for (String hivePrefix : ["hive2", "hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String catalog_name = "${hivePrefix}_test_partitions"
+            String catalog_name = "${hivePrefix}_test_hive_runtime_filter_partition_pruning"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -60,7 +96,7 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_d
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
-            sql """use `${catalog_name}`.`default`"""
+            sql """use `${catalog_name}`.`partition_tables`"""
 
             test_runtime_filter_partition_pruning()
         
