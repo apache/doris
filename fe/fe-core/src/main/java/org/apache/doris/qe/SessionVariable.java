@@ -754,7 +754,7 @@ public class SessionVariable implements Serializable, Writable {
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     @VariableMgr.VarAttr(name = MOW_INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
-    public long MowInsertVisibleTimeoutMs = DEFAULT_MOW_INSERT_VISIBLE_TIMEOUT_MS;
+    public long mowInsertVisibleTimeoutMs = DEFAULT_MOW_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -3442,7 +3442,7 @@ public class SessionVariable implements Serializable, Writable {
             // completing task requires more time, mainly spent on waiting for delete bitmap locks.
             // Now delete_bitmap_lock_expiration_seconds has been set to 60s, correspondingly, insert task timeout
             // should also be adjusted to 60s.
-            timeOutMs = isCloudMow ? MowInsertVisibleTimeoutMs : insertVisibleTimeoutMs;
+            timeOutMs = isCloudMow ? mowInsertVisibleTimeoutMs : insertVisibleTimeoutMs;
         }
         return timeOutMs;
     }
