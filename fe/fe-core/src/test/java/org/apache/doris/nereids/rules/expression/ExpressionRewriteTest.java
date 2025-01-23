@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -80,6 +81,49 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("not (a and b and (c or d))", "(not a) or (not b) or ((not c) and (not d))");
 
+    }
+
+    @Test
+    void testSimplifyConflictPredicate() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyConflictPredicate.INSTANCE)
+        ));
+
+        assertRewriteAfterTypeCoercion("a > b and not(a > b)",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("not(a > b) and a > b",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("a > b and not(a > b) and a > b and not(a > b)",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("a > b and not(a > b) and not (not (a > b)) ",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("a > c and a > b and not(a > b) and a > d",
+                "a > c AND (a > b) IS NULL AND NULL and a > d");
+        assertRewriteAfterTypeCoercion("a > b or not(a > b)",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("not(a > b) or a > b",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("a > b or not(a > b) or a > b or not(a > b)",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("a > b or not(a > b) or not (not (a > b)) ",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("a > c or a > b or not(a > b) or a > d",
+                "a > c OR NOT (a > b) IS NULL OR NULL OR a > d");
+        assertRewriteAfterTypeCoercion("a > b and (c > d or not (c > d))",
+                "a > b AND (NOT (c > d) IS NULL OR NULL)");
+        assertRewriteAfterTypeCoercion("(a > b or not(a > b)) and (c > d or not (c > d))",
+                "(NOT (a > b) IS NULL OR NULL) AND (NOT (c > d) IS NULL OR NULL)");
+        assertRewriteAfterTypeCoercion("a > b or (c > d and not (c > d))",
+                "a > b OR ((c > d) IS NULL AND NULL)");
+        assertRewriteAfterTypeCoercion("(a > b and not(a > b)) or (c > d and not (c > d))",
+                "((a > b) IS NULL AND NULL) OR ((c > d) IS NULL AND NULL)");
+
+        assertRewriteAfterTypeCoercion("a is null and not a is null", "FALSE");
+        assertRewriteAfterTypeCoercion("a is null or not a is null", "TRUE");
+
+        // not rewrite non-foldable expression
+        assertRewriteAfterTypeCoercion("a > b and not(a > b) and c > random(1, 10) and not (c > random(1, 10))",
+                "(a > b) IS NULL AND NULL AND c > random(1, 10) AND NOT (c > random(1, 10))");
     }
 
     @Test
