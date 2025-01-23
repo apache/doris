@@ -4049,6 +4049,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
+        tResult.setProfileLevel(getProfileLevel());
 
         return tResult;
     }

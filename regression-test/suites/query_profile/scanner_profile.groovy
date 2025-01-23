@@ -76,6 +76,7 @@ suite('scanner_profile') {
 
     def uuidString = UUID.randomUUID().toString()
     sql "set enable_profile=true"
+    sql "set profile_level=2;"
     // With Limit, MaxScannerThreadNum = 1
     sql """
         select "with_limit_1_${uuidString}", * from scanner_profile limit 10;

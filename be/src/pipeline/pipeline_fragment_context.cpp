@@ -1835,13 +1835,13 @@ PipelineFragmentContext::collect_realtime_profile() const {
 
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
-    _fragment_level_profile->to_thrift(fragment_profile.get());
+    _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage
     for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
         auto profile_ptr = std::make_shared<TRuntimeProfileTree>();
-        pipeline_profile->to_thrift(profile_ptr.get());
+        pipeline_profile->to_thrift(profile_ptr.get(), _runtime_state->profile_level());
         res.push_back(profile_ptr);
     }
 
@@ -1869,13 +1869,15 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
-            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
+            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get(),
+                                                        _runtime_state->profile_level());
             _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
-    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
+    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get(),
+                                                      _runtime_state->profile_level());
     return load_channel_profile;
 }
 #include "common/compile_check_end.h"

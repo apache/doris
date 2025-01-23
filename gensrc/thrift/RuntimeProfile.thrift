@@ -32,6 +32,7 @@ struct TCounter {
 struct TRuntimeProfileNode {
   1: required string name
   2: required i32 num_children 
+  // Counters is a list of flattened counters for this node and all its children
   3: required list<TCounter> counters
   // TODO: should we make metadata a serializable struct?  We only use it to
   // store the node id right now so this is sufficient.
