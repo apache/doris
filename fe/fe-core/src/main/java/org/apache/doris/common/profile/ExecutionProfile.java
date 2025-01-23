@@ -159,6 +159,7 @@ public class ExecutionProfile {
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
             fragmentsProfile.addChild(newFragmentProfile);
+            // All pipeline profiles of this fragment on all BEs
             List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(seqNoToFragmentId.get(i));
             int pipelineIdx = 0;
             for (List<RuntimeProfile> allPipelineTask : allPipelines) {
@@ -315,5 +316,15 @@ public class ExecutionProfile {
 
     public void setSummaryProfile(SummaryProfile summaryProfile) {
         this.summaryProfile = summaryProfile;
+    }
+
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ExecutionProfile: ").append(DebugUtil.printId(queryId)).append("\n");
+        for (Entry<Integer, RuntimeProfile> entry : fragmentProfiles.entrySet()) {
+            sb.append("Fragment ").append(entry.getKey()).append(":\n");
+            entry.getValue().prettyPrint(sb, "  ");
+        }
+        return sb.toString();
     }
 }
