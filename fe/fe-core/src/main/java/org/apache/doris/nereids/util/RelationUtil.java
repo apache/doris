@@ -159,10 +159,12 @@ public class RelationUtil {
                 LogicalPlan logicalPlan;
                 try {
                     // disable rbo sync mv rewrite
-                    connectContext.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
+                    connectContext.getSessionVariable()
+                            .setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
                     // disable constant fold
                     connectContext.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
-                    planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                    planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY,
+                            ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
                     logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
                 } finally {
                     // after operate, roll back the disable rules
