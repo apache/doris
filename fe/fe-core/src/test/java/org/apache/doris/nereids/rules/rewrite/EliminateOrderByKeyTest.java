@@ -132,4 +132,13 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .printlnTree()
                 .matches(logicalTopN().when(sort -> sort.getOrderKeys().size() == 1));
     }
+
+    @Test
+    void NotEliminateNonDeterministic() {
+        PlanChecker.from(connectContext)
+                .analyze("select a,b,c,d,dt from eliminate_order_by_constant_t order by a,a+random(1,10)")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 2));
+    }
 }
