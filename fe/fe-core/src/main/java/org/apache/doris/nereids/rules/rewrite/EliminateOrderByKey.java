@@ -100,7 +100,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
         for (int i = 0; i < inputOrderKeys.size(); ++i) {
             Expression expr = inputOrderKeys.get(i).getExpr();
-            validSlots.addAll(expr.getInputSlots());
+            validSlots.addAll(ImmutableList.of((Slot) expr));
             slotToIndex.put(expr, i);
             retainOrderKey.add(true);
         }
