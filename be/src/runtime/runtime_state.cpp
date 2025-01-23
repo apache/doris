@@ -260,6 +260,8 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
 
+    _profile_level = query_options.__isset.profile_level ? query_options.profile_level : 2;
+
     return Status::OK();
 }
 
