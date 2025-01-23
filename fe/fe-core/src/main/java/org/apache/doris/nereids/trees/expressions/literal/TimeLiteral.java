@@ -22,14 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.TimeType;
-import org.apache.doris.nereids.util.DateTimeFormatterUtils;
-import org.apache.doris.nereids.util.DateUtils;
 
-import java.time.DateTimeException;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.temporal.ChronoField;
-import java.time.temporal.TemporalAccessor;
 
 /**
  * Time literal in Nereids.
@@ -39,7 +33,7 @@ public class TimeLiteral extends Literal {
 
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0);
+    private static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0);
     private static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59);
 
     protected long hour;
@@ -72,55 +66,27 @@ public class TimeLiteral extends Literal {
         this.second = second;
     }
 
-    /** parseTime */
-    public static Result<TemporalAccessor, ? extends Exception> parseTime(String s) {
-        String originalString = s;
-        try {
-            Integer hour;
-            Integer minute;
-            Integer second;
-            if (s.length() == 8) {
-                hour = readNextInt(s, 0, 2);
-                minute = readNextInt(s, 3, 2);
-                second = readNextInt(s, 6, 2);
-            } else if (s.length() == 9) {
-                hour = readNextInt(s, 0, 3);
-                minute = readNextInt(s, 4, 2);
-                second = readNextInt(s, 7, 2);
-            } else {
-                TemporalAccessor time;
-                time = DateTimeFormatterUtils.TIME_FORMATTER.parse(s);
-                return Result.ok(time);
-            }
-
-            return Result.ok(LocalTime.of(hour, minute, second));
-        } catch (DateTimeException e) {
-            return Result.err(() ->
-                    new DateTimeException("time literal [" + originalString + "] is invalid", e)
-            );
-        }
-    }
-
     protected void init(String s) throws AnalysisException {
-        TemporalAccessor time = parseTime(s).get();
-        hour = DateUtils.getOrDefault(time, ChronoField.HOUR_OF_DAY);
-        minute = DateUtils.getOrDefault(time, ChronoField.MINUTE_OF_HOUR);
-        second = DateUtils.getOrDefault(time, ChronoField.SECOND_OF_MINUTE);
+        if (s.length() == 8) {
+            hour = readNextInt(s, 0, 2);
+            minute = readNextInt(s, 3, 2);
+            second = readNextInt(s, 6, 2);
+        } else if (s.length() == 9) {
+            hour = readNextInt(s, 0, 3);
+            minute = readNextInt(s, 4, 2);
+            second = readNextInt(s, 7, 2);
+        } else {
+            hour = minute = second = -1;
+        }
 
-        if (checkTime(time) || checkRange(hour, minute, second)) {
+        if (checkRange(hour, minute, second)) {
             throw new AnalysisException("time literal [" + s + "] is out of range");
         }
     }
 
     protected static boolean checkRange(long hour, long minute, long second) {
-        return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond();
-    }
-
-    private static boolean checkTime(TemporalAccessor time) {
-        return DateUtils.getOrDefault(time, ChronoField.HOUR_OF_DAY) != 0
-                || DateUtils.getOrDefault(time, ChronoField.MINUTE_OF_HOUR) != 0
-                || DateUtils.getOrDefault(time, ChronoField.SECOND_OF_MINUTE) != 0
-                || DateUtils.getOrDefault(time, ChronoField.MICRO_OF_SECOND) != 0;
+        return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond()
+                || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond();
     }
 
     public long getHour() {
