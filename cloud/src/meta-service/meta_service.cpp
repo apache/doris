@@ -940,6 +940,30 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
 }
 
 /**
+ * Fills schema information into the rowset meta from the dictionary.
+ * Handles schemas with variant types by retrieving the complete schema from the dictionary.
+ *
+ * @param code Result code indicating the operation status.
+ * @param msg Error description for failed operations.
+ * @param instance_id Identifier for the specific instance.
+ * @param txn Pointer to the transaction object for transactional operations.
+ * @param existed_rowset_meta Rowset meta object to be updated with schema information.
+ */
+static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
+                                  const std::string& instance_id, Transaction* txn,
+                                  doris::RowsetMetaCloudPB* existed_rowset_meta) {
+    google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB> metas;
+    metas.Add()->CopyFrom(*existed_rowset_meta);
+    // Retrieve schema from the dictionary and update metas.
+    read_schema_dict(code, msg, instance_id, existed_rowset_meta->index_id(), txn, &metas, nullptr);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+    // Update the original rowset meta with the complete schema from metas.
+    existed_rowset_meta->CopyFrom(metas.Get(0));
+}
+
+/**
  * 1. Check and confirm tmp rowset kv does not exist
  * 2. Construct recycle rowset kv which contains object path
  * 3. Put recycle rowset kv
@@ -1009,6 +1033,10 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         } else {
             existed_rowset_meta->set_schema_version(
                     existed_rowset_meta->tablet_schema().schema_version());
+        }
+        if (existed_rowset_meta->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
+            if (code != MetaServiceCode::OK) return;
         }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
@@ -1133,6 +1161,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         } else {
             existed_rowset_meta->set_schema_version(
                     existed_rowset_meta->tablet_schema().schema_version());
+        }
+        if (existed_rowset_meta->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
+            if (code != MetaServiceCode::OK) return;
         }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
@@ -1626,7 +1658,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
 
         if (need_read_schema_dict) {
-            read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(), response,
+            read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(),
+                             response->mutable_rowset_meta(), response->mutable_schema_dict(),
                              request->schema_op());
             if (code != MetaServiceCode::OK) return;
         }
@@ -1813,7 +1846,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     // 3. store all pending delete bitmap for this txn
     PendingDeleteBitmapPB delete_bitmap_keys;
-    delete_bitmap_keys.set_lock_id(request->lock_id());
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
                                        request->versions(i), request->segment_ids(i)};
