@@ -191,7 +191,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
                 hiveConf.set(kv.getKey(), kv.getValue());
             }
-            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
