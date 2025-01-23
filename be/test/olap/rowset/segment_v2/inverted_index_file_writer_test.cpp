@@ -807,9 +807,14 @@ TEST_F(InvertedIndexFileWriterTest, AddIntoSearcherCacheTest) {
     auto mock_builder = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
 
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
@@ -863,9 +868,14 @@ TEST_F(InvertedIndexFileWriterTest, CacheEvictionTest) {
     auto mock_builder1 = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder1, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
 
     EXPECT_CALL(writer1, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder1))));
@@ -890,9 +900,14 @@ TEST_F(InvertedIndexFileWriterTest, CacheEvictionTest) {
     auto mock_builder2 = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder2, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
 
     EXPECT_CALL(writer2, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder2))));
@@ -917,10 +932,14 @@ TEST_F(InvertedIndexFileWriterTest, CacheEvictionTest) {
     auto mock_builder3 = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder3, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
-
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
     EXPECT_CALL(writer3, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder3))));
 
@@ -983,9 +1002,14 @@ TEST_F(InvertedIndexFileWriterTest, CacheUpdateTest) {
     auto mock_builder = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
 
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
@@ -1062,9 +1086,14 @@ TEST_F(InvertedIndexFileWriterTest, AddIntoSearcherCacheV1Test) {
     auto mock_builder = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
     Status close_status = writer.close();
