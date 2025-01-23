@@ -1231,7 +1231,7 @@ public class StmtExecutor {
                 && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command));
     }
 
-    private boolean isProfileSafeStmt() {
+    public boolean isProfileSafeStmt() {
         // fe/fe-core/src/main/java/org/apache/doris/nereids/NereidsPlanner.java:131
         // Only generate profile for NereidsPlanner.
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {

@@ -288,8 +288,6 @@ public class Coordinator implements CoordInterface {
     // fragmentid -> backendid
     private MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = null;
 
-    private boolean isProfileSafeStmt = true;
-
     public void setGroupCommitBe(Backend backend) {
         this.groupCommitBackend = backend;
     }
@@ -3435,7 +3433,6 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void setIsProfileSafeStmt(boolean isSafe) {
-        this.isProfileSafeStmt = isSafe;
         this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
