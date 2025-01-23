@@ -21,6 +21,7 @@ suite("eliminate_order_by_key") {
     sql """create table eliminate_order_by_constant_t(a int null, b int not null, c varchar(10) null, d date, dt datetime, id int)
     distributed by hash(a) properties("replication_num"="1");
     """
+//    sql "set disable_nereids_rules='eliminate_order_by_key'"
     sql """
     INSERT INTO eliminate_order_by_constant_t (a, b, c, d, dt,id) VALUES
     (1, 100, 'apple', '2023-01-01', '2023-01-01 10:00:00',1),
