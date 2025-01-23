@@ -753,7 +753,7 @@ for compose in "${!pids[@]}"; do
     if [ $status -ne 0 ] && [ $compose != "db2" ]; then
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
-        cat start_${compose}.log
+        cat start_${compose}.log || true
 
         echo ""
         echo "print last 100 logs of the latest unhealthy container"
