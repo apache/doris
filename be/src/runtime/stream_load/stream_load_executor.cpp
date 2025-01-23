@@ -217,8 +217,12 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
+    int timeout_ms = config::txn_commit_rpc_timeout_ms;
+    if (ctx->is_mow_table()) {
+        timeout_ms *= config::mow_commit_rpc_timeout_multiplier;
+    }
     TLoadTxnCommitRequest request;
-    get_commit_request(ctx, request);
+    get_commit_request(ctx, request, timeout_ms);
 
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult result;
@@ -286,8 +290,8 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     return Status::OK();
 }
 
-void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
-                                            TLoadTxnCommitRequest& request) {
+void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request,
+                                            int timeout_ms) {
     set_request_auth(&request, ctx->auth);
     request.__set_db(ctx->db);
     if (ctx->db_id > 0) {
@@ -297,7 +301,7 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.__set_txnId(ctx->txn_id);
     request.__set_sync(true);
     request.__set_commitInfos(ctx->commit_infos);
-    request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+    request.__set_thrift_rpc_timeout_ms(timeout_ms);
     request.__set_tbls(ctx->table_list);
 
     VLOG_DEBUG << "commit txn request:" << apache::thrift::ThriftDebugString(request);
@@ -314,16 +318,16 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 
     DorisMetrics::instance()->stream_load_txn_commit_request_total->increment(1);
 
-    TLoadTxnCommitRequest request;
-    get_commit_request(ctx, request);
-
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
-    TLoadTxnCommitResult result;
-#ifndef BE_TEST
     int timeout_ms = config::txn_commit_rpc_timeout_ms;
     if (ctx->is_mow_table()) {
         timeout_ms *= config::mow_commit_rpc_timeout_multiplier;
     }
+    TLoadTxnCommitRequest request;
+    get_commit_request(ctx, request, timeout_ms);
+
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    TLoadTxnCommitResult result;
+#ifndef BE_TEST
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
