@@ -43,6 +43,7 @@
 #endif
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 InetAddress::InetAddress(std::string ip, sa_family_t family, bool is_loopback)
         : _ip_addr(ip), _family(family), _is_loopback(is_loopback) {}
@@ -113,7 +114,7 @@ bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* po
         return false;
     }
     *host = endpoint.substr(i, p - i);
-    *port = value;
+    *port = (uint16_t)value; //The valid port range does not exceed uint16_t.
     return true;
 }
 
@@ -292,4 +293,5 @@ std::string get_brpc_http_url(const std::string& host, int port) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

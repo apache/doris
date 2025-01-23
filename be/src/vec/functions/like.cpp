@@ -37,6 +37,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
@@ -384,8 +385,12 @@ Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals,
 Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                   const StringRef& pattern, unsigned char* result) {
     if (state->hs_database) { // use hyperscan
-        auto ret = hs_scan(state->hs_database.get(), val.data, val.size, 0, state->hs_scratch.get(),
-                           doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
+        auto ret = hs_scan(
+                state->hs_database.get(), val.data,
+                (uint32_t /*ColumnString is ColumnStr<UInt32>, and its size will not exceed uint32*/)
+                        val.size,
+                0, state->hs_scratch.get(), doris::vectorized::LikeSearchState::hs_match_handler,
+                (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -418,10 +423,13 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
     if (state->hs_database) { // use hyperscan
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(state->hs_database.get(), str_ref.data, str_ref.size, 0,
-                               state->hs_scratch.get(),
-                               doris::vectorized::LikeSearchState::hs_match_handler,
-                               (void*)(result.data() + i));
+            auto ret = hs_scan(
+                    state->hs_database.get(), str_ref.data,
+                    (uint32_t /*ColumnString is ColumnStr<UInt32>, and its size will not exceed uint32*/)
+                            str_ref.size,
+                    0, state->hs_scratch.get(),
+                    doris::vectorized::LikeSearchState::hs_match_handler,
+                    (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
@@ -447,9 +455,12 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& v
         auto sz = val.size();
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(database, str_ref.data, str_ref.size, 0, scratch,
-                               doris::vectorized::LikeSearchState::hs_match_handler,
-                               (void*)(result.data() + i));
+            auto ret = hs_scan(
+                    database, str_ref.data,
+                    (uint32_t /*ColumnString is ColumnStr<UInt32>, and its size will not exceed uint32*/)
+                            str_ref.size,
+                    0, scratch, doris::vectorized::LikeSearchState::hs_match_handler,
+                    (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
@@ -766,8 +777,8 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
 void FunctionLike::remove_escape_character(std::string* search_string) {
     std::string tmp_search_string;
     tmp_search_string.swap(*search_string);
-    int len = tmp_search_string.length();
-    for (int i = 0; i < len;) {
+    int64_t len = tmp_search_string.length();
+    for (int64_t i = 0; i < len;) {
         if (tmp_search_string[i] == '\\' && i + 1 < len &&
             (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
              tmp_search_string[i + 1] == '\\')) {
@@ -796,7 +807,7 @@ bool re2_full_match(const std::string& str, const RE2& re, std::vector<std::stri
         arguments_ptrs[i] = &arguments[i];
     }
 
-    return RE2::FullMatchN(str, re, arguments_ptrs.data(), args_count);
+    return RE2::FullMatchN(str, re, arguments_ptrs.data(), (int)args_count);
 }
 
 void verbose_log_match(const std::string& str, const std::string& pattern_name, const RE2& re) {
@@ -1002,4 +1013,5 @@ void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionRegexpLike::name, FunctionRegexpLike::alias);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

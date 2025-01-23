@@ -71,7 +71,7 @@ public:
                 if (!context->is_col_constant(0)) {
                     return Status::InvalidArgument("The param of rand function must be literal");
                 }
-                uint32_t seed = 0;
+                int64_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
                     seed = (*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
                 }
