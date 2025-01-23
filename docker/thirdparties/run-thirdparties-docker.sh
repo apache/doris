@@ -52,6 +52,7 @@ if ! OPTS="$(getopt \
     -o '' \
     -l 'help' \
     -l 'stop' \
+    -l 'reserve-ports' \
     -o 'hc:' \
     -- "$@")"; then
     usage
