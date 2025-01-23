@@ -44,9 +44,6 @@
 -- !select_intersect_count_2 --
 5
 
--- !select_percentile_approx1 --
-0.0
-
 -- !select_percentile_array --
 [255, 1989, 1991]
 
