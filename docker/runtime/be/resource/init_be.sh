@@ -183,6 +183,7 @@ main() {
     fi
 
     log_info "Starting BE node"
+    export SKIP_CHECK_ULIMIT=true
     ${DORIS_HOME}/be/bin/start_be.sh --console &
     child_pid=$!
     wait $child_pid
