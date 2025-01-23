@@ -93,14 +93,15 @@ suite("test_audit_log_behavior") {
         for (int i = 0; i < cnt; i++) {
             def tuple2 = sqls.get(i)
             def retry = 180
-            def res = sql "select stmt from __internal_schema.audit_log where stmt like 'insert%3F6B9A_${i}%' order by time asc limit 1"
+            def query = "select stmt from __internal_schema.audit_log where stmt like 'insert%3F6B9A_${i}%' order by time asc limit 1"
+            def res = sql "${query}"
             while (res.isEmpty()) {
                 if (retry-- < 0) {
                     logger.warn("It has retried a few but still failed, you need to check it")
                     return
                 }
                 sleep(1000)
-                res = sql "select stmt from __internal_schema.audit_log where stmt like '%3F6B9A_${i}%' order by time asc limit 1"
+                res = sql "${query}"
             }
             assertEquals(res[0][0].toString(), tuple2[1].toString())
         }

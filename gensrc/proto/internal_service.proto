@@ -990,8 +990,6 @@ message PGetBeResourceResponse {
 }
 
 service PBackendService {
-    rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
-    rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);

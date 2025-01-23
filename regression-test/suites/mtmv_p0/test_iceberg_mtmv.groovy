@@ -107,36 +107,38 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values ('2024-10-26 01:02:03', 1), ('2024-10-27 01:02:03', 2), ('2024-10-27 21:02:03', 3)"""
         sql """CREATE MATERIALIZED VIEW ${mvName1} BUILD DEFERRED REFRESH AUTO ON MANUAL partition by(`ts`) DISTRIBUTED BY RANDOM BUCKETS 2  PROPERTIES ('replication_num' = '1') as SELECT * FROM ${catalog_name}.${icebergDb}.${icebergTable1}"""
         sql """REFRESH MATERIALIZED VIEW ${mvName1} complete"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh1 "select * from ${mvName1} order by value"
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values ('2024-10-26 21:02:03', 4)"""
         sql """REFRESH MATERIALIZED VIEW ${mvName1} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh2 """select * from ${mvName1} order by value"""
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values ('2024-10-26 01:22:03', 5), ('2024-10-27 01:12:03', 6);"""
         sql """REFRESH MATERIALIZED VIEW ${mvName1} partitions(p_20241026000000_20241027000000);"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh3 """select * from ${mvName1} order by value"""
 
         sql """REFRESH MATERIALIZED VIEW ${mvName1} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh4 """select * from ${mvName1} order by value"""
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values ('2024-10-28 01:22:03', 7);"""
         sql """REFRESH MATERIALIZED VIEW ${mvName1} partitions(p_20241026000000_20241027000000);"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh5 """select * from ${mvName1} order by value"""
 
         sql """REFRESH MATERIALIZED VIEW ${mvName1} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh6 """select * from ${mvName1} order by value"""
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values (null, 8);"""
         sql """REFRESH MATERIALIZED VIEW ${mvName1} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName1)
+        waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh_null """select * from ${mvName1} order by value"""
+
+        qt_test_iceberg_table_partition_ts """show partitions from ${catalog_name}.${icebergDb}.${icebergTable1};"""
 
         def showPartitionsResult = sql """show partitions from ${mvName1}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -176,26 +178,28 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable2} values ('2024-08-26', 1), ('2024-09-17', 2), ('2024-09-27', 3);"""
         sql """CREATE MATERIALIZED VIEW ${mvName2} BUILD DEFERRED REFRESH AUTO ON MANUAL partition by(`d`) DISTRIBUTED BY RANDOM BUCKETS 2  PROPERTIES ('replication_num' = '1') as SELECT * FROM ${catalog_name}.${icebergDb}.${icebergTable2}"""
         sql """REFRESH MATERIALIZED VIEW ${mvName2} complete"""
-        waitingMTMVTaskFinishedByMvName(mvName2)
+        waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh1 "select * from ${mvName2} order by value"
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable2} values ('2024-09-01', 4);"""
         sql """REFRESH MATERIALIZED VIEW ${mvName2} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName2)
+        waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh2 "select * from ${mvName2} order by value"
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable2} values ('2024-08-22', 5), ('2024-09-30', 6);"""
         sql """REFRESH MATERIALIZED VIEW ${mvName2} partitions(p_20240801_20240901);"""
-        waitingMTMVTaskFinishedByMvName(mvName2)
+        waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh3 "select * from ${mvName2} order by value"
         sql """REFRESH MATERIALIZED VIEW ${mvName2} partitions(p_20240901_20241001);"""
-        waitingMTMVTaskFinishedByMvName(mvName2)
+        waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh4 "select * from ${mvName2} order by value"
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable2} values ('2024-10-28', 7);"""
         sql """REFRESH MATERIALIZED VIEW ${mvName2} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName2)
+        waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh5 "select * from ${mvName2} order by value"
+
+        qt_test_iceberg_table_partition_d """show partitions from ${catalog_name}.${icebergDb}.${icebergTable2};"""
 
         showPartitionsResult = sql """show partitions from ${mvName2}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -240,7 +244,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
 
         // refresh one partiton
         sql """REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20240101000000_20240102000000);"""
-        waitingMTMVTaskFinishedByMvName(mvName)
+        waitingMTMVTaskFinishedByMvName(mvName, dbName)
         order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
         def explainOnePartition = sql """ explain  ${mvSql} """
         logger.info("explainOnePartition: " + explainOnePartition.toString())
@@ -250,7 +254,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
 
         //refresh auto
         sql """REFRESH MATERIALIZED VIEW ${mvName} auto"""
-        waitingMTMVTaskFinishedByMvName(mvName)
+        waitingMTMVTaskFinishedByMvName(mvName, dbName)
         order_qt_refresh_auto "SELECT * FROM ${mvName} "
         def explainAllPartition = sql """ explain  ${mvSql}; """
         logger.info("explainAllPartition: " + explainAllPartition.toString())

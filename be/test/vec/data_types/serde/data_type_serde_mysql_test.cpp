@@ -204,7 +204,7 @@ void serialize_and_deserialize_mysql_test() {
                 auto& date_v2_data = column_vector_date_v2->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     DateV2Value<DateV2ValueType> value;
-                    value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
+                    value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
                     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
                 }
                 vectorized::DataTypePtr date_v2_type(

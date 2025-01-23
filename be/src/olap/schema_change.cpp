@@ -137,6 +137,12 @@ public:
                             tablet_schema->column(i).get_aggregate_function(
                                     vectorized::AGG_LOAD_SUFFIX,
                                     tablet_schema->column(i).get_be_exec_version());
+                    if (!function) {
+                        return Status::InternalError(
+                                "could not find aggregate function on column {}, aggregation={}",
+                                tablet_schema->column(i).name(),
+                                tablet_schema->column(i).aggregation());
+                    }
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -805,6 +811,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 
     Status res = _do_process_alter_tablet(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
+    DBUG_EXECUTE_IF("SchemaChangeJob::process_alter_tablet.leave.sleep", { sleep(5); });
     return res;
 }
 

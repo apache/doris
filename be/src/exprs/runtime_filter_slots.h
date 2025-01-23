@@ -36,11 +36,7 @@ public:
     VRuntimeFilterSlots(
             const std::vector<std::shared_ptr<vectorized::VExprContext>>& build_expr_ctxs,
             const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters)
-            : _build_expr_context(build_expr_ctxs), _runtime_filters(runtime_filters) {
-        for (auto runtime_filter : _runtime_filters) {
-            _runtime_filters_map[runtime_filter->expr_order()].push_back(runtime_filter.get());
-        }
-    }
+            : _build_expr_context(build_expr_ctxs), _runtime_filters(runtime_filters) {}
 
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
                             std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
@@ -140,62 +136,48 @@ public:
     }
 
     void insert(const vectorized::Block* block) {
-        for (int i = 0; i < _build_expr_context.size(); ++i) {
-            auto iter = _runtime_filters_map.find(i);
-            if (iter == _runtime_filters_map.end()) {
+        for (auto& filter : _runtime_filters) {
+            int result_column_id =
+                    _build_expr_context[filter->expr_order()]->get_last_result_column_id();
+            const auto& column = block->get_by_position(result_column_id).column;
+            if (filter->get_ignored() || filter->get_disabled()) {
                 continue;
             }
-
-            int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            const auto& column = block->get_by_position(result_column_id).column;
-            for (auto* filter : iter->second) {
-                if (filter->get_ignored() || filter->get_disabled()) {
-                    continue;
-                }
-                filter->insert_batch(column, 1);
-            }
+            filter->insert_batch(column, 1);
         }
     }
 
     // publish runtime filter
     Status publish(RuntimeState* state, bool publish_local) {
-        for (auto& pair : _runtime_filters_map) {
-            for (auto& filter : pair.second) {
-                RETURN_IF_ERROR(filter->publish(state, publish_local));
-            }
+        for (auto& filter : _runtime_filters) {
+            RETURN_IF_ERROR(filter->publish(state, publish_local));
         }
         return Status::OK();
     }
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
-        for (auto& it : _runtime_filters_map) {
-            for (auto& filter : it.second) {
-                context->runtime_filters[filter->filter_id()] = filter->get_shared_context_ref();
-            }
+        for (auto& filter : _runtime_filters) {
+            context->runtime_filters[filter->filter_id()] = filter->get_shared_context_ref();
         }
     }
 
     Status copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
-        for (auto& it : _runtime_filters_map) {
-            for (auto& filter : it.second) {
-                auto filter_id = filter->filter_id();
-                auto ret = context->runtime_filters.find(filter_id);
-                if (ret == context->runtime_filters.end()) {
-                    return Status::Aborted("invalid runtime filter id: {}", filter_id);
-                }
-                filter->get_shared_context_ref() = ret->second;
+        for (auto& filter : _runtime_filters) {
+            auto filter_id = filter->filter_id();
+            auto ret = context->runtime_filters.find(filter_id);
+            if (ret == context->runtime_filters.end()) {
+                return Status::Aborted("invalid runtime filter id: {}", filter_id);
             }
+            filter->get_shared_context_ref() = ret->second;
         }
         return Status::OK();
     }
 
-    bool empty() { return _runtime_filters_map.empty(); }
+    bool empty() { return _runtime_filters.empty(); }
 
 private:
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
-    // prob_contition index -> [IRuntimeFilter]
-    std::map<int, std::list<IRuntimeFilter*>> _runtime_filters_map;
 };
 
 } // namespace doris

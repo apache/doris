@@ -17,7 +17,7 @@ import org.junit.Assert
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_local_tvf_enclose", "p0,tvf") {
+suite("test_local_tvf_enclose", "p0,tvf,external,external_docker") {
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]

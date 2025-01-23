@@ -32,7 +32,7 @@ import java.util.List;
 
 /** UnassignedGatherJob */
 public class UnassignedGatherJob extends AbstractUnassignedJob {
-    private boolean useLocalShuffleToAddParallel;
+    private boolean useSerialSource;
 
     public UnassignedGatherJob(
             StatementContext statementContext, PlanFragment fragment,
@@ -43,25 +43,26 @@ public class UnassignedGatherJob extends AbstractUnassignedJob {
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        ConnectContext connectContext = statementContext.getConnectContext();
-        useLocalShuffleToAddParallel = fragment.useSerialSource(connectContext);
+        useSerialSource = fragment.useSerialSource(
+                distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
+        ConnectContext connectContext = statementContext.getConnectContext();
         int expectInstanceNum = degreeOfParallelism();
 
         DistributedPlanWorker selectedWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
-        if (useLocalShuffleToAddParallel) {
+        if (useSerialSource) {
+            // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
+            // shuffled to only 1 exchange operator) and then split by followed local exchanger
             ImmutableList.Builder<AssignedJob> instances = ImmutableList.builder();
-
             DefaultScanSource shareScan = new DefaultScanSource(ImmutableMap.of());
             LocalShuffleAssignedJob receiveDataFromRemote = new LocalShuffleAssignedJob(
-                    0, 0, false,
+                    0, 0,
                     connectContext.nextInstanceId(), this, selectedWorker, shareScan);
 
             instances.add(receiveDataFromRemote);
             for (int i = 1; i < expectInstanceNum; ++i) {
                 LocalShuffleAssignedJob receiveDataFromLocal = new LocalShuffleAssignedJob(
-                        i, 0, true,
-                        connectContext.nextInstanceId(), this, selectedWorker, shareScan);
+                        i, 0, connectContext.nextInstanceId(), this, selectedWorker, shareScan);
                 instances.add(receiveDataFromLocal);
             }
             return instances.build();
@@ -76,6 +77,6 @@ public class UnassignedGatherJob extends AbstractUnassignedJob {
     }
 
     protected int degreeOfParallelism() {
-        return useLocalShuffleToAddParallel ? fragment.getParallelExecNum() : 1;
+        return useSerialSource ? Math.max(1, fragment.getParallelExecNum()) : 1;
     }
 }

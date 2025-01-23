@@ -17,13 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -43,7 +41,7 @@ import java.util.function.Function;
 
 /** UnassignedShuffleJob */
 public class UnassignedShuffleJob extends AbstractUnassignedJob {
-    private boolean useLocalShuffleToAddParallel;
+    private boolean useSerialSource;
 
     public UnassignedShuffleJob(
             StatementContext statementContext, PlanFragment fragment,
@@ -54,7 +52,8 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        useLocalShuffleToAddParallel = fragment.useSerialSource(statementContext.getConnectContext());
+        useSerialSource = fragment.useSerialSource(
+                distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
         int expectInstanceNum = degreeOfParallelism();
         List<AssignedJob> biggestParallelChildFragment = getInstancesOfBiggestParallelChildFragment(inputJobs);
@@ -83,17 +82,10 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
     protected int degreeOfParallelism() {
         // TODO: check we use nested loop join do right outer / semi / anti join,
         //       we should add an exchange node with gather distribute under the nested loop join
-
         int expectInstanceNum = -1;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            expectInstanceNum = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
-        }
-
-        // TODO: check nested loop join do right outer / semi / anti join
-        PlanNode leftMostNode = findLeftmostNode(fragment.getPlanRoot()).second;
-        // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
-        if (leftMostNode.getNumInstances() == 1) {
-            expectInstanceNum = 1;
+        ConnectContext connectContext = statementContext.getConnectContext();
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
         }
         return expectInstanceNum;
     }
@@ -116,7 +108,7 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
     private List<AssignedJob> buildInstances(
             int instanceNum, Function<Integer, DistributedPlanWorker> workerSelector) {
         ConnectContext connectContext = statementContext.getConnectContext();
-        if (useLocalShuffleToAddParallel) {
+        if (useSerialSource) {
             return buildInstancesWithLocalShuffle(instanceNum, workerSelector, connectContext);
         } else {
             return buildInstancesWithoutLocalShuffle(instanceNum, workerSelector, connectContext);
@@ -150,17 +142,13 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         for (Entry<DistributedPlanWorker, Collection<Integer>> kv : workerToInstanceIds.asMap().entrySet()) {
             DistributedPlanWorker worker = kv.getKey();
             Collection<Integer> indexesInFragment = kv.getValue();
-
             DefaultScanSource shareScanSource = new DefaultScanSource(ImmutableMap.of());
-
-            boolean receiveDataFromLocal = false;
             for (Integer indexInFragment : indexesInFragment) {
                 LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
-                        indexInFragment, shareScanId, receiveDataFromLocal, connectContext.nextInstanceId(),
+                        indexInFragment, shareScanId, connectContext.nextInstanceId(),
                         this, worker, shareScanSource
                 );
                 instances.add(instance);
-                receiveDataFromLocal = true;
             }
             shareScanId++;
         }
@@ -175,17 +163,5 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         List<DistributedPlanWorker> candidateWorkers = Lists.newArrayList(candidateWorkerSet);
         Collections.shuffle(candidateWorkers);
         return candidateWorkers;
-    }
-
-    // Returns the id of the leftmost node of any of the gives types in 'plan_root',
-    // or INVALID_PLAN_NODE_ID if no such node present.
-    private Pair<PlanNode, PlanNode> findLeftmostNode(PlanNode plan) {
-        PlanNode childPlan = plan;
-        PlanNode fatherPlan = null;
-        while (childPlan.getChildren().size() != 0 && !(childPlan instanceof ExchangeNode)) {
-            fatherPlan = childPlan;
-            childPlan = childPlan.getChild(0);
-        }
-        return Pair.of(fatherPlan, childPlan);
     }
 }

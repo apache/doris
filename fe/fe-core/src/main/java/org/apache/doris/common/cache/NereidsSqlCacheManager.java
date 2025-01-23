@@ -228,37 +228,36 @@ public class NereidsSqlCacheManager {
     private Optional<LogicalSqlCache> tryParseSql(
             ConnectContext connectContext, String key, SqlCacheContext sqlCacheContext,
             UserIdentity currentUserIdentity, boolean checkUserVariable) {
-        Env env = connectContext.getEnv();
-
-        if (!tryLockTables(connectContext, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
-        // check table and view and their columns authority
-        if (privilegeChanged(connectContext, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (tablesOrDataChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (viewsChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
-        LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
-        if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
-        // table structure and data not changed, now check policy
-        if (rowPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (dataMaskPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
         try {
+            Env env = connectContext.getEnv();
+
+            if (!tryLockTables(connectContext, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+
+            // check table and view and their columns authority
+            if (privilegeChanged(connectContext, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+            if (tablesOrDataChanged(env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+            if (viewsChanged(env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+
+            LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
+            if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+
+            // table structure and data not changed, now check policy
+            if (rowPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+            if (dataMaskPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
             Optional<ResultSet> resultSetInFe = sqlCacheContext.getResultSetInFe();
 
             List<Variable> currentVariables = ImmutableList.of();
@@ -325,7 +324,7 @@ public class NereidsSqlCacheManager {
         // check table type and version
         for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
-            if (tableVersion.type != TableType.OLAP) {
+            if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW) {
                 return true;
             }
             TableIf tableIf = findTableIf(env, scanTable.getKey());

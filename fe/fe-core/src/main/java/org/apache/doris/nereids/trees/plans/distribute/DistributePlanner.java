@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.distribute;
 
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DummyWorker;
+import org.apache.doris.nereids.trees.plans.distribute.worker.LoadBalanceScanWorkerSelector;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
@@ -43,10 +45,10 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 import org.apache.logging.log4j.LogManager;
@@ -72,19 +74,24 @@ public class DistributePlanner {
     }
 
     /** plan */
-    public FragmentIdMapping<DistributedPlan> plan() {
+    public FragmentIdMapping<DistributedPlan> plan(boolean isLoadJob) {
         updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
         try {
+            BackendDistributedPlanWorkerManager workerManager
+                    = new BackendDistributedPlanWorkerManager(statementContext.getConnectContext());
+            LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(workerManager);
             FragmentIdMapping<UnassignedJob> fragmentJobs
-                    = UnassignedJobBuilder.buildJobs(statementContext, idToFragments);
-            ListMultimap<PlanFragmentId, AssignedJob> instanceJobs = AssignedJobBuilder.buildJobs(fragmentJobs);
+                    = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
+            ListMultimap<PlanFragmentId, AssignedJob> instanceJobs
+                    = AssignedJobBuilder.buildJobs(fragmentJobs, workerManager, isLoadJob);
             FragmentIdMapping<DistributedPlan> distributedPlans = buildDistributePlans(fragmentJobs, instanceJobs);
             FragmentIdMapping<DistributedPlan> linkedPlans = linkPlans(distributedPlans);
             updateProfileIfPresent(SummaryProfile::setAssignFragmentTime);
             return linkedPlans;
         } catch (Throwable t) {
             LOG.error("Failed to build distribute plans", t);
-            throw t;
+            Throwables.throwIfInstanceOf(t, RuntimeException.class);
+            throw new IllegalStateException(t.toString(), t);
         }
     }
 
@@ -136,6 +143,16 @@ public class DistributePlanner {
                         link.getKey(),
                         enableShareHashTableForBroadcastJoin
                 );
+                for (Entry<DataSink, List<AssignedJob>> kv :
+                        ((PipelineDistributedPlan) link.getValue()).getDestinations().entrySet()) {
+                    if (kv.getValue().isEmpty()) {
+                        int sourceFragmentId = link.getValue().getFragmentJob().getFragment().getFragmentId().asInt();
+                        String msg = "Invalid plan which exchange not contains receiver, "
+                                + "exchange id: " + kv.getKey().getExchNodeId().asInt()
+                                + ", source fragmentId: " + sourceFragmentId;
+                        throw new IllegalStateException(msg);
+                    }
+                }
             }
         }
         return plans;
@@ -184,7 +201,7 @@ public class DistributePlanner {
         boolean useLocalShuffle = receiverPlan.getInstanceJobs().stream()
                 .anyMatch(LocalShuffleAssignedJob.class::isInstance);
         if (useLocalShuffle) {
-            return getFirstInstancePerShareScan(receiverPlan);
+            return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else if (enableShareHashTableForBroadcastJoin && linkNode.isRightChildOfBroadcastHashJoin()) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else {
@@ -221,17 +238,6 @@ public class DistributePlanner {
         return Arrays.asList(instances);
     }
 
-    private List<AssignedJob> getFirstInstancePerShareScan(PipelineDistributedPlan plan) {
-        List<AssignedJob> canReceiveDataFromRemote = Lists.newArrayListWithCapacity(plan.getInstanceJobs().size());
-        for (AssignedJob instanceJob : plan.getInstanceJobs()) {
-            LocalShuffleAssignedJob localShuffleJob = (LocalShuffleAssignedJob) instanceJob;
-            if (!localShuffleJob.receiveDataFromLocal) {
-                canReceiveDataFromRemote.add(localShuffleJob);
-            }
-        }
-        return canReceiveDataFromRemote;
-    }
-
     private List<AssignedJob> getFirstInstancePerWorker(List<AssignedJob> instances) {
         Map<DistributedPlanWorker, AssignedJob> firstInstancePerWorker = Maps.newLinkedHashMap();
         for (AssignedJob instance : instances) {
@@ -241,7 +247,7 @@ public class DistributePlanner {
     }
 
     private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
-        Optional.ofNullable(ConnectContext.get())
+        Optional.ofNullable(statementContext.getConnectContext())
                 .map(ConnectContext::getExecutor)
                 .map(StmtExecutor::getSummaryProfile)
                 .ifPresent(profileAction);

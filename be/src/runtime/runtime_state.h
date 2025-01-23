@@ -37,6 +37,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
+#include "common/be_mock_util.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -96,7 +97,7 @@ public:
     RuntimeState();
 
     // Empty d'tor to avoid issues with unique_ptr.
-    ~RuntimeState();
+    MOCK_DEFINE(virtual) ~RuntimeState();
 
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -118,7 +119,7 @@ public:
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    int batch_size() const { return _query_options.batch_size; }
+    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
     int wait_full_block_schedule_times() const {
         return _query_options.wait_full_block_schedule_times;
     }
@@ -411,20 +412,6 @@ public:
 
     bool enable_page_cache() const;
 
-    int partitioned_hash_join_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_join_rows_threshold;
-    }
-
-    int partitioned_hash_agg_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_agg_rows_threshold;
-    }
-
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -628,6 +615,8 @@ public:
 
     int task_num() const { return _task_num; }
 
+    int profile_level() const { return _profile_level; }
+
 private:
     Status create_error_log_file();
 
@@ -646,6 +635,10 @@ private:
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
+    // Why 2?
+    // During cluster upgrade, fe will not pass profile_level to be, so we need to set it to 2
+    // to make sure user can see all profile counters like before.
+    int _profile_level = 2;
 
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;

@@ -44,6 +44,8 @@ suite ("projectMV2") {
     sql """insert into projectMV2 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table projectMV2 with sync;"
+    sql """alter table projectMV2 modify column time_col set stats ('row_count'='3');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from projectMV2 order by empid;", "projectMV2_mv")
@@ -56,7 +58,6 @@ suite ("projectMV2") {
     order_qt_select_base "select name from projectMV2 where deptno -1 = 0 order by empid;"
 
     sql """set enable_stats=true;"""
-    sql """alter table projectMV2 modify column time_col set stats ('row_count'='3');"""
 
     mv_rewrite_fail("select * from projectMV2 order by empid;", "projectMV2_mv")
 

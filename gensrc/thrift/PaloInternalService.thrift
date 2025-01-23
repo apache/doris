@@ -27,7 +27,6 @@ include "Planner.thrift"
 include "DataSinks.thrift"
 include "Data.thrift"
 include "RuntimeProfile.thrift"
-include "PaloService.thrift"
 
 // constants for TQueryOptions.num_nodes
 const i32 NUM_NODES_ALL = 0
@@ -104,7 +103,7 @@ struct TQueryOptions {
   13: optional bool abort_on_default_limit_exceeded = 0
   14: optional i32 query_timeout = 3600
   15: optional bool is_report_success = 0
-  16: optional i32 codegen_level = 0
+  16: optional i32 codegen_level = 0 // Deprecated
   // INT64::MAX
   17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
@@ -182,7 +181,7 @@ struct TQueryOptions {
 
   52: optional i32 be_exec_version = 0
 
-  53: optional i32 partitioned_hash_join_rows_threshold = 0
+  53: optional i32 partitioned_hash_join_rows_threshold = 0 // deprecated
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
@@ -198,7 +197,7 @@ struct TQueryOptions {
   59: optional i64 external_sort_bytes_threshold = 0
 
   // deprecated
-  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
 
   61: optional bool enable_file_cache = false
 
@@ -366,9 +365,10 @@ struct TQueryOptions {
   145: optional bool enable_inverted_index_query_cache = true;
   146: optional bool fuzzy_disable_runtime_filter_in_be = false;
 
-  147: optional i32 min_scanner_concurrency = 1;
-  148: optional i32 min_scan_scheduler_concurrency = 0;
+  147: optional i32 profile_level = 1;
 
+  148: optional i32 min_scanner_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -398,18 +398,21 @@ struct TRuntimeFilterTargetParamsV2 {
 }
 
 struct TRuntimeFilterParams {
-  // Runtime filter merge instance address
+  // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
   // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
+  // Used if this filter has a remote target
   3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
 
   // Number of Runtime filter producers
+  // Used if this filter has a remote target
   4: optional map<i32, i32> runtime_filter_builder_num
 
+  // Used if this filter has a remote target
   5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 
@@ -628,11 +631,6 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
-// fold constant expr
-struct TExprMap {
-  1: required map<string, Exprs.TExpr> expr_map
-}
-
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
@@ -654,9 +652,6 @@ struct TTransmitDataParams {
 
   // required in V1
   4: optional Types.TPlanNodeId dest_node_id
-
-  // required in V1
-  5: optional Data.TRowBatch row_batch
 
   // if set to true, indicates that no more row batches will be sent
   // for this dest_node_id
@@ -680,66 +675,6 @@ struct TTransmitDataResult {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
-}
-
-// open a tablet writer
-struct TTabletWriterOpenParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-    3: required i64 txn_id
-    4: required Descriptors.TOlapTableSchemaParam schema
-    5: required list<TTabletWithPartition> tablets
-
-    6: required i32 num_senders
-}
-
-struct TTabletWriterOpenResult {
-    1: required Status.TStatus status
-}
-
-// add batch to tablet writer
-struct TTabletWriterAddBatchParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i64 packet_seq
-    4: required list<Types.TTabletId> tablet_ids
-    5: required Data.TRowBatch row_batch
-
-    6: required i32 sender_no
-}
-
-struct TTabletWriterAddBatchResult {
-    1: required Status.TStatus status
-}
-
-struct TTabletWriterCloseParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCloseResult {
-    1: required Status.TStatus status
-}
-
-//
-struct TTabletWriterCancelParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCancelResult {
-}
-
-struct TFetchDataParams {
-  1: required PaloInternalServiceVersion protocol_version
-  // required in V1
-  // query id which want to fetch data
-  2: required Types.TUniqueId fragment_instance_id
 }
 
 struct TFetchDataResult {

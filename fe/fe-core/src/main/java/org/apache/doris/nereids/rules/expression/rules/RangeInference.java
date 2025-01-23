@@ -34,15 +34,17 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -108,7 +110,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     @Override
     public ValueDesc visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         // only handle `NumericType` and `DateLikeType`
-        if (ExpressionUtils.isAllNonNullLiteral(inPredicate.getOptions())
+        if (inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
+                && ExpressionUtils.isAllNonNullLiteral(inPredicate.getOptions())
                 && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
                 || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
             return ValueDesc.discrete(context, inPredicate);
@@ -118,18 +121,17 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
     @Override
     public ValueDesc visitAnd(And and, ExpressionRewriteContext context) {
-        return simplify(context, and, ExpressionUtils.extractConjunction(and),
+        return simplify(context, ExpressionUtils.extractConjunction(and),
                 ValueDesc::intersect, true);
     }
 
     @Override
     public ValueDesc visitOr(Or or, ExpressionRewriteContext context) {
-        return simplify(context, or, ExpressionUtils.extractDisjunction(or),
+        return simplify(context, ExpressionUtils.extractDisjunction(or),
                 ValueDesc::union, false);
     }
 
-    private ValueDesc simplify(ExpressionRewriteContext context,
-            Expression originExpr, List<Expression> predicates,
+    private ValueDesc simplify(ExpressionRewriteContext context, List<Expression> predicates,
             BinaryOperator<ValueDesc> op, boolean isAnd) {
 
         boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
@@ -144,7 +146,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             // but we don't consider this case here, we should fold IsNull(a) to FALSE using other rule.
             ValueDesc valueDesc = null;
             if (convertIsNullToEmptyValue && predicate instanceof IsNull) {
-                valueDesc = new EmptyValue(context, ((IsNull) predicate).child(), predicate);
+                valueDesc = new EmptyValue(context, ((IsNull) predicate).child());
             } else {
                 valueDesc = predicate.accept(this, context);
             }
@@ -154,7 +156,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         List<ValueDesc> valuePerRefs = Lists.newArrayList();
         for (Entry<Expression, Collection<ValueDesc>> referenceValues : groupByReference.asMap().entrySet()) {
+            Expression reference = referenceValues.getKey();
             List<ValueDesc> valuePerReference = (List) referenceValues.getValue();
+            if (!isAnd) {
+                valuePerReference = ValueDesc.unionDiscreteAndRange(context, reference, valuePerReference);
+            }
 
             // merge per reference
             ValueDesc simplifiedValue = valuePerReference.get(0);
@@ -170,7 +176,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         // use UnknownValue to wrap different references
-        return new UnknownValue(context, originExpr, valuePerRefs, isAnd);
+        return new UnknownValue(context, valuePerRefs, isAnd);
     }
 
     /**
@@ -178,21 +184,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      */
     public abstract static class ValueDesc {
         ExpressionRewriteContext context;
-        Expression toExpr;
         Expression reference;
 
-        public ValueDesc(ExpressionRewriteContext context, Expression reference, Expression toExpr) {
+        public ValueDesc(ExpressionRewriteContext context, Expression reference) {
             this.context = context;
-            this.toExpr = toExpr;
             this.reference = reference;
         }
 
         public Expression getReference() {
             return reference;
-        }
-
-        public Expression getOriginExpr() {
-            return toExpr;
         }
 
         public ExpressionRewriteContext getExpressionRewriteContext() {
@@ -204,16 +204,62 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         /** or */
         public static ValueDesc union(ExpressionRewriteContext context,
                 RangeValue range, DiscreteValue discrete, boolean reverseOrder) {
-            long count = discrete.values.stream().filter(x -> range.range.test(x)).count();
-            if (count == discrete.values.size()) {
+            if (discrete.values.stream().allMatch(x -> range.range.test(x))) {
                 return range;
             }
-            Expression toExpr = FoldConstantRuleOnFE.evaluate(
-                    new Or(range.toExpr, discrete.toExpr), context);
             List<ValueDesc> sourceValues = reverseOrder
                     ? ImmutableList.of(discrete, range)
                     : ImmutableList.of(range, discrete);
-            return new UnknownValue(context, toExpr, sourceValues, false);
+            return new UnknownValue(context, sourceValues, false);
+        }
+
+        /** merge discrete and ranges only, no merge other value desc */
+        public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
+                Expression reference, List<ValueDesc> valueDescs) {
+            Set<Literal> discreteValues = Sets.newHashSet();
+            for (ValueDesc valueDesc : valueDescs) {
+                if (valueDesc instanceof DiscreteValue) {
+                    discreteValues.addAll(((DiscreteValue) valueDesc).getValues());
+                }
+            }
+
+            // for 'a > 8 or a = 8', then range (8, +00) can convert to [8, +00)
+            RangeSet<Literal> rangeSet = TreeRangeSet.create();
+            for (ValueDesc valueDesc : valueDescs) {
+                if (valueDesc instanceof RangeValue) {
+                    Range<Literal> range = ((RangeValue) valueDesc).range;
+                    rangeSet.add(range);
+                    if (range.hasLowerBound()
+                            && range.lowerBoundType() == BoundType.OPEN
+                            && discreteValues.contains(range.lowerEndpoint())) {
+                        rangeSet.add(Range.singleton(range.lowerEndpoint()));
+                    }
+                    if (range.hasUpperBound()
+                            && range.upperBoundType() == BoundType.OPEN
+                            && discreteValues.contains(range.upperEndpoint())) {
+                        rangeSet.add(Range.singleton(range.upperEndpoint()));
+                    }
+                }
+            }
+
+            if (!rangeSet.isEmpty()) {
+                discreteValues.removeIf(x -> rangeSet.contains(x));
+            }
+
+            List<ValueDesc> result = Lists.newArrayListWithExpectedSize(valueDescs.size());
+            if (!discreteValues.isEmpty()) {
+                result.add(new DiscreteValue(context, reference, discreteValues));
+            }
+            for (Range<Literal> range : rangeSet.asRanges()) {
+                result.add(new RangeValue(context, reference, range));
+            }
+            for (ValueDesc valueDesc : valueDescs) {
+                if (!(valueDesc instanceof DiscreteValue) && !(valueDesc instanceof RangeValue)) {
+                    result.add(valueDesc);
+                }
+            }
+
+            return result;
         }
 
         /** intersect */
@@ -221,19 +267,19 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         /** intersect */
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
-            DiscreteValue result = new DiscreteValue(context, discrete.reference, discrete.toExpr);
-            discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
-            if (!result.values.isEmpty()) {
-                return result;
+            Set<Literal> newValues = discrete.values.stream().filter(x -> range.range.contains(x))
+                    .collect(Collectors.toSet());
+            if (newValues.isEmpty()) {
+                return new EmptyValue(context, range.reference);
+            } else {
+                return new DiscreteValue(context, range.reference, newValues);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(new And(range.toExpr, discrete.toExpr), context);
-            return new EmptyValue(context, range.reference, originExpr);
         }
 
         private static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
             Literal value = (Literal) predicate.right();
             if (predicate instanceof EqualTo) {
-                return new DiscreteValue(context, predicate.left(), predicate, value);
+                return new DiscreteValue(context, predicate.left(), Sets.newHashSet(value));
             }
             Range<Literal> range = null;
             if (predicate instanceof GreaterThanEqual) {
@@ -246,13 +292,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 range = Range.lessThan(value);
             }
 
-            return new RangeValue(context, predicate.left(), predicate, range);
+            return new RangeValue(context, predicate.left(), range);
         }
 
         public static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
             // Set<Literal> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
             Set<Literal> literals = in.getOptions().stream().map(Literal.class::cast).collect(Collectors.toSet());
-            return new DiscreteValue(context, in.getCompareExpr(), in, literals);
+            return new DiscreteValue(context, in.getCompareExpr(), literals);
         }
     }
 
@@ -261,8 +307,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      */
     public static class EmptyValue extends ValueDesc {
 
-        public EmptyValue(ExpressionRewriteContext context, Expression reference, Expression toExpr) {
-            super(context, reference, toExpr);
+        public EmptyValue(ExpressionRewriteContext context, Expression reference) {
+            super(context, reference);
         }
 
         @Override
@@ -284,9 +330,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     public static class RangeValue extends ValueDesc {
         Range<Literal> range;
 
-        public RangeValue(ExpressionRewriteContext context, Expression reference,
-                Expression toExpr, Range<Literal> range) {
-            super(context, reference, toExpr);
+        public RangeValue(ExpressionRewriteContext context, Expression reference, Range<Literal> range) {
+            super(context, reference);
             this.range = range;
         }
 
@@ -300,20 +345,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.union(this);
             }
             if (other instanceof RangeValue) {
-                Expression originExpr = FoldConstantRuleOnFE.evaluate(new Or(toExpr, other.toExpr), context);
                 RangeValue o = (RangeValue) other;
                 if (range.isConnected(o.range)) {
-                    return new RangeValue(context, reference, originExpr, range.span(o.range));
+                    return new RangeValue(context, reference, range.span(o.range));
                 }
-                return new UnknownValue(context, originExpr,
-                        ImmutableList.of(this, other), false);
+                return new UnknownValue(context, ImmutableList.of(this, other), false);
             }
             if (other instanceof DiscreteValue) {
                 return union(context, this, (DiscreteValue) other, false);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(new Or(toExpr, other.toExpr), context);
-            return new UnknownValue(context, originExpr,
-                    ImmutableList.of(this, other), false);
+            return new UnknownValue(context, ImmutableList.of(this, other), false);
         }
 
         @Override
@@ -322,19 +363,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.intersect(this);
             }
             if (other instanceof RangeValue) {
-                Expression originExpr = FoldConstantRuleOnFE.evaluate(new And(toExpr, other.toExpr), context);
                 RangeValue o = (RangeValue) other;
                 if (range.isConnected(o.range)) {
-                    return new RangeValue(context, reference, originExpr, range.intersection(o.range));
+                    return new RangeValue(context, reference, range.intersection(o.range));
                 }
-                return new EmptyValue(context, reference, originExpr);
+                return new EmptyValue(context, reference);
             }
             if (other instanceof DiscreteValue) {
                 return intersect(context, this, (DiscreteValue) other);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(new And(toExpr, other.toExpr), context);
-            return new UnknownValue(context, originExpr,
-                    ImmutableList.of(this, other), true);
+            return new UnknownValue(context, ImmutableList.of(this, other), true);
         }
 
         @Override
@@ -349,17 +387,12 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      * a in (1,2,3) => [1,2,3]
      */
     public static class DiscreteValue extends ValueDesc {
-        Set<Literal> values;
+        final Set<Literal> values;
 
         public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Expression toExpr, Literal... values) {
-            this(context, reference, toExpr, Arrays.asList(values));
-        }
-
-        public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Expression toExpr, Collection<Literal> values) {
-            super(context, reference, toExpr);
-            this.values = Sets.newHashSet(values);
+                Expression reference, Set<Literal> values) {
+            super(context, reference);
+            this.values = values;
         }
 
         public Set<Literal> getValues() {
@@ -372,20 +405,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.union(this);
             }
             if (other instanceof DiscreteValue) {
-                Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.or(toExpr, other.toExpr), context);
-                DiscreteValue discreteValue = new DiscreteValue(context, reference, originExpr);
-                discreteValue.values.addAll(((DiscreteValue) other).values);
-                discreteValue.values.addAll(this.values);
-                return discreteValue;
+                Set<Literal> newValues = Sets.newHashSet();
+                newValues.addAll(((DiscreteValue) other).values);
+                newValues.addAll(this.values);
+                return new DiscreteValue(context, reference, newValues);
             }
             if (other instanceof RangeValue) {
                 return union(context, (RangeValue) other, this, true);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.or(toExpr, other.toExpr), context);
-            return new UnknownValue(context, originExpr,
-                    ImmutableList.of(this, other), false);
+            return new UnknownValue(context, ImmutableList.of(this, other), false);
         }
 
         @Override
@@ -394,24 +422,19 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.intersect(this);
             }
             if (other instanceof DiscreteValue) {
-                Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.and(toExpr, other.toExpr), context);
-                DiscreteValue discreteValue = new DiscreteValue(context, reference, originExpr);
-                discreteValue.values.addAll(((DiscreteValue) other).values);
-                discreteValue.values.retainAll(this.values);
-                if (discreteValue.values.isEmpty()) {
-                    return new EmptyValue(context, reference, originExpr);
+                Set<Literal> newValues = Sets.newHashSet();
+                newValues.addAll(((DiscreteValue) other).values);
+                newValues.retainAll(this.values);
+                if (newValues.isEmpty()) {
+                    return new EmptyValue(context, reference);
                 } else {
-                    return discreteValue;
+                    return new DiscreteValue(context, reference, newValues);
                 }
             }
             if (other instanceof RangeValue) {
                 return intersect(context, (RangeValue) other, this);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.and(toExpr, other.toExpr), context);
-            return new UnknownValue(context, originExpr,
-                    ImmutableList.of(this, other), true);
+            return new UnknownValue(context, ImmutableList.of(this, other), true);
         }
 
         @Override
@@ -428,14 +451,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         private final boolean isAnd;
 
         private UnknownValue(ExpressionRewriteContext context, Expression expr) {
-            super(context, expr, expr);
+            super(context, expr);
             sourceValues = ImmutableList.of();
             isAnd = false;
         }
 
-        public UnknownValue(ExpressionRewriteContext context, Expression toExpr,
+        private UnknownValue(ExpressionRewriteContext context,
                 List<ValueDesc> sourceValues, boolean isAnd) {
-            super(context, getReference(sourceValues, toExpr), toExpr);
+            super(context, getReference(context, sourceValues, isAnd));
             this.sourceValues = ImmutableList.copyOf(sourceValues);
             this.isAnd = isAnd;
         }
@@ -455,11 +478,12 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         //    E union UnknownValue1 = E.union(UnknownValue1) = UnknownValue1,
         // 2. since E and UnknownValue2's reference not equals, then
         //    E union UnknownValue2 = UnknownValue3(E union UnknownValue2, reference=E union UnknownValue2)
-        private static Expression getReference(List<ValueDesc> sourceValues, Expression toExpr) {
+        private static Expression getReference(ExpressionRewriteContext context,
+                List<ValueDesc> sourceValues, boolean isAnd) {
             Expression reference = sourceValues.get(0).reference;
             for (int i = 1; i < sourceValues.size(); i++) {
                 if (!reference.equals(sourceValues.get(i).reference)) {
-                    return toExpr;
+                    return SimplifyRange.INSTANCE.getExpression(context, sourceValues, isAnd);
                 }
             }
             return reference;
@@ -480,10 +504,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof EmptyValue) {
                 return other.union(this);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.or(toExpr, other.toExpr), context);
-            return new UnknownValue(context, originExpr,
-                    ImmutableList.of(this, other), false);
+            return new UnknownValue(context, ImmutableList.of(this, other), false);
         }
 
         @Override
@@ -493,10 +514,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof EmptyValue) {
                 return other.intersect(this);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.and(toExpr, other.toExpr), context);
-            return new UnknownValue(context, originExpr,
-                    ImmutableList.of(this, other), true);
+            return new UnknownValue(context, ImmutableList.of(this, other), true);
         }
     }
 }
