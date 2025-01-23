@@ -31,8 +31,8 @@ services:
         ports:
             - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:2181
         healthcheck:
-            # https://github.com/bitnami/containers/issues/33325#issuecomment-1541443315
-            test: /bin/bash -ec /opt/bitnami/scripts/zookeeper/healthcheck.sh
+            # https://github.com/bitnami/charts/blob/62399ed3863e70775d66f9581e28129026a86e5d/bitnami/zookeeper/templates/statefulset.yaml#L404
+            test: /bin/bash -ec ZOO_HC_TIMEOUT=10 /opt/bitnami/scripts/zookeeper/healthcheck.sh
             start_period: 10s
             interval: 5s
             timeout: 60s
