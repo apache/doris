@@ -158,8 +158,8 @@ Status MemTableWriter::flush_async() {
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                << ", load id: " << print_id(_req.load_id);
+                << PrettyPrinter::print_bytes(_mem_table->memory_usage())
+                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
     _reset_mem_table();
     return s;

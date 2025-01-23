@@ -24,7 +24,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 namespace vectorized {
 template <typename T>
-void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks);
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr);
 
 class PartitionerBase;
 } // namespace vectorized

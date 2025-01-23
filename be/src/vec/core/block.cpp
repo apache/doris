@@ -61,15 +61,24 @@ enum CompressionTypePB : int;
 
 namespace doris::vectorized {
 template <typename T>
-void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks) {
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr) {
     T block;
     while (blocks.try_dequeue(block)) {
-        // do nothing
+        if (memory_used_counter) {
+            if constexpr (std::is_same_v<T, Block>) {
+                memory_used_counter->update(-block.allocated_bytes());
+            } else {
+                memory_used_counter->update(-block->allocated_bytes());
+            }
+        }
     }
 }
 
-template void clear_blocks<Block>(moodycamel::ConcurrentQueue<Block>&);
-template void clear_blocks<BlockUPtr>(moodycamel::ConcurrentQueue<BlockUPtr>&);
+template void clear_blocks<Block>(moodycamel::ConcurrentQueue<Block>&,
+                                  RuntimeProfile::Counter* memory_used_counter);
+template void clear_blocks<BlockUPtr>(moodycamel::ConcurrentQueue<BlockUPtr>&,
+                                      RuntimeProfile::Counter* memory_used_counter);
 
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {
     initialize_index_by_name();
