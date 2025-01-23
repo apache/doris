@@ -166,7 +166,7 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
         auto nested_length = src_offsets[start + length - 1] - nested_offset;
 
         size_t old_chars_size = chars.size();
-        check_chars_length(old_chars_size + nested_length, offsets.size() + length);
+        check_chars_length(old_chars_size + nested_length, offsets.size() + length, capacity_bytes(), byte_size(), size());
         chars.resize(old_chars_size + nested_length);
         memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
 
