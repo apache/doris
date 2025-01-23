@@ -189,22 +189,41 @@ suite("test_delete_bitmap_metrics", "nonConcurrent") {
                 assertTrue(ms_delete_bitmap_count == 7)
                 assertTrue(ms_delete_bitmap_cardinality == 7)
             }
-            def delete_bitmap_count = 0;
-            getMetricsMethod.call() {
-                respCode, body ->
-                    logger.info("test get delete bitmap count resp Code {}", "${respCode}".toString())
-                    assertEquals("${respCode}".toString(), "200")
-                    String out = "${body}".toString()
-                    def strs = out.split('\n')
-                    for (String line in strs) {
-                        if (line.startsWith("tablet_max_delete_bitmap_score")) {
-                            logger.info("find: {}", line)
-                            delete_bitmap_count = line.replaceAll("tablet_max_delete_bitmap_score ", "").toInteger()
-                            break
+            def tablet_delete_bitmap_count = 0;
+            def base_rowset_delete_bitmap_count = 0;
+            int retry_time = 0;
+            while (retry_time < 10) {
+                log.info("retry_time: ${retry_time}")
+                getMetricsMethod.call() {
+                    respCode, body ->
+                        logger.info("test get delete bitmap count resp Code {}", "${respCode}".toString())
+                        assertEquals("${respCode}".toString(), "200")
+                        String out = "${body}".toString()
+                        def strs = out.split('\n')
+                        for (String line in strs) {
+                            if (line.startsWith("tablet_max_delete_bitmap_score")) {
+                                logger.info("find: {}", line)
+                                tablet_delete_bitmap_count = line.replaceAll("tablet_max_delete_bitmap_score ", "").toInteger()
+                                break
+                            }
                         }
-                    }
+                        for (String line in strs) {
+                            if (line.startsWith("tablet_max_base_rowset_delete_bitmap_score")) {
+                                logger.info("find: {}", line)
+                                base_rowset_delete_bitmap_count = line.replaceAll("tablet_max_base_rowset_delete_bitmap_score ", "").toInteger()
+                                break
+                            }
+                        }
+                }
+                if (tablet_delete_bitmap_count >= 7) {
+                    break;
+                } else {
+                    Thread.sleep(10000)
+                    retry_time++;
+                }
             }
-            assertEquals(7, delete_bitmap_count)
+            assertEquals(7, tablet_delete_bitmap_count)
+            assertEquals(1, base_rowset_delete_bitmap_count)
         }
     } finally {
         reset_be_param("check_tablet_delete_bitmap_score_enable")
