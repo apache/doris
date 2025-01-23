@@ -499,12 +499,13 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_sink_buffer) {
-        fmt::format_to(debug_string_buffer,
-                       ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
-                       "{}, queue dep: {}), _reach_limit: {}, working channels: {}",
-                       _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,
-                       _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(),
-                       _reach_limit.load(), _working_channels_count.load());
+        fmt::format_to(
+                debug_string_buffer,
+                ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
+                "{}, queue dep: {}), _reach_limit: {}, working channels: {} , each queue size: {}",
+                _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,
+                _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(), _reach_limit.load(),
+                _working_channels_count.load(), _sink_buffer->debug_each_instance_queue_size());
     }
     return fmt::to_string(debug_string_buffer);
 }
