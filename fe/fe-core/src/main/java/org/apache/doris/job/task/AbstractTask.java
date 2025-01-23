@@ -23,11 +23,14 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.RandomUtils;
+
+import java.util.UUID;
 
 @Data
 @Log4j2
@@ -154,6 +157,11 @@ public abstract class AbstractTask implements Task {
      * @throws Exception Any exception that might occur during the cancellation process in the subclass.
      */
     protected abstract void executeCancelLogic(boolean needWaitCancelComplete) throws Exception;
+
+    public static TUniqueId generateQueryId() {
+        UUID taskId = UUID.randomUUID();
+        return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+    }
 
     @Override
     public void before() throws JobException {

@@ -43,9 +43,12 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -99,6 +103,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -547,6 +552,39 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         LambdaFunctionCallExpr functionCallExpr =
                 new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(arrayMap.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitDictGet(DictGet dictGet, PlanTranslatorContext context) {
+        List<Expr> arguments = dictGet.getArguments().stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+
+        List<Type> argTypes = dictGet.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+
+        Pair<FunctionSignature, Dictionary> sigAndDict = dictGet.customSignatureDict();
+        FunctionSignature signature = sigAndDict.first;
+        Dictionary dictionary = sigAndDict.second;
+
+        org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(dictGet.getName()), argTypes, signature.returnType.toCatalogDataType(),
+                dictGet.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
+                NullableMode.ALWAYS_NOT_NULLABLE);
+
+        // set special fields
+        TDictFunction dictFunction = new TDictFunction();
+        dictFunction.setDictionaryId(dictionary.getId());
+        dictFunction.setVersionId(dictionary.getVersion());
+        catalogFunction.setDictFunction(dictFunction);
+
+        FunctionCallExpr functionCallExpr;
+        // create catalog FunctionCallExpr without analyze again
+        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        functionCallExpr.setNullableFromNereids(dictGet.nullable());
         return functionCallExpr;
     }
 

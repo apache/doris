@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -153,6 +154,11 @@ public class NereidsPlanner extends Planner {
             });
         } finally {
             statementContext.getStopwatch().stop();
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.info(getExplainString(new ExplainOptions(ExplainLevel.SHAPE_PLAN, false)));
+            LOG.info(getExplainString(new ExplainOptions(ExplainLevel.DISTRIBUTED_PLAN, false)));
         }
     }
 
@@ -514,7 +520,8 @@ public class NereidsPlanner extends Planner {
     }
 
     protected void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) {
-        boolean canUseNereidsDistributePlanner = SessionVariable.canUseNereidsDistributePlanner();
+        boolean canUseNereidsDistributePlanner = SessionVariable.canUseNereidsDistributePlanner()
+                || (physicalPlan instanceof PhysicalDictionarySink); // dic sink only supported in new Coordinator
         if ((!canUseNereidsDistributePlanner && explainLevel.isPlanLevel)) {
             return;
         } else if ((canUseNereidsDistributePlanner && explainLevel.isPlanLevel
