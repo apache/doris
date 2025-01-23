@@ -2014,6 +2014,8 @@ public class StmtExecutor {
             coordBase = coord;
         }
 
+        coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
+
         try {
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime();
