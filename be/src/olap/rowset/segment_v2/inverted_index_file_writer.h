@@ -30,7 +30,9 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -149,6 +151,8 @@ private:
                          const std::vector<FileMetadata>& file_metadata);
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
                                       std::shared_ptr<DorisFSDirectory> dir);
+    virtual Result<std::unique_ptr<IndexSearcherBuilder>> _construct_index_searcher_builder(
+            const DorisCompoundReader* dir);
     // Member variables...
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;

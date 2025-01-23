@@ -22,12 +22,10 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/storage_engine.h"
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 using namespace doris::vectorized;
 
@@ -64,10 +62,9 @@ protected:
         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
 
         // use memory limit
-        int64_t inverted_index_cache_limit = 0;
+        int64_t inverted_index_cache_limit = 1024 * 1024 * 1024;
         _inverted_index_searcher_cache = std::unique_ptr<segment_v2::InvertedIndexSearcherCache>(
-                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit,
-                                                                   256));
+                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit, 1));
 
         ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
                 _inverted_index_searcher_cache.get());
@@ -194,7 +191,9 @@ TEST_F(InvertedIndexFileWriterTest, WriteV1Test) {
     dir->close();
 
     Status close_status = writer.close();
-    if (!close_status.ok()) std::cout << "close error:" << close_status.msg() << std::endl;
+    if (!close_status.ok()) {
+        std::cout << "close error:" << close_status.msg() << std::endl;
+    }
     ASSERT_TRUE(close_status.ok());
 
     const InvertedIndexFileInfo* file_info = writer.get_index_file_info();
@@ -391,374 +390,329 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
-/*TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
-    auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
-    std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
-            _seg_id, 1, "suffix1");
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_fs_index_path).ok());
-    mock_dir->init(_fs, local_fs_index_path.c_str());
-    std::vector<std::string> files = {"0.segments", "0.fnm", "0.tii", "nullbitmap", "write.lock"};
-    for (auto& file : files) {
-        auto out_file_1 =
-                std::unique_ptr<lucene::store::IndexOutput>(mock_dir->createOutput(file.c_str()));
-        out_file_1->writeString("test1");
-        out_file_1->close();
-    }
-    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
-                                   InvertedIndexStorageFormatPB::V2);
-    auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
-    if (!st.ok()) {
-        std::cerr << "_insert_directory_into_map error in CopyFileTest_OpenInputFailure: "
-                  << st.msg() << std::endl;
-        ASSERT_TRUE(false);
-        return;
-    }
 
-    EXPECT_CALL(*mock_dir,
-                openInput(::testing::StrEq("0.segments"), ::testing::_, ::testing::_, ::testing::_))
-            .WillOnce(::testing::Invoke([&](const char* name, lucene::store::IndexInput*& ret,
-                                            CLuceneError& err_ref, int bufferSize) {
-                err_ref.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", name).data());
-                return false;
-            }));
-
-    uint8_t buffer[16384];
-    std::string error_message;
-    try {
-        writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer));
-    } catch (CLuceneError& err) {
-        error_message = err.what();
-    }
-    ASSERT_EQ(error_message, "Could not open file, file is 0.segments");
-}*/
-class InvertedIndexFileWriterMock : public InvertedIndexFileWriter {
+class MockInvertedIndexFileWriter : public InvertedIndexFileWriter {
 public:
-    InvertedIndexFileWriterMock(const io::FileSystemSPtr& fs, const std::string& index_path_prefix,
-                                const std::string& rowset_id, int32_t segment_id,
-                                InvertedIndexStorageFormatPB storage_format)
-            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id,
-                                      storage_format) {}
-
-    MOCK_METHOD(void, write_header_and_data_v1,
-                (lucene::store::IndexOutput * output, const std::vector<FileInfo>& files,
-                 lucene::store::Directory* dir, int64_t header_length, int32_t file_count),
-                (override));
-};
-TEST_F(InvertedIndexFileWriterTest, WriteV1ExceptionHandlingTest) {
-    InvertedIndexFileWriterMock writer_mock(_fs, _index_path_prefix, _rowset_id, _seg_id,
-                                            InvertedIndexStorageFormatPB::V1);
-
-    int64_t index_id = 1;
-    std::string index_suffix = "suffix1";
-    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
-    ASSERT_NE(index_meta, nullptr);
-
-    auto open_result = writer_mock.open(index_meta.get());
-    ASSERT_TRUE(open_result.has_value());
-    auto dir = open_result.value();
-
-    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
-    out_file->writeString("test data");
-    out_file->close();
-    dir->close();
-    EXPECT_CALL(writer_mock, write_header_and_data_v1(::testing::_, ::testing::_, ::testing::_,
-                                                      ::testing::_, ::testing::_))
-            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
-
-    Status status = writer_mock.write_v1();
-    ASSERT_FALSE(status.ok());
-    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
-}
-class InvertedIndexFileWriterMockV2 : public InvertedIndexFileWriter {
-public:
-    InvertedIndexFileWriterMockV2(const io::FileSystemSPtr& fs,
-                                  const std::string& index_path_prefix,
-                                  const std::string& rowset_id, int32_t segment_id,
-                                  InvertedIndexStorageFormatPB storage_format,
-                                  io::FileWriterPtr file_writer)
-            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format,
+    MOCK_METHOD(Result<std::unique_ptr<IndexSearcherBuilder>>, _construct_index_searcher_builder,
+                (const DorisCompoundReader* dir), (override));
+    MockInvertedIndexFileWriter(io::FileSystemSPtr fs, const std::string& index_path_prefix,
+                                const std::string& rowset_id, int64_t seg_id,
+                                InvertedIndexStorageFormatPB storage_format,
+                                io::FileWriterPtr file_writer)
+            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, seg_id, storage_format,
                                       std::move(file_writer)) {}
+};
 
-    MOCK_METHOD(void, write_index_headers_and_metadata,
-                (lucene::store::IndexOutput * compound_file_output,
-                 const std::vector<FileMetadata>& file_metadata),
+class MockIndexSearcherBuilder : public IndexSearcherBuilder {
+public:
+    MOCK_METHOD(Result<IndexSearcherPtr>, get_index_searcher,
+                (lucene::store::Directory * directory), (override));
+    MOCK_METHOD(Status, build,
+                (lucene::store::Directory * directory, OptionalIndexSearcherPtr& output_searcher),
                 (override));
+    MockIndexSearcherBuilder() = default;
+    ~MockIndexSearcherBuilder() override = default;
 };
 
-TEST_F(InvertedIndexFileWriterTest, WriteV2ExceptionHandlingTest) {
+TEST_F(InvertedIndexFileWriterTest, AddIntoSearcherCacheTest) {
+    config::enable_write_index_searcher_cache = true;
     io::FileWriterPtr file_writer;
     std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
     io::FileWriterOptions opts;
     Status st = _fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(st.ok());
-    InvertedIndexFileWriterMockV2 writer_mock(_fs, _index_path_prefix, _rowset_id, _seg_id,
-                                              InvertedIndexStorageFormatPB::V2,
-                                              std::move(file_writer));
+    MockInvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                       InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";
     auto index_meta = create_mock_tablet_index(index_id, index_suffix);
     ASSERT_NE(index_meta, nullptr);
-
-    auto open_result = writer_mock.open(index_meta.get());
+    auto open_result = writer.open(index_meta.get());
     ASSERT_TRUE(open_result.has_value());
     auto dir = open_result.value();
-
-    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
-    out_file->writeString("test data");
+    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(
+            dir->createOutput("add_into_searcher_cache_test"));
+    out_file->writeString("test");
     out_file->close();
     dir->close();
+    auto mock_builder = std::make_unique<MockIndexSearcherBuilder>();
 
-    EXPECT_CALL(writer_mock, write_index_headers_and_metadata(::testing::_, ::testing::_))
-            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
+    EXPECT_CALL(*mock_builder, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
 
-    Status status = writer_mock.write();
-    ASSERT_FALSE(status.ok());
-    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
+
+    Status close_status = writer.close();
+    ASSERT_TRUE(close_status.ok());
+
+    auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(_index_path_prefix,
+                                                                            index_id, index_suffix);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+    InvertedIndexCacheHandle cache_handle;
+    bool found = _inverted_index_searcher_cache->lookup(searcher_cache_key, &cache_handle);
+    ASSERT_TRUE(found);
+    auto* cache_value_use_cache = cache_handle.get_index_cache_value();
+    EXPECT_GE(UnixMillis(), cache_value_use_cache->last_visit_time);
+    auto searcher_variant = cache_value_use_cache->index_searcher;
+    EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant));
+    config::enable_write_index_searcher_cache = false;
 }
 
-class InvertedIndexFileWriterMockCreateOutputStreamV2 : public InvertedIndexFileWriter {
-public:
-    InvertedIndexFileWriterMockCreateOutputStreamV2(const io::FileSystemSPtr& fs,
-                                                    const std::string& index_path_prefix,
-                                                    const std::string& rowset_id,
-                                                    int32_t segment_id,
-                                                    InvertedIndexStorageFormatPB storage_format)
-            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id,
-                                      storage_format) {}
+TEST_F(InvertedIndexFileWriterTest, CacheEvictionTest) {
+    config::enable_write_index_searcher_cache = true;
+    io::FileWriterPtr file_writer1, file_writer2, file_writer3;
+    std::string index_path1 =
+            InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix + "_1");
+    std::string index_path2 =
+            InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix + "_2");
+    std::string index_path3 =
+            InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix + "_3");
+    io::FileWriterOptions opts;
+    Status st1 = _fs->create_file(index_path1, &file_writer1, &opts);
+    Status st2 = _fs->create_file(index_path2, &file_writer2, &opts);
+    Status st3 = _fs->create_file(index_path3, &file_writer3, &opts);
+    ASSERT_TRUE(st1.ok());
+    ASSERT_TRUE(st2.ok());
+    ASSERT_TRUE(st3.ok());
+    MockInvertedIndexFileWriter writer1(_fs, _index_path_prefix + "_1", "rowset1", 1,
+                                        InvertedIndexStorageFormatPB::V2, std::move(file_writer1));
+    int64_t index_id1 = 1;
+    std::string index_suffix1 = "suffix1";
+    auto index_meta1 = create_mock_tablet_index(index_id1, index_suffix1);
+    ASSERT_NE(index_meta1, nullptr);
+    auto open_result1 = writer1.open(index_meta1.get());
+    ASSERT_TRUE(open_result1.has_value());
+    auto dir1 = open_result1.value();
+    auto out_file1 =
+            std::unique_ptr<lucene::store::IndexOutput>(dir1->createOutput("cache_eviction_test1"));
+    out_file1->writeString("test1");
+    out_file1->close();
+    dir1->close();
+    auto mock_builder1 = std::make_unique<MockIndexSearcherBuilder>();
 
-    MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                           std::unique_ptr<lucene::store::IndexOutput>>),
-                create_output_stream, (), (override));
-};
+    EXPECT_CALL(*mock_builder1, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
 
-class InvertedIndexFileWriterMockCreateOutputStreamV1 : public InvertedIndexFileWriter {
-public:
-    InvertedIndexFileWriterMockCreateOutputStreamV1(const io::FileSystemSPtr& fs,
-                                                    const std::string& index_path_prefix,
-                                                    const std::string& rowset_id,
-                                                    int32_t segment_id,
-                                                    InvertedIndexStorageFormatPB storage_format)
-            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id,
-                                      storage_format) {}
+    EXPECT_CALL(writer1, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder1))));
 
-    MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                           std::unique_ptr<lucene::store::IndexOutput>>),
-                create_output_stream_v1, (int64_t index_id, const std::string& index_suffix),
-                (override));
-};
+    Status close_status1 = writer1.close();
+    ASSERT_TRUE(close_status1.ok());
 
-class MockDorisFSDirectoryOutput : public DorisFSDirectory {
-public:
-    //MOCK_METHOD(lucene::store::IndexOutput*, createOutput, (const char* name), (override));
-    //MOCK_METHOD(int64_t, fileLength, (const char* name), (const, override));
-    MOCK_METHOD(void, close, (), (override));
-    //MOCK_METHOD(const char*, getObjectName, (), (const, override));
-};
+    MockInvertedIndexFileWriter writer2(_fs, _index_path_prefix + "_2", "rowset2", 2,
+                                        InvertedIndexStorageFormatPB::V2, std::move(file_writer2));
+    int64_t index_id2 = 2;
+    std::string index_suffix2 = "suffix2";
+    auto index_meta2 = create_mock_tablet_index(index_id2, index_suffix2);
+    ASSERT_NE(index_meta2, nullptr);
+    auto open_result2 = writer2.open(index_meta2.get());
+    ASSERT_TRUE(open_result2.has_value());
+    auto dir2 = open_result2.value();
+    auto out_file2 =
+            std::unique_ptr<lucene::store::IndexOutput>(dir2->createOutput("cache_eviction_test2"));
+    out_file2->writeString("test2");
+    out_file2->close();
+    dir2->close();
+    auto mock_builder2 = std::make_unique<MockIndexSearcherBuilder>();
 
-class MockFSIndexOutputV2 : public DorisFSDirectory::FSIndexOutputV2 {
-public:
-    //MOCK_METHOD(void, close, (), (override));
-    MOCK_METHOD(void, flushBuffer, (const uint8_t* b, const int32_t size), (override));
-};
+    EXPECT_CALL(*mock_builder2, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
 
-class MockFSIndexOutputV1 : public DorisFSDirectory::FSIndexOutput {
-public:
-    //MOCK_METHOD(void, close, (), (override));
-    MOCK_METHOD(void, flushBuffer, (const uint8_t* b, const int32_t size), (override));
-};
+    EXPECT_CALL(writer2, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder2))));
 
-TEST_F(InvertedIndexFileWriterTest, WriteV1OutputTest) {
-    int64_t index_id = 1;
-    std::string index_suffix = "suffix1";
-    InvertedIndexFileWriterMockCreateOutputStreamV1 writer_mock(
-            _fs, _index_path_prefix, _rowset_id, _seg_id, InvertedIndexStorageFormatPB::V1);
-    io::Path cfs_path(InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix, index_id,
-                                                                      index_suffix));
-    auto idx_path = cfs_path.parent_path();
-    std::string idx_name = cfs_path.filename();
+    Status close_status2 = writer2.close();
+    ASSERT_TRUE(close_status2.ok());
 
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, idx_path.c_str());
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
-    auto* mock_output_v1 = new MockFSIndexOutputV1();
-    EXPECT_CALL(*mock_output_v1, flushBuffer(::testing::_, ::testing::_))
-            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
-    auto compound_file_output = std::unique_ptr<DorisFSDirectory::FSIndexOutput>(mock_output_v1);
-    compound_file_output->init(_fs, cfs_path.c_str());
+    MockInvertedIndexFileWriter writer3(_fs, _index_path_prefix + "_3", "rowset3", 3,
+                                        InvertedIndexStorageFormatPB::V2, std::move(file_writer3));
+    int64_t index_id3 = 3;
+    std::string index_suffix3 = "suffix3";
+    auto index_meta3 = create_mock_tablet_index(index_id3, index_suffix3);
+    ASSERT_NE(index_meta3, nullptr);
+    auto open_result3 = writer3.open(index_meta3.get());
+    ASSERT_TRUE(open_result3.has_value());
+    auto dir3 = open_result3.value();
+    auto out_file3 =
+            std::unique_ptr<lucene::store::IndexOutput>(dir3->createOutput("cache_eviction_test3"));
+    out_file3->writeString("test3");
+    out_file3->close();
+    dir3->close();
+    auto mock_builder3 = std::make_unique<MockIndexSearcherBuilder>();
 
-    EXPECT_CALL(writer_mock, create_output_stream_v1(index_id, index_suffix))
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
+    EXPECT_CALL(*mock_builder3, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
 
-    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
-    ASSERT_NE(index_meta, nullptr);
+    EXPECT_CALL(writer3, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder3))));
 
-    auto open_result = writer_mock.open(index_meta.get());
-    ASSERT_TRUE(open_result.has_value());
-    auto dir = open_result.value();
+    Status close_status3 = writer3.close();
+    ASSERT_TRUE(close_status3.ok());
 
-    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
-    out_file->writeString("test data");
-    out_file->close();
-    dir->close();
+    InvertedIndexCacheHandle cache_handle1;
+    std::string index_file_key1 = InvertedIndexDescriptor::get_index_file_cache_key(
+            _index_path_prefix + "_1", index_id1, index_suffix1);
+    bool found1 = _inverted_index_searcher_cache->lookup(index_file_key1, &cache_handle1);
+    // limit to 2 in BE_TEST, so the first one should be evicted
+    ASSERT_FALSE(found1);
 
-    Status status = writer_mock.close();
-    ASSERT_FALSE(status.ok());
-    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    InvertedIndexCacheHandle cache_handle2;
+    std::string index_file_key2 = InvertedIndexDescriptor::get_index_file_cache_key(
+            _index_path_prefix + "_2", index_id2, index_suffix2);
+    bool found2 = _inverted_index_searcher_cache->lookup(index_file_key2, &cache_handle2);
+    ASSERT_TRUE(found2);
+    auto* cache_value_use_cache2 = cache_handle2.get_index_cache_value();
+    EXPECT_GE(UnixMillis(), cache_value_use_cache2->last_visit_time);
+    auto searcher_variant2 = cache_value_use_cache2->index_searcher;
+    EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant2));
+
+    InvertedIndexCacheHandle cache_handle3;
+    std::string index_file_key3 = InvertedIndexDescriptor::get_index_file_cache_key(
+            _index_path_prefix + "_3", index_id3, index_suffix3);
+    bool found3 = _inverted_index_searcher_cache->lookup(index_file_key3, &cache_handle3);
+    ASSERT_TRUE(found3);
+    auto* cache_value_use_cache3 = cache_handle3.get_index_cache_value();
+    EXPECT_GE(UnixMillis(), cache_value_use_cache3->last_visit_time);
+    auto searcher_variant3 = cache_value_use_cache3->index_searcher;
+    EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant3));
+
+    config::enable_write_index_searcher_cache = false;
 }
 
-TEST_F(InvertedIndexFileWriterTest, WriteV2OutputTest) {
+TEST_F(InvertedIndexFileWriterTest, CacheUpdateTest) {
+    config::enable_write_index_searcher_cache = true;
     io::FileWriterPtr file_writer;
-    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+    std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix + "_update");
     io::FileWriterOptions opts;
     Status st = _fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(st.ok());
+    MockInvertedIndexFileWriter writer(_fs, _index_path_prefix + "_update", "rowset_update", 3,
+                                       InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
-    InvertedIndexFileWriterMockCreateOutputStreamV2 writer_mock(
-            _fs, _index_path_prefix, _rowset_id, _seg_id, InvertedIndexStorageFormatPB::V2);
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.c_str());
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
-    auto* mock_output_v2 = new MockFSIndexOutputV2();
-    EXPECT_CALL(*mock_output_v2, flushBuffer(::testing::_, ::testing::_))
-            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
-    auto compound_file_output = std::unique_ptr<DorisFSDirectory::FSIndexOutputV2>(mock_output_v2);
-    compound_file_output->init(file_writer.get());
-
-    EXPECT_CALL(writer_mock, create_output_stream())
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
-
-    int64_t index_id = 1;
-    std::string index_suffix = "suffix1";
+    int64_t index_id = 3;
+    std::string index_suffix = "suffix3";
     auto index_meta = create_mock_tablet_index(index_id, index_suffix);
     ASSERT_NE(index_meta, nullptr);
-
-    auto open_result = writer_mock.open(index_meta.get());
+    auto open_result = writer.open(index_meta.get());
     ASSERT_TRUE(open_result.has_value());
     auto dir = open_result.value();
-
-    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
-    out_file->writeString("test data");
+    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(
+            dir->createOutput("write_v2_test_index_update"));
+    out_file->writeString("test_update");
     out_file->close();
     dir->close();
+    auto mock_builder = std::make_unique<MockIndexSearcherBuilder>();
 
-    Status status = writer_mock.close();
-    ASSERT_FALSE(status.ok());
-    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_CALL(*mock_builder, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+
+    EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
+
+    Status close_status = writer.close();
+    ASSERT_TRUE(close_status.ok());
+
+    auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
+            _index_path_prefix + "_update", index_id, index_suffix);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+    InvertedIndexCacheHandle cache_handle;
+    bool found = _inverted_index_searcher_cache->lookup(searcher_cache_key, &cache_handle);
+    ASSERT_TRUE(found);
+
+    io::FileWriterPtr file_writer_new;
+    Status st_new = _fs->create_file(index_path, &file_writer_new, &opts);
+    ASSERT_TRUE(st_new.ok());
+    MockInvertedIndexFileWriter writer_new(_fs, _index_path_prefix + "_update", "rowset_update", 3,
+                                           InvertedIndexStorageFormatPB::V2,
+                                           std::move(file_writer_new));
+
+    auto open_result_new = writer_new.open(index_meta.get());
+    ASSERT_TRUE(open_result_new.has_value());
+    auto dir_new = open_result_new.value();
+    auto out_file_new = std::unique_ptr<lucene::store::IndexOutput>(
+            dir_new->createOutput("write_v2_test_index_update_new"));
+    out_file_new->writeString("test_update_new");
+    out_file_new->close();
+    dir_new->close();
+    auto mock_builder_new = std::make_unique<MockIndexSearcherBuilder>();
+
+    EXPECT_CALL(*mock_builder_new, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+
+    EXPECT_CALL(writer_new, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder_new))));
+
+    Status close_status_new = writer_new.close();
+    ASSERT_TRUE(close_status_new.ok());
+
+    InvertedIndexCacheHandle cache_handle_new;
+    bool found_new = _inverted_index_searcher_cache->lookup(searcher_cache_key, &cache_handle_new);
+    ASSERT_TRUE(found_new);
+    EXPECT_NE(cache_handle.get_index_cache_value()->index_searcher,
+              cache_handle_new.get_index_cache_value()->index_searcher);
+
+    config::enable_write_index_searcher_cache = false;
 }
 
-class MockFSIndexOutputCloseV2 : public DorisFSDirectory::FSIndexOutputV2 {
-public:
-    MOCK_METHOD(void, close, (), (override));
-    void base_close() { DorisFSDirectory::FSIndexOutputV2::BufferedIndexOutput::close(); }
-};
-
-class MockFSIndexOutputCloseV1 : public DorisFSDirectory::FSIndexOutput {
-public:
-    MOCK_METHOD(void, close, (), (override));
-    void base_close() { DorisFSDirectory::FSIndexOutput::BufferedIndexOutput::close(); }
-};
-
-TEST_F(InvertedIndexFileWriterTest, WriteV2OutputCloseErrorTest) {
+TEST_F(InvertedIndexFileWriterTest, AddIntoSearcherCacheV1Test) {
+    config::enable_write_index_searcher_cache = true;
     io::FileWriterPtr file_writer;
-    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+    std::string index_suffix = "suffix_v1";
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v1(
+            _index_path_prefix + "_v1", 4, index_suffix);
     io::FileWriterOptions opts;
     Status st = _fs->create_file(index_path, &file_writer, &opts);
     ASSERT_TRUE(st.ok());
-
-    InvertedIndexFileWriterMockCreateOutputStreamV2 writer_mock(
-            _fs, _index_path_prefix, _rowset_id, _seg_id, InvertedIndexStorageFormatPB::V2);
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.c_str());
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
-    auto* mock_output_v2 = new MockFSIndexOutputCloseV2();
-    EXPECT_CALL(*mock_output_v2, close()).WillOnce(::testing::Invoke([&]() {
-        mock_output_v2->base_close();
-        throw CLuceneError(CL_ERR_IO, "Simulated exception", false);
-    }));
-    auto compound_file_output = std::unique_ptr<DorisFSDirectory::FSIndexOutputV2>(mock_output_v2);
-    compound_file_output->init(file_writer.get());
-
-    EXPECT_CALL(writer_mock, create_output_stream())
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
-
-    int64_t index_id = 1;
-    std::string index_suffix = "suffix1";
+    MockInvertedIndexFileWriter writer(_fs, _index_path_prefix + "_v1", "rowset_v1", 4,
+                                       InvertedIndexStorageFormatPB::V1, std::move(file_writer));
+    int64_t index_id = 4;
     auto index_meta = create_mock_tablet_index(index_id, index_suffix);
     ASSERT_NE(index_meta, nullptr);
-
-    auto open_result = writer_mock.open(index_meta.get());
+    auto open_result = writer.open(index_meta.get());
     ASSERT_TRUE(open_result.has_value());
     auto dir = open_result.value();
-
-    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
-    out_file->writeString("test data");
+    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(
+            dir->createOutput("add_into_searcher_cache_v1_test"));
+    out_file->writeString("test_v1");
     out_file->close();
     dir->close();
+    auto mock_builder = std::make_unique<MockIndexSearcherBuilder>();
 
-    Status status = writer_mock.close();
-    ASSERT_FALSE(status.ok());
-    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_CALL(*mock_builder, get_index_searcher(testing::_))
+            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
+                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
+                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+    EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))
+            .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder))));
+    Status close_status = writer.close();
+    ASSERT_TRUE(close_status.ok());
+
+    auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
+            _index_path_prefix + "_v1", index_id, index_suffix);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+    InvertedIndexCacheHandle cache_handle;
+    bool found = _inverted_index_searcher_cache->lookup(searcher_cache_key, &cache_handle);
+    ASSERT_TRUE(found);
+    auto* cache_value_use_cache = cache_handle.get_index_cache_value();
+    EXPECT_GE(UnixMillis(), cache_value_use_cache->last_visit_time);
+    auto searcher_variant = cache_value_use_cache->index_searcher;
+    EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant));
+    config::enable_write_index_searcher_cache = false;
 }
 
-TEST_F(InvertedIndexFileWriterTest, WriteV1OutputCloseErrorTest) {
-    int64_t index_id = 1;
-    std::string index_suffix = "suffix1";
-    InvertedIndexFileWriterMockCreateOutputStreamV1 writer_mock(
-            _fs, _index_path_prefix, _rowset_id, _seg_id, InvertedIndexStorageFormatPB::V1);
-    io::Path cfs_path(InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix, index_id,
-                                                                      index_suffix));
-    auto idx_path = cfs_path.parent_path();
-    std::string idx_name = cfs_path.filename();
-
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, idx_path.c_str());
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
-    auto* mock_output_v1 = new MockFSIndexOutputCloseV1();
-    EXPECT_CALL(*mock_output_v1, close()).WillOnce(::testing::Invoke([&]() {
-        mock_output_v1->base_close();
-        throw CLuceneError(CL_ERR_IO, "Simulated exception", false);
-    }));
-    auto compound_file_output = std::unique_ptr<DorisFSDirectory::FSIndexOutput>(mock_output_v1);
-    compound_file_output->init(_fs, cfs_path.c_str());
-
-    EXPECT_CALL(writer_mock, create_output_stream_v1(index_id, index_suffix))
-            .WillOnce(::testing::Invoke(
-                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
-                                       std::unique_ptr<lucene::store::IndexOutput>> {
-                        return std::make_pair(std::move(out_dir_ptr),
-                                              std::move(compound_file_output));
-                    }));
-
-    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
-    ASSERT_NE(index_meta, nullptr);
-
-    auto open_result = writer_mock.open(index_meta.get());
-    ASSERT_TRUE(open_result.has_value());
-    auto dir = open_result.value();
-
-    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
-    out_file->writeString("test data");
-    out_file->close();
-    dir->close();
-
-    Status status = writer_mock.close();
-    ASSERT_FALSE(status.ok());
-    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
-}
-
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
