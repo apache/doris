@@ -234,7 +234,8 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                     BackendOptions::get_localhost());
         } else {
             cancel_str = fmt::format(
-                    "WorkloadGroup memory exceed limit, in WorkloadGroup[id:{}, name:{}, used:{}, "
+                    "WorkloadGroup memory exceed limit, Memory GC in in WorkloadGroup[id:{}, "
+                    "name:{}, used:{}, "
                     "limit:{}, enable_memory_overcommit:false], {}, backend:{}.",
                     _id, _name, MemCounter::print_bytes(used_memory),
                     MemCounter::print_bytes(_memory_limit),
