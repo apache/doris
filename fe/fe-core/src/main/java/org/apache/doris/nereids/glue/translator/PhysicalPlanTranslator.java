@@ -1988,8 +1988,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     }
                 }
                 if (((HashJoinNode) joinNode).getHashOutputSlotIds().isEmpty()) {
-                    // if getHashOutputSlotIds is empty, means all columns are needed,
-                    // so we just keep first slot in oldHashOutputSlotIds for now
+                    // In FE, if all columns are pruned, hash output slots are empty.
+                    // On the contrary, BE will keep all columns if hash output slots are empty.
+                    // Currently BE will keep this behavior in order to be compatible with older planner.
+                    // So we have to workaround this in FE by keeping at least one slot in oldHashOutputSlotIds.
+                    // TODO: Remove this code when old planner is deleted and BE changes to be consistent with FE.
                     for (SlotId slotId : oldHashOutputSlotIds) {
                         ((HashJoinNode) joinNode).addSlotIdToHashOutputSlotIds(slotId);
                         break;
