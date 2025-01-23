@@ -212,13 +212,11 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
           _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory
-bool FullSorter::could_hold_more_data(Block* input_block, Block* unsorted_block) const {
+bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
     DCHECK_EQ(input_block->columns(), unsorted_block->columns());
     for (auto i = 0; i < input_block->columns(); ++i) {
-        auto need_bytes = input_block->get_by_position(i).column->byte_size();
-        auto used_bytes = unsorted_block->get_by_position(i).column->byte_size();
-        auto capacity_bytes = unsorted_block->get_by_position(i).column->capacity_bytes();
-        if (need_bytes > capacity_bytes - used_bytes) {
+        if (!unsorted_block->get_by_position(i).column->has_enough_capacity(
+                    *input_block->get_by_position(i).column)) {
             return false;
         }
     }
@@ -229,7 +227,7 @@ Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
 
     // iff have reach limit and the unsorted block capacity can't hold the block data size
-    if (_reach_limit() && !could_hold_more_data(block, _state->unsorted_block().get())) {
+    if (_reach_limit() && !has_enough_capacity(block, _state->unsorted_block().get())) {
         RETURN_IF_ERROR(_do_sort());
     }
 

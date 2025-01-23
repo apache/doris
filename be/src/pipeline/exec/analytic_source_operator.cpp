@@ -81,6 +81,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     local_state.reached_limit(output_block, eos);
     if (!output_block->empty()) {
         auto return_rows = output_block->rows();
+        local_state._num_rows_returned += return_rows;
         COUNTER_UPDATE(local_state._filtered_rows_counter, output_rows - return_rows);
     }
     return Status::OK();

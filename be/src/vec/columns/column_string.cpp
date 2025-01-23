@@ -150,6 +150,15 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
 }
 
 template <typename T>
+bool ColumnStr<T>::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+    return (this->get_chars().capacity() - this->get_chars().size() >
+            src_concrete.get_chars().size()) &&
+           (this->get_offsets().capacity() - this->get_offsets().size() >
+            src_concrete.get_offsets().size());
+}
+
+template <typename T>
 void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) {
         return;
@@ -166,7 +175,7 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
         auto nested_length = src_offsets[start + length - 1] - nested_offset;
 
         size_t old_chars_size = chars.size();
-        check_chars_length(old_chars_size + nested_length, offsets.size() + length, capacity_bytes(), byte_size(), size());
+        check_chars_length(old_chars_size + nested_length, offsets.size() + length, size());
         chars.resize(old_chars_size + nested_length);
         memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
 
@@ -200,7 +209,7 @@ void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t 
     auto [data_val, data_length] = string_column.get_data_at(position);
 
     size_t old_chars_size = chars.size();
-    check_chars_length(old_chars_size + data_length * length, offsets.size() + length);
+    check_chars_length(old_chars_size + data_length * length, offsets.size() + length, size());
     chars.resize(old_chars_size + data_length * length);
 
     auto old_size = offsets.size();
@@ -235,7 +244,7 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
             // if Offsets is uint32, size will not exceed range of uint32, cast is OK.
             dst_offsets_data[dst_offsets_pos++] = static_cast<T>(total_chars_size);
         }
-        check_chars_length(total_chars_size, offsets.size());
+        check_chars_length(total_chars_size, offsets.size(), dst_offsets_pos);
 
         chars.resize(total_chars_size);
 
@@ -418,7 +427,7 @@ const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
 
     const size_t old_size = chars.size();
     const size_t new_size = old_size + string_size;
-    check_chars_length(new_size, offsets.size() + 1);
+    check_chars_length(new_size, offsets.size() + 1, size());
     chars.resize(new_size);
     memcpy(chars.data() + old_size, pos, string_size);
 
@@ -582,7 +591,7 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
         prev_string_offset = offsets[i];
     }
 
-    check_chars_length(res_chars.size(), res_offsets.size());
+    check_chars_length(res_chars.size(), res_offsets.size(), col_size);
     return res;
 }
 

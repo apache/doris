@@ -390,8 +390,10 @@ size_t ColumnArray::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
 }
 
-size_t ColumnArray::capacity_bytes() const {
-    return get_data().capacity_bytes() + get_offsets().capacity() * sizeof(get_offsets()[0]);
+bool ColumnArray::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnArray&>(src);
+    return get_data().has_enough_capacity(src_concrete.get_data()) &&
+           get_offsets_column().has_enough_capacity(src_concrete.get_offsets_column());
 }
 
 ColumnPtr ColumnArray::convert_to_full_column_if_const() const {

@@ -262,7 +262,10 @@ public:
 
     size_t allocated_bytes() const override { return _data.allocated_bytes(); }
 
-    size_t capacity_bytes() const override { return _data.capacity(); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        return _data.capacity() - _data.size() > src_col.size();
+    }
 
     //NOTICE: here is replace: this[self_row] = rhs[row]
     //But column string is replaced all when self_row = 0

@@ -512,8 +512,16 @@ public:
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
     virtual size_t byte_size() const = 0;
 
-    /// Capacity of memory allocated for column.
-    virtual size_t capacity_bytes() const = 0;
+    /**
+    * @brief Checks whether the current column has enough capacity to accommodate the given source column.
+    * 
+    * This pure virtual function should be implemented by derived classes to determine whether the 
+    * current column has enough reserved memory to hold the data of the specified `src` column.
+    * 
+    * @param src The source column whose data needs to be checked for fitting into the current column.
+    * @return true if the current column has enough capacity to hold the `src` data, false otherwise.
+    */
+    virtual bool has_enough_capacity(const IColumn& src) const = 0;
 
     /// Size of memory, allocated for column.
     /// This is greater or equals to byte_size due to memory reservation in containers.

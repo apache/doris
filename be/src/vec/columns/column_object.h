@@ -26,7 +26,6 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -117,7 +116,7 @@ public:
 
         size_t allocatedBytes() const;
 
-        size_t capacity_bytes() const;
+        bool has_enough_capacity(const IColumn& src) const { return false; };
 
         bool is_finalized() const;
 
@@ -389,7 +388,7 @@ public:
 
     size_t allocated_bytes() const override;
 
-    size_t capacity_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override { return false; }
 
     void for_each_subcolumn(ColumnCallback callback) override;
 

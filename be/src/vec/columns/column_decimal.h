@@ -108,7 +108,10 @@ public:
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
-    size_t capacity_bytes() const override { return data.capacity() * sizeof(data[0]); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
+        return data.capacity() - data.size() > src_vec.size();
+    }
     void reserve(size_t n) override { data.reserve(n); }
     void resize(size_t n) override { data.resize(n); }
 

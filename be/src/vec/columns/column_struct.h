@@ -157,7 +157,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    size_t capacity_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 

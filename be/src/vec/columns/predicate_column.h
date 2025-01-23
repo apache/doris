@@ -321,7 +321,10 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    size_t capacity_bytes() const override { return data.capacity() * sizeof(T); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "has_enough_capacity not supported in PredicateColumnType");
+    }
 
     void reserve(size_t n) override { data.reserve(n); }
 

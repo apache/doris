@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <queue>
@@ -182,18 +183,16 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block()->allocated_bytes() >= buffered_block_bytes_;
+        return _state->unsorted_block()->allocated_bytes() >= INITIAL_BUFFERED_BLOCK_BYTES;
     }
 
-    bool could_hold_more_data(Block* input_block, Block* unsorted_block) const;
+    bool has_enough_capacity(Block* input_block, Block* unsorted_block) const;
 
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 
     static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 * 1024 * 1024;
-
-    size_t buffered_block_bytes_ = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 
 } // namespace doris::vectorized

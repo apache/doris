@@ -62,13 +62,13 @@ public:
 
     static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
 
-    void static check_chars_length(size_t total_length, size_t element_number, size_t capacity_bytes = 0, size_t bytes = 0, size_t rows = 0) {
+    void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
             throw Exception(
                     ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                     "string column length is too large: total_length={}, element_number={}, "
-                    "you can set batch_size a number smaller than {} to avoid this error. {}:{}:{}",
-                    total_length, element_number, element_number, capacity_bytes, bytes, rows);
+                    "you can set batch_size a number smaller than {} to avoid this error. rows:{}",
+                    total_length, element_number, element_number, rows);
         }
     }
 
@@ -117,7 +117,7 @@ public:
 
     size_t byte_size() const override { return chars.size() + offsets.size() * sizeof(offsets[0]); }
 
-    size_t capacity_bytes() const override { return chars.capacity() + offsets.capacity() * sizeof(offsets[0]); }
+    bool has_enough_capacity(const IColumn& src) const override;
 
     size_t allocated_bytes() const override {
         return chars.allocated_bytes() + offsets.allocated_bytes();

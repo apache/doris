@@ -319,7 +319,10 @@ public:
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
 
-    size_t capacity_bytes() const override { return data.capacity() * sizeof(data[0]); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_vec = assert_cast<const ColumnVector&>(src);
+        return data.capacity() - data.size() > src_vec.data.size();
+    }
 
     void insert_value(const T value) { data.push_back(value); }
 

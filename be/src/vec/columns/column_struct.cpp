@@ -350,12 +350,14 @@ size_t ColumnStruct::allocated_bytes() const {
     return res;
 }
 
-size_t ColumnStruct::capacity_bytes() const {
-    size_t res = 0;
-    for (const auto& column : columns) {
-        res += column->capacity_bytes();
+bool ColumnStruct::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        if (!columns[i]->has_enough_capacity(*src_concrete.columns[i])) {
+            return false;
+        }
     }
-    return res;
+    return true;
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {
