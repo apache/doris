@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
@@ -75,8 +76,8 @@ public class CollectRelation implements AnalysisRuleFactory {
                 unboundRelation()
                         .thenApply(this::collectFromUnboundRelation)
                         .toRule(RuleType.COLLECT_TABLE_FROM_RELATION),
-                unboundTableSink()
-                        .thenApply(this::collectFromUnboundTableSink)
+                unboundLogicalSink()
+                        .thenApply(this::collectFromUnboundSink)
                         .toRule(RuleType.COLLECT_TABLE_FROM_SINK),
                 any().whenNot(UnboundRelation.class::isInstance)
                         .whenNot(UnboundTableSink.class::isInstance)
@@ -124,7 +125,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         return null;
     }
 
-    private Plan collectFromUnboundTableSink(MatchingContext<UnboundTableSink<Plan>> ctx) {
+    private Plan collectFromUnboundSink(MatchingContext<UnboundLogicalSink<Plan>> ctx) {
         List<String> nameParts = ctx.root.getNameParts();
         switch (nameParts.size()) {
             case 1:
@@ -181,6 +182,13 @@ public class CollectRelation implements AnalysisRuleFactory {
         LOG.info("collect table {} from {}", nameParts, tableFrom);
         if (tableFrom == TableFrom.QUERY) {
             collectMTMVCandidates(table, cascadesContext);
+        }
+        if (tableFrom == TableFrom.INSERT_TARGET) {
+            if (!cascadesContext.getStatementContext().getInsertTargetSchema().isEmpty()) {
+                LOG.warn("collect insert target table '{}' more than once.", tableQualifier);
+            }
+            cascadesContext.getStatementContext().getInsertTargetSchema().clear();
+            cascadesContext.getStatementContext().getInsertTargetSchema().addAll(table.getFullSchema());
         }
         if (table instanceof View) {
             parseAndCollectFromView(tableQualifier, (View) table, cascadesContext);
