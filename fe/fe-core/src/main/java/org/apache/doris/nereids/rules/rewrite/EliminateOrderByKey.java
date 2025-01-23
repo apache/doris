@@ -75,7 +75,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
 
     private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminate(T sort) {
         List<OrderKey> retainExpression = eliminateDuplicate(sort.getOrderKeys());
-        retainExpression = eliminateByFd2(sort, retainExpression);
+        retainExpression = eliminateByFd(sort, retainExpression);
         retainExpression = eliminateByUniform(sort, retainExpression);
         return retainExpression;
     }
@@ -93,7 +93,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return retainExpression;
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd2(T sort,
+    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd(T sort,
             List<OrderKey> inputOrderKeys) {
         Map<Expression, Integer> slotToIndex = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
@@ -130,10 +130,8 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
 
     private static boolean canEliminateSortKey(Set<Slot> determinants, Set<Slot> dependencies,
             Map<Expression, Integer> slotToIndex) {
-        // determinants的最大值比dependencies最小值小
         int max = -1;
         for (Slot slot : determinants) {
-            // 这里不可能找不到
             max = slotToIndex.get(slot) > max ? slotToIndex.get(slot) : max;
         }
         int min = Integer.MAX_VALUE;
