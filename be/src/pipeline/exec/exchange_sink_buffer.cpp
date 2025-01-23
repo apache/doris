@@ -460,7 +460,8 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
-        // updata _total_queue_size
+        // Must update _total_queue_size here, otherwise if _total_queue_size > _queue_capacity at EOF,
+        // ExchangeSinkQueueDependency will be blocked and pipeline will be deadlocked
         _total_queue_size--;
         if (q.front().block) {
             COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
@@ -468,6 +469,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
         }
     }
 
+    // Try to wake up pipeline after clearing the queue
     if (_total_queue_size <= _queue_capacity) {
         for (auto& [_, dep] : _queue_deps) {
             dep->set_ready();

@@ -226,6 +226,9 @@ TEST_F(ExchangeSInkTest, test_queue_size) {
 
         std::cout << "each queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
 
+        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_1], false);
+        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_2], true);
+        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_3], false);
         clear_all_done();
     }
 }
