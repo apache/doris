@@ -19,7 +19,7 @@
 export SPARK_MASTER_HOST=doris--spark-iceberg
 
 # wait iceberg-rest start
-while [[ -n $(curl -s --fail http://rest:8181/v1/config) ]]; do
+while [[ ! $(curl -s --fail http://rest:8181/v1/config) ]]; do
     sleep 1
 done
 
