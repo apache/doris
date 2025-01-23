@@ -460,6 +460,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
+        // updata _total_queue_size
         _total_queue_size--;
         if (q.front().block) {
             COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
