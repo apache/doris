@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import com.mysql.cj.jdbc.StatementImpl
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
@@ -30,6 +31,16 @@ suite("test_retry_e-230", 'docker') {
     options.feConfigs.add('sys_log_verbose_modules=org')
     options.setBeNum(1)
     options.cloudMode = true
+
+    def insert_sql = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        assertEquals(result, expected_row_count)
+        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
+    }
     // 1. connect to master
     options.connectToFollower = false
     for (def j = 0; j < 2; j++) {
@@ -57,7 +68,7 @@ suite("test_retry_e-230", 'docker') {
                     );
                     """
                 for (def i = 1; i <= 5; i++) {
-                    sql "INSERT INTO ${tbl} VALUES (${i}, ${10 * i})"
+                    insert_sql """INSERT INTO ${tbl} VALUES (${i}, ${10 * i})""", 1
                 }
 
                 cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.retry.longtime' : null])
@@ -112,9 +123,7 @@ suite("test_retry_e-230", 'docker') {
                     )
                 """
 
-                sql """
-                    insert into ${tbl1} values (9,10,11,12), (1,2,3,4)
-                """
+                insert_sql """INSERT INTO ${tbl1} VALUES (9,10,11,12), (1,2,3,4)""", 2
 
                 // dp again
                 cluster.injectDebugPoints(NodeType.BE, ['CloudTablet.capture_rs_readers.return.e-230' : null])
@@ -137,7 +146,7 @@ suite("test_retry_e-230", 'docker') {
 
                 begin = System.currentTimeMillis();
                 def futrue4 = thread {
-                    def result = try_sql """insert into ${tbl2} select * from ${tbl1}"""
+                    insert_sql """insert into ${tbl2} select * from ${tbl1}""", 2
                 }
 
                 futrue4.get()
