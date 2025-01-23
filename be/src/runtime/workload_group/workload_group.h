@@ -131,6 +131,7 @@ public:
 
     std::string debug_string() const;
     std::string memory_debug_string() const;
+    std::string memory_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 
@@ -166,7 +167,8 @@ public:
         return _is_shutdown && _query_ctxs.empty();
     }
 
-    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
+    int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc,
+                      const std::string& cancel_reason);
 
     void upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 

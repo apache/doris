@@ -32,7 +32,8 @@ public:
 
     static int64_t tg_disable_overcommit_group_gc();
     static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                 RuntimeProfile* profile, bool is_minor_gc);
+                                                 RuntimeProfile* profile, bool is_minor_gc,
+                                                 const std::string& mem_info);
 
     static void je_purge_dirty_pages();
 

@@ -48,7 +48,7 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
         freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_minor_gc_size() - freed_mem,
-                                                   tg_profile, true);
+                                                   tg_profile, true, mem_info);
         if (freed_mem > MemInfo::process_minor_gc_size()) {
             return true;
         }
@@ -97,7 +97,7 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
         freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_full_gc_size() - freed_mem,
-                                                   tg_profile, false);
+                                                   tg_profile, false, mem_info);
         if (freed_mem > MemInfo::process_full_gc_size()) {
             return true;
         }
@@ -198,15 +198,20 @@ int64_t MemoryReclamation::tg_disable_overcommit_group_gc() {
 
     for (const auto& workload_group : task_groups_overcommit) {
         auto used = workload_group->memory_used();
+        std::string cancel_reason = fmt::format(
+                "WorkloadGroup memory exceed limit, {}, {}, backend {}. Execute again after enough "
+                "memory, details see be.INFO.",
+                workload_group->memory_string(), GlobalMemoryArbitrator::process_mem_log_str(),
+                BackendOptions::get_localhost());
         total_free_memory += workload_group->gc_memory(used - workload_group->memory_limit(),
-                                                       tg_profile.get(), false);
+                                                       tg_profile.get(), false, cancel_reason);
     }
     return total_free_memory;
 }
 
 int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                         RuntimeProfile* profile,
-                                                         bool is_minor_gc) {
+                                                         RuntimeProfile* profile, bool is_minor_gc,
+                                                         const std::string& mem_info) {
     MonotonicStopWatch watch;
     watch.start();
     std::vector<WorkloadGroupPtr> task_groups;
@@ -272,7 +277,12 @@ int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_me
                                 : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
                                           request_free_memory); // exceeded memory as a weight
         auto workload_group = task_groups[i];
-        total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc);
+        std::string cancel_reason = fmt::format(
+                "Process memory not enough, {}, {}, backend {}. Execute again after enough memory, "
+                "details see be.INFO.",
+                mem_info, workload_group->memory_string(), BackendOptions::get_localhost());
+        total_free_memory +=
+                workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc, cancel_reason);
     }
     return total_free_memory;
 }

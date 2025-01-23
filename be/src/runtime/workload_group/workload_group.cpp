@@ -109,6 +109,15 @@ std::string WorkloadGroup::memory_debug_string() const {
             _query_ctxs.size());
 }
 
+std::string WorkloadGroup::memory_string() const {
+    return fmt::format(
+            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
+            "{}, total_mem_used = {}, query_num = {}]",
+            _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_total_mem_used, TUnit::BYTES), _query_ctxs.size());
+}
+
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
     if (UNLIKELY(tg_info.id != _id)) {
         return;
@@ -209,63 +218,19 @@ void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> m
             _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
 }
 
-int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
+int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc,
+                                 const std::string& cancel_reason) {
     if (need_free_mem <= 0) {
         return 0;
     }
-    int64_t used_memory = memory_used();
     int64_t freed_mem = 0;
 
-    std::string cancel_str = "";
-    if (is_minor_gc) {
-        cancel_str = fmt::format(
-                "MinorGC kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, "
-                "backend:{}.",
-                _id, _name, MemCounter::print_bytes(used_memory),
-                MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
-    } else {
-        if (_enable_memory_overcommit) {
-            cancel_str = fmt::format(
-                    "FullGC release wg overcommit mem, wg id:{}, name:{}, "
-                    "used:{},limit:{},backend:{}.",
-                    _id, _name, MemCounter::print_bytes(used_memory),
-                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
-        } else {
-            cancel_str = fmt::format(
-                    "GC wg for hard limit, wg id:{}, name:{}, used:{}, limit:{}, "
-                    "backend:{}.",
-                    _id, _name, MemCounter::print_bytes(used_memory),
-                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
-        }
-    }
-    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
-                                                  const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, "
-                "Execute "
-                "again after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption),
-                GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
-    };
-    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute "
-                "again "
-                "after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption),
-                GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
-    };
-
-    LOG(INFO) << fmt::format(
-            "[MemoryGC] work load group start gc, id:{} name:{}, memory limit: {}, used: {}, "
-            "need_free_mem: {}.",
-            _id, _name, _memory_limit, used_memory, need_free_mem);
+    LOG(INFO) << fmt::format("[MemoryGC] WorkloadGroup start gc, {}, need_free_mem: {}.",
+                             memory_debug_string(), need_free_mem);
     Defer defer {[&]() {
         LOG(INFO) << fmt::format(
-                "[MemoryGC] work load group finished gc, id:{} name:{}, memory limit: {}, "
-                "used: "
-                "{}, need_free_mem: {}, freed memory: {}.",
-                _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
+                "[MemoryGC] WorkloadGroup finished gc, {}, need_free_mem: {}, freed memory: {}.",
+                memory_debug_string(), need_free_mem, freed_mem);
     }};
 
     // 1. free top overcommit query
@@ -274,8 +239,13 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                 fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY,
-                _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
-                MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+                _mem_tracker_limiter_pool,
+                [cancel_reason](int64_t mem_consumption, const std::string& label) {
+                    return fmt::format(
+                            "cancel top memory overcommit query: <{}> consumption {}. {}", label,
+                            MemCounter::print_bytes(mem_consumption), cancel_reason);
+                },
+                tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     }
     // To be compatible with the non-group's gc logic, minorGC just gc overcommit query
     if (is_minor_gc || freed_mem >= need_free_mem) {
@@ -287,7 +257,11 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
             profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_query(
             need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
-            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+            [cancel_reason](int64_t mem_consumption, const std::string& label) {
+                return fmt::format("cancel top memory used query: <{}> consumption {}. {}", label,
+                                   MemCounter::print_bytes(mem_consumption), cancel_reason);
+            },
+            tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     if (freed_mem >= need_free_mem) {
         return freed_mem;
     }
@@ -298,7 +272,12 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                 fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
-                cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+                [cancel_reason](int64_t mem_consumption, const std::string& label) {
+                    return fmt::format("cancel top memory overcommit load: <{}> consumption {}. {}",
+                                       label, MemCounter::print_bytes(mem_consumption),
+                                       cancel_reason);
+                },
+                tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
         if (freed_mem >= need_free_mem) {
             return freed_mem;
         }
@@ -309,7 +288,11 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
             profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_query(
             need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
-            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+            [cancel_reason](int64_t mem_consumption, const std::string& label) {
+                return fmt::format("cancel top memory used query: <{}> consumption {}. {}", label,
+                                   MemCounter::print_bytes(mem_consumption), cancel_reason);
+            },
+            tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
     return freed_mem;
 }
 
