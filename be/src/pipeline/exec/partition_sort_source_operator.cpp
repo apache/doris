@@ -84,7 +84,7 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
                                                       vectorized::Block* output_block,
                                                       PartitionSortSourceLocalState& local_state) {
     SCOPED_TIMER(local_state._get_sorted_timer);
-    //sorter output data one by one one
+    //sorter output data one by one
     bool current_eos = false;
     auto& sorters = local_state._shared_state->partition_sorts;
     auto sorter_size = sorters.size();
