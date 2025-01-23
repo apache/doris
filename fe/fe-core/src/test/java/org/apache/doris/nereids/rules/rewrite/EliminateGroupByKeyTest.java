@@ -179,4 +179,13 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                         agg.getGroupByExpressions().size() == 1
                                 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
     }
+
+    @Test
+    void canNotEliminateNondeterministic() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.name from t1 group by t1.name, length(t1.name) + random(1, 10)")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+    }
 }

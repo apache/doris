@@ -277,9 +277,13 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
         for (NamedExpression expr : getProjects()) {
-            if (!expr.isSlot()) {
-                builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            if (!(expr instanceof Alias)) {
+                continue;
             }
+            if (expr.containsNondeterministic()) {
+                continue;
+            }
+            builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
         }
     }
 }
