@@ -207,7 +207,7 @@ private:
                      +-----------------+       +-----------------+    +-----------------+
 */
 
-#ifdef BE_TEST
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void transmit_blockv2(PBackendService_Stub& stub,
                       std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
