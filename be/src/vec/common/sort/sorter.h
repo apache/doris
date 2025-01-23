@@ -185,6 +185,8 @@ private:
         return _state->unsorted_block()->allocated_bytes() >= buffered_block_bytes_;
     }
 
+    bool could_hold_more_data(Block* input_block, Block* unsorted_block) const;
+
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;

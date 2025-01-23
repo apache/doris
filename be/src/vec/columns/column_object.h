@@ -117,7 +117,7 @@ public:
 
         size_t allocatedBytes() const;
 
-        size_t capacity() const;
+        size_t capacity_bytes() const;
 
         bool is_finalized() const;
 
@@ -389,7 +389,7 @@ public:
 
     size_t allocated_bytes() const override;
 
-    size_t capacity() const override;
+    size_t capacity_bytes() const override;
 
     void for_each_subcolumn(ColumnCallback callback) override;
 

@@ -116,7 +116,7 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    size_t capacity() const override { return _codes.capacity(); }
+    size_t capacity_bytes() const override { return _codes.capacity() * sizeof(_codes[0]); }
 
     void pop_back(size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

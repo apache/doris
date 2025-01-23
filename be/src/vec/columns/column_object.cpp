@@ -387,10 +387,10 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
-size_t ColumnObject::Subcolumn::Subcolumn::capacity() const {
+size_t ColumnObject::Subcolumn::Subcolumn::capacity_bytes() const {
     size_t res = 0;
     for (const auto& part : data) {
-        res += part->capacity();
+        res += part->capacity_bytes();
     }
     return res;
 }
@@ -868,10 +868,10 @@ size_t ColumnObject::allocated_bytes() const {
     return res;
 }
 
-size_t ColumnObject::capacity() const {
+size_t ColumnObject::capacity_bytes() const {
     size_t res = 0;
     for (const auto& entry : subcolumns) {
-        res += entry->data.capacity();
+        res += entry->data.capacity_bytes();
     }
     return res;
 }

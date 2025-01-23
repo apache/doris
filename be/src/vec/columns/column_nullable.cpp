@@ -539,8 +539,8 @@ size_t ColumnNullable::allocated_bytes() const {
     return get_nested_column().allocated_bytes() + get_null_map_column().allocated_bytes();
 }
 
-size_t ColumnNullable::capacity() const {
-    return get_nested_column().capacity() + get_null_map_column().capacity();
+size_t ColumnNullable::capacity_bytes() const {
+    return get_nested_column().capacity_bytes() + get_null_map_column().capacity_bytes();
 }
 
 ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {

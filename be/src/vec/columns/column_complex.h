@@ -114,7 +114,7 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    size_t capacity() const override { return data.capacity(); }
+    size_t capacity_bytes() const override { return data.capacity() * sizeof(data[0]); }
 
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 
