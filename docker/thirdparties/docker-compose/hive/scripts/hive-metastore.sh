@@ -163,6 +163,4 @@ echo "Script: create_view.hql executed in ${EXECUTION_TIME} seconds"
 touch /mnt/SUCCESS
 
 # Avoid container exit
-while true; do
-    sleep 1
-done
+tail -f /dev/null
