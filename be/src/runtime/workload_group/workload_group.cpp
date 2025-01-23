@@ -219,43 +219,42 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
     std::string cancel_str = "";
     if (is_minor_gc) {
         cancel_str = fmt::format(
-                "Process memory not enough, in WorkloadGroup[id:{}, name:{}, used:{}, limit:{}, "
-                "enable_memory_overcommit:true], "
-                "backend:{}.",
-                _id, _name, MemCounter::print_bytes(used_memory),
-                MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                "Process memory not enough, {}, Memory GC in WorkloadGroup[id:{}, name:{}, "
+                "used:{}, limit:{}, enable_memory_overcommit:true], backend:{}.",
+                GlobalMemoryArbitrator::process_mem_log_str(), _id, _name,
+                MemCounter::print_bytes(used_memory), MemCounter::print_bytes(_memory_limit),
+                BackendOptions::get_localhost());
     } else {
         if (_enable_memory_overcommit) {
             cancel_str = fmt::format(
-                    "Process memory not enough, in WorkloadGroup[id:{}, name:{}, used:{}, "
-                    "limit:{}, enable_memory_overcommit:true]. backend:{}.",
-                    _id, _name, MemCounter::print_bytes(used_memory),
-                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    "Process memory not enough, {}, Memory GC in WorkloadGroup[id:{}, name:{}, "
+                    "used:{}, limit:{}, enable_memory_overcommit:true], backend:{}.",
+                    GlobalMemoryArbitrator::process_mem_log_str(), _id, _name,
+                    MemCounter::print_bytes(used_memory), MemCounter::print_bytes(_memory_limit),
+                    BackendOptions::get_localhost());
         } else {
             cancel_str = fmt::format(
                     "WorkloadGroup memory exceed limit, in WorkloadGroup[id:{}, name:{}, used:{}, "
-                    "limit:{}, enable_memory_overcommit:false]. "
-                    "backend:{}.",
+                    "limit:{}, enable_memory_overcommit:false], {}, backend:{}.",
                     _id, _name, MemCounter::print_bytes(used_memory),
-                    MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
+                    MemCounter::print_bytes(_memory_limit),
+                    GlobalMemoryArbitrator::process_mem_log_str(), BackendOptions::get_localhost());
         }
     }
     auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
                                                   const std::string& label) {
         return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, "
+                "{} cancel top memory overcommit tracker <{}> consumption {}. "
                 "Execute "
                 "again after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption),
-                GlobalMemoryArbitrator::process_mem_log_str());
+                cancel_str, label, MemCounter::print_bytes(mem_consumption));
     };
     auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
         return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute "
+                "{} cancel top memory used tracker <{}> consumption {}. Execute "
                 "again "
                 "after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption),
-                GlobalMemoryArbitrator::process_mem_log_str());
+                cancel_str, label, MemCounter::print_bytes(mem_consumption));
     };
 
     LOG(INFO) << fmt::format(
