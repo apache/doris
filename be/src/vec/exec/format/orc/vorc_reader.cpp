@@ -156,6 +156,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
+          _enable_merge_small_io(
+                  state == nullptr ? true : state->query_options().enable_orc_merge_small_io),
           _dict_cols_has_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
@@ -252,7 +254,8 @@ Status OrcReader::_create_file_reader() {
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::RANDOM, _io_ctx));
         _file_input_stream = std::make_unique<ORCFileInputStream>(
-                _scan_range.path, std::move(inner_reader), &_statistics, _io_ctx, _profile);
+                _scan_range.path, std::move(inner_reader), &_statistics, _io_ctx, _profile,
+                _enable_merge_small_io);
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -2662,6 +2665,10 @@ void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
     if (_is_all_tiny_stripes) {
+        return;
+    }
+    if (!_enable_merge_small_io) {
+        _file_reader = _inner_reader;
         return;
     }
     if (_file_reader != nullptr) {

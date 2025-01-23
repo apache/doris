@@ -89,6 +89,8 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _state(state),
           _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_merge_small_io(
+                  state == nullptr ? true : state->query_options().enable_parquet_merge_small_io),
           _enable_filter_by_min_max(
                   state == nullptr ? true
                                    : state->query_options().enable_parquet_filter_by_min_max) {
@@ -105,6 +107,8 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _io_ctx(io_ctx),
           _state(state),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_merge_small_io(
+                  state == nullptr ? true : state->query_options().enable_parquet_merge_small_io),
           _enable_filter_by_min_max(
                   state == nullptr ? true
                                    : state->query_options().enable_parquet_filter_by_min_max) {
@@ -650,10 +654,11 @@ Status ParquetReader::_next_row_group_reader() {
                 _generate_random_access_ranges(row_group_index, &avg_io_size);
         // The underlying page reader will prefetch data in column.
         // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                                    ? std::make_shared<io::MergeRangeFileReader>(
-                                              _profile, _file_reader, io_ranges)
-                                    : _file_reader;
+        group_file_reader =
+                avg_io_size < io::MergeRangeFileReader::SMALL_IO && _enable_merge_small_io
+                        ? std::make_shared<io::MergeRangeFileReader>(_profile, _file_reader,
+                                                                     io_ranges)
+                        : _file_reader;
     }
     _current_group_reader.reset(new RowGroupReader(
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
