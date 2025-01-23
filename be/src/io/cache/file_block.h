@@ -130,6 +130,10 @@ public:
     FileBlock& operator=(const FileBlock&) = delete;
     FileBlock(const FileBlock&) = delete;
 
+    // block is being using by other thread when deleting, so tag it is_deleting and delete later on¬
+    void set_deleting() { _is_deleting = true; }
+    bool is_deleting() const { return _is_deleting; };
+
 private:
     std::string get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const;
 
@@ -155,6 +159,7 @@ private:
     std::condition_variable _cv;
     FileCacheKey _key;
     size_t _downloaded_size {0};
+    bool _is_deleting {false};
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);
