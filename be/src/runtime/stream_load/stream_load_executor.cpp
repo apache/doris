@@ -142,8 +142,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         }
     };
 
-    // Reset thread memory tracker, otherwise SCOPED_ATTACH_TASK will be called nested, nesting is
-    // not allowed, first time in on_chunk_data, second time in StreamLoadExecutor::execute_plan_fragment.
+    // Reset thread memory tracker, exec_plan_fragment will call SCOPED_ATTACH_TASK
+    // and check that the thread memory tracker must be orphan tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
 
     if (ctx->put_result.__isset.params) {
