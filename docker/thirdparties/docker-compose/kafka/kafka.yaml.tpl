@@ -52,9 +52,9 @@ services:
             - ${DOCKER_KAFKA_EXTERNAL_PORT}:19193
         healthcheck:
             # https://github.com/bitnami/containers/issues/33325#issuecomment-1541443315
-            test: kafka-topics.sh --bootstrap-server kafka:9092 --topic hc --create --if-not-exists && kafka-topics.sh --bootstrap-server kafka:9092 --topic hc --describe
+            test: kafka-topics.sh --zookeeper doris--zookeeper:2181 --topic healthycheck --partitions 1 --replication-factor 1 --create --if-not-exists && kafka-topics.sh --zookeeper doris--zookeeper:2181 --topic healthycheck --describe
             start_period: 10s
-            interval: 5s
+            interval: 10s
             timeout: 60s
             retries: 60
         environment:
