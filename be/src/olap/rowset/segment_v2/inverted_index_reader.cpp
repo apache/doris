@@ -224,9 +224,10 @@ Status InvertedIndexReader::handle_searcher_cache(
         // TODO: handle null bitmap procedure in new format.
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         static_cast<void>(read_null_bitmap(io_ctx, stats, &null_bitmap_cache_handle, dir.get()));
-        RETURN_IF_ERROR(create_index_searcher(dir.release(), &searcher, mem_tracker.get(), type()));
-        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
-                std::move(searcher), mem_tracker->consumption(), UnixMillis());
+        size_t reader_size = 0;
+        RETURN_IF_ERROR(create_index_searcher(dir.release(), &searcher, type(), reader_size));
+        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
+                                                                       reader_size, UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
                                                        inverted_index_cache_handle);
         return Status::OK();
@@ -235,9 +236,8 @@ Status InvertedIndexReader::handle_searcher_cache(
 
 Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
                                                   IndexSearcherPtr* searcher,
-                                                  MemTracker* mem_tracker,
-                                                  InvertedIndexReaderType reader_type) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
+                                                  InvertedIndexReaderType reader_type,
+                                                  size_t& reader_size) {
     auto index_searcher_builder =
             DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(reader_type));
 
@@ -245,12 +245,11 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     *searcher = searcher_result;
 
     // When the meta information has been read, the ioContext needs to be reset to prevent it from being used by other queries.
-    auto stream = static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput();
+    auto* stream = static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput();
     stream->setIoContext(nullptr);
     stream->setIndexFile(false);
 
-    // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
-    mem_tracker->consume(index_searcher_builder->get_reader_size());
+    reader_size = index_searcher_builder->get_reader_size();
     return Status::OK();
 };
 
