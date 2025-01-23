@@ -52,7 +52,8 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        useSerialSource = fragment.useSerialSource(statementContext.getConnectContext());
+        useSerialSource = fragment.useSerialSource(
+                distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
         int expectInstanceNum = degreeOfParallelism();
         List<AssignedJob> biggestParallelChildFragment = getInstancesOfBiggestParallelChildFragment(inputJobs);
@@ -82,8 +83,9 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         // TODO: check we use nested loop join do right outer / semi / anti join,
         //       we should add an exchange node with gather distribute under the nested loop join
         int expectInstanceNum = -1;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            expectInstanceNum = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
+        ConnectContext connectContext = statementContext.getConnectContext();
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
         }
         return expectInstanceNum;
     }

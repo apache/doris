@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.WorkerScanSource;
 
@@ -24,7 +25,8 @@ import java.util.List;
 
 /** DefaultSpecifyInstances */
 public class DefaultSpecifyInstances extends NereidsSpecifyInstances<DefaultScanSource> {
-    public DefaultSpecifyInstances(List<WorkerScanSource<DefaultScanSource>> workerToScanSources) {
-        super(workerToScanSources);
+    public DefaultSpecifyInstances(
+            StatementContext statementContext, List<WorkerScanSource<DefaultScanSource>> workerToScanSources) {
+        super(statementContext, workerToScanSources);
     }
 }
