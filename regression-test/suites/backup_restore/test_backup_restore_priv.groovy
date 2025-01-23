@@ -19,7 +19,7 @@ import groovy.json.JsonSlurper
 
 suite("test_backup_restore_priv", "backup_restore") {
     String suiteName = "test_backup_restore_priv"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String tableName1 = "${suiteName}_table_1"
