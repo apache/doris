@@ -69,6 +69,8 @@ protected:
 
     Status _finish_spilling();
 
+    Status _setup_internal_operator(RuntimeState* state);
+
     friend class PartitionedHashJoinSinkOperatorX;
 
     bool _child_eos {false};
@@ -139,8 +141,6 @@ public:
 
 private:
     friend class PartitionedHashJoinSinkLocalState;
-
-    Status _setup_internal_operator(RuntimeState* state);
 
     const TJoinDistributionType::type _join_distribution;
 
