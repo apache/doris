@@ -24,20 +24,20 @@ import org.junit.Test;
 
 public class TimeLiteralTest {
 
-  @Test
-  public void testTimeCreate() throws AnalysisException {
-      TimeLiteral literal = new TimeLiteral("12:12:12");
-      String s = literal.getStringValue();
-      Assert.assertEquals(s, "12:12:12");
-      literal = new TimeLiteral("112:00:00");
-      s = literal.getStringValue();
-      Assert.assertEquals(s, "112:00:00");
-      literal = new TimeLiteral(21, 12, 21);
-      s = literal.getStringValue();
-      Assert.assertEquals(s, "21:12:21");
-      literal = new TimeLiteral(838, 59, 59);
-      s = literal.getStringValue();
-      Assert.assertEquals(s, "838:59:59");
-  }
+    @Test
+    public void testTimeLiteralCreate() throws AnalysisException {
+        TimeLiteral literal = new TimeLiteral("12:12:12");
+        String s = literal.getStringValue();
+        Assert.assertEquals(s, "12:12:12");
+        literal = new TimeLiteral("112:00:00");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "112:00:00");
+        literal = new TimeLiteral(21, 12, 21);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "21:12:21");
+        literal = new TimeLiteral(838, 59, 59);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59");
+    }
 
 }
