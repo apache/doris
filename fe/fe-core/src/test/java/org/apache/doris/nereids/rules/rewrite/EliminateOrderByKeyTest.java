@@ -134,7 +134,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     }
 
     @Test
-    void NotEliminateNonDeterministic() {
+    void notEliminateNonDeterministic() {
         PlanChecker.from(connectContext)
                 .analyze("select a,b,c,d,dt from eliminate_order_by_constant_t order by a,a+random(1,10)")
                 .rewrite()

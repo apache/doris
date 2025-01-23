@@ -280,7 +280,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             if (!(expr instanceof Alias)) {
                 continue;
             }
-            if (expr.containsNondeterministic()) {
+            if (expr.containsNonfoldable()) {
                 continue;
             }
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
