@@ -249,4 +249,7 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 CONF_Bool(enable_check_instance_id, "true");
+
+// Check if ip eq 127.0.0.1, ms/recycler exit
+CONF_Bool(enable_loopback_address_for_ms, "false");
 } // namespace doris::cloud::config
