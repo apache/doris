@@ -50,6 +50,7 @@ class VDataStreamMgr;
 class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
+class DictionaryFactory;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -332,6 +333,8 @@ public:
         return _runtime_filter_timer_queue;
     }
 
+    vectorized::DictionaryFactory* dict_factory() { return _dict_factory; }
+
     pipeline::PipelineTracerContext* pipeline_tracer_context() {
         return _pipeline_tracer_ctx.get();
     }
@@ -470,6 +473,7 @@ private:
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    vectorized::DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 

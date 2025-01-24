@@ -130,6 +130,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
 
+    // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();

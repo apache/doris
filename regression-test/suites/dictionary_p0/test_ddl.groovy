@@ -1,0 +1,257 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_ddl") {
+    sql "drop database if exists test_dictionary_ddl"
+    sql "create database test_dictionary_ddl"
+    sql "use test_dictionary_ddl"
+
+    sql """
+        create table dc(
+            k0 datetime(6) not null,
+            k1 varchar not null
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+
+    test { // wrong grammar. no using
+        sql """
+        create dictionary dic1
+        (
+            col1 KEY, 
+            col2 VALUE,
+            col3 VALUE
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+        """
+        exception "mismatched input"
+    }
+
+    test { // wrong grammar. no properties keyword
+        sql """
+        create dictionary dic1 using dc
+        (
+            col1 KEY, 
+            col2 VALUE,
+            col3 VALUE
+        )LAYOUT(HASH_MAP)
+        ("x"="x", "y"="y");
+        """
+        exception "mismatched input"
+    }
+
+    test { // no source table
+        sql """
+        create dictionary dic1 using dcxxx
+        (
+            col1 KEY, 
+            col2 VALUE,
+            col3 VALUE
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+        """
+        exception "Unknown table"
+    }
+
+    test { // wrong column name
+        sql """
+        create dictionary dic1 using dc
+        (
+            col1 KEY, 
+            col2 VALUE,
+            col3 VALUE
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+        """
+        exception "Column col1 not found in source table dc"
+    }
+
+    test { // wrong column type
+        sql """
+        create dictionary dic1 using dc
+        (
+            k0 KEY, 
+            k1 VALUE,
+            k1 VARCHAR
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+        """
+        exception "mismatched input 'VARCHAR'"
+    }
+
+    test { // duplicate columns
+        sql """
+        create dictionary dic1 using dc
+        (
+            k1 KEY, 
+            k0 VALUE,
+            k0 VALUE
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+        """
+        exception "Column k0 is used more than once"
+    }
+
+    test { // more than one key
+        sql """
+        create dictionary dic1 using dc
+        (
+            k0 KEY, 
+            k1 KEY
+        )LAYOUT(HASH_MAP);
+        """
+        exception "Now only support one key column"
+    }
+
+    // complex type
+    sql """
+        create table ctype(
+            k0 int null,
+            k1 MAP<STRING, INT>
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    test {
+        sql """
+        create dictionary dic1 using ctype
+        (
+            k1 KEY, 
+            k0 VALUE
+        )LAYOUT(HASH_MAP);
+        """
+        exception "Key column k1 cannot be complex type"
+    }
+
+    // nullable column test base table
+    sql """
+        create table nullable_table(
+            k1 varchar(32) null,
+            k2 varchar(32) not null,
+            v1 varchar(64) null,
+            v2 varchar(64) not null
+        )
+        DISTRIBUTED BY HASH(`k2`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+
+    test { // test nullable key column
+        sql """
+        create dictionary dic_null_key using nullable_table
+        (
+            k1 KEY,
+            v1 VALUE
+        )LAYOUT(HASH_MAP);
+        """
+        exception "Key column k1 cannot be nullable"
+    }
+
+    test { // test nullable value column in IP_TRIE
+        sql """
+        create dictionary dic_null_value using nullable_table
+        (
+            k2 KEY,
+            v1 VALUE
+        )LAYOUT(IP_TRIE);
+        """
+        exception "Column v1 cannot be nullable for IP_TRIE layout"
+    }
+
+    // test right nullable
+    sql """
+    create dictionary dic_not_null using nullable_table
+    (
+        k2 KEY,
+        v2 VALUE
+    )LAYOUT(IP_TRIE);
+    """
+    sql "drop dictionary dic_not_null"
+
+    test { // wrong type
+        sql """
+        create dictionary dic1 using dc
+        (
+            k1 KEY, 
+            k0 VALUE
+        )LAYOUT(xxx);
+        """
+        exception "Unknown layout type: xxx. must be IP_TRIE or HASH_MAP"
+    }
+
+    test { // wrong type for ip_trie
+        sql """
+        create dictionary dic_trie2 using dc
+        (
+            k0 KEY, 
+            k1 VALUE
+        )LAYOUT(IP_TRIE);
+        """
+        exception "Key column k0 must be String type for IP_TRIE layout"
+    }
+
+    // normal
+    sql """
+        create dictionary dic1 using dc
+        (
+            k1 KEY, 
+            k0 VALUE
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+    """
+    def origin_res = (sql "show dictionaries")[0]
+    log.info(origin_res.toString())
+    assertTrue(origin_res[1] == "dic1" && origin_res[4] == "NORMAL")
+
+    // normal ip_trie
+    sql """
+        create dictionary dic_trie using dc
+        (
+            k1 KEY, 
+            k0 VALUE
+        )LAYOUT(IP_TRIE);
+    """
+
+    test { // duplicate dictionary
+        sql """
+        create dictionary dic1 using dc
+        (
+            k1 KEY, 
+            k0 VALUE
+        )LAYOUT(HASH_MAP)
+        properties("x"="x", "y"="y");
+        """
+        exception "Dictionary dic1 already exists in database test"
+    }
+
+    qt_sql1 "explain dictionary dic1"
+    qt_sql2 "explain dictionary dic_trie"
+
+    // test drop
+    sql "drop dictionary dic1"
+    origin_res = sql "show dictionaries"
+    assertTrue(origin_res.size() == 1)
+
+    // drop databases
+    sql "use mysql"
+    sql "drop database test_dictionary_ddl"
+    sql "create database test_dictionary_ddl"
+    sql "use test_dictionary_ddl"
+    origin_res = sql "show dictionaries"
+    log.info(origin_res.toString())
+    assertTrue(origin_res.size() == 0) // should also be removed
+}

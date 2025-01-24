@@ -30,6 +30,7 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
@@ -442,10 +443,12 @@ public class InsertUtils {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundJdbcTableSink) {
             unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundDictionarySink) {
+            unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else {
-            throw new AnalysisException("the root of plan should be"
-                    + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
-                    + " but it is " + plan.getType());
+            throw new AnalysisException(
+                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
+                            + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }

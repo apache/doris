@@ -25,6 +25,8 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 
 import com.google.common.collect.ListMultimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,7 @@ import java.util.Objects;
 
 /** DistributePlanner */
 public class DistributePlanner {
+    private static final Logger LOG = LogManager.getLogger(DistributePlanner.class);
     private final List<PlanFragment> fragments;
     private final FragmentIdMapping<PlanFragment> idToFragments;
 
@@ -43,6 +46,7 @@ public class DistributePlanner {
 
     public FragmentIdMapping<DistributedPlan> plan() {
         FragmentIdMapping<UnassignedJob> fragmentJobs = UnassignedJobBuilder.buildJobs(idToFragments);
+        // assign BE and dop, to instance
         ListMultimap<PlanFragmentId, AssignedJob> instanceJobs = AssignedJobBuilder.buildJobs(fragmentJobs);
         return buildDistributePlans(fragmentJobs, instanceJobs);
     }
@@ -61,6 +65,20 @@ public class DistributePlanner {
             List<PipelineDistributedPlan> childrenPlans = idToDistributedPlans.getByChildrenFragments(fragment);
             idToDistributedPlans.put(fragmentId, new PipelineDistributedPlan(fragmentJob, instanceJobs, childrenPlans));
         }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("=== LinkedPlans Debug Info ===");
+            idToDistributedPlans.forEach((fragmentId, plan) -> {
+                LOG.debug("Fragment[{}]:", fragmentId);
+                if (plan instanceof PipelineDistributedPlan) {
+                    PipelineDistributedPlan pPlan = (PipelineDistributedPlan) plan;
+                    LOG.debug("  Jobs: {}", pPlan.getInstanceJobs());
+                    LOG.debug("  Inputs: {}", pPlan.getInputs());
+                }
+            });
+            LOG.debug("===========================");
+        }
+
         return (FragmentIdMapping) idToDistributedPlans;
     }
 }

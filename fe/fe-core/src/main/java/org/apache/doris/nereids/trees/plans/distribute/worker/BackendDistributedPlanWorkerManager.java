@@ -25,7 +25,10 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
+import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /** BackendWorkerManager */
@@ -59,5 +62,22 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         } catch (Exception t) {
             throw new NereidsException("Can not get backends: " + t, t);
         }
+    }
+
+    @Override
+    public List<Long> getAllBackend(boolean needAlive) {
+        ImmutableMap<Long, Backend> backends = this.backends.get();
+        List<Long> backendIds = null;
+        if (needAlive) {
+            backendIds = Lists.newArrayList();
+            for (Map.Entry<Long, Backend> entry : backends.entrySet()) {
+                if (entry.getValue().isQueryAvailable()) {
+                    backendIds.add(entry.getKey());
+                }
+            }
+        } else {
+            backendIds = Lists.newArrayList(backends.keySet());
+        }
+        return backendIds;
     }
 }

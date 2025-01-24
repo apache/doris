@@ -569,4 +569,14 @@ public class BackendServiceProxy {
         return null;
     }
 
+    public Future<InternalService.PDeleteDictionaryResponse> deleteDictionaryAsync(TNetworkAddress address,
+            int timeoutSec, InternalService.PDeleteDictionaryRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.deleteDictionary(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("delete dictionary failed, address={}:{}", address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 }

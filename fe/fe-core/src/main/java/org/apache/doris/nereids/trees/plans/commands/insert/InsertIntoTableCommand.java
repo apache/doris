@@ -31,6 +31,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
@@ -91,6 +93,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * When source it's from job scheduler,it will be set.
      */
     private long jobId;
+
+    // default is empty. only for OlapInsertExecutor#finalizeSink will construct one for check allow auto partition
     private final Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
 
@@ -107,8 +111,29 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.cte = cte;
     }
 
+    /**
+     * constructor for derived class
+     */
+    public InsertIntoTableCommand(InsertIntoTableCommand command, PlanType planType) {
+        super(planType);
+        this.originalLogicalQuery = command.originalLogicalQuery;
+        this.labelName = command.labelName;
+        this.logicalQuery = command.logicalQuery;
+        this.insertCtx = command.insertCtx;
+        this.cte = command.cte;
+        this.jobId = command.jobId;
+    }
+
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
+    }
+
+    protected void setLogicalQuery(LogicalPlan logicalQuery) {
+        this.logicalQuery = logicalQuery;
+    }
+
+    protected void setOriginalLogicalQuery(LogicalPlan logicalQuery) {
+        this.originalLogicalQuery = logicalQuery;
     }
 
     public Optional<String> getLabelName() {
@@ -134,6 +159,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
+    // may be overridden
+    protected TableIf getTargetTableIf(ConnectContext ctx, List<String> qualifiedTargetTableName) {
+        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+    }
+
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         return initPlan(ctx, executor, true);
     }
@@ -152,7 +182,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         AbstractInsertExecutor insertExecutor;
         int retryTimes = 0;
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
-            TableIf targetTableIf = RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+            TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
@@ -164,6 +194,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             BuildInsertExecutorResult buildResult;
             try {
+                // use originalLogicalQuery to build logicalQuery again.
                 buildResult = initPlanOnce(ctx, executor, targetTableIf);
             } catch (Throwable e) {
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
@@ -174,7 +205,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 return insertExecutor;
             }
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
-            TableIf newestTargetTableIf = RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+            TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             List<TableIf> targetTables = Lists.newArrayList(targetTableIf, newestTargetTableIf);
             targetTables.sort(Comparator.comparing(TableIf::getId));
             MetaLockUtils.readLockTables(targetTables);
@@ -224,8 +255,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
             StmtExecutor executor, TableIf targetTableIf) throws Throwable {
         AbstractInsertExecutor insertExecutor;
-        // 1. process inline table (default values, empty values)
-        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
+        if (!(this instanceof InsertIntoDictionaryCommand)) {
+            // 1. process inline table (default values, empty values)
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
+        }
         if (cte.isPresent()) {
             this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
@@ -299,9 +332,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) targetTableIf;
             insertExecutor = new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
                     Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert);
+        } else if (physicalSink instanceof PhysicalDictionarySink) {
+            boolean emptyInsert = childIsEmptyRelation(physicalSink);
+            Dictionary dictionary = (Dictionary) targetTableIf;
+            // insertCtx is not useful for dictionary. so keep it empty is ok.
+            insertExecutor = new DictionaryInsertExecutor(ctx, dictionary, label, planner, insertCtx, emptyInsert);
         } else {
             // TODO: support other table types
-            throw new AnalysisException("insert into command only support [olap, hive, iceberg, jdbc] table");
+            throw new AnalysisException(
+                        "insert into command only support [olap, dictionary, hive, iceberg, jdbc] table");
         }
         return new BuildInsertExecutorResult(planner, insertExecutor, sink, physicalSink);
     }

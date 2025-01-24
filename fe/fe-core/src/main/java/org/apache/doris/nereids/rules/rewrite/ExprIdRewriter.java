@@ -73,6 +73,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 new LogicalIcebergTableSinkRewrite().build(),
                 new LogicalJdbcTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
+                new LogicalDictionarySinkRewrite().build(),
                 new LogicalDeferMaterializeResultSinkRewrite().build()
                 ));
         return builder.build();
@@ -174,6 +175,14 @@ public class ExprIdRewriter extends ExpressionRewrite {
         @Override
         public Rule build() {
             return logicalOlapTableSink().thenApply(ExprIdRewriter.this::applyRewrite)
+                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
+        }
+    }
+
+    private class LogicalDictionarySinkRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalDictionarySink().thenApply(ExprIdRewriter.this::applyRewrite)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }
