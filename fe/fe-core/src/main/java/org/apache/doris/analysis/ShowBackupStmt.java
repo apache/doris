@@ -39,9 +39,10 @@ import java.util.function.Predicate;
 
 public class ShowBackupStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
-            .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
+            .add("JobId").add("SnapshotName").add("DbName").add("State").add("ProgressInCurrentState")
+            .add("BackupObjs").add("CreateTime").add("SnapshotFinishedTime").add("UploadFinishedTime")
+            .add("FinishedTime").add("UnfinishedTasks").add("Progress").add("TaskErrMsg").add("Status")
+            .add("Timeout")
             .build();
 
     private String dbName;
