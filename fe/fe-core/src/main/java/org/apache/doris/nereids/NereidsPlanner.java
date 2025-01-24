@@ -542,7 +542,7 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend).plan(false);
+        distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend, false).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
         }

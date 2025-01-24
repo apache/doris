@@ -58,17 +58,23 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
 
     private final ImmutableMap<Long, Backend> currentClusterBackends;
 
-    public BackendDistributedPlanWorkerManager(ConnectContext context, boolean notNeedBackend) throws UserException {
-        this.currentClusterBackends = checkAndInitClusterBackends(context, notNeedBackend);
+    public BackendDistributedPlanWorkerManager(
+            ConnectContext context, boolean notNeedBackend, boolean isLoadJob) throws UserException {
+        this.currentClusterBackends = checkAndInitClusterBackends(context, notNeedBackend, isLoadJob);
     }
 
     private ImmutableMap<Long, Backend> checkAndInitClusterBackends(
-            ConnectContext context, boolean noNeedBackend) throws UserException {
+            ConnectContext context, boolean noNeedBackend, boolean isLoadJob) throws UserException {
         if (!Config.isCloudMode()) {
             return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
         } else if (noNeedBackend) {
             // `select 1` will not need backend
             return ImmutableMap.of(-1L, DUMMY_BACKEND);
+        }
+
+        // if is load, the ConnectContext.get() would be null, then we can skip check cluster
+        if (isLoadJob) {
+            context = ConnectContext.get();
         }
 
         checkCluster(context);
