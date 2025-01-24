@@ -41,4 +41,22 @@ public class BitmapValueUtil {
         in.close();
         return bitmapValue;
     }
+
+    public static String bitmapToBase64(BitmapValue bitmapValue) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(bos);
+        bitmapValue.serialize(dos);
+        dos.close();
+        byte[] byteArr = bos.toByteArray();
+        return DatatypeConverter.printBase64Binary(byteArr);
+    }
+
+    public static BitmapValue bitmapFromBase64(String bitmapStr) throws IOException {
+        byte[] bytes = DatatypeConverter.parseBase64Binary(bitmapStr);
+        BitmapValue bitmapValue = new BitmapValue();
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+        bitmapValue.deserialize(in);
+        in.close();
+        return bitmapValue;
+    }
 }
