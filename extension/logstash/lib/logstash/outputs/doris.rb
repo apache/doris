@@ -73,8 +73,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    config :log_progress_interval, :validate => :number, :default => 10
 
-   # max retry queue size in MB, default is the half max memory of JVM
-   config :max_retry_queue_size, :validate => :number, :default => java.lang.Runtime.get_runtime.max_memory / 1024 / 1024 / 2
+   # max retry queue size in MB, default is 20% max memory of JVM
+   config :max_retry_queue_mb, :validate => :number, :default => java.lang.Runtime.get_runtime.max_memory / 1024 / 1024 / 5
 
    def print_plugin_info()
       @plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
@@ -134,10 +134,10 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
       end
 
-      if @max_retry_queue_size <= 0
-         @max_retry_queue_size = java.lang.Runtime.get_runtime.max_memory / 1024 / 1024 / 2
+      if @max_retry_queue_mb <= 0
+         @max_retry_queue_mb = java.lang.Runtime.get_runtime.max_memory / 1024 / 1024 / 5
       end
-      @logger.info("max retry queue size: #{@max_retry_queue_size}MB")
+      @logger.info("max retry queue size: #{@max_retry_queue_mb}MB")
 
          @retry_queue = java.util.concurrent.DelayQueue.new
       # retry queue size in bytes
@@ -156,7 +156,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    def add_event_to_retry_queue(delay_event)
       event_size = delay_event.documents.size
       if delay_event.first_retry
-         while @retry_queue_bytes.get + event_size > @max_retry_queue_size * 1024 * 1024
+         while @retry_queue_bytes.get + event_size > @max_retry_queue_mb * 1024 * 1024
             sleep(1)
          end
          @retry_queue_bytes.addAndGet(event_size)
@@ -218,9 +218,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
          need_retry = false
 
-      # if there are data quality issues, we do not retry
-      elsif (status == 'Fail' && response_json['Message'].start_with?("[DATA_QUALITY_ERROR]")) || (@max_retries >= 0 && req_count-1 > @max_retries)
-      # elsif @max_retries >= 0 && req_count - 1 > @max_retries
+      elsif @max_retries >= 0 && req_count - 1 > @max_retries
          @logger.warn("FAILED doris stream load response:\n#{response}")
          @logger.warn("DROP this batch after failed #{req_count} times.")
          if @save_on_failure
