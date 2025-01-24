@@ -2101,8 +2101,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoredTbls.clear();
             restoredResources.clear();
 
-            // release snapshot before clearing snapshotInfos
-            releaseSnapshots();
+            com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
+            snapshotInfos = HashBasedTable.create();
 
             snapshotInfos.clear();
             fileMapping.clear();
@@ -2112,6 +2112,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             state = RestoreJobState.FINISHED;
 
             env.getEditLog().logRestoreJob(this);
+
+            // Only send release snapshot tasks after the job is finished.
+            releaseSnapshots(savedSnapshotInfos);
         }
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
@@ -2179,7 +2182,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void releaseSnapshots() {
+    private void releaseSnapshots(com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos) {
         if (snapshotInfos.isEmpty()) {
             return;
         }
@@ -2373,9 +2376,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             // backupMeta is useless
             backupMeta = null;
 
-            releaseSnapshots();
-
-            snapshotInfos.clear();
+            com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
+            snapshotInfos = HashBasedTable.create();
             fileMapping.clear();
             jobInfo.releaseSnapshotInfo();
 
@@ -2387,6 +2389,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             LOG.info("finished to cancel restore job. current state: {}. is replay: {}. {}",
                      curState.name(), isReplay, this);
+
+            // Send release snapshot tasks after log restore job, so that the snapshot won't be released
+            // before the cancelled restore job is persisted.
+            releaseSnapshots(savedSnapshotInfos);
             return;
         }
 
