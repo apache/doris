@@ -24,15 +24,15 @@ import org.apache.doris.nereids.properties.FuncDeps.FuncDepsItem;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.UnaryPlan;
-import org.apache.doris.nereids.trees.plans.algebra.Sort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
 
@@ -50,11 +50,41 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalSort(any()).then(EliminateOrderByKey::eliminateSort).toRule(RuleType.ELIMINATE_ORDER_BY_KEY),
-                logicalTopN(any()).then(EliminateOrderByKey::eliminateTopN).toRule(RuleType.ELIMINATE_ORDER_BY_KEY));
+                logicalWindow(any()).then(EliminateOrderByKey::eliminateWindow)
+                        .toRule(RuleType.ELIMINATE_ORDER_BY_KEY));
+    }
+
+    private static Plan eliminateWindow(LogicalWindow<Plan> window) {
+        DataTrait dataTrait = window.child().getLogicalProperties().getTrait();
+        List<NamedExpression> newNamedExpressions = new ArrayList<>();
+        boolean changed = false;
+        for (NamedExpression expr : window.getWindowExpressions()) {
+            Alias alias = (Alias) expr;
+            WindowExpression windowExpression = (WindowExpression) alias.child();
+            List<OrderExpression> orderExpressions = windowExpression.getOrderKeys();
+            List<OrderKey> orderKeys = new ArrayList<>();
+            for (OrderExpression orderExpression : orderExpressions) {
+                orderKeys.add(orderExpression.getOrderKey());
+            }
+            List<OrderKey> retainExpression = eliminate(dataTrait, orderKeys);
+            if (retainExpression.size() == orderKeys.size()) {
+                newNamedExpressions.add(expr);
+                continue;
+            }
+            changed = true;
+            List<OrderExpression> newOrderExpressions = new ArrayList<>();
+            for (OrderKey orderKey : retainExpression) {
+                newOrderExpressions.add(new OrderExpression(orderKey));
+            }
+            WindowExpression newWindowExpression = windowExpression.withOrderKeys(newOrderExpressions);
+            newNamedExpressions.add(alias.withChildren(ImmutableList.of(newWindowExpression)));
+        }
+        return changed ? window.withExpressionsAndChild(newNamedExpressions, window.child()) : window;
     }
 
     private static Plan eliminateSort(LogicalSort<Plan> sort) {
-        List<OrderKey> retainExpression = eliminate(sort);
+        DataTrait dataTrait = sort.child().getLogicalProperties().getTrait();
+        List<OrderKey> retainExpression = eliminate(dataTrait, sort.getOrderKeys());
         if (retainExpression.isEmpty()) {
             return sort.child();
         } else if (retainExpression.size() == sort.getOrderKeys().size()) {
@@ -63,27 +93,15 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return sort.withOrderKeys(retainExpression);
     }
 
-    private static Plan eliminateTopN(LogicalTopN<Plan> topN) {
-        List<OrderKey> retainExpression = eliminate(topN);
-        if (retainExpression.isEmpty()) {
-            return new LogicalLimit<>(topN.getLimit(), topN.getOffset(), LimitPhase.GLOBAL, topN.child());
-        } else if (retainExpression.size() == topN.getOrderKeys().size()) {
-            return topN;
-        }
-        return topN.withOrderKeys(retainExpression);
-    }
-
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminate(T sort) {
-        List<OrderKey> retainExpression = eliminateDuplicate(sort.getOrderKeys());
-        retainExpression = eliminateByFd(sort, retainExpression);
-        retainExpression = eliminateByUniform(sort, retainExpression);
+    private static List<OrderKey> eliminate(DataTrait dataTrait, List<OrderKey> orderKeys) {
+        List<OrderKey> retainExpression = eliminateDuplicate(orderKeys);
+        retainExpression = eliminateByFd(dataTrait, retainExpression);
+        retainExpression = eliminateByUniform(dataTrait, retainExpression);
         return retainExpression;
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByUniform(T sort,
-            List<OrderKey> orderKeys) {
+    private static List<OrderKey> eliminateByUniform(DataTrait dataTrait, List<OrderKey> orderKeys) {
         List<OrderKey> retainExpression = new ArrayList<>();
-        DataTrait dataTrait = sort.child().getLogicalProperties().getTrait();
         for (OrderKey orderKey : orderKeys) {
             if (orderKey.getExpr() instanceof Slot && dataTrait.isUniformAndNotNull((Slot) orderKey.getExpr())) {
                 continue;
@@ -93,8 +111,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return retainExpression;
     }
 
-    private static <T extends UnaryPlan<Plan> & Sort> List<OrderKey> eliminateByFd(T sort,
-            List<OrderKey> inputOrderKeys) {
+    private static List<OrderKey> eliminateByFd(DataTrait dataTrait, List<OrderKey> inputOrderKeys) {
         Map<Expression, Integer> slotToIndex = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
         List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
@@ -104,7 +121,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             slotToIndex.put(expr, i);
             retainOrderKey.add(true);
         }
-        FuncDeps funcDeps = sort.child().getLogicalProperties().getTrait().getAllValidFuncDeps(validSlots);
+        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
         if (funcDeps.isEmpty()) {
             return inputOrderKeys;
         }

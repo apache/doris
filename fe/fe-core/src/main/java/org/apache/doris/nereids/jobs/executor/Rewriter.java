@@ -264,15 +264,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(// must behind NormalizeAggregate/NormalizeSort
                         new MergeProjects(),
                         new PushDownEncodeSlot(),
-                        new DecoupleEncodeDecode(),
-                        new EliminateOrderByKey()
+                        new DecoupleEncodeDecode()
                         ),
 
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
                                 new CheckAndStandardizeWindowFunctionAndFrame(),
-                                new SimplifyWindowExpression()
+                                new SimplifyWindowExpression(),
+                                new EliminateOrderByKey()
                         )
                 ),
                 topic("Rewrite join",
