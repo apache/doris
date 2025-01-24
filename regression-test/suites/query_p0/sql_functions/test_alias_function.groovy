@@ -17,6 +17,12 @@
 
 suite('test_alias_function', "arrow_flight_sql") {
     sql '''
+        DROP FUNCTION IF EXISTS f1()
+    '''
+    sql '''
+        DROP FUNCTION IF EXISTS f2()
+    '''
+    sql '''
         CREATE ALIAS FUNCTION IF NOT EXISTS f1(DATETIMEV2(3), INT)
             with PARAMETER (datetime1, int1) as date_trunc(days_sub(datetime1, int1), 'day')'''
     sql '''
