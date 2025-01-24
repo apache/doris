@@ -116,6 +116,10 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        return _codes.capacity() - _codes.size() > src.size();
+    }
+
     void pop_back(size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "pop_back not supported in ColumnDictionary");

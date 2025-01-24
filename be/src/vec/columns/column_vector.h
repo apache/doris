@@ -319,6 +319,11 @@ public:
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_vec = assert_cast<const ColumnVector&>(src);
+        return data.capacity() - data.size() > src_vec.data.size();
+    }
+
     void insert_value(const T value) { data.push_back(value); }
 
     /// This method implemented in header because it could be possibly devirtualized.
