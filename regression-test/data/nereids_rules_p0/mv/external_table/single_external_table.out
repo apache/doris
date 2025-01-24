@@ -15,3 +15,27 @@
 -- !query1_1_after --
 3
 
+-- !query1_2_before --
+3
+
+-- !query1_2_after --
+3
+
+-- !query1_3_before --
+3	2023-10-19	1
+
+-- !query1_3_after --
+3	2023-10-19	1
+
+-- !query1_4_before --
+3	2023-10-19	1
+
+-- !query1_4_after --
+3	2023-10-19	1
+
+-- !query1_5_before --
+3	2023-10-19	1
+
+-- !query1_5_after --
+3	2023-10-19	1
+
