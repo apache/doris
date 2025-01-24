@@ -96,12 +96,8 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
                 if (written == null) {
                     finalNewChildren.add(child);
                 } else if (!written) { // had conflict, and not add expression
-                    Expression newChild = child;
-                    while (newChild instanceof Not) {
-                        newChild = ((Not) newChild).child();
-                    }
-                    newChild = compoundPredicate instanceof And
-                            ? ExpressionUtils.falseOrNull(newChild) : ExpressionUtils.trueOrNull(newChild);
+                    Expression newChild = compoundPredicate instanceof And
+                            ? ExpressionUtils.falseOrNull(normalExpr) : ExpressionUtils.trueOrNull(normalExpr);
                     finalNewChildren.add(newChild);
                     conflictExprMarks.put(normalExpr, true);
                 }
