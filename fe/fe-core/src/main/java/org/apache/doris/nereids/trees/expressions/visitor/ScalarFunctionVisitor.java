@@ -168,6 +168,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
@@ -1052,6 +1053,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDictGet(DictGet dictGet, C context) {
         return visitScalarFunction(dictGet, context);
+    }
+
+    default R visitDictGetMany(DictGetMany dictGetMany, C context) {
+        return visitScalarFunction(dictGetMany, context);
     }
 
     default R visitDigitalMasking(DigitalMasking digitalMasking, C context) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.DdlException;
@@ -28,25 +29,29 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * dict_get function.
+ * dict_get_many function. `STRUCT dict_get_many("<name>", ARRAY<VARCHAR> <value_col_names>, STRUCT <QUERY_VALUE>);`
  */
-public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
+public class DictGetMany extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
     /**
      * constructor with 3 arguments. (1. dbName.dictName, 2. queryKeyColumnName, 3. queryKeyValue)
      */
-    public DictGet(Expression arg0, Expression arg1, Expression arg2) {
-        super("dict_get", arg0, arg1, arg2);
+    public DictGetMany(Expression arg0, Expression arg1, Expression arg2) {
+        super("dict_get_many", arg0, arg1, arg2);
     }
 
     @Override
@@ -86,49 +91,68 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNo
         String[] firstNames = ((Literal) getArgument(0)).getStringValue().split("\\."); // db.dict
         String dbName = firstNames[0];
         String dictName = firstNames[1];
-        String colName = ((Literal) getArgument(1)).getStringValue();
+        List<Literal> colNames = ((ArrayLiteral) getArgument(1)).getValue();
 
         Dictionary dictionary;
         try {
             dictionary = dicMgr.getDictionary(dbName, dictName);
             // check is not key column
-            if (dictionary.getDicColumns().stream().anyMatch(col -> col.getName().equals(colName) && col.isKey())) {
-                throw new AnalysisException("Can't ask for key " + colName + " by dict_get()");
+            for (Literal colName : colNames) {
+                if (dictionary.getDicColumns().stream()
+                        .anyMatch(col -> col.getName().equals(colName.getStringValue()) && col.isKey())) {
+                    throw new AnalysisException("Can't ask for key " + colName.getStringValue() + " by dict_get()");
+                }
             }
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
 
-        // Do type coercion manually because the function signature accept any initially.
-        DataType queryType = getArgumentType(2);
-        if (dictionary.getLayout() == LayoutType.HASH_MAP) {
-            DataType colType = dictionary.getKeyColumnType();
-            Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, colType);
-            if (castType.isPresent() && !castType.get().equals(queryType)) {
-                queryType = castType.get();
-            }
-        } else { // IP_TRIE
-            if (!queryType.isIPType()) {
-                // we CAN'T CAST it because we dont know which one of ipv4 or ipv6 is the target.
-                throw new AnalysisException("dict_get() only support IP type for IP_TRIE");
-            }
+        // return struct is combine of query columns' types.
+        List<StructField> returnFields = new ArrayList<>();
+        for (Literal colName : colNames) {
+            Column col = dictionary.getOriginColumn(colName.getStringValue());
+            StructField field = new StructField(col.getName(), DataType.fromCatalogType(col.getType()),
+                    col.isAllowNull(), col.getComment());
+            returnFields.add(field);
         }
 
-        return Pair.of(FunctionSignature.ret(dictionary.getColumnType(colName))
-                .args(getArgumentType(0), getArgumentType(1), queryType), dictionary);
+        StructType originQueryTypes = (StructType) getArgumentType(2); // origin
+        List<StructField> targetQueryFields = new ArrayList<>(); // after changed
+        // generate target query types(for 3rd argument) one by one for each nested column in the struct
+        for (StructField field : originQueryTypes.getFields()) {
+            DataType queryType = field.getDataType();
+            if (dictionary.getLayout() == LayoutType.HASH_MAP) {
+                DataType colType = dictionary.getKeyColumnType();
+                Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, colType);
+                if (castType.isPresent() && !castType.get().equals(queryType)) {
+                    queryType = castType.get();
+                }
+            } else { // IP_TRIE
+                if (!queryType.isIPType()) {
+                    // we CAN'T CAST it because we dont know which one of ipv4 or ipv6 is the target.
+                    throw new AnalysisException("dict_get() only support IP type for IP_TRIE");
+                }
+            }
+            // TypeCoercionUtils could deal inner type individually.
+            // so we could add castExpr for part of the nested columns.
+            targetQueryFields.add(new StructField(field.getName(), queryType, field.isNullable(), field.getComment()));
+        }
+
+        return Pair.of(FunctionSignature.ret(new StructType(returnFields)).args(getArgumentType(0), getArgumentType(1),
+                new StructType(targetQueryFields)), dictionary);
     }
 
     /**
      * withChildren.
      */
     @Override
-    public DictGet withChildren(List<Expression> children) {
+    public DictGetMany withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new DictGet(children.get(0), children.get(1), children.get(2));
+        return new DictGetMany(children.get(0), children.get(1), children.get(2));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitDictGet(this, context);
+        return visitor.visitDictGetMany(this, context);
     }
 }

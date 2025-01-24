@@ -92,6 +92,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -585,6 +586,36 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // create catalog FunctionCallExpr without analyze again
         functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(dictGet.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitDictGetMany(DictGetMany dictGetMany, PlanTranslatorContext context) {
+        List<Expr> arguments = dictGetMany.getArguments().stream().map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+
+        List<Type> argTypes = dictGetMany.getArguments().stream().map(Expression::getDataType)
+                .map(DataType::toCatalogDataType).collect(Collectors.toList());
+
+        Pair<FunctionSignature, Dictionary> sigAndDict = dictGetMany.customSignatureDict();
+        FunctionSignature signature = sigAndDict.first;
+        Dictionary dictionary = sigAndDict.second;
+
+        org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(dictGetMany.getName()), argTypes, signature.returnType.toCatalogDataType(),
+                dictGetMany.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
+                NullableMode.ALWAYS_NOT_NULLABLE);
+
+        // set special fields
+        TDictFunction dictFunction = new TDictFunction();
+        dictFunction.setDictionaryId(dictionary.getId());
+        dictFunction.setVersionId(dictionary.getVersion());
+        catalogFunction.setDictFunction(dictFunction);
+
+        FunctionCallExpr functionCallExpr;
+        // create catalog FunctionCallExpr without analyze again
+        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        functionCallExpr.setNullableFromNereids(dictGetMany.nullable());
         return functionCallExpr;
     }
 

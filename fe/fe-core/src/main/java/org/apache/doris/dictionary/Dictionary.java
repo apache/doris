@@ -17,6 +17,7 @@
 
 package org.apache.doris.dictionary;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -63,6 +64,8 @@ public class Dictionary extends Table {
     private final Map<String, String> properties;
 
     // createTime saved in base class
+
+    // lastUpdateTime in milliseconds
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
 
@@ -129,6 +132,15 @@ public class Dictionary extends Table {
 
     public List<DictionaryColumnDefinition> getDicColumns() {
         return columns;
+    }
+
+    public Column getOriginColumn(String name) {
+        for (DictionaryColumnDefinition column : columns) {
+            if (column.getName().equalsIgnoreCase(name)) {
+                return column.getOriginColumn();
+            }
+        }
+        throw new IllegalArgumentException("Column " + name + " not found in dictionary " + getName());
     }
 
     public List<String> getSourceQualifiedName() {
