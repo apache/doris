@@ -46,6 +46,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -452,11 +453,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
+        String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
         // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
         ctx.changeDefaultCatalog(hiveCatalog);
         ctx.setDatabase(hiveDb);
         try {
-            return parseAndAnalyzeView(table, ddlSql, cascadesContext);
+            return parseAndAnalyzeView(table, convertedSql, cascadesContext);
         } finally {
             // restore catalog and db in connect context
             ctx.changeDefaultCatalog(previousCatalog);
@@ -522,4 +524,5 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
     }
+
 }
