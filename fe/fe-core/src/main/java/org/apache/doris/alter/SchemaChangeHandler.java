@@ -25,7 +25,6 @@ import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateIndexClause;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.Expr;
@@ -718,8 +717,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Column column : schema) {
                     String columnName = column.getName();
                     if (column.isMaterializedViewColumn()) {
-                        columnName = MaterializedIndexMeta.normalizeName(
-                                CreateMaterializedViewStmt.mvColumnBreaker(columnName));
+                        throw new DdlException("Can not modify column contained by mv, mv="
+                                + olapTable.getIndexNameById(entry.getKey()));
                     }
                     if (columnName.equalsIgnoreCase(modColumn.getName())) {
                         otherIndexIds.add(entry.getKey());
@@ -735,8 +734,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column col = otherIndexSchema.get(i);
                     String columnName = col.getName();
                     if (col.isMaterializedViewColumn()) {
-                        columnName = MaterializedIndexMeta.normalizeName(
-                                CreateMaterializedViewStmt.mvColumnBreaker(columnName));
+                        throw new DdlException("Can not modify column contained by mv, mv="
+                                + olapTable.getIndexNameById(otherIndexId));
                     }
                     if (!columnName.equalsIgnoreCase(modColumn.getName())) {
                         continue;
