@@ -1836,6 +1836,25 @@ build_dragonbox() {
     "${BUILD_SYSTEM}" install
 }
 
+# icu
+build_icu() {
+    check_if_source_exist "${ICU_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ICU_SOURCE}/icu4c/source"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" \
+        --disable-shared \
+        --enable-static \
+        --disable-samples \
+        --disable-tests
+
+    make -j "${PARALLEL}"
+    make install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         odbc
@@ -1905,6 +1924,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         azure
         dragonbox
         brotli
+        icu
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
