@@ -581,7 +581,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // row column should be filled here
     // convert block to row store format
-    _serialize_block_to_row_column(full_block);
+    if (_tablet_schema->has_row_store_column()) {
+        _serialize_block_to_row_column(full_block);
+    }
 
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
@@ -1167,7 +1169,9 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
+            if (_tablet_schema->has_row_store_column()) {
+                _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
+            }
         }
     }
 
