@@ -122,108 +122,169 @@ WkbParseContext* WkbParse::read(std::istream& is, WkbParseContext* ctx) {
     auto size = is.tellg();
     is.seekg(0, std::ios::beg);
 
-    std::vector<unsigned char> buf(static_cast<size_t>(size));
-    is.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size));
-
-    ctx->dis = ByteOrderDataInStream(buf.data(), buf.size()); // will default to machine endian
-
-    ctx->shape = readGeometry(ctx).release();
-
-    if (!ctx->shape) {
+    // Check if size is valid
+    if (size <= 0) {
         ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        return ctx;
     }
+
+    std::vector<unsigned char> buf(static_cast<size_t>(size));
+    if (!is.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size))) {
+        ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        return ctx;
+    }
+
+    // Ensure we have at least one byte for byte order
+    if (buf.empty()) {
+        ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        return ctx;
+    }
+
+    // First read the byte order using machine endian
+    auto byteOrder = buf[0];
+
+    // Create ByteOrderDataInStream with the correct byte order
+    if (byteOrder == byteOrder::wkbNDR) {
+        ctx->dis = ByteOrderDataInStream(buf.data(), buf.size());
+        ctx->dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
+    } else if (byteOrder == byteOrder::wkbXDR) {
+        ctx->dis = ByteOrderDataInStream(buf.data(), buf.size());
+        ctx->dis.setOrder(ByteOrderValues::ENDIAN_BIG);
+    } else {
+        ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        return ctx;
+    }
+
+    std::unique_ptr<GeoShape> shape = readGeometry(ctx);
+    if (!shape) {
+        ctx->parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        return ctx;
+    }
+
+    ctx->shape = shape.release();
     return ctx;
 }
 
 std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext* ctx) {
-    // determine byte order
-    unsigned char byteOrder = ctx->dis.readByte();
+    try {
+        // Ensure we have enough data to read
+        if (ctx->dis.size() < 5) { // At least 1 byte for order and 4 bytes for type
+            return nullptr;
+        }
 
-    // default is machine endian
-    if (byteOrder == byteOrder::wkbNDR) {
-        ctx->dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
-    } else if (byteOrder == byteOrder::wkbXDR) {
-        ctx->dis.setOrder(ByteOrderValues::ENDIAN_BIG);
-    }
+        // Skip the byte order as we've already handled it
+        ctx->dis.readByte();
 
-    uint32_t typeInt = ctx->dis.readUnsigned();
+        uint32_t typeInt = ctx->dis.readUnsigned();
 
-    uint32_t geometryType = (typeInt & 0xffff) % 1000;
+        // Check if geometry has SRID
+        bool has_srid = (typeInt & WKB_SRID_FLAG) != 0;
 
-    std::unique_ptr<GeoShape> shape;
+        // Read SRID if present
+        if (has_srid) {
+            ctx->dis.readUnsigned(); // Read and store SRID if needed
+        }
 
-    switch (geometryType) {
-    case wkbType::wkbPoint:
-        shape.reset(readPoint(ctx).release());
-        break;
-    case wkbType::wkbLine:
-        shape.reset(readLine(ctx).release());
-        break;
-    case wkbType::wkbPolygon:
-        shape.reset(readPolygon(ctx).release());
-        break;
-    default:
+        // Get the base geometry type
+        uint32_t geometryType = typeInt & WKB_TYPE_MASK;
+
+        std::unique_ptr<GeoShape> shape;
+
+        switch (geometryType) {
+        case wkbType::wkbPoint:
+            shape = readPoint(ctx);
+            break;
+        case wkbType::wkbLine:
+            shape = readLine(ctx);
+            break;
+        case wkbType::wkbPolygon:
+            shape = readPolygon(ctx);
+            break;
+        default:
+            return nullptr;
+        }
+
+        return shape;
+    } catch (...) {
+        // Handle any exceptions from reading operations
         return nullptr;
     }
-    return shape;
 }
 
 std::unique_ptr<GeoPoint> WkbParse::readPoint(WkbParseContext* ctx) {
     GeoCoordinateList coords = WkbParse::readCoordinateList(1, ctx);
-    std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
-
-    if (point->from_coord(coords.list[0]) == GEO_PARSE_OK) {
-        return point;
-    } else {
+    if (coords.list.empty()) {
         return nullptr;
     }
+
+    std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
+    if (!point || point->from_coord(coords.list[0]) != GEO_PARSE_OK) {
+        return nullptr;
+    }
+
+    return point;
 }
 
 std::unique_ptr<GeoLine> WkbParse::readLine(WkbParseContext* ctx) {
     uint32_t size = ctx->dis.readUnsigned();
-    minMemSize(wkbLine, size, ctx);
-
-    GeoCoordinateList coords = WkbParse::readCoordinateList(size, ctx);
-    std::unique_ptr<GeoLine> line = GeoLine::create_unique();
-
-    if (line->from_coords(coords) == GEO_PARSE_OK) {
-        return line;
-    } else {
+    if (minMemSize(wkbLine, size, ctx) != GEO_PARSE_OK) {
         return nullptr;
     }
+
+    GeoCoordinateList coords = WkbParse::readCoordinateList(size, ctx);
+    if (coords.list.empty()) {
+        return nullptr;
+    }
+
+    std::unique_ptr<GeoLine> line = GeoLine::create_unique();
+    if (!line || line->from_coords(coords) != GEO_PARSE_OK) {
+        return nullptr;
+    }
+
+    return line;
 }
 
 std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext* ctx) {
     uint32_t num_loops = ctx->dis.readUnsigned();
-    minMemSize(wkbPolygon, num_loops, ctx);
+    if (minMemSize(wkbPolygon, num_loops, ctx) != GEO_PARSE_OK) {
+        return nullptr;
+    }
+
     GeoCoordinateListList coordss;
-    for (int i = 0; i < num_loops; ++i) {
+    for (uint32_t i = 0; i < num_loops; ++i) {
         uint32_t size = ctx->dis.readUnsigned();
-        GeoCoordinateList* coords = new GeoCoordinateList();
+        if (size < 3) { // A polygon loop must have at least 3 points
+            return nullptr;
+        }
+
+        auto coords = std::make_unique<GeoCoordinateList>();
         *coords = WkbParse::readCoordinateList(size, ctx);
-        coordss.add(coords);
+        if (coords->list.empty()) {
+            return nullptr;
+        }
+        coordss.add(coords.release());
     }
 
     std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
-
-    if (polygon->from_coords(coordss) == GEO_PARSE_OK) {
-        return polygon;
-    } else {
+    if (!polygon || polygon->from_coords(coordss) != GEO_PARSE_OK) {
         return nullptr;
     }
+
+    return polygon;
 }
 
 GeoCoordinateList WkbParse::readCoordinateList(unsigned size, WkbParseContext* ctx) {
     GeoCoordinateList coords;
     for (uint32_t i = 0; i < size; i++) {
-        readCoordinate(ctx);
+        if (!readCoordinate(ctx)) {
+            return GeoCoordinateList();
+        }
         unsigned int j = 0;
         GeoCoordinate coord;
         coord.x = ctx->ordValues[j++];
         coord.y = ctx->ordValues[j++];
         coords.add(coord);
     }
-
     return coords;
 }
 
