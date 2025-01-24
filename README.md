@@ -198,7 +198,7 @@ All release and binary version 🔗[Download](https://doris.apache.org/download)
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-general)
+See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-with-docker)
 
 ### 📮 Install
 
