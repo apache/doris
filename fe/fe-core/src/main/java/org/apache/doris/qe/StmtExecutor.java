@@ -142,18 +142,23 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -1226,6 +1231,48 @@ public class StmtExecutor {
                 && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command));
     }
 
+    public boolean isProfileSafeStmt() {
+        // fe/fe-core/src/main/java/org/apache/doris/nereids/NereidsPlanner.java:131
+        // Only generate profile for NereidsPlanner.
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+
+        LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        if (plan instanceof InsertIntoTableCommand) {
+            LogicalPlan logicalPlan = ((InsertIntoTableCommand) plan).getLogicalQuery();
+            // Do not generate profile for insert into t values xxx.
+            // t could be an olap-table or an external-table.
+            if ((logicalPlan instanceof UnboundTableSink) || (logicalPlan instanceof UnboundBaseExternalTableSink)) {
+                if (logicalPlan.children() == null || logicalPlan.children().isEmpty()) {
+                    return false;
+                }
+
+                for (Plan child : logicalPlan.children()) {
+                    // InlineTable means insert into t VALUES xxx.
+                    if (child instanceof InlineTable) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // Generate profile for:
+        // 1. CreateTableCommand(mainly for create as select).
+        // 2. LoadCommand.
+        // 3. InsertOverwriteTableCommand.
+        if ((plan instanceof Command) && !(plan instanceof LoadCommand)
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+            // Commands like SHOW QUERY PROFILE will not have profile.
+            return false;
+        } else {
+            // 4. For all the other statements.
+            return true;
+        }
+    }
+
     private void forwardToMaster() throws Exception {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
@@ -1261,7 +1308,7 @@ public class StmtExecutor {
     }
 
     public void updateProfile(boolean isFinished) {
-        if (!context.getSessionVariable().enableProfile()) {
+        if (!context.getSessionVariable().enableProfile() || !isProfileSafeStmt()) {
             return;
         }
         // If any error happened in update profile, we should ignore this error
@@ -1966,6 +2013,8 @@ public class StmtExecutor {
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         }
+
+        coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
 
         try {
             coordBase.exec();
