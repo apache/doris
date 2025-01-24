@@ -55,7 +55,7 @@ ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency, int num_parallel_instances)
+        std::shared_ptr<pipeline::Dependency> dependency, int parallism_of_scan_operator)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -67,7 +67,7 @@ ScannerContext::ScannerContext(
           limit(limit_),
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
-          _num_parallel_instances(num_parallel_instances),
+          _parallism_of_scan_operator(parallism_of_scan_operator),
           _min_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
           _min_concurrency(_state->min_scan_concurrency_of_scanner()) {
     DCHECK(_output_row_descriptor == nullptr ||
@@ -153,7 +153,7 @@ Status ScannerContext::init() {
     // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
     _max_concurrency = _state->num_scanner_threads();
     if (_max_concurrency == 0) {
-            _max_concurrency = _min_concurrency_of_scan_scheduler / _num_parallel_instances;
+            _max_concurrency = _min_concurrency_of_scan_scheduler / _parallism_of_scan_operator;
             // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
             // in parallel. We need to make sure the _max_thread_num is smaller than previous value in this situation.
             _max_concurrency =
