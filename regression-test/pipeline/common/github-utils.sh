@@ -283,6 +283,7 @@ file_changed_cloud_ut() {
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/script/'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
