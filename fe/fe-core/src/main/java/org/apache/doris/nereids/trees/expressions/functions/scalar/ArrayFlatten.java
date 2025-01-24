@@ -38,8 +38,8 @@ public class ArrayFlatten extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))))
-                    .args(ArrayType.of(ArrayType.of(new AnyDataType(0))));
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
+                    .args(ArrayType.of(ArrayType.of(new AnyDataType(0)))));
 
     /**
      * constructor with 1 arguments.
