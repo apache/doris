@@ -263,6 +263,10 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
+    if (_mutable_block->rows() == 0 && block->rows() != 0) {
+        _max_block_life_time.start();
+    }
+
     {
         SCOPED_TIMER(_parent->merge_block_timer());
         if (data) {
@@ -275,7 +279,15 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
         }
     }
 
-    if (_mutable_block->rows() >= _batch_size || eos) {
+    // Avoid the need to execute until the EOS before sending data
+    // in scenarios with large data volumes, high filtering rates, and limit.
+    // (select * from xxx where xxx limit 1;)
+    if (_mutable_block->rows() >= _batch_size ||
+        (_max_block_life_time.is_running() &&
+         _max_block_life_time.elapsed_time() >
+                 config::doris_exchange_block_max_wait_time_ms * 1000000) ||
+        eos) {
+        _max_block_life_time.stop();
         if (!_is_local) {
             RETURN_IF_ERROR(serialize_block(dest, num_receivers));
         }
