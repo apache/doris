@@ -28,7 +28,6 @@
 
 #include "common/status.h"
 #include "io/cache/fs_file_cache_storage.h"
-#include "olap/id_manager.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -116,6 +115,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class IdManager;
 class ProcessProfile;
 class HeapProfiler;
 class WalManager;

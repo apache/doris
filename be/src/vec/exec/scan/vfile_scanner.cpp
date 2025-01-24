@@ -346,8 +346,9 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
         if (child_expr->is_slot_ref()) {
             VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr.get());
             slot_ids->emplace_back(slot_ref->slot_id());
+        } else {
+            _get_slot_ids(child_expr.get(), slot_ids);
         }
-        _get_slot_ids(child_expr.get(), slot_ids);
     }
 }
 
