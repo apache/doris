@@ -133,12 +133,7 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void set_wake_up_early() {
-        if (_wake_up_early) {
-            return;
-        }
-        _wake_up_early = true;
-    }
+    void set_wake_up_early() { _wake_up_early = true; }
 
     void clear_blocking_state() {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();

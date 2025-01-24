@@ -502,8 +502,7 @@ std::string PipelineTask::debug_string() {
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
-                   "{}, elapse time = {}s, _wake_up_early = {}], block "
-                   "dependency = {}, is "
+                   "{}, elapse time = {}s, _wake_up_early = {}], block dependency = {}, is "
                    "running = {}\noperators: ",
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
                    _wake_up_early.load(),
