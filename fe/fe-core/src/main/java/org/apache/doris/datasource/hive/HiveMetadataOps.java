@@ -278,31 +278,37 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tblName = stmt.getTableName();
-        ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
         if (db == null) {
-            if (stmt.isSetIfExists()) {
-                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tblName);
+            if (ifExists) {
+                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tableName);
                 return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
             }
         }
-        if (!tableExist(dbName, tblName)) {
-            if (stmt.isSetIfExists()) {
+        if (!tableExist(dbName, tableName)) {
+            if (ifExists) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tblName, dbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         }
-        if (AcidUtils.isTransactionalTable(client.getTable(dbName, tblName))) {
+        if (AcidUtils.isTransactionalTable(client.getTable(dbName, tableName))) {
             throw new DdlException("Not support drop hive transactional table.");
         }
 
         try {
-            client.dropTable(dbName, tblName);
+            client.dropTable(dbName, tableName);
             db.setUnInitialized(true);
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
