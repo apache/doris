@@ -20,13 +20,11 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.TableSchema;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
 import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
@@ -109,14 +107,7 @@ public class PaimonJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
-        Configuration conf = new Configuration();
-        hadoopOptionParams.forEach(conf::set);
-        preExecutionAuthenticator = new PreExecutionAuthenticator();
-        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
-        preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
+        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
     }
 
     @Override
