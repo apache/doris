@@ -1764,4 +1764,29 @@ bool TabletManager::update_tablet_partition_id(::doris::TPartitionId partition_i
     return true;
 }
 
+void TabletManager::get_max_tablet_delete_bitmap_score(
+        uint64_t* max_delete_bitmap_score, uint64_t* max_base_rowset_delete_bitmap_score) {
+    int64_t max_delete_bitmap_score_tablet_id = 0;
+    int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
+    OlapStopWatch watch;
+    auto handler = [&](const TabletSharedPtr& tablet) {
+        uint64_t delete_bitmap_count =
+                tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+        if (delete_bitmap_count > *max_delete_bitmap_score) {
+            max_delete_bitmap_score_tablet_id = tablet->tablet_id();
+            *max_delete_bitmap_score = delete_bitmap_count;
+        }
+        tablet->get_base_rowset_delete_bitmap_count(max_base_rowset_delete_bitmap_score,
+                                                    &max_base_rowset_delete_bitmap_score_tablet_id);
+    };
+    for_each_tablet(handler, filter_all_tablets);
+    LOG(INFO) << "tablet size=" << _tablets_shards.size()
+              << ",cost(us)=" << watch.get_elapse_time_us()
+              << "max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ",max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id;
+}
+
 } // end namespace doris

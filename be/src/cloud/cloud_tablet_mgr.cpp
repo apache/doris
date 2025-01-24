@@ -421,4 +421,31 @@ void CloudTabletMgr::get_tablet_info(int64_t num_tablets, std::vector<TabletInfo
     }
 }
 
+void CloudTabletMgr::get_max_tablet_delete_bitmap_score(
+        uint64_t* max_delete_bitmap_score, uint64_t* max_base_rowset_delete_bitmap_score) {
+    int64_t max_delete_bitmap_score_tablet_id = 0;
+    int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
+    OlapStopWatch watch;
+    auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
+        auto t = tablet_wk.lock();
+        if (!t) return;
+        uint64_t delete_bitmap_count =
+                t.get()->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+        if (delete_bitmap_count > *max_delete_bitmap_score) {
+            max_delete_bitmap_score_tablet_id = t->tablet_id();
+            *max_delete_bitmap_score = delete_bitmap_count;
+        }
+        t->get_base_rowset_delete_bitmap_count(max_base_rowset_delete_bitmap_score,
+                                               &max_base_rowset_delete_bitmap_score_tablet_id);
+    };
+    auto weak_tablets = get_weak_tablets();
+    std::for_each(weak_tablets.begin(), weak_tablets.end(), handler);
+    LOG(INFO) << "tablet size=" << weak_tablets.size() << ",cost(us)=" << watch.get_elapse_time_us()
+              << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ",max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id;
+}
+
 } // namespace doris
