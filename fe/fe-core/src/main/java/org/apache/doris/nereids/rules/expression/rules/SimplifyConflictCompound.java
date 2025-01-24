@@ -49,7 +49,7 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class).then(this::rewrite)
-                        .toRule(ExpressionRuleType.SIMPLIFY_CONFLICT_PREDICATE)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONFLICT_COMPOUND)
         );
     }
 
