@@ -21,20 +21,7 @@ import org.awaitility.Awaitility
 
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
-    def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][8]
-    }
-    def waitForJob =  (tbName, timeout) -> {
-       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            String result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                return true;
-            }
-            return false;
-        });
-        // when timeout awaitlity will raise a exception.
-    }
+
 
     try {
         String backend_id;
@@ -78,8 +65,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age, sex from ${tableName};"
-    waitForJob(tableName, 3000)
+    create_sync_mv(context.dbName, tableName, mvName, """select user_id, date, city, age, sex from ${tableName}""")
 
     // alter and test light schema change
     if (!isCloudMode()) {
@@ -88,8 +74,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, sex, cost from ${tableName};"
-    waitForJob(tableName, 3000)
+    create_sync_mv(context.dbName, tableName, mvName2, """select user_id, date, city, age, sex, cost from ${tableName};""")
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

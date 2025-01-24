@@ -75,6 +75,9 @@ suite("is_in_debug_mode") {
     sql """set skip_delete_sign = true;"""
     mv_not_part_in("""select * from orders where o_orderkey > 1;""", "basic_mv")
     logger.info("skip_delete_sign session is " + sql("show variables like '%skip_delete_sign%'"))
+
+    sql """drop materialized view if exists test_create_mv;"""
+
     test {
         sql """
         CREATE MATERIALIZED VIEW test_create_mv
