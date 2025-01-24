@@ -344,10 +344,10 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 // 1. if eos, record a finished scanner.
                 _num_finished_scanners++;
                 RETURN_IF_ERROR(
-                        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
+                        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
             } else {
                 RETURN_IF_ERROR(
-                        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
+                        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
             }
         }
     }
