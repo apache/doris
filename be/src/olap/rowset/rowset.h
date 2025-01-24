@@ -294,6 +294,10 @@ public:
         return true;
     }
 
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta->is_segments_key_bounds_truncated();
+    }
+
     bool check_rowset_segment();
 
     [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
