@@ -82,6 +82,7 @@ services:
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:9870 ${IP_HOST}:9864 ${IP_HOST}:${PG_PORT}"
+      HMS_PORT: "${HMS_PORT}"
     container_name: ${CONTAINER_UID}hive3-metastore
     expose:
       - "${HMS_PORT}"
