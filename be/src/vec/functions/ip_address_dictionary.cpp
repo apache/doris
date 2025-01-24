@@ -190,6 +190,11 @@ void IPAddressDictionary::load_data(const ColumnPtr& key_column,
                                });
     ip_records.erase(new_end, ip_records.end());
 
+    if (ip_records.size() < key_column->size()) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "The CIDR has duplicate data in IpAddressDictionary");
+    }
+
     // Step 3: Process the data needed for the Trie.
     // You can treat ip_column, prefix_column, and origin_row_idx_column as a whole.
     // struct TrieNode {

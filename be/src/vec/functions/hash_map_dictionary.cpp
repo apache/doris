@@ -136,6 +136,11 @@ void HashMapDictionary<DataType>::load_data(const ColumnPtr& key_column,
             _key_hash_map[key_str] = i;
         }
     }
+    if (_key_hash_map.size() != key_column->size()) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "HashMapDictionary({}) key column has duplicate values",
+                               dict_name());
+    }
     // load value column
     load_values(values_column);
 
