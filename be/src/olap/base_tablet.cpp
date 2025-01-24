@@ -1889,16 +1889,12 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
     }
     std::sort(rowsets_.begin(), rowsets_.end(), Rowset::comparator);
     if (!rowsets_.empty()) {
+        bool base_found = false;
         for (auto& rowset : rowsets_) {
             if (rowset->start_version() > 2) {
-                LOG(INFO) << "rowset=" << rowset->rowset_id().to_string()
-                          << ",version=" << rowset->version().to_string()
-                          << ",is not base rowset,skip count base_rowset_delete_bitmap_count";
                 break;
             }
-            LOG(INFO) << "rowset=" << rowset->rowset_id().to_string()
-                      << ",version=" << rowset->version().to_string()
-                      << ",start count base_rowset_delete_bitmap_count";
+            base_found = true;
             DeleteBitmap subset_map(this->tablet_id());
             this->tablet_meta()->delete_bitmap().subset(
                     {rowset->rowset_id(), 0, 0}, {rowset->rowset_id(), UINT32_MAX, UINT64_MAX},
@@ -1908,6 +1904,9 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
                 *max_base_rowset_delete_bitmap_score = base_rowset_delete_bitmap_count;
                 *max_base_rowset_delete_bitmap_score_tablet_id = this->tablet_id();
             }
+        }
+        if (!base_found) {
+            LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
         }
     }
 }
