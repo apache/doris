@@ -263,7 +263,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                  with_other_conjuncts);
     }
 
-    output_block->swap(mutable_block.to_block());
+    output_block->swap(std::move(mutable_block).to_block());
 
     if constexpr (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
         bool ignore_null_map =
@@ -622,7 +622,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                         ->insert_many_defaults(block_size);
             }
         }
-        output_block->swap(mutable_block.to_block(0));
+        output_block->swap(std::move(mutable_block).to_block(0));
         DCHECK(block_size <= _batch_size);
     }
     return Status::OK();

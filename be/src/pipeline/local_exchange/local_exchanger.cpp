@@ -616,7 +616,7 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
             std::unique_ptr<vectorized::MutableBlock> mutable_block =
                     vectorized::MutableBlock::create_unique(block->clone_empty());
             RETURN_IF_ERROR(mutable_block->add_rows(block, start, size));
-            auto new_block = mutable_block->to_block();
+            auto new_block = std::move(*mutable_block).to_block();
 
             _enqueue_data_and_set_ready(i, sink_info.local_state,
                                         BlockWrapper::create_shared(std::move(new_block)));

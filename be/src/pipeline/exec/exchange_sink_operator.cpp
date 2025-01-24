@@ -380,7 +380,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block, block_holder->get_block(), local_state._rpc_channels_num,
                         &serialized, eos));
                 if (serialized) {
-                    auto cur_block = local_state._serializer.get_block()->to_block();
+                    auto cur_block = std::move(*local_state._serializer.get_block()).to_block();
                     if (!cur_block.empty()) {
                         DCHECK(eos || local_state._serializer.is_local()) << debug_string(state, 0);
                         RETURN_IF_ERROR(local_state._serializer.serialize_block(

@@ -39,14 +39,14 @@ public:
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
-            block->swap(tmp.to_block());
+            block->swap(std::move(tmp).to_block());
         }
         return MutableBlock::build_mutable_block(block);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
         if (!block->mem_reuse()) {
             MutableBlock tmp(other.clone_empty());
-            block->swap(tmp.to_block());
+            block->swap(std::move(tmp).to_block());
         }
         return MutableBlock::build_mutable_block(block);
     }
@@ -59,13 +59,13 @@ public:
                 columns[i] = slots[i]->get_empty_mutable_column();
             }
             int n_columns = 0;
-            for (const auto slot_desc : slots) {
+            for (const auto* slot_desc : slots) {
                 block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
                                                     slot_desc->get_data_type_ptr(),
                                                     slot_desc->col_name()));
             }
         }
-        return MutableBlock(block);
+        return {block};
     }
 
     static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
@@ -115,7 +115,7 @@ public:
     static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
-        auto* __restrict r = src.data();
+        const auto* __restrict r = src.data();
         if (is_single) {
             if (r[0]) {
                 for (size_t i = 0; i < size; ++i) {
