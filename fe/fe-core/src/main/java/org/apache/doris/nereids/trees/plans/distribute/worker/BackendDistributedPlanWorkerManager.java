@@ -51,12 +51,12 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
 
     private final ImmutableMap<Long, Backend> currentClusterBackends;
 
-    public BackendDistributedPlanWorkerManager(ConnectContext context) throws UserException {
-        this.currentClusterBackends = checkAndInitClusterBackends(context);
+    public BackendDistributedPlanWorkerManager(ConnectContext context, boolean skipCheckCluster) throws UserException {
+        this.currentClusterBackends = checkAndInitClusterBackends(context, skipCheckCluster);
     }
 
-    private ImmutableMap<Long, Backend> checkAndInitClusterBackends(ConnectContext context) throws UserException {
-        if (!Config.isCloudMode()) {
+    private ImmutableMap<Long, Backend> checkAndInitClusterBackends(ConnectContext context, boolean skipCheckCluster) throws UserException {
+        if (!Config.isCloudMode() || skipCheckCluster) {
             return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
         }
 
