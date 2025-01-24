@@ -18,9 +18,9 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 
-#include <ostream>
+#include <cstdint>
+#include <utility>
 
 #include "common/status.h"
 #include "data_type_serde.h"
@@ -36,8 +36,8 @@ class Arena;
 
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
-    DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
-            : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
+    DataTypeArraySerDe(DataTypeSerDeSPtr _nested_serde, int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), nested_serde(std::move(_nested_serde)) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -49,14 +49,14 @@ public:
                                           const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
     Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status deserialize_column_from_hive_text_vector(
-            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
             const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override;
     Status serialize_one_cell_to_hive_text(
@@ -81,8 +81,8 @@ public:
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                int64_t end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
@@ -101,7 +101,7 @@ public:
         nested_serde->set_return_object_as_string(value);
     }
 
-    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+    DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
 
 private:
     template <bool is_binary_format>

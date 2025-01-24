@@ -18,9 +18,9 @@
 #pragma once
 
 #include <rapidjson/document.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <vector>
@@ -31,12 +31,9 @@
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/pod_array.h"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace arrow {
 class ArrayBuilder;
@@ -171,7 +168,7 @@ public:
          *      null
          */
         const char* null_format = "\\N";
-        int null_len = 2;
+        size_t null_len = 2;
 
         /**
          * The wrapper char for string type in nested type.
@@ -257,11 +254,11 @@ public:
                                                   const FormatOptions& options) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                                       int* num_deserialized,
+                                                       uint64_t* num_deserialized,
                                                        const FormatOptions& options) const = 0;
     // deserialize fixed values.Repeatedly insert the value row times into the column.
-    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                                      int* num_deserialized,
+    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
+                                                      uint64_t* num_deserialized,
                                                       const FormatOptions& options) const {
         //In this function implementation, we need to consider the case where rows is 0, 1, and other larger integers.
         if (rows < 1) [[unlikely]] {
@@ -279,7 +276,7 @@ public:
         return Status::OK();
     }
     // Insert the last value to the end of this column multiple times.
-    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+    virtual void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const {
         if (times < 1) [[unlikely]] {
             return;
         }
@@ -296,7 +293,7 @@ public:
         return deserialize_one_cell_from_json(column, slice, options);
     };
     virtual Status deserialize_column_from_hive_text_vector(
-            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
             const FormatOptions& options, int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };
@@ -335,8 +332,9 @@ public:
     virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                        arrow::ArrayBuilder* array_builder, int64_t start,
                                        int64_t end, const cctz::time_zone& ctz) const = 0;
-    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                        int end, const cctz::time_zone& ctz) const = 0;
+    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                        int64_t start, int64_t end,
+                                        const cctz::time_zone& ctz) const = 0;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -384,7 +382,7 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
     }
 
     res.resize(end - start);
-    auto* __restrict src_data = (*null_bytemap).data();
+    const auto* __restrict src_data = (*null_bytemap).data();
     auto* __restrict res_data = res.data();
     for (size_t i = 0; i < res.size(); ++i) {
         res_data[i] = !src_data[i + start];

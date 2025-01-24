@@ -17,24 +17,22 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "table_format_reader.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/column_dictionary.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 class SlotDescriptor;
 class TFileRangeDesc;
@@ -57,7 +55,7 @@ class TransactionalHiveReader : public TableFormatReader {
 public:
     struct AcidRowID {
         int64_t original_transaction;
-        int32_t bucket;
+        int64_t bucket;
         int64_t row_id;
 
         struct Hash {
@@ -65,7 +63,7 @@ public:
                 size_t hash_value = 0;
                 hash_value ^= std::hash<int64_t> {}(transactional_row_id.original_transaction) +
                               0x9e3779b9 + (hash_value << 6) + (hash_value >> 2);
-                hash_value ^= std::hash<int32_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
+                hash_value ^= std::hash<int64_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
                               (hash_value << 6) + (hash_value >> 2);
                 hash_value ^= std::hash<int64_t> {}(transactional_row_id.row_id) + 0x9e3779b9 +
                               (hash_value << 6) + (hash_value >> 2);
@@ -137,4 +135,5 @@ inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
 }
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

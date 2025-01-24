@@ -18,15 +18,15 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <string>
 
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/pod_array.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
@@ -45,9 +45,7 @@ namespace doris::vectorized {
 class DataTypeIPv4 final : public DataTypeNumberBase<IPv4> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::IPv4; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_IPV4);
-    }
+    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_IPV4}; }
     const char* get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
 
