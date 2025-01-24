@@ -513,6 +513,10 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
         if (current_scan_task) {
             DCHECK(current_scan_task->cached_blocks.empty());
             DCHECK(!current_scan_task->is_eos());
+            if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
+                // This should not happen.
+                return Status::InternalError("Scanner schduler logical error.");
+            }
             // This usually happens when we should downgrade the concurrency.
             _pending_scanners.push(current_scan_task->scanner);
             VLOG_DEBUG << fmt::format(
@@ -541,6 +545,10 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                 if (current_scan_task) {
                     DCHECK(current_scan_task->cached_blocks.empty());
                     DCHECK(!current_scan_task->is_eos());
+                    if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
+                        // This should not happen.
+                        return Status::InternalError("Scanner schduler logical error.");
+                    }
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
                     _pending_scanners.push(current_scan_task->scanner);
@@ -590,6 +598,10 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     if (current_scan_task != nullptr) {
         DCHECK(current_scan_task->cached_blocks.empty());
         DCHECK(!current_scan_task->is_eos());
+        if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
+            // This should not happen.
+            return Status::InternalError("Scanner schduler logical error.");
+        }
         return current_scan_task;
     }
 
