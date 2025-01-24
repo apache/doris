@@ -28,7 +28,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
-#include <condition_variable>
 #include <cstring>
 #include <filesystem>
 #include <istream>
@@ -58,7 +57,17 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-namespace {
+
+static std::string get_loaded_tag_path(const std::string& snapshot_path) {
+    return snapshot_path + "/LOADED";
+}
+
+static Status write_loaded_tag(const std::string& snapshot_path, int64_t tablet_id) {
+    std::unique_ptr<io::FileWriter> writer;
+    std::string file = get_loaded_tag_path(snapshot_path);
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file, &writer));
+    return writer->close();
+}
 
 Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_path,
                             std::string_view remote_path, std::string_view checksum) {
@@ -84,8 +93,6 @@ bool _end_with(std::string_view str, std::string_view match) {
     return str.size() >= match.size() &&
            str.compare(str.size() - match.size(), match.size(), match) == 0;
 }
-
-} // namespace
 
 SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
                                const TNetworkAddress& broker_addr,
@@ -751,6 +758,14 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(ss.str());
     }
 
+    std::string loaded_tag_path = get_loaded_tag_path(snapshot_path);
+    bool already_loaded = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(loaded_tag_path, &already_loaded));
+    if (already_loaded) {
+        LOG(INFO) << "snapshot path already moved: " << snapshot_path;
+        return Status::OK();
+    }
+
     // rename the rowset ids and tabletid info in rowset meta
     auto res = _engine.snapshot_mgr()->convert_rowset_ids(snapshot_path, tablet_id,
                                                           tablet->replica_id(), tablet->table_id(),
@@ -838,6 +853,10 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
+
+    // mark the snapshot path as loaded
+    RETURN_IF_ERROR(write_loaded_tag(snapshot_path, tablet_id));
+
     LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
 
     return status;
