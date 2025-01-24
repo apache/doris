@@ -1354,7 +1354,7 @@ void CloudCompactionMixin::garbage_collection() {
         for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
             auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-            file_cache->remove_if_cached(file_key);
+            file_cache->remove_if_cached_async(file_key);
         }
     }
 }

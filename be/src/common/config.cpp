@@ -1070,7 +1070,6 @@ DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
-DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
@@ -1078,8 +1077,8 @@ DEFINE_mBool(enbale_dump_error_file, "false");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
-DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
+DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
