@@ -62,6 +62,14 @@ public class SetSessionVarOp extends SetVarOp {
         this.isDefault = expression == null;
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public Literal getValue() {
+        return value;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (isDefault) {
@@ -136,7 +144,13 @@ public class SetSessionVarOp extends SetVarOp {
     }
 
     // TODO delete this method after removing dependence of SetVar in VariableMgr
-    private SetVar translateToLegacyVar(ConnectContext ctx) {
+
+    /**
+     * translate to legacy setVar expression for legacy Planner
+     * @param ctx connectContext
+     * @return SetVar for legacy Planner
+     */
+    public SetVar translateToLegacyVar(ConnectContext ctx) {
         if (isDefault) {
             return new SetVar(getType(), name, null);
         } else {
