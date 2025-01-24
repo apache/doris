@@ -34,6 +34,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,10 +42,12 @@ import java.util.Map;
 public class AlterTableStmt extends DdlStmt {
     private TableName tbl;
     private List<AlterClause> ops;
+    private List<AlterClause> originOps;
 
     public AlterTableStmt(TableName tbl, List<AlterClause> ops) {
         this.tbl = tbl;
         this.ops = ops;
+        this.originOps = ops;
     }
 
     public void setTableName(String newTableName) {
@@ -107,7 +110,7 @@ public class AlterTableStmt extends DdlStmt {
                 // analyse sequence column
                 Type sequenceColType = null;
                 if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                    Map<String, String> propertyMap = alterClause.getProperties();
+                    Map<String, String> propertyMap = new HashMap<>(alterClause.getProperties());
                     try {
                         sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
                         if (sequenceColType == null) {
@@ -184,7 +187,7 @@ public class AlterTableStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ").append(tbl.toSql()).append(" ");
         int idx = 0;
-        for (AlterClause op : ops) {
+        for (AlterClause op : originOps) {
             if (idx != 0) {
                 sb.append(", \n");
             }
