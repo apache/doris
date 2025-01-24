@@ -23,7 +23,7 @@ parallel=$(getconf _NPROCESSORS_ONLN)
 nohup /opt/hive/bin/hive --service metastore &
 
 # wait metastore start
-while [[ ! $(nc -z localhost "${HMS_PORT:-9083}") ]]; do
+while [[ $(nc -z localhost "${HMS_PORT:-9083}") ]]; do
     sleep 1s
 done
 
