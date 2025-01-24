@@ -161,9 +161,38 @@ public:
                            [](const auto& iterator) { return iterator != nullptr; });
     }
 
-private:
-    Status _next_batch_internal(vectorized::Block* block);
+    int64_t get_compaction_io_time_ns() const {
+        return _compaction_io_time_ns;
+    }
 
+    int64_t get_compaction_cache_bytes() const {
+        return _compaction_cache_bytes;
+    }
+
+    int64_t get_compaction_local_bytes() const {
+        return _compaction_local_bytes;
+    }
+
+    int64_t get_compaction_s3_bytes() const {
+        return _compaction_s3_bytes;
+    }
+
+    bool get_is_compaction() const {
+        return _is_compaction;
+    }
+
+    void set_is_compaction(bool is_compaction) {
+        _is_compaction = is_compaction;
+    }
+
+
+private:
+    bool _is_compaction = false;
+    int64_t _compaction_io_time_ns = 0;
+    int64_t _compaction_cache_bytes = 0;
+    int64_t _compaction_local_bytes = 0;
+    int64_t _compaction_s3_bytes = 0;
+    Status _next_batch_internal(vectorized::Block* block);
     template <typename Container>
     bool _update_profile(RuntimeProfile* profile, const Container& predicates,
                          const std::string& title) {
