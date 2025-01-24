@@ -202,7 +202,7 @@ Status S3FileWriter::close() {
 
         if (_bytes_appended == 0 && _create_empty_file) {
             // No data written, but need to create an empty file
-            _pending_buf = S3FileBufferPool::GetInstance()->allocate();
+            RETURN_IF_ERROR(S3FileBufferPool::GetInstance()->allocate(&_pending_buf));
             // if there is no upload id, we need to create a new one
             _pending_buf->set_upload_remote_callback(
                     [this, buf = _pending_buf]() { _put_object(*buf); });
@@ -238,7 +238,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                 return _st;
             }
             if (!_pending_buf) {
-                _pending_buf = S3FileBufferPool::GetInstance()->allocate();
+                RETURN_IF_ERROR(S3FileBufferPool::GetInstance()->allocate(&_pending_buf));
                 // capture part num by value along with the value of the shared ptr
                 _pending_buf->set_upload_remote_callback(
                         [part_num = _cur_part_num, this, cur_buf = _pending_buf]() {
