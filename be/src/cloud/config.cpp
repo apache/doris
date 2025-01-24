@@ -72,7 +72,7 @@ DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
 
-DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
+DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "1800");
 
 DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
