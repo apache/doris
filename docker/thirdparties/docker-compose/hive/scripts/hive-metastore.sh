@@ -39,9 +39,9 @@ done
 touch "${lockfile1}"
 
 DATA_DIR="/mnt/scripts/data/"
-find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P "${parallel}" -I {} sh -c '
+find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P "${parallel}" -I {} bash -ec '
     START_TIME=$(date +%s)
-    chmod +x "{}" && "{}"
+    bash -e "{}" || echo "Failed to executing script: {}" && exit 1
     END_TIME=$(date +%s)
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
@@ -145,9 +145,9 @@ if [[ -z "$(hadoop fs -ls /user/doris/tvf_data)" ]]; then
 fi
 
 # create tables
-ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P "${parallel}" -I {} bash -c '
+ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P "${parallel}" -I {} bash -ec '
     START_TIME=$(date +%s)
-    hive -f {}
+    hive -f {} || echo "Failed to executing hql: {}" && exit 1
     END_TIME=$(date +%s)
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
