@@ -134,6 +134,7 @@ import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -552,6 +553,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
+                rewriteJobs.addAll(jobs(topic("split multi distinct",
+                        custom(RuleType.SPLIT_MULTI_DISTINCT, () -> SplitMultiDistinct.INSTANCE))));
+
                 if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(
                             topic("variant element_at push down",

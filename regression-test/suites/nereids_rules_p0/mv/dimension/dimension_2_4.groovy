@@ -577,7 +577,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
             count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2 
             from orders_2_4  
             where o_orderkey > (-3) + 5 """
-    mv_rewrite_success(sql_stmt_13, mv_name_13)
+    mv_rewrite_fail(sql_stmt_13, mv_name_13)
     compare_res(sql_stmt_13 + " order by 1")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_13};"""
 
