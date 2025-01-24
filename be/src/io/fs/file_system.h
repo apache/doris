@@ -97,6 +97,8 @@ public:
     Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
     Status rename_dir(const Path& orig_name, const Path& new_name);
+    // Copy src path to dest path. If `src` is a directory, this method will call recursively for each directory entry.
+    Status copy_path(const Path& src, const Path& dest);
 
     std::shared_ptr<FileSystem> getSPtr() { return shared_from_this(); }
 
@@ -165,6 +167,8 @@ protected:
 
     /// rename dir from orig_name to new_name
     virtual Status rename_dir_impl(const Path& orig_name, const Path& new_name) = 0;
+
+    virtual Status copy_path_impl(const Path& src, const Path& dest) = 0;
 
     virtual Path absolute_path(const Path& path) const {
         if (path.is_absolute()) {
