@@ -24,7 +24,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.connection.PaimonConnectionProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -38,7 +38,6 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.options.Options;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -63,7 +62,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public PaimonExternalCatalog(long catalogId, String name, String resource,
                                  Map<String, String> props, String comment) {
         super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
+        // props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -147,12 +146,9 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     protected Catalog createCatalog() {
         try {
             return hadoopAuthenticator.doAs(() -> {
-                Options options = new Options();
-                Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
-                for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
-                    options.set(kv.getKey(), kv.getValue());
-                }
-                CatalogContext context = CatalogContext.create(options, getConfiguration());
+                PaimonConnectionProperties paimonProperties = new PaimonConnectionProperties(catalogProperty);
+                CatalogContext context = CatalogContext.create(paimonProperties.getOptions(),
+                        paimonProperties.getHadoopConf());
                 return createCatalogImpl(context);
             });
         } catch (IOException e) {
@@ -194,7 +190,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         for (String requiredProperty : REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+            if (!catalogProperty.containsProperty(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
