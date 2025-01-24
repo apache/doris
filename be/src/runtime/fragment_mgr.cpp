@@ -325,6 +325,11 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                 .set_max_threads(config::fragment_mgr_asynic_work_pool_thread_num_max)
                 .set_max_queue_size(config::fragment_mgr_asynic_work_pool_queue_size)
                 .build(&_thread_pool);
+
+    _thread_pool_for_prepare = std::make_unique<FifoThreadPool>(
+            config::fragment_mgr_prepare_work_pool_thread_num,
+            config::fragment_mgr_prepare_work_pool_queue_size, "for task prepare");
+
     CHECK(s.ok()) << s.to_string();
 }
 
@@ -849,8 +854,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status prepare_st = Status::OK();
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params, _thread_pool.get()),
-                                         prepare_st);
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+                prepare_st = context->prepare(params, _thread_pool_for_prepare.get()), prepare_st);
+
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();

@@ -229,7 +229,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
 }
 
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
-                                        ThreadPool* thread_pool) {
+                                        FifoThreadPool* thread_pool_for_prepare) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -348,7 +348,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     {
         SCOPED_TIMER(_build_tasks_timer);
         // 6. Build pipeline tasks and initialize local state.
-        RETURN_IF_ERROR(_build_pipeline_tasks(request, thread_pool));
+        RETURN_IF_ERROR(_build_pipeline_tasks(request, thread_pool_for_prepare));
     }
 
     _init_next_report_time();
@@ -358,7 +358,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 }
 
 Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                                      ThreadPool* thread_pool) {
+                                                      FifoThreadPool* thread_pool_for_prepare) {
     _total_tasks = 0;
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
@@ -524,7 +524,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         std::condition_variable cv;
         int prepare_done = 0;
         for (int i = 0; i < target_size; i++) {
-            RETURN_IF_ERROR(thread_pool->submit_func([&, i]() {
+            thread_pool_for_prepare->offer([&, i]() {
                 SCOPED_ATTACH_TASK(_query_ctx.get());
                 prepare_status[i] = pre_and_submit(i, this);
                 std::unique_lock<std::mutex> lock(m);
@@ -532,7 +532,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 if (prepare_done == target_size) {
                     cv.notify_one();
                 }
-            }));
+            });
         }
         std::unique_lock<std::mutex> lock(m);
         if (prepare_done != target_size) {

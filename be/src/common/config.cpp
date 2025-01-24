@@ -599,6 +599,10 @@ DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_min, "16");
 DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_max, "512");
 DEFINE_Int32(fragment_mgr_asynic_work_pool_queue_size, "4096");
 
+// Fragment thread pool for prepare
+DEFINE_Int32(fragment_mgr_prepare_work_pool_thread_num, "16");
+DEFINE_Int32(fragment_mgr_prepare_work_pool_queue_size, "512");
+
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
 // The read size is the size of the reads sent to os.
