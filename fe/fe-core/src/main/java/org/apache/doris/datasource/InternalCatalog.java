@@ -57,6 +57,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.backup.AbstractJob;
+import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
@@ -509,6 +511,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // 2. drop tables in db
             Database db = this.fullNameToDb.get(dbName);
+
+            checkBuckupRunning(db, null);
+
             db.writeLock();
             long recycleTime = 0;
             try {
@@ -877,6 +882,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("replay rename database {} to {}", dbName, newDbName);
     }
 
+    public void checkBuckupRunning(Database db, OlapTable olapTable) throws DdlException {
+        if (DebugPointUtil.isEnable("FE.checkBuckupRunning.ignore")) {
+            LOG.info("FE.checkBuckupRunning.ignore");
+            return;
+        }
+
+        AbstractJob job = Env.getCurrentEnv().getBackupHandler().getJob(db.getId());
+        if (job != null job instanceof BackupJob) {
+            BackupJob backupJob = (BackupJob) job;
+            if (backupJob.isDone()
+                    && (olapTable == null || backupJob.getBackupMeta().getTable(olapTable.getId()) != null)) {
+            LOG.warn("Backup is running on this db {} ", db.getName());
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Backup is running on this db: " + db.getName());
+        }
+    }
+
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
@@ -951,6 +972,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                             + " firstly. If you want to forcibly drop(cannot be recovered),"
                             + " please use \"DROP table FORCE\".");
                 }
+            }
+
+            if (table instanceof OlapTable) {
+                checkBuckupRunning(db, (OlapTable) table);
             }
 
             dropTableInternal(db, table, stmt.isView(), stmt.isForceDrop(), watch, costTimes);
@@ -1986,6 +2011,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        checkBuckupRunning(db, olapTable);
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
     }
 
@@ -3703,6 +3729,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (metaChanged) {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
             }
+
+            checkBuckupRunning(db, olapTable);
 
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
