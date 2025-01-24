@@ -22,8 +22,10 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
 
     String user1 = 'test_upgrade_downgrade_compatibility_auth_user1'
     String user2 = 'test_upgrade_downgrade_compatibility_auth_user2'
+    String user3 = 'test_upgrade_downgrade_compatibility_auth_user3'
     String role1 = 'test_upgrade_downgrade_compatibility_auth_role1'
     String role2 = 'test_upgrade_downgrade_compatibility_auth_role2'
+    String role3 = 'test_upgrade_downgrade_compatibility_auth_role3'
     String pwd = 'C123_567p'
 
     String dbName = 'test_auth_up_down_db'
@@ -45,12 +47,37 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
     }
 
     // user
+    test {
+        sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
+        exception "already exist"
+    }
+    test {
+        sql """ALTER USER '${user3}' COMMENT 'this is my first user'"""
+        exception "not exist"
+    }
+    test {
+        sql """DROP USER '${user3}'"""
+        exception "not exist"
+    }
     connect(user1, "${pwd}", context.config.jdbcUrl) {
-        try {
+        def res = sql """show grants;"""
+        assertTrue(res.size() == 1)
+    }
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
+        test {
             sql "select username from ${dbName}.${tableName1}"
-        } catch (Exception e) {
-            log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("denied"))
+            exception "denied"
+        }
+    }
+    sql """grant select_priv on ${dbName}.${tableName1} to ${user1}"""
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
+        sql "select username from ${dbName}.${tableName1}"
+    }
+    sql """revoke select_priv on ${dbName}.${tableName1} from ${user1}"""
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql "select username from ${dbName}.${tableName1}"
+            exception "denied"
         }
     }
     connect(user1, "${pwd}", context.config.jdbcUrl) {
@@ -58,14 +85,53 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
     }
 
     // role
-    connect(user2, "${pwd}", context.config.jdbcUrl) {
-        try {
-            sql "select username from ${dbName}.${tableName1}"
-        } catch (Exception e) {
-            log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("denied"))
+    test {
+        sql """CREATE ROLE ${role1}"""
+        exception "already exist"
+    }
+    test {
+        sql """DROP role ${role3}"""
+        exception "not exist"
+    }
+    sql """ALTER ROLE ${role1} COMMENT "test up and down role";"""
+    test {
+        sql """ALTER ROLE ${role3} COMMENT "test up and down role";"""
+        exception "not exist"
+    }
+    connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
+        test {
+            sql """show roles;"""
+            exception "denied"
         }
     }
+
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql "select username from ${dbName}.${tableName1}"
+            exception "denied"
+        }
+    }
+
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
+        sql """insert into ${dbName}.`${tableName1}` values (5, "555")"""
+    }
+    sql """grant '${role1}', '${role2}' to '${user2}'"""
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
+        sql "select username from ${dbName}.${tableName1}"
+        sql """insert into ${dbName}.`${tableName1}` values (4, "444")"""
+    }
+    sql """revoke '${role1}', '${role2}' from '${user2}'"""
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql "select username from ${dbName}.${tableName1}"
+            exception "denied"
+        }
+        test {
+            sql """insert into ${dbName}.`${tableName1}` values (4, "444")"""
+            exception "denied"
+        }
+    }
+    sql """grant '${role2}' to '${user2}'"""
     connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql """insert into ${dbName}.`${tableName1}` values (5, "555")"""
     }
