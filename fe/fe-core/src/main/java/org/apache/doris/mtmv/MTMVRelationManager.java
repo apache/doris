@@ -261,6 +261,10 @@ public class MTMVRelationManager implements MTMVHookService {
     public void alterTable(Table table, String oldTableName) {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
         baseTableInfo.setTableName(oldTableName);
+        if (table instanceof MTMV) {
+            removeMTMV(baseTableInfo);
+            refreshMTMVCache(((MTMV) table).getRelation(), new BaseTableInfo(table));
+        }
         processBaseTableChange(baseTableInfo, "The base table has been updated:");
     }
 
