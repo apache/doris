@@ -26,7 +26,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         beNums++;
         logger.info(item.toString())
     }
-    if (beNums >= 3){
+    if (!isCloudMode() && beNums >= 3){
         sql """ set enable_memtable_on_sink_node=true """
         sql """
             CREATE TABLE IF NOT EXISTS `baseall` (
