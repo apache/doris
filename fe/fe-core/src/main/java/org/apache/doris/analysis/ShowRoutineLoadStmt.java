@@ -23,11 +23,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /*
@@ -95,11 +97,19 @@ public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser
     private String name; // optional
     private boolean includeHistory = false;
     private String pattern; // optional
+    private final LimitElement limitElement;
+    private final List<OrderByElement> orderByElements;
 
-    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory, String pattern) {
+    private ArrayList<OrderByPair> orderByPairs;
+
+
+    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory,
+            String pattern, List<OrderByElement> orderByElements, LimitElement limitElement) {
         this.labelName = labelName;
         this.includeHistory = includeHistory;
         this.pattern = pattern;
+        this.orderByElements = orderByElements;
+        this.limitElement = limitElement;
     }
 
     public String getDbFullName() {
@@ -118,10 +128,41 @@ public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser
         return pattern;
     }
 
+    public ArrayList<OrderByPair> getOrderByPairs() {
+        return this.orderByPairs;
+    }
+
+    public long getLimit() {
+        if (limitElement != null && limitElement.hasLimit()) {
+            return limitElement.getLimit();
+        }
+        return -1L;
+    }
+
+    public long getOffset() {
+        if (limitElement != null && limitElement.hasOffset()) {
+            return limitElement.getOffset();
+        }
+        return -1L;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         checkLabelName(analyzer);
+
+        if (orderByElements != null && !orderByElements.isEmpty()) {
+            orderByPairs = new ArrayList<OrderByPair>();
+            for (OrderByElement orderByElement : orderByElements) {
+                if (!(orderByElement.getExpr() instanceof SlotRef)) {
+                    throw new AnalysisException("Should order by column");
+                }
+                SlotRef slotRef = (SlotRef) orderByElement.getExpr();
+                int index = analyzeColumn(slotRef.getColumnName());
+                OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
+                orderByPairs.add(orderByPair);
+            }
+        }
     }
 
     private void checkLabelName(Analyzer analyzer) throws AnalysisException {
@@ -147,6 +188,16 @@ public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    private int analyzeColumn(String columnName) throws AnalysisException {
+        for (String title : TITLE_NAMES) {
+            if (title.equalsIgnoreCase(columnName)) {
+                return TITLE_NAMES.indexOf(title);
+            }
+        }
+
+        throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 
     @Override
