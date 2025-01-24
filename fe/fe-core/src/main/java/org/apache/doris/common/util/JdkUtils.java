@@ -58,8 +58,7 @@ public class JdkUtils {
     public static String getJavaVersionFromFullVersion(String fullVersionStr) {
         int begin = fullVersionStr.indexOf("\"");
         int end = fullVersionStr.lastIndexOf("\"");
-        String versionStr = fullVersionStr.substring(begin + 1, end);
-        return versionStr;
+        return fullVersionStr.substring(begin + 1, end);
     }
 
     /*
@@ -68,10 +67,10 @@ public class JdkUtils {
      */
     public static int getJavaVersionAsInteger(String javaVersionStr) {
         String[] parts = javaVersionStr.split("\\.|\\+");
-        if (parts[0].equals("1")) {
-            return Integer.valueOf(parts[1]);
+        if ("1".equals(parts[0])) {
+            return Integer.parseInt(parts[1]);
         } else {
-            return Integer.valueOf(parts[0]);
+            return Integer.parseInt(parts[0]);
         }
     }
 }
