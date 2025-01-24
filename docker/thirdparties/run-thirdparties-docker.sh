@@ -145,7 +145,7 @@ RUN_OCENABASE=0
 RUN_LAKESOUL=0
 RUN_KERBEROS=0
 
-RESERVED_PORTS=""
+RESERVED_PORTS="65535"
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
