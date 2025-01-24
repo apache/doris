@@ -102,6 +102,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setHttpSslEnabled(esCatalog.enableSsl());
         esTable.setLikePushDown(esCatalog.enableLikePushDown());
         esTable.setSeeds(esCatalog.getNodes());
+        esTable.setAvailableNodesInfo(esCatalog.getAvailableNodesInfo());
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
         esTable.setIncludeHiddenIndex(esCatalog.enableIncludeHiddenIndex());
