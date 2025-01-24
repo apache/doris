@@ -110,7 +110,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     // The first column is profile id, last column is query stmt.
     // Compare the query stmt, and get profile id for each query that we just emitted.
 
-    def queryProfiles = sql "show query profile limit 100;"
+    def queryProfiles = sql "show query profile limit 10000;"
     def profileList = queryProfiles.collect { row -> row.toList() }
     List<String> profileShouldHaveOnePeakRunningScanner = new ArrayList<String>()
     List<String> profileShouldHaveMoreThanOnePeakRunningScanner = new ArrayList<String>()
