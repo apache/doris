@@ -25,6 +25,7 @@
 #include <ostream>
 #include <thread>
 
+#include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_builder.h"
@@ -33,9 +34,17 @@
 namespace doris::io {
 namespace {
 
-Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
+Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs,
+                       std::unique_ptr<kerberos::KerberosTicketCache>& ticket_cache) {
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
+    if (builder.is_kerberos()) {
+        kerberos::KerberosTicketCache* ccache;
+        RETURN_IF_ERROR(builder.gen_ticket_cache_and_renew_thread(&ccache));
+        ticket_cache.reset(ccache);
+    } else {
+        ticket_cache.reset(nullptr);
+    }
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
         return Status::InternalError("failed to connect to hdfs {}: {}", fs_name, hdfs_error());
@@ -47,11 +56,12 @@ Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_nam
 // https://brpc.apache.org/docs/server/basics/
 // According to the brpc doc, JNI code checks stack layout and cannot be run in
 // bthreads so create a pthread for creating hdfs connection if necessary.
-Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
+Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs,
+                      std::unique_ptr<kerberos::KerberosTicketCache>& ticket_cache) {
     bool is_pthread = bthread_self() == 0;
     LOG(INFO) << "create hfdfs fs, is_pthread=" << is_pthread << " fs_name=" << fs_name;
     if (is_pthread) { // running in pthread
-        return _create_hdfs_fs(hdfs_params, fs_name, fs);
+        return _create_hdfs_fs(hdfs_params, fs_name, fs, ticket_cache);
     }
 
     // running in bthread, switch to a pthread and wait
@@ -59,7 +69,7 @@ Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name
     auto btx = bthread::butex_create();
     *(int*)btx = 0;
     std::thread t([&] {
-        st = _create_hdfs_fs(hdfs_params, fs_name, fs);
+        st = _create_hdfs_fs(hdfs_params, fs_name, fs, ticket_cache);
         *(int*)btx = 1;
         bthread::butex_wake_all(btx);
     });
@@ -167,18 +177,19 @@ Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const st
         // not find in cache, or fs handle is invalid
         // create a new one and try to put it into cache
         hdfsFS hdfs_fs = nullptr;
-        RETURN_IF_ERROR(create_hdfs_fs(hdfs_params, fs_name, &hdfs_fs));
+        std::unique_ptr<kerberos::KerberosTicketCache> ticket_cache;
+        RETURN_IF_ERROR(create_hdfs_fs(hdfs_params, fs_name, &hdfs_fs, ticket_cache));
         if (_cache.size() >= MAX_CACHE_HANDLE) {
             _clean_invalid();
             _clean_oldest();
         }
         if (_cache.size() < MAX_CACHE_HANDLE) {
-            auto handle = std::make_shared<HdfsHandler>(hdfs_fs, true);
+            auto handle = std::make_shared<HdfsHandler>(hdfs_fs, ticket_cache.release(), true);
             handle->update_last_access_time();
             *fs_handle = handle;
             _cache[hash_code] = std::move(handle);
         } else {
-            *fs_handle = std::make_shared<HdfsHandler>(hdfs_fs, false);
+            *fs_handle = std::make_shared<HdfsHandler>(hdfs_fs, ticket_cache.release(), false);
         }
     }
     return Status::OK();

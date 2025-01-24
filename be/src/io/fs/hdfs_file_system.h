@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/status.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
