@@ -81,8 +81,8 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
                 _rows_start_offset = b.rows_offset_value;
                 if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_start_offset *= -1;                                //preceding--> negative
-                }                                                            //current_row  0
+                    _rows_start_offset *= -1; //preceding--> negative
+                } //current_row  0
             } else {                                                         //following    positive
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                 _rows_start_offset = 0;
@@ -784,6 +784,9 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 }
 
 void AnalyticSinkLocalState::_remove_unused_rows() {
+    // test column overflow 4G
+    DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
+
     const size_t block_num = 256;
     if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
         return;
@@ -845,7 +848,9 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
     RETURN_IF_ERROR(expr->execute(block, &result_col_id));
     DCHECK_GE(result_col_id, 0);
     auto column = block->get_by_position(result_col_id).column->convert_to_full_column_if_const();
-    dst_column->insert_range_from(*column, 0, length);
+    // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
+    // the column is used by compare_at self to find the range, it's need convert it when overflow?
+    dst_column->insert_range_from_ignore_overflow(*column, 0, length);
     return Status::OK();
 }
 
