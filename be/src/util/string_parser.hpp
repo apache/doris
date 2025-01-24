@@ -243,14 +243,14 @@ private:
         return true;
     }
 
-    // For strings like "3.0", "3.123", and "3.", can parse them as 3.
+    // For strings like "3.0", "3.123","3.123  ", and "3.", can parse them as 3.
     static inline bool is_float_suffix(const char* __restrict s, int len) {
-        return (s[0] == '.' && is_all_digit(s + 1, len - 1));
+        return (s[0] == '.' && is_all_digit_whitespace(s + 1, len - 1));
     }
 
-    static inline bool is_all_digit(const char* __restrict s, int len) {
+    static inline bool is_all_digit_whitespace(const char* __restrict s, int len) {
         for (int i = 0; i < len; ++i) {
-            if (!LIKELY(s[i] >= '0' && s[i] <= '9')) {
+            if (!LIKELY((s[i] >= '0' && s[i] <= '9') || is_whitespace(s[i]))) {
                 return false;
             }
         }
@@ -301,6 +301,8 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
     }
 
     // This is the fast path where the string cannot overflow.
+    // Currently, it supports converting 123.45 to the integer 123.
+    // which makes it less likely for the code to reach the no_overflow logic, so it remains correct.
     if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<T>())) {
         val = string_to_int_no_overflow<UnsignedT>(s + i, len - i, result);
         return static_cast<T>(negative ? -val : val);
@@ -320,8 +322,9 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
-                                         !is_float_suffix(s + i, len - i))))) {
+            // Strings like .0000 and .12345 are valid and can be parsed as 0.
+            if (UNLIKELY(!is_float_suffix(s + i, len - i) &&
+                         (i == first || !is_all_whitespace(s + i, len - i)))) {
                 // Reject the string because either the first char was not a digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -455,7 +458,8 @@ T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, Par
     if (LIKELY(s[0] >= '0' && s[0] <= '9')) {
         val = s[0] - '0';
     } else {
-        *result = PARSE_FAILURE;
+        // Strings like .0000 and .12345 are valid and can be parsed as 0.
+        *result = is_float_suffix(s, len) ? PARSE_SUCCESS : PARSE_FAILURE;
         return 0;
     }
     for (int i = 1; i < len; ++i) {
