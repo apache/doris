@@ -21,10 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -40,8 +38,8 @@ public class ArrayFlatten extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(ArrayType.of(ArrayType.of(new AnyDataType(0))))
-    );
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))))
+                    .args(ArrayType.of(ArrayType.of(new AnyDataType(0))));
 
     /**
      * constructor with 1 arguments.
