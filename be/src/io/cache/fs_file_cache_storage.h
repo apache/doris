@@ -105,6 +105,9 @@ private:
     [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
             const std::string& dir, size_t offset);
 
+    Status get_file_cache_infos(std::vector<FileCacheInfo>& infos,
+                                std::lock_guard<std::mutex>& cache_lock) const override;
+
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
