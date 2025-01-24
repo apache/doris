@@ -1208,7 +1208,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
                "processed";
         return Status::InvalidArgument(msg.str());
     }
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    auto output_tuple_id = t_query_plan_info.plan_fragment.plan.nodes.front().output_tuple_id;
+    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(output_tuple_id);
     if (tuple_desc == nullptr) {
         LOG(WARNING) << "open context error: extract TupleDescriptor failure";
         std::stringstream msg;
