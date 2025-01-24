@@ -23,6 +23,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -201,5 +202,74 @@ public class ConnectContextTest {
         ctx.setThreadLocalInfo();
         Assert.assertNotNull(ConnectContext.get());
         Assert.assertEquals(ctx, ConnectContext.get());
+    }
+
+    @Test
+    public void testGetMaxExecMemByte() {
+        ConnectContext context = new ConnectContext();
+        context.setQualifiedUser("a");
+        context.setEnv(env);
+        long sessionValue = 2097153L;
+        long propertyValue = 2097154L;
+        // only session
+        context.getSessionVariable().setMaxExecMemByte(sessionValue);
+        long result = context.getMaxExecMemByte();
+        Assert.assertEquals(sessionValue, result);
+        // has property
+        new Expectations() {
+            {
+                auth.getExecMemLimit(anyString);
+                minTimes = 0;
+                result = propertyValue;
+            }
+        };
+        result = context.getMaxExecMemByte();
+        Assert.assertEquals(propertyValue, result);
+    }
+
+    @Test
+    public void testGetQueryTimeoutS() {
+        ConnectContext context = new ConnectContext();
+        context.setQualifiedUser("a");
+        context.setEnv(env);
+        int sessionValue = 1;
+        int propertyValue = 2;
+        // only session
+        context.getSessionVariable().setQueryTimeoutS(sessionValue);
+        long result = context.getQueryTimeoutS();
+        Assert.assertEquals(sessionValue, result);
+        // has property
+        new Expectations() {
+            {
+                auth.getQueryTimeout(anyString);
+                minTimes = 0;
+                result = propertyValue;
+            }
+        };
+        result = context.getQueryTimeoutS();
+        Assert.assertEquals(propertyValue, result);
+    }
+
+    @Test
+    public void testInsertQueryTimeoutS() {
+        ConnectContext context = new ConnectContext();
+        context.setQualifiedUser("a");
+        context.setEnv(env);
+        int sessionValue = 1;
+        int propertyValue = 2;
+        // only session
+        context.getSessionVariable().setInsertTimeoutS(sessionValue);
+        long result = context.getInsertTimeoutS();
+        Assert.assertEquals(sessionValue, result);
+        // has property
+        new Expectations() {
+            {
+                auth.getInsertTimeout(anyString);
+                minTimes = 0;
+                result = propertyValue;
+            }
+        };
+        result = context.getInsertTimeoutS();
+        Assert.assertEquals(propertyValue, result);
     }
 }
