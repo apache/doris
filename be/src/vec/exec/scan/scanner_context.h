@@ -228,14 +228,13 @@ protected:
 
     // adaptive scan concurrency related
 
-    int32_t _min_concurrency_of_scan_scheduler;
-    int32_t _min_concurrency;
-    int32_t _max_concurrency = 0;
-    int32_t _basic_margin = 0;
+    int32_t _min_scan_concurrency_of_scan_scheduler = 0;
+    int32_t _min_scan_concurrency = 1;
+    int32_t _max_scan_concurrency = 0;
 
-    [[nodiscard]] Status _schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                                             std::unique_lock<std::mutex>& transfer_lock,
-                                             std::unique_lock<std::shared_mutex>& scheduler_lock);
+    Status _schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
+                               std::unique_lock<std::mutex>& transfer_lock,
+                               std::unique_lock<std::shared_mutex>& scheduler_lock);
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);

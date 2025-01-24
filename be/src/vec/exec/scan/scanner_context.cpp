@@ -68,8 +68,8 @@ ScannerContext::ScannerContext(
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _parallism_of_scan_operator(parallism_of_scan_operator),
-          _min_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
-          _min_concurrency(_state->min_scan_concurrency_of_scanner()) {
+          _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
+          _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
@@ -83,8 +83,8 @@ ScannerContext::ScannerContext(
     _query_thread_context = {_query_id, _state->query_mem_tracker(),
                              _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
-    if (_min_concurrency_of_scan_scheduler == 0) {
-        _min_concurrency_of_scan_scheduler = 2 * config::doris_scanner_thread_pool_thread_num;
+    if (_min_scan_concurrency_of_scan_scheduler == 0) {
+        _min_scan_concurrency_of_scan_scheduler = 2 * config::doris_scanner_thread_pool_thread_num;
     }
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
@@ -151,62 +151,70 @@ Status ScannerContext::init() {
 
     // The overall target of our system is to make full utilization of the resources.
     // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
-    _max_concurrency = _state->num_scanner_threads();
-    if (_max_concurrency == 0) {
-            _max_concurrency = _min_concurrency_of_scan_scheduler / _parallism_of_scan_operator;
-            // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
-            // in parallel. We need to make sure the _max_thread_num is smaller than previous value in this situation.
-            _max_concurrency =
-                    std::min(_max_concurrency, config::doris_scanner_thread_pool_thread_num);
-        }
-        _max_concurrency = _max_concurrency == 0 ? 1 : _max_concurrency;
+    // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
+    // So that for a single query, we can make sure it could make full utilization of the resource.
+    _max_scan_concurrency = _state->num_scanner_threads();
+    if (_max_scan_concurrency == 0) {
+        // TODO: Add unit test.
+        // Why this is safe:
+        /*
+            1. If num cpu cores is less than or equal to 24:
+                _max_concurrency_of_scan_scheduler will be 96. _parallism_of_scan_operator will be 1 or C/2.
+                so _max_scan_concurrency will be 96 or (96 * 2 / C).
+                For a single scan node, most scanner it can submit will be 96 or (96 * 2 / C) * (C / 2) which is 96 too.
+                So a single scan node could make full utilization of the resource without sumbiting all its tasks.
+            2. If num cpu cores greater than 24:
+                _max_concurrency_of_scan_scheduler will be 4 * C. _parallism_of_scan_operator will be 1 or C/2.
+                so _max_scan_concurrency will be 4 * C or (4 * C * 2 / C).
+                For a single scan node, most scanner it can submit will be 4 * C or (4 * C * 2 / C) * (C / 2) which is 4 * C too.
+
+            So, in all situations, when there is only one scan node, it could make full utilization of the resource.
+        */
+        _max_scan_concurrency =
+                _min_scan_concurrency_of_scan_scheduler / _parallism_of_scan_operator;
+        // In some rare cases, user may set parallel_pipeline_task_num to 1 handly to make many query could be executed
+        // in parallel. We need to make sure the _max_thread_num is smaller than previous value in this situation.
+        _max_scan_concurrency =
+                std::min(_max_scan_concurrency, config::doris_scanner_thread_pool_thread_num);
+
+        _max_scan_concurrency = _max_scan_concurrency == 0 ? 1 : _max_scan_concurrency;
     }
 
-    _max_concurrency = std::min(_max_concurrency, (int32_t)_all_scanners.size());
+    _max_scan_concurrency = std::min(_max_scan_concurrency, (int32_t)_pending_scanners.size());
 
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
     // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
     // you can refer https://github.com/apache/doris/issues/35340 for details.
     int32_t max_column_reader_num = _state->query_options().max_column_reader_num;
 
-    if (_max_concurrency != 1 && max_column_reader_num > 0) {
+    if (_max_scan_concurrency != 1 && max_column_reader_num > 0) {
         int32_t scan_column_num = _output_tuple_desc->slots().size();
-        int32_t current_column_num = scan_column_num * _max_concurrency;
+        int32_t current_column_num = scan_column_num * _max_scan_concurrency;
         if (current_column_num > max_column_reader_num) {
             int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
             new_max_thread_num = new_max_thread_num <= 0 ? 1 : new_max_thread_num;
-            if (new_max_thread_num < _max_concurrency) {
-                int32_t origin_max_thread_num = _max_concurrency;
-                _max_concurrency = new_max_thread_num;
+            if (new_max_thread_num < _max_scan_concurrency) {
+                int32_t origin_max_thread_num = _max_scan_concurrency;
+                _max_scan_concurrency = new_max_thread_num;
                 LOG(INFO) << "downgrade query:" << print_id(_state->query_id())
                           << " scan's max_thread_num from " << origin_max_thread_num << " to "
-                          << _max_concurrency << ",column num: " << scan_column_num
+                          << _max_scan_concurrency << ",column num: " << scan_column_num
                           << ", max_column_reader_num: " << max_column_reader_num;
             }
         }
     }
 
-    // Each scan operator can submit _basic_margin scanner to scheduelr if scheduler has enough resource.
-    // So that for a single query, we can make sure it could make full utilization of the resource.
-    _basic_margin = _serial_scan_operator ? _max_concurrency
-                                          : _min_concurrency_of_scan_scheduler /
-                                                    (_state->query_parallel_instance_num());
-
-    // Make sure the _basic_margin is not too large.
-    _basic_margin = std::min(_basic_margin, _max_concurrency);
-
     // For select * from table limit 10; should just use one thread.
     if (_local_state->should_run_serial()) {
-        _max_concurrency = 1;
-        _min_concurrency = 1;
-        _basic_margin = 1;
+        _max_scan_concurrency = 1;
+        _min_scan_concurrency = 1;
     }
 
     // Avoid corner case.
-    _min_concurrency = std::min(_min_concurrency, _max_concurrency);
+    _min_scan_concurrency = std::min(_min_scan_concurrency, _max_scan_concurrency);
 
-    COUNTER_SET(_local_state->_max_concurency, (int64_t)_max_concurrency);
-    COUNTER_SET(_local_state->_min_concurency, (int64_t)_min_concurrency);
+    COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
+    COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
 
     std::unique_lock<std::mutex> l(_transfer_lock);
     RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
@@ -293,7 +301,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 
     std::shared_ptr<ScanTask> scan_task = nullptr;
 
-    if (!_tasks_queue.empty()) {
+    if (!_tasks_queue.empty() && !done()) {
         // https://en.cppreference.com/w/cpp/container/list/front
         // The behavior is undefined if the list is empty.
         scan_task = _tasks_queue.front();
@@ -316,6 +324,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             _block_memory_usage -= block_size;
             // consume current block
             block->swap(*current_block);
+            return_free_block(std::move(current_block));
         }
 
         VLOG_DEBUG << fmt::format(
@@ -333,10 +342,12 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             if (scan_task->is_eos()) {
                 // 1. if eos, record a finished scanner.
                 _num_finished_scanners++;
+                RETURN_IF_ERROR(
+                        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
+            } else {
+                RETURN_IF_ERROR(
+                        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
             }
-
-            RETURN_IF_ERROR(
-                    _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
         }
     }
 
@@ -447,7 +458,7 @@ std::string ScannerContext::debug_string() {
             " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
             " _max_bytes_in_queue: {}, query_id: {}",
             ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished,
-            _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_concurrency,
+            _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_scan_concurrency,
             _max_bytes_in_queue, print_id(_query_id));
 }
 
@@ -462,11 +473,11 @@ void ScannerContext::update_peak_running_scanner(int num) {
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
-    int32_t margin_1 = _min_concurrency - (_tasks_queue.size() + _num_scheduled_scanners);
+    int32_t margin_1 = _min_scan_concurrency - (_tasks_queue.size() + _num_scheduled_scanners);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
     int32_t margin_2 =
-            _min_concurrency_of_scan_scheduler -
+            _min_scan_concurrency_of_scan_scheduler -
             (_scanner_scheduler->get_active_threads() + _scanner_scheduler->get_queue_size());
 
     if (margin_1 <= 0 && margin_2 <= 0) {
@@ -474,13 +485,12 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
     }
 
     int32_t margin = std::max(margin_1, margin_2);
-    margin = std::min(margin, _basic_margin);
 
     VLOG_DEBUG << fmt::format(
             "[{}|{}] schedule scan task, margin_1: {} = {} - ({} + {}), margin_2: {} = {} - "
             "({} + {}), margin: {}",
-            print_id(_query_id), ctx_id, margin_1, _min_concurrency, _tasks_queue.size(),
-            _num_scheduled_scanners, margin_2, _min_concurrency_of_scan_scheduler,
+            print_id(_query_id), ctx_id, margin_1, _min_scan_concurrency, _tasks_queue.size(),
+            _num_scheduled_scanners, margin_2, _min_scan_concurrency_of_scan_scheduler,
             _scanner_scheduler->get_active_threads(), _scanner_scheduler->get_queue_size(), margin);
 
     return margin;
@@ -500,8 +510,9 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
     if (margin <= 0) {
         // Be careful with current scan task.
         // We need to add it back to task queue to make sure it could be resubmitted.
-        if (current_scan_task && current_scan_task->cached_blocks.empty() &&
-            !current_scan_task->is_eos()) {
+        if (current_scan_task) {
+            DCHECK(current_scan_task->cached_blocks.empty());
+            DCHECK(!current_scan_task->is_eos());
             // This usually happens when we should downgrade the concurrency.
             _pending_scanners.push(current_scan_task->scanner);
             VLOG_DEBUG << fmt::format(
@@ -525,10 +536,11 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
             task_to_run = _pull_next_scan_task(current_scan_task, current_concurrency);
             if (task_to_run == nullptr) {
                 // In two situations we will get nullptr.
-                // 1. current_concurrency already reached _max_concurrency.
+                // 1. current_concurrency already reached _max_scan_concurrency.
                 // 2. all scanners are finished.
-                if (current_scan_task && current_scan_task->cached_blocks.empty() &&
-                    !current_scan_task->is_eos()) {
+                if (current_scan_task) {
+                    DCHECK(current_scan_task->cached_blocks.empty());
+                    DCHECK(!current_scan_task->is_eos());
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
                     _pending_scanners.push(current_scan_task->scanner);
@@ -568,17 +580,17 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
 std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
-    if (current_concurrency >= _max_concurrency) {
+    if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
-                "ScannerContext {} current concurrency {} >= _max_concurrency {}, skip pull",
-                ctx_id, current_concurrency, _max_concurrency);
+                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip pull",
+                ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
     }
 
     if (current_scan_task != nullptr) {
-        if (current_scan_task->cached_blocks.empty() && !current_scan_task->is_eos()) {
-            return current_scan_task;
-        }
+        DCHECK(current_scan_task->cached_blocks.empty());
+        DCHECK(!current_scan_task->is_eos());
+        return current_scan_task;
     }
 
     if (!_pending_scanners.empty()) {

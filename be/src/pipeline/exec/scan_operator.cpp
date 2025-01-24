@@ -1001,7 +1001,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     // Related pr:
     // https://github.com/apache/doris/pull/42460
     // https://github.com/apache/doris/pull/44635
-    const int parallism_of_scan_operator = p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
+    const int parallism_of_scan_operator =
+            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             _scan_dependency, parallism_of_scan_operator);
@@ -1064,8 +1065,8 @@ Status ScanLocalState<Derived>::_init_profile() {
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _max_concurency = ADD_COUNTER(_runtime_profile, "MaxConcurrency", TUnit::UNIT);
-    _min_concurency = ADD_COUNTER(_runtime_profile, "MinConcurrency", TUnit::UNIT);
+    _max_scan_concurrency = ADD_COUNTER(_runtime_profile, "MaxScanConcurrency", TUnit::UNIT);
+    _min_scan_concurrency = ADD_COUNTER(_runtime_profile, "MinScanConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
