@@ -131,10 +131,14 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
         }
 
         sql "alter table ${tableName} add index idx_b(b)"
+        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql "alter table ${tableName} add index idx_en(en) using inverted properties(\"parser\" = \"english\", \"support_phrase\" = \"true\")"
         wait_for_latest_op_on_table_finish(tableName, timeout)
         if (!isCloudMode()) {
             sql "build index idx_b on ${tableName}"
+            wait_for_build_index_on_partition_finish(tableName, timeout)
+        }
+        if (!isCloudMode()) {
             sql "build index idx_en on ${tableName}"
             wait_for_build_index_on_partition_finish(tableName, timeout)
         }
