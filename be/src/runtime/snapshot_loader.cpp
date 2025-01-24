@@ -35,6 +35,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
@@ -404,9 +405,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 Status SnapshotLoader::remote_http_download(
         const std::vector<TRemoteTabletSnapshot>& remote_tablet_snapshots,
         std::vector<int64_t>* downloaded_tablet_ids) {
-    constexpr uint32_t kListRemoteFileTimeout = 15;
     constexpr uint32_t kDownloadFileMaxRetry = 3;
-    constexpr uint32_t kGetLengthTimeout = 10;
 
     // check if job has already been cancelled
     int tmp_counter = 1;
@@ -489,7 +488,7 @@ Status SnapshotLoader::remote_http_download(
         string file_list_str;
         auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_url_prefix));
-            client->set_timeout_ms(kListRemoteFileTimeout * 1000);
+            client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
             return client->execute(&file_list_str);
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, list_files_cb));
@@ -505,12 +504,20 @@ Status SnapshotLoader::remote_http_download(
             uint64_t file_size = 0;
             std::string file_md5;
             auto get_file_stat_cb = [&remote_file_url, &file_size, &file_md5](HttpClient* client) {
-                std::string url = fmt::format("{}&acquire_md5=true", remote_file_url);
+                int64_t timeout_ms = config::download_binlog_meta_timeout_ms;
+                std::string url = remote_file_url;
+                if (config::enable_download_md5sum_check) {
+                    // compute md5sum is time-consuming, so we set a longer timeout
+                    timeout_ms = config::download_binlog_meta_timeout_ms * 3;
+                    url = fmt::format("{}&acquire_md5=true", remote_file_url);
+                }
                 RETURN_IF_ERROR(client->init(url));
-                client->set_timeout_ms(kGetLengthTimeout * 1000);
+                client->set_timeout_ms(timeout_ms);
                 RETURN_IF_ERROR(client->head());
                 RETURN_IF_ERROR(client->get_content_length(&file_size));
-                RETURN_IF_ERROR(client->get_content_md5(&file_md5));
+                if (config::enable_download_md5sum_check) {
+                    RETURN_IF_ERROR(client->get_content_md5(&file_md5));
+                }
                 return Status::OK();
             };
             RETURN_IF_ERROR(
