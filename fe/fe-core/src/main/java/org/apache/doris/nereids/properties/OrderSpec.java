@@ -68,7 +68,7 @@ public class OrderSpec {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, child.getLogicalProperties(),
                         new GroupPlan(child)),
-                Lists.newArrayList(child)
+                Lists.newArrayList(child), true
         );
     }
 
@@ -79,7 +79,7 @@ public class OrderSpec {
         return new GroupExpression(
                 new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, child.getLogicalProperties(),
                         new GroupPlan(child)),
-                Lists.newArrayList(child)
+                Lists.newArrayList(child), true
         );
     }
 
