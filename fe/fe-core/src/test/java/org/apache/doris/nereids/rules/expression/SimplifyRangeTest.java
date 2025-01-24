@@ -114,7 +114,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "TA is null and null");
         assertRewriteNotNull("TA > 3 and TA < 1", "FALSE");
         assertRewrite("TA > 3 and TA < 1", "TA is null and null");
-        assertRewrite("TA >= 3 and TA < 3", "TA >= 3 and TA < 3");
+        assertRewrite("TA >= 3 and TA < 3", "TA is null and null");
         assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA = 1 and TA > 10", "TA is null and null");
         assertRewrite("TA > 5 or TA < 1", "TA < 1 or TA > 5");
@@ -176,7 +176,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or (TA + TC > 7 and TA + TC < 5)", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC > 3 and TA + TC < 1", "FALSE");
         assertRewrite("TA + TC > 3 and TA + TC < 1", "(TA + TC) is null and null");
-        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC >= 3 and TA + TC < 3");
+        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC is null and null");
         assertRewriteNotNull("TA + TC = 1 and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC = 1 and TA + TC > 10", "(TA + TC) is null and null");
         assertRewrite("TA + TC > 5 or TA + TC < 1", "TA + TC < 1 or TA + TC > 5");
@@ -246,7 +246,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("AA > date '2024-01-03' and AA < date '2024-01-01'", "FALSE");
         assertRewrite("AA > date '2024-01-03' and AA < date '2024-01-01'", "AA is null and null");
         assertRewrite("AA >= date '2024-01-01' and AA < date '2024-01-01'",
-                "AA >= date '2024-01-01' and AA < date '2024-01-01'");
+                "AA IS NULL AND NULL");
         assertRewriteNotNull("AA = date '2024-01-01' and AA > date '2024-01-10'", "FALSE");
         assertRewrite("AA = date '2024-01-01' and AA > date '2024-01-10'", "AA is null and null");
         assertRewrite("AA > date '2024-01-05' or AA < date '2024-01-01'",
@@ -326,7 +326,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "FALSE");
         assertRewrite("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "CA is null and null");
         assertRewrite("CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'",
-                "CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'");
+                "CA is null and null");
         assertRewriteNotNull("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "FALSE");
         assertRewrite("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "CA is null and null");
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'",

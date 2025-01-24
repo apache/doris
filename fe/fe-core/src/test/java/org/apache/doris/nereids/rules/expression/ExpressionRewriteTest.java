@@ -312,6 +312,10 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "(TA + TC > 10 or TB > 20) AND TB > 10");
         assertRewriteAfterTypeCoercion("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
                 "((TA + TC > 10 or TA + TC > 5) or (TB > 20 or TB < 10)) and TB > 10");
+        assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 or TA < 8 and TB <= 10",
+                "TA >= 8 and TB >= 1 or TA < 8 and TB <= 10");
+        assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 and TA < 8 and TB <= 10",
+                "TA >= 8 and TB >= 1 and TA < 8 and TB <= 10");
         assertRewriteAfterTypeCoercion("(CA >= date '2024-01-01' and CA <= date '2024-01-03') or (CA > date '2024-01-05' and CA < date '2024-01-07')",
                 "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07')");
         assertRewriteAfterTypeCoercion("CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01'",
