@@ -194,6 +194,16 @@ public class ExpressionUtils {
     }
 
     /**
+     *  AND / OR expression, also remove duplicate expression, boolean literal
+     */
+    public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
+        return isAnd ? and(expressions) : or(expressions);
+    }
+
+    /**
      *  AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
