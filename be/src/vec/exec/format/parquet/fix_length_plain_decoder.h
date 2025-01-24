@@ -29,7 +29,7 @@ class ColumnSelectVector;
 } // namespace doris::vectorized
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FixLengthPlainDecoder final : public Decoder {
 public:
     FixLengthPlainDecoder() = default;
@@ -103,4 +103,6 @@ Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized
