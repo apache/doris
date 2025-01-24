@@ -383,6 +383,9 @@ struct TMasterOpRequest {
     // selectdb cloud
     1000: optional string cloud_cluster
     1001: optional bool noAuth;
+
+    // temporary table
+    1002: optional string sessionId
 }
 
 struct TColumnDefinition {
@@ -736,6 +739,17 @@ struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
    3: optional string deployMode
+}
+
+struct TFrontendReportAliveSessionRequest {
+   1: required i32 clusterId
+   2: required string token
+}
+
+struct TFrontendReportAliveSessionResult {
+   1: required Status.TStatusCode status
+   2: required string msg
+   3: required list<string> sessionIdList
 }
 
 struct TDiskInfo {
@@ -1568,6 +1582,8 @@ service FrontendService {
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+
+    TFrontendReportAliveSessionResult getAliveSessions(1: TFrontendReportAliveSessionRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 

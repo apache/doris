@@ -28,6 +28,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -139,7 +140,7 @@ public class ShowCreateTableCommand extends ShowCommand {
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
                 return new ShowResultSet(VIEW_META_DATA, rows);
             } else {
-                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
                 return (table.getType() != Table.TableType.MATERIALIZED_VIEW
                         ? new ShowResultSet(META_DATA, rows)
                         : new ShowResultSet(MATERIALIZED_VIEW_META_DATA, rows));
