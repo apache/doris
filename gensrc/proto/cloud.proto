@@ -1016,6 +1016,7 @@ message PartitionRequest {
     optional int64 expiration = 5;
     optional int64 db_id = 6;
     optional bool need_update_table_version = 7;
+    repeated int64 partition_versions = 8;
 }
 
 message PartitionResponse {

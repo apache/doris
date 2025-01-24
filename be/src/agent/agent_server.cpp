@@ -216,6 +216,18 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
     _workers[TTaskType::DROP] = std::make_unique<TaskWorkerPool>(
             "DROP_TABLE", 1, [&engine](auto&& task) { return drop_tablet_callback(engine, task); });
 
+    _workers[TTaskType::DOWNLOAD] = std::make_unique<TaskWorkerPool>(
+            "DOWNLOAD", config::download_worker_count,
+            [&engine, exec_env](auto&& task) { return download_callback(engine, exec_env, task); });
+
+    _workers[TTaskType::MOVE] = std::make_unique<TaskWorkerPool>(
+            "MOVE", 1,
+            [&engine, exec_env](auto&& task) { return move_dir_callback(engine, exec_env, task); });
+
+    _workers[TTaskType::RELEASE_SNAPSHOT] = std::make_unique<TaskWorkerPool>(
+            "RELEASE_SNAPSHOT", config::release_snapshot_worker_count,
+            [&engine](auto&& task) { return release_snapshot_callback(engine, task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
             [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));

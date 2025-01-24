@@ -268,10 +268,20 @@ public class Index implements Writable {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
-        for (Integer columnUniqueId : columnUniqueIds) {
-            Column column = columnMap.get(columnUniqueId);
-            if (column != null) {
-                builder.addColUniqueId(column.getUniqueId());
+        if (columnUniqueIds != null) {
+            for (Integer columnUniqueId : columnUniqueIds) {
+                Column column = columnMap.get(columnUniqueId);
+                if (column != null) {
+                    builder.addColUniqueId(column.getUniqueId());
+                }
+            }
+        } else {
+            for (String columnName : columns) {
+                for (Column column : columnMap.values()) {
+                    if (column.getName().equals(columnName)) {
+                        builder.addColUniqueId(column.getUniqueId());
+                    }
+                }
             }
         }
 

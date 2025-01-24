@@ -49,6 +49,8 @@
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_snapshot_loader.h"
+#include "cloud/cloud_snapshot_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -1272,6 +1274,53 @@ void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     remove_task_info(req.task_type, req.signature);
 }
 
+void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
+    const auto& download_request = req.download_req;
+    LOG(INFO) << "get download task. signature=" << req.signature
+              << ", job_id=" << download_request.job_id
+              << ", task detail: " << apache::thrift::ThriftDebugString(download_request);
+
+    std::vector<int64_t> transferred_tablet_ids;
+
+    auto status = Status::OK();
+    if (download_request.__isset.remote_tablet_snapshots) {
+        status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("remote tablet snapshot is not supported.");
+    } else {
+        std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
+                engine, env, download_request.job_id, req.signature, download_request.broker_addr,
+                download_request.broker_prop);
+        status = loader->init(download_request.__isset.storage_backend
+                              ? download_request.storage_backend
+                              : TStorageBackendType::type::BROKER,
+                              download_request.__isset.location ? download_request.location : "",
+                              download_request.vault_id);
+        if (status.ok()) {
+            status = loader->download(download_request.cloud_src_dest_map, &transferred_tablet_ids);
+        }
+
+        if (!status.ok()) {
+            LOG_WARNING("failed to download")
+                    .tag("signature", req.signature)
+                    .tag("job_id", download_request.job_id)
+                    .error(status);
+        } else {
+            LOG_INFO("successfully download")
+                    .tag("signature", req.signature)
+                    .tag("job_id", download_request.job_id);
+        }
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(req.task_type);
+        finish_task_request.__set_signature(req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+        finish_task_request.__set_downloaded_tablet_ids(transferred_tablet_ids);
+
+        finish_task(finish_task_request);
+        remove_task_info(req.task_type, req.signature);
+    }
+}
+
 void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& snapshot_request = req.snapshot_req;
 
@@ -1351,6 +1400,33 @@ void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& r
     remove_task_info(req.task_type, req.signature);
 }
 
+void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& release_snapshot_request = req.release_snapshot_req;
+
+    LOG(INFO) << "get release snapshot task. signature=" << req.signature;
+
+    Status status = engine.cloud_snapshot_mgr().release_snapshot(release_snapshot_request.tablet_id);
+    if (!status.ok()) {
+        LOG_WARNING("failed to release snapshot")
+                .tag("signature", req.signature)
+                .tag("tablet_id", release_snapshot_request.tablet_id)
+                .error(status);
+    } else {
+        LOG_INFO("successfully release snapshot")
+                .tag("signature", req.signature)
+                .tag("tablet_id", release_snapshot_request.tablet_id);
+    }
+
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
 void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
     const auto& move_dir_req = req.move_dir_req;
 
@@ -1378,6 +1454,44 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
                 .tag("job_id", move_dir_req.job_id)
                 .tag("tablet_id", move_dir_req.tablet_id)
                 .tag("src", move_dir_req.src);
+    }
+
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
+void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
+    const auto& move_dir_req = req.move_dir_req;
+
+    LOG(INFO) << "get move dir task. signature=" << req.signature
+              << ", job_id=" << move_dir_req.job_id;
+    Status status;
+    auto res = engine.tablet_mgr().get_tablet(move_dir_req.tablet_id);
+    if (!res.has_value()) {
+        status = Status::InvalidArgument("Could not find tablet");
+    } else {
+        std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
+                engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
+        status = loader->commit(std::move(res.value()));
+    }
+
+    if (!status.ok()) {
+        LOG_WARNING("failed to move dir")
+                .tag("signature", req.signature)
+                .tag("job_id", move_dir_req.job_id)
+                .tag("tablet_id", move_dir_req.tablet_id)
+                .error(status);
+    } else {
+        LOG_INFO("successfully move dir")
+                .tag("signature", req.signature)
+                .tag("job_id", move_dir_req.job_id)
+                .tag("tablet_id", move_dir_req.tablet_id);
     }
 
     TFinishTaskRequest finish_task_request;

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <chrono>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 
@@ -368,6 +369,14 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         return;
     }
 
+    if (request->partition_versions_size() > 0 &&
+        (request->partition_versions_size() != request->partition_ids_size())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "size is not equal, partition_versions size=" + std::to_string(request->partition_ids_size()) +
+              " partition_ids size=" + std::to_string(request->partition_ids_size());
+        return;
+    }
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -399,13 +408,33 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         pb.set_state(RecyclePartitionPB::PREPARED);
         pb.SerializeToString(&to_save_val);
     }
-    for (auto part_id : request->partition_ids()) {
-        auto key = recycle_partition_key({instance_id, part_id});
+    for (int i = 0; i < request->partition_ids_size(); i++) {
+        auto key = recycle_partition_key({instance_id, request->partition_ids(i)});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             LOG_INFO("put recycle partition").tag("key", hex(key));
             txn->put(key, to_save_val);
+            // save partition version
+            if (request->partition_versions_size() > 0 && request->partition_versions(i) > 1) {
+                int64_t version_update_time_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch()).count();
+                std::string ver_key;
+                std::string ver_val;
+                partition_version_key({instance_id, request->db_id(), request->table_id(),
+                                       request->partition_ids(i)}, &ver_key);
+                VersionPB version_pb;
+                version_pb.set_version(request->partition_versions(i));
+                version_pb.set_update_time_ms(version_update_time_ms);
+                if (!version_pb.SerializeToString(&ver_val)) {
+                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                    ss << "failed to serialize version_pb when saving.";
+                    msg = ss.str();
+                    return;
+                }
+                txn->put(ver_key, ver_val);
+            }
             continue;
         }
         if (err != TxnErrorCode::TXN_OK) {
@@ -418,7 +447,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         if (!pb.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "malformed recycle partition value";
-            LOG_WARNING(msg).tag("partition_id", part_id);
+            LOG_WARNING(msg).tag("partition_id", request->partition_ids(i));
             return;
         }
         if (pb.state() != RecyclePartitionPB::PREPARED) {

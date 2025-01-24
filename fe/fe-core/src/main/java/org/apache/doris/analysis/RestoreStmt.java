@@ -18,15 +18,18 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.backup.Repository;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -45,6 +48,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_STORAGE_VAULT_NAME = "storage_vault_name";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -60,6 +64,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private boolean isAtomicRestore = false;
     private byte[] meta = null;
     private byte[] jobInfo = null;
+    private String storageVaultName = null;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
             Map<String, String> properties) {
@@ -83,6 +88,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public String getBackupTimestamp() {
         return backupTimestamp;
+    }
+
+    public String getStorageVaultName() {
+        return storageVaultName;
     }
 
     public int getMetaVersion() {
@@ -205,6 +214,37 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
                         "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
             }
             copiedProperties.remove(PROP_META_VERSION);
+        }
+
+        // storage vault name
+        if (Config.isCloudMode()) {
+            if (copiedProperties.containsKey(PROP_STORAGE_VAULT_NAME)) {
+                storageVaultName = copiedProperties.get(PROP_STORAGE_VAULT_NAME);
+                copiedProperties.remove(PROP_STORAGE_VAULT_NAME);
+            } else {
+                if (isLocal) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                            "Missing " + PROP_STORAGE_VAULT_NAME + " property");
+                }
+            }
+
+            if (Strings.isNullOrEmpty(storageVaultName)) {
+                // If storage vault is not specified then use the default vault
+                Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
+                if (info == null) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "No default storage vault."
+                            + " You can use `SHOW STORAGE VAULT(S)` to get all available vaults,"
+                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+                }
+                storageVaultName = info.first;
+            } else {
+                String storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+                if (Strings.isNullOrEmpty(storageVaultId)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Storage vault '"
+                            + storageVaultName + "' does not exist. You can use `SHOW STORAGE VAULT` to get"
+                            + " all available vaults, or create a new one with `CREATE STORAGE VAULT`.");
+                }
+            }
         }
 
         // is being synced

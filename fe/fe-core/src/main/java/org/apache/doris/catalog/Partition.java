@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.rpc.RpcException;
 
@@ -350,6 +351,11 @@ public class Partition extends MetaObject {
 
     @Deprecated
     public static Partition read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() <= FeMetaVersion.VERSION_129) {
+            Partition partition = new Partition();
+            partition.readFields(in);
+            return partition;
+        }
         Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;

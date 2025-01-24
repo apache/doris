@@ -465,13 +465,15 @@ public class PartitionInfo {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
-            if (Config.isCloudMode()) {
-                // HACK: the origin implementation of the cloud mode has code likes:
-                //
-                //     idToPersistent.put(partitionId, in.readBoolean());
-                //
-                // keep the compatibility here.
-                in.readBoolean();
+            if (Env.getCurrentEnvJournalVersion() > FeMetaVersion.VERSION_129) {
+                if (Config.isCloudMode()) {
+                    // HACK: the origin implementation of the cloud mode has code likes:
+                    //
+                    //     idToPersistent.put(partitionId, in.readBoolean());
+                    //
+                    // keep the compatibility here.
+                    in.readBoolean();
+                }
             }
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
