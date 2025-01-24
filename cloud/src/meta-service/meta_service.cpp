@@ -1209,6 +1209,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
               << request->txn_id() << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to save rowset meta, err=" << err;
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
             LOG(WARNING) << "failed to commit rowset, err=value too large"
                          << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
@@ -1217,9 +1219,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", num_segments=" << rowset_meta.num_segments()
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
         }
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to save rowset meta, err=" << err;
         msg = ss.str();
         return;
     }
@@ -1313,6 +1316,8 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
               << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to update rowset meta, err=" << err;
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
             const auto& rowset_id = rowset_meta.rowset_id_v2();
             LOG(WARNING) << "failed to update tmp rowset, err=value too large"
@@ -1321,9 +1326,10 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
                          << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
         }
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to update rowset meta, err=" << err;
         msg = ss.str();
         return;
     }
