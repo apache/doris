@@ -56,14 +56,12 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
-import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.plugin.DialectConverterPlugin;
-import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -79,7 +77,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -91,7 +88,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import javax.annotation.Nullable;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -269,7 +265,7 @@ public abstract class ConnectProcessor {
             }
         }
 
-        String convertedStmt = convertOriginStmt(originStmt);
+        String convertedStmt = SqlDialectHelper.convertSqlByDialect(originStmt, ctx.getSessionVariable());
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
 
@@ -435,27 +431,6 @@ public abstract class ConnectProcessor {
         return null;
     }
 
-    private String convertOriginStmt(String originStmt) {
-        String convertedStmt = originStmt;
-        @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
-        if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
-            PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
-            List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
-            for (DialectConverterPlugin plugin : plugins) {
-                try {
-                    String convertedSql = plugin.convertSql(originStmt, ctx.getSessionVariable());
-                    if (StringUtils.isNotEmpty(convertedSql)) {
-                        convertedStmt = convertedSql;
-                        break;
-                    }
-                } catch (Throwable throwable) {
-                    LOG.warn("Convert sql with dialect {} failed, plugin: {}, sql: {}, use origin sql.",
-                                sqlDialect, plugin.getClass().getSimpleName(), originStmt, throwable);
-                }
-            }
-        }
-        return convertedStmt;
-    }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
