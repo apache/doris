@@ -297,6 +297,9 @@ public class DateLiteralTest {
             Assert.assertEquals(2022, literal.getYear());
             Assert.assertEquals(6, literal.getMonth());
             Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2022-6-01 00:00:00.000000", ScalarType.createDatetimeV2Type(6));
+            Assert.assertTrue(literal.toSql().contains(".000000"));
         } catch (AnalysisException e) {
             e.printStackTrace();
             hasException = true;
