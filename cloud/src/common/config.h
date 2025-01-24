@@ -187,6 +187,10 @@ CONF_Int32(txn_store_retry_times, "4");
 CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 // Whether to retry the txn conflict errors that returns by the underlying txn store.
 CONF_Bool(enable_retry_txn_conflict, "true");
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
+CONF_Int32(delete_bitmap_txn_conflict_retry_times, "4");
+CONF_Int32(delete_bitmap_txn_conflict_retry_base_intervals_ms, "50");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
