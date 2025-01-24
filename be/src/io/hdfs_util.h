@@ -25,6 +25,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/status.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
@@ -52,14 +53,16 @@ extern bvar::LatencyRecorder hdfs_hsync_latency;
 
 class HdfsHandler {
 public:
-    HdfsHandler(hdfsFS fs, bool cached)
+    HdfsHandler(hdfsFS fs, kerberos::KerberosTicketCache* ticket_cache, bool cached)
             : hdfs_fs(fs),
               from_cache(cached),
               _create_time(std::chrono::duration_cast<std::chrono::milliseconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count()),
               _last_access_time(0),
-              _invalid(false) {}
+              _invalid(false) {
+        _ticket_cache.reset(ticket_cache);
+    }
 
     ~HdfsHandler() {
         if (hdfs_fs != nullptr) {
@@ -97,6 +100,8 @@ private:
     std::atomic<uint64_t> _last_access_time;
     // Client will set invalid if error thrown, and HdfsFileSystemCache will not reuse this handler
     std::atomic<bool> _invalid;
+
+    std::unique_ptr<kerberos::KerberosTicketCache> _ticket_cache;
 };
 
 // Cache for HdfsHandler
