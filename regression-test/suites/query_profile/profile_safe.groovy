@@ -68,6 +68,7 @@ suite('profile_safe') {
     sql """
         INSERT INTO profile_safe VALUES (1, 'test_profile_safe'),(2, 'test_profile_safe');
     """
+    Thread.sleep(200)
     def wholeString = getProfileList(masterAddress)
     def profileListData = new JsonSlurper().parseText(wholeString).data.rows
     for (def profileList : profileListData) {
@@ -78,13 +79,21 @@ suite('profile_safe') {
         assert !stmt.contains("INSERT INTO profile_safe VALUES")
     }
     sql """ INSERT INTO profile_safe SELECT * FROM profile_safe;"""
-    Thread.sleep(2000)
-    wholeString = getProfileList(masterAddress)
+
     boolean hasInsertSelectProfile = false
-    for (def profileList : profileListData) {
-        def stmt = profileList["Sql Statement"].toString()
-        if (stmt.contains("INSERT INTO profile_safe SELECT * FROM profile_safe")) {
-            hasInsertSelectProfile = true
+    for (int i = 0; i < 10; i++) {
+        Thread.sleep(500)
+        wholeString = getProfileList(masterAddress)
+        profileListData = new JsonSlurper().parseText(wholeString).data.rows
+        for (def profileList : profileListData) {
+            def taskType = profileList["Task Type"].toString()
+            def stmt = profileList["Sql Statement"].toString()
+            if (taskType == "LOAD" && stmt.contains("INSERT INTO profile_safe SELECT * FROM profile_safe")) {
+                hasInsertSelectProfile = true
+                break
+            }
+        }
+        if (hasInsertSelectProfile == true) {
             break
         }
     }
