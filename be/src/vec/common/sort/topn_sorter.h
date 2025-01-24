@@ -26,6 +26,7 @@
 #include "vec/common/sort/sorter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 class RuntimeProfile;
@@ -43,7 +44,7 @@ class TopNSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(TopNSorter);
 
 public:
-    TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+    TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
                const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
 
@@ -66,4 +67,5 @@ private:
     const RowDescriptor& _row_desc;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
