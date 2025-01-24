@@ -39,13 +39,6 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--mariadb
-  doris--mariadb-hello-world:
-    image: hello-world
-    depends_on:
-      doris--mariadb:
-        condition: service_healthy 
-    networks:
-      - doris--mariadb
 
 networks:
   doris--mariadb:
