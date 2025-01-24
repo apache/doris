@@ -512,8 +512,8 @@ public:
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
     virtual size_t byte_size() const = 0;
 
-    /// Capacity of memory allocated for column.
-    virtual size_t capacity_bytes() const = 0;
+    /// Capacity of unsed memory could hold the all data from src column.
+    virtual bool has_enough_capacity(const IColumn& src) const = 0;
 
     /// Size of memory, allocated for column.
     /// This is greater or equals to byte_size due to memory reservation in containers.

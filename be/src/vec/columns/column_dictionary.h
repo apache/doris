@@ -116,7 +116,9 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    size_t capacity_bytes() const override { return _codes.capacity() * sizeof(_codes[0]); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        return _codes.capacity() - _codes.size() > src.size();
+    }
 
     void pop_back(size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

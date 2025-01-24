@@ -285,7 +285,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    size_t capacity_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
