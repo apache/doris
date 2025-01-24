@@ -77,10 +77,6 @@ protected:
 
     Status init() override { return Status::NotSupported("MockRowset not support this method."); }
 
-    Status do_load(bool use_cache) override {
-        return Status::NotSupported("MockRowset not support this method.");
-    }
-
     void do_close() override {
         // Do nothing.
     }
