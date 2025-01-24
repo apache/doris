@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
@@ -37,13 +38,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-// NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
-// this may cause in some corner case missing statistics update,for example:
-// time1: clear logic judge query 1 is timeout
-// time2: query 1 is update by report
-// time3: clear logic remove query 1
-// in this case, lost query stats is allowed. because query report time out is 60s by default,
-// when this case happens, we should find why be not report for so long first.
+// NOTE: A global lock for beToQueryStatsMap is not used to avoid locking all backends (be).
+// This may result in missing statistics updates in some edge cases, for example:
+// time1: The clear logic determines query 1 has timed out.
+// time2: Query 1 is updated by a report.
+// time3: The clear logic removes query 1.
+// In this scenario, losing query statistics is acceptable because the default query report timeout is 60 seconds.
+// If this occurs, the primary concern should be investigating why the backend did not report for
+// such an extended period.
 public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
@@ -99,6 +101,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                         missedLogCount, succLogCount);
             }
         } catch (Throwable t) {
+            Env.getCurrentEnv().getAuditEventProcessor()
+                    .addAuditError("[Handle audit event] " + Util.getRootCauseMessage(t));
             LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
@@ -154,9 +158,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             return;
         }
         long beId = params.backend_id;
-        // NOTE(wb) one be sends update request one by one,
-        // so there is no need a global lock for beToQueryStatsMap here,
-        // just keep one be's put/remove/get is atomic operation is enough
+        // Each backend (be) sends update requests sequentially,
+        // so a global lock for beToQueryStatsMap is unnecessary.
+        // Ensuring atomic operations for each backend's put/remove/get is sufficient.
         long currentTime = System.currentTimeMillis();
         BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
         if (beReportInfo == null) {

@@ -20,6 +20,7 @@ package org.apache.doris.plugin.audit;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
@@ -121,6 +122,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         try {
             auditEventQueue.add(event);
         } catch (Exception e) {
+            Env.getCurrentEnv().getAuditEventProcessor()
+                    .addAuditError("[Add audit event] " + Util.getRootCauseMessage(e));
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
             // improvement can be considered.
@@ -189,6 +192,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     // Acquire token from master
                     token = Env.getCurrentEnv().getTokenManager().acquireToken();
                 } catch (Exception e) {
+                    Env.getCurrentEnv().getAuditEventProcessor()
+                            .addAuditError("[Get audit loader token] " + Util.getRootCauseMessage(e));
                     LOG.warn("Failed to get auth token: {}", e);
                     discardLogNum += auditLogNum;
                     return;
@@ -198,6 +203,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     LOG.debug("audit loader response: {}", response);
                 }
             } catch (Exception e) {
+                Env.getCurrentEnv().getAuditEventProcessor()
+                        .addAuditError("[Load audit event] " + Util.getRootCauseMessage(e));
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
                 }
@@ -232,12 +239,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     }
                     // process all audit logs
                     loadIfNecessary(false);
-                } catch (InterruptedException ie) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("encounter exception when loading current audit batch", ie);
-                    }
                 } catch (Exception e) {
-                    LOG.error("run audit logger error:", e);
+                    Env.getCurrentEnv().getAuditEventProcessor()
+                            .addAuditError("[Run audit load worker] " + Util.getRootCauseMessage(e));
+                    LOG.warn("run audit logger error:", e);
                 }
             }
         }

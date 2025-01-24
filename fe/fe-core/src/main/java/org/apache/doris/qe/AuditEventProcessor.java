@@ -18,11 +18,13 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.AuditErrorHub.AuditError;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Queues;
@@ -55,8 +57,18 @@ public class AuditEventProcessor {
 
     private Set<String> skipAuditUsers = Sets.newHashSet();
 
+    private AuditErrorHub auditErrorHub = new AuditErrorHub();
+
     public AuditEventProcessor(PluginMgr pluginMgr) {
         this.pluginMgr = pluginMgr;
+    }
+
+    public void addAuditError(String message) {
+        auditErrorHub.addError(message);
+    }
+
+    public List<AuditError> getAuditErrors() {
+        return auditErrorHub.getCopiedErrors();
     }
 
     public void start() {
@@ -102,6 +114,7 @@ public class AuditEventProcessor {
             eventQueue.add(auditEvent);
         } catch (Exception e) {
             isAddSucc = false;
+            auditErrorHub.addError("[Add audit event] " + Util.getRootCauseMessage(e));
             if (!ignoreQueueFullLog) {
                 LOG.warn("encounter exception when handle audit event {}, ignore", auditEvent.type, e);
             }
@@ -130,6 +143,7 @@ public class AuditEventProcessor {
                         continue;
                     }
                 } catch (InterruptedException e) {
+                    auditErrorHub.addError("[Poll audit event] " + Util.getRootCauseMessage(e));
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("encounter exception when getting audit event from queue, ignore", e);
                     }
@@ -143,6 +157,7 @@ public class AuditEventProcessor {
                         }
                     }
                 } catch (Exception e) {
+                    auditErrorHub.addError("[Processing audit event] " + Util.getRootCauseMessage(e));
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("encounter exception when processing audit event.", e);
                     }
