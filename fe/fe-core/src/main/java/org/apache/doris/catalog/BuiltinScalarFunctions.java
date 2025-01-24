@@ -236,7 +236,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -707,7 +706,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
-            scalar(JsonExtract.class, "json_extract"),
             scalar(JsonInsert.class, "json_insert"),
             scalar(JsonReplace.class, "json_replace"),
             scalar(JsonSet.class, "json_set"),
@@ -726,6 +724,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbExtractInt.class, "jsonb_extract_int"),
             scalar(JsonbExtractIsnull.class, "json_extract_isnull"),
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
+            scalar(JsonbExtractString.class, "json_extract"),
             scalar(JsonbExtractString.class, "json_extract_string"),
             scalar(JsonbExtractString.class, "jsonb_extract_string"),
             scalar(JsonbParse.class, "json_parse"),
