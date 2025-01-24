@@ -122,14 +122,6 @@ services:
       mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       tail -f /dev/null
       "
-  
-  iceberg-hello-world:
-    image: hello-world
-    container_name: doris--iceberg-hello-world
-    depends_on:
-      spark-iceberg:
-        condition: service_healthy
-    network_mode: "host"
 
 networks:
   doris--iceberg:
