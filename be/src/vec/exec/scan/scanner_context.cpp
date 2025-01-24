@@ -275,14 +275,12 @@ void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
         }
     }
 
-    {
-        std::lock_guard<std::mutex> l(_transfer_lock);
-        if (!scan_task->status_ok()) {
-            _process_status = scan_task->get_status();
-        }
-        _tasks_queue.push_back(scan_task);
-        _num_scheduled_scanners--;
+    std::lock_guard<std::mutex> l(_transfer_lock);
+    if (!scan_task->status_ok()) {
+        _process_status = scan_task->get_status();
     }
+    _tasks_queue.push_back(scan_task);
+    _num_scheduled_scanners--;
 
     _dependency->set_ready();
 }
