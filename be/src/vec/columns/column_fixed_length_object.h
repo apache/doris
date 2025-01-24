@@ -264,7 +264,7 @@ public:
 
     bool has_enough_capacity(const IColumn& src) const override {
         const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
-        return _data.capacity() - _data.size() >= src_col.size();
+        return _data.capacity() - _data.size() > src_col.size();
     }
 
     //NOTICE: here is replace: this[self_row] = rhs[row]

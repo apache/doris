@@ -26,7 +26,6 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>

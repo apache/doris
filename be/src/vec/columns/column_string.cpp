@@ -152,11 +152,10 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
 template <typename T>
 bool ColumnStr<T>::has_enough_capacity(const IColumn& src) const {
     const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
-    const auto& need_char = src_concrete.get_chars().size();
-    const auto& need_offset = src_concrete.get_offsets().size();
-    auto left_char_capacity = this->get_chars().capacity() - this->get_chars().size();
-    auto left_offset_capacity = this->get_offsets().capacity() - this->get_offsets().size();
-    return (left_char_capacity > need_char) && (left_offset_capacity > need_offset);
+    return (this->get_chars().capacity() - this->get_chars().size() >
+            src_concrete.get_chars().size()) &&
+           (this->get_offsets().capacity() - this->get_offsets().size() >
+            src_concrete.get_offsets().size());
 }
 
 template <typename T>
@@ -177,10 +176,6 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
 
         size_t old_chars_size = chars.size();
         check_chars_length(old_chars_size + nested_length, offsets.size() + length, size());
-        if ((old_chars_size + nested_length) > chars.capacity()) {
-            LOG(INFO) << "asd chars realloc: " << (old_chars_size + nested_length) << " "
-                      << chars.capacity();
-        }
         chars.resize(old_chars_size + nested_length);
         memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
 
@@ -190,10 +185,6 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
         } else {
             size_t old_size = offsets.size();
             auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
-            if ((old_size + length) > offsets.capacity()) {
-                LOG(INFO) << "asd offsets realloc: " << (old_size + length) << " "
-                          << offsets.capacity();
-            }
             offsets.resize(old_size + length);
 
             for (size_t i = 0; i < length; ++i) {
