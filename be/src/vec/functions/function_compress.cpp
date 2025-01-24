@@ -19,6 +19,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -51,7 +52,7 @@ class FunctionContext;
 namespace doris::vectorized {
 
 class FunctionCompress : public IFunction {
-    string hexadecimal = "0123456789ABCDEF";
+    string hex_itoc = "0123456789ABCDEF";
 
 public:
     static constexpr auto name = "compress";
@@ -76,6 +77,10 @@ public:
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
         auto result_column = ColumnString::create();
 
+        auto& arg_data = arg_column.get_chars();
+        auto& arg_offset = arg_column.get_offsets();
+        const char* arg_begin = reinterpret_cast<const char*>(arg_data.data());
+
         auto& col_data = result_column->get_chars();
         auto& col_offset = result_column->get_offsets();
         col_offset.resize(input_rows_count);
@@ -87,19 +92,19 @@ public:
         Slice data;
         for (size_t row = 0; row < input_rows_count; row++) {
             null_map[row] = false;
-            const auto& str = arg_column.get_data_at(row);
-            data = Slice(str.data, str.size);
+            size_t length = arg_offset[row] - arg_offset[row - 1];
+            data = Slice(arg_begin, length);
 
             auto st = compression_codec->compress(data, &compressed_str);
 
-            if (!st.ok()) { // Failed to decompress. data is an illegal value
+            if (!st.ok()) { // Failed to compress. The data should be a valid string or value.
                 col_offset[row] = col_offset[row - 1];
                 null_map[row] = true;
                 continue;
             }
 
             size_t idx = col_data.size();
-            if (!str.size) { // data is ''
+            if (!length) { // data is ''
                 col_data.resize(col_data.size() + 2);
                 col_data[idx] = '0', col_data[idx + 1] = 'x';
                 col_offset[row] = col_offset[row - 1] + 2;
@@ -107,30 +112,25 @@ public:
             }
 
             // first ten digits represent the length of the uncompressed string
-            int value = (int)str.size;
             col_data.resize(col_data.size() + 10);
             col_data[idx] = '0', col_data[idx + 1] = 'x';
             for (size_t i = 0; i < 4; i++) {
-                unsigned char byte = (value >> (i * 8)) & 0xFF;
-                col_data[idx + 2 + i * 2] = hexadecimal[byte >> 4]; // higher four
-                col_data[idx + 3 + i * 2] = hexadecimal[byte & 0x0F];
+                unsigned char byte = (length >> (i * 8)) & 0xFF;
+                col_data[idx + 2 + i * 2] = hex_itoc[byte >> 4]; // higher four
+                col_data[idx + 3 + i * 2] = hex_itoc[byte & 0x0F];
             }
             idx += 10;
 
             col_data.resize(col_data.size() + 2 * compressed_str.size());
 
             unsigned char* src = compressed_str.data();
-            {
-                for (size_t i = 0; i < compressed_str.size(); i++) {
-                    col_data[idx] =
-                            ((*src >> 4) & 0x0F) + (((*src >> 4) & 0x0F) < 10 ? '0' : 'A' - 10);
-                    col_data[idx + 1] = (*src & 0x0F) + ((*src & 0x0F) < 10 ? '0' : 'A' - 10);
-                    idx += 2;
-                    src++;
-                }
-
-                col_offset[row] = col_offset[row - 1] + 10 + compressed_str.size() * 2;
+            for (size_t i = 0; i < compressed_str.size(); i++) {
+                col_data[idx] = hex_itoc[(*src >> 4) & 0x0F];
+                col_data[idx + 1] = hex_itoc[(*src & 0x0F)];
+                idx += 2;
+                src++;
             }
+            col_offset[row] = col_offset[row - 1] + 10 + compressed_str.size() * 2;
         }
 
         block.replace_by_position(
@@ -141,6 +141,10 @@ public:
 
 class FunctionUncompress : public IFunction {
     string hexadecimal = "0123456789ABCDEF";
+    std::map<char, int> hex_ctoi = {
+            {'0', 0},  {'1', 1},  {'2', 2},  {'3', 3},  {'4', 4},  {'5', 5},  {'6', 6},  {'7', 7},
+            {'8', 8},  {'9', 9},  {'A', 10}, {'B', 11}, {'C', 12}, {'D', 13}, {'E', 14}, {'F', 15},
+            {'a', 10}, {'b', 11}, {'c', 12}, {'d', 13}, {'e', 14}, {'f', 15}};
 
 public:
     static constexpr auto name = "uncompress";
@@ -164,6 +168,10 @@ public:
         const auto& arg_column =
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
 
+        auto& arg_data = arg_column.get_chars();
+        auto& arg_offset = arg_column.get_offsets();
+        const char* arg_begin = reinterpret_cast<const char*>(arg_data.data());
+
         auto result_column = ColumnString::create();
         auto& col_data = result_column->get_chars();
         auto& col_offset = result_column->get_offsets();
@@ -176,37 +184,30 @@ public:
         Slice data;
         Slice uncompressed_slice;
         for (size_t row = 0; row < input_rows_count; row++) {
-            auto check = [](char x) {
+            std::function<bool(char)> check = [](char x) {
                 return ((x >= '0' && x <= '9') || (x >= 'a' && x <= 'f') || (x >= 'A' && x <= 'F'));
             };
 
             null_map[row] = false;
-            const auto& str = arg_column.get_data_at(row);
-            data = Slice(str.data, str.size);
+            data = Slice(arg_begin, arg_offset[row] - arg_offset[row - 1]);
+            size_t data_length = arg_offset[row] - arg_offset[row - 1];
 
-            int illegal = 0;
+            bool illegal = false;
             // The first ten digits are "0x" and length, followed by hexadecimal, each two digits is a byte
-            if ((int)str.size < 10 || (int)str.size % 2 == 1) {
-                illegal = 1;
+            if (data_length < 10 || data_length % 2 == 1) {
+                illegal = true;
             } else {
                 if (data[0] != '0' || data[1] != 'x') {
-                    illegal = 1;
+                    illegal = true;
                 }
                 for (size_t i = 2; i <= 9; i += 2) {
                     if (!check(data[i])) {
-                        illegal = 1;
+                        illegal = true;
                     }
                 }
             }
 
             if (illegal) { // The top ten don't fit the rules
-                if ((int)data.size == 2 && data[0] == '0' && data[1] == 'x') {
-                    int idx = col_data.size();
-                    col_data.resize(col_data.size() + 2);
-                    col_data[idx] = '0', col_data[idx + 1] = 'x';
-                    col_offset[row] = col_offset[row - 1] + 2;
-                    continue;
-                }
                 col_offset[row] = col_offset[row - 1];
                 null_map[row] = true;
                 continue;
@@ -214,12 +215,8 @@ public:
 
             unsigned int length = 0;
             for (size_t i = 2; i <= 9; i += 2) {
-                unsigned char byte =
-                        (data[i] >= '0' && data[i] <= '9') ? (data[i] - '0') : (data[i] - 'A' + 10);
-                byte = (byte << 4) + ((data[i + 1] >= '0' && data[i + 1] <= '9')
-                                              ? (data[i + 1] - '0')
-                                              : (data[i + 1] - 'A' + 10));
-                length += (byte << (8 * (i / 2 - 1)));
+                unsigned char byte = (hex_ctoi.at(data[i]) << 4) + hex_ctoi.at(data[i + 1]);
+                length += (byte << (8 * (i / 2 - 1))); //Little Endian : 0x01000000 -> 1
             }
 
             uncompressed.resize(length);
@@ -228,11 +225,7 @@ public:
             //Converts a hexadecimal readable string to a compressed byte stream
             std::string s(((int)data.size - 10) / 2, ' '); // byte stream  data.size >= 10
             for (size_t i = 10, j = 0; i < data.size; i += 2, j++) {
-                s[j] = (((data[i] >= '0' && data[i] <= '9') ? (data[i] - '0')
-                                                            : (data[i] - 'A' + 10))
-                        << 4) +
-                       ((data[i + 1] >= '0' && data[i + 1] <= '9') ? (data[i + 1] - '0')
-                                                                   : (data[i + 1] - 'A' + 10));
+                s[j] = (hex_ctoi.at(data[i]) << 4) + hex_ctoi.at(data[i + 1]);
             }
             Slice compressed_data(s);
             auto st = compression_codec->decompress(compressed_data, &uncompressed_slice);
@@ -244,15 +237,9 @@ public:
             }
 
             int idx = col_data.size();
-            col_data.resize(col_data.size() + 2 * uncompressed_slice.size + 2);
-            col_offset[row] = col_offset[row - 1] + 2 * uncompressed_slice.size + 2;
-
-            col_data[idx] = '0', col_data[idx + 1] = 'x';
-            for (size_t i = 0; i < uncompressed_slice.size; i++) {
-                unsigned char byte = uncompressed_slice[i];
-                col_data[idx + 2 + i * 2] = hexadecimal[byte >> 4];
-                col_data[idx + 3 + i * 2] = hexadecimal[byte & 0x0F];
-            }
+            col_data.resize(col_data.size() + uncompressed_slice.size);
+            col_offset[row] = col_offset[row - 1] + uncompressed_slice.size;
+            memcpy(col_data.data() + idx, uncompressed_slice.data, uncompressed_slice.size);
         }
 
         block.replace_by_position(
