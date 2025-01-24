@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -43,7 +44,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
@@ -61,91 +61,92 @@ public class MTMVJobManager implements MTMVHookService {
 
     public static final String MTMV_JOB_PREFIX = "inner_mtmv_";
 
-    /**
-     * create MTMVJob
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
-    @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
+    public static MTMVJob buildMTMVJob(long dbId, long mtmvId, UserIdentity createUser, MTMVRefreshInfo refreshInfo) {
+        MTMVJob job = new MTMVJob(dbId, mtmvId);
         job.setJobId(Env.getCurrentEnv().getNextId());
-        job.setJobName(mtmv.getJobInfo().getJobName());
-        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
+        job.setJobName(MTMVJobManager.MTMV_JOB_PREFIX + mtmvId);
+        job.setCreateUser(createUser);
         job.setJobStatus(JobStatus.RUNNING);
-        job.setJobConfig(getJobConfig(mtmv));
-        try {
-            Env.getCurrentEnv().getJobManager().registerJob(job);
-        } catch (JobException e) {
-            throw new DdlException(e.getMessage(), e);
-        }
+        job.setJobConfig(getJobConfig(refreshInfo));
+        return job;
     }
 
-    private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
+    private static JobExecutionConfiguration getJobConfig(MTMVRefreshInfo refreshInfo) {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
-        RefreshTrigger refreshTrigger = mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger();
+        RefreshTrigger refreshTrigger = refreshInfo.getRefreshTriggerInfo().getRefreshTrigger();
         if (refreshTrigger.equals(RefreshTrigger.SCHEDULE)) {
-            setScheduleJobConfig(jobExecutionConfiguration, mtmv);
+            setScheduleJobConfig(jobExecutionConfiguration, refreshInfo);
         } else if (refreshTrigger.equals(RefreshTrigger.MANUAL) || refreshTrigger.equals(RefreshTrigger.COMMIT)) {
-            setManualJobConfig(jobExecutionConfiguration, mtmv);
+            setManualJobConfig(jobExecutionConfiguration, refreshInfo);
         }
         return jobExecutionConfiguration;
     }
 
-    private void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
+    private static void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration,
+            MTMVRefreshInfo refreshInfo) {
         jobExecutionConfiguration.setExecuteType(JobExecuteType.MANUAL);
-        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        if (refreshInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
             jobExecutionConfiguration.setImmediate(true);
         } else {
             jobExecutionConfiguration.setImmediate(false);
         }
     }
 
-    private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
+    private static void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration,
+            MTMVRefreshInfo refreshInfo) {
         jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
-        MTMVRefreshInfo refreshMTMVInfo = mtmv.getRefreshInfo();
         TimerDefinition timerDefinition = new TimerDefinition();
         timerDefinition
-                .setInterval(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getInterval());
+                .setInterval(refreshInfo.getRefreshTriggerInfo().getIntervalTrigger().getInterval());
         timerDefinition
-                .setIntervalUnit(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
+                .setIntervalUnit(refreshInfo.getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
         if (!StringUtils
-                .isEmpty(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
+                .isEmpty(refreshInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
-                    refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
+                    refreshInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
         }
-        if (refreshMTMVInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        if (refreshInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
             jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
 
-    /**
-     * drop MTMVJob
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
     @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-        try {
-            Env.getCurrentEnv().getJobManager()
-                    .unregisterJob(mtmv.getJobInfo().getJobName(), true);
-        } catch (JobException e) {
-            LOG.warn("drop mtmv job failed, mtmvName: {}", mtmv.getName(), e);
-            throw new DdlException(e.getMessage());
+    public void registerMTMV(MTMV mtmv, Long dbId, boolean isReplay) {
+        if (isReplay) {
+            try {
+                Env.getCurrentEnv().getJobManager().replayCreateJob(mtmv.getJobInfo().getJob());
+            } catch (JobException e) {
+                // TODO: 2025/1/24 zd
+                throw new RuntimeException(e);
+            }
+        } else {
+            try {
+                Env.getCurrentEnv().getJobManager().registerJob(mtmv.getJobInfo().getJob());
+            } catch (JobException e) {
+                throw new RuntimeException(e.getMessage(), e);
+            }
         }
-    }
-
-    @Override
-    public void registerMTMV(MTMV mtmv, Long dbId) {
 
     }
 
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
-
+    public void deregisterMTMV(MTMV mtmv, boolean isReplay) {
+        if (isReplay) {
+            try {
+                Env.getCurrentEnv().getJobManager().replayDeleteJob(mtmv.getJobInfo().getJob());
+            } catch (JobException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            try {
+                Env.getCurrentEnv().getJobManager()
+                        .unregisterJob(mtmv.getJobInfo().getJobName(), true);
+            } catch (JobException e) {
+                LOG.warn("drop mtmv job failed, mtmvName: {}", mtmv.getName(), e);
+                throw new RuntimeException(e.getMessage());
+            }
+        }
     }
 
     /**
@@ -159,7 +160,7 @@ public class MTMVJobManager implements MTMVHookService {
     public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
             dropMTMV(mtmv);
-            createMTMV(mtmv);
+            //createMTMV(mtmv);
         }
     }
 

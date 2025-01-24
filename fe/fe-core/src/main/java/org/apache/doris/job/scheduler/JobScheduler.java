@@ -131,6 +131,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             return;
         }
         //RECURRING job and  immediate is true
+        //todo： zd
         if (job.getJobConfig().isImmediate()) {
             job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());
             schedulerInstantJob(job, TaskType.SCHEDULED, null);

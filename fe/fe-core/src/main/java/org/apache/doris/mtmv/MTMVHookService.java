@@ -34,36 +34,21 @@ import org.apache.doris.persist.AlterMTMV;
  */
 public interface MTMVHookService {
     /**
-     * triggered when create mtmv, only once
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
-    void createMTMV(MTMV mtmv) throws DdlException;
-
-    /**
-     * triggered when drop mtmv, only once
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
-    void dropMTMV(MTMV mtmv) throws DdlException;
-
-    /**
      * triggered when playing `create mtmv` logs
      * When triggered, db has not completed playback yet, so use dbId as param
      *
      * @param mtmv
      * @param dbId
+     * @param isReplay
      */
-    void registerMTMV(MTMV mtmv, Long dbId);
+    void registerMTMV(MTMV mtmv, Long dbId, boolean isReplay);
 
     /**
      * triggered when playing `drop mtmv` logs
      *
      * @param mtmv
      */
-    void deregisterMTMV(MTMV mtmv);
+    void deregisterMTMV(MTMV mtmv, boolean isReplay);
 
     /**
      * triggered when alter mtmv, only once

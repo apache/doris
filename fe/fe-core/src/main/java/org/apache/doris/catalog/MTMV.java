@@ -27,6 +27,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
@@ -109,7 +110,9 @@ public class MTMV extends OlapTable {
         this.querySql = params.querySql;
         this.refreshInfo = params.refreshInfo;
         this.status = new MTMVStatus();
-        this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
+        MTMVJob mtmvJob = MTMVJobManager.buildMTMVJob(getDatabase().getId(), id,
+                ConnectContext.get().getCurrentUserIdentity(), refreshInfo);
+        this.jobInfo = new MTMVJobInfo(mtmvJob);
         this.mvProperties = params.mvProperties;
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;

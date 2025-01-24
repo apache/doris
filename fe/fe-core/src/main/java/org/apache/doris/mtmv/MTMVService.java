@@ -74,35 +74,19 @@ public class MTMVService implements EventListener {
         LOG.info("deregisterHook: " + name);
     }
 
-    public void registerMTMV(MTMV mtmv, Long dbId) {
+    public void registerMTMV(MTMV mtmv, Long dbId, boolean isReplay) {
         Objects.requireNonNull(mtmv);
         LOG.info("registerMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.registerMTMV(mtmv, dbId);
+            mtmvHookService.registerMTMV(mtmv, dbId, isReplay);
         }
     }
 
-    public void deregisterMTMV(MTMV mtmv) {
+    public void deregisterMTMV(MTMV mtmv, boolean isReplay) {
         Objects.requireNonNull(mtmv);
         LOG.info("deregisterMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.deregisterMTMV(mtmv);
-        }
-    }
-
-    public void createMTMV(MTMV mtmv) throws DdlException, AnalysisException {
-        Objects.requireNonNull(mtmv);
-        LOG.info("createMTMV: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.createMTMV(mtmv);
-        }
-    }
-
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-        Objects.requireNonNull(mtmv);
-        LOG.info("dropMTMV: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.dropMTMV(mtmv);
+            mtmvHookService.deregisterMTMV(mtmv, isReplay);
         }
     }
 

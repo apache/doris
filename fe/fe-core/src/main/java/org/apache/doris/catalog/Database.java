@@ -412,7 +412,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 idToTable.put(table.getId(), table);
                 nameToTable.put(table.getName(), table);
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
-
+                // should do this before log, avoid mtmv not have job
+                if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id, isReplay);
+                }
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
@@ -420,8 +423,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-                } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
                 }
             }
             return Pair.of(result, isTableExist);
@@ -637,7 +638,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             Table table = Table.read(in);
             table.setQualifiedDbName(fullQualifiedName);
             if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id, true);
             }
             String tableName = table.getName();
             nameToTable.put(tableName, table);
@@ -653,7 +654,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         nameToTable.forEach((tn, tb) -> {
             tb.setQualifiedDbName(fullQualifiedName);
             if (tb instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, id);
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, id, true);
             }
             idToTable.put(tb.getId(), tb);
             lowerCaseToTableName.put(tn.toLowerCase(), tn);
@@ -732,7 +733,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             Table table = Table.read(in);
             table.setQualifiedDbName(fullQualifiedName);
             if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id, true);
             }
             String tableName = table.getName();
             nameToTable.put(tableName, table);

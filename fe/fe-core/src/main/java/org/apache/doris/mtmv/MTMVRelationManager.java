@@ -186,24 +186,15 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
-    @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
     /**
      * modify `tableMTMVs` by MTMVRelation
      *
      * @param mtmv
      * @param dbId
+     * @param isReplay
      */
     @Override
-    public void registerMTMV(MTMV mtmv, Long dbId) {
+    public void registerMTMV(MTMV mtmv, Long dbId, boolean isReplay) {
         refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv, dbId));
     }
 
@@ -213,7 +204,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param mtmv
      */
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
+    public void deregisterMTMV(MTMV mtmv, boolean isReplay) {
         removeMTMV(new BaseTableInfo(mtmv));
     }
 

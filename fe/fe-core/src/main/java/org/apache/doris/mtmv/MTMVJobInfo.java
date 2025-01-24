@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 
 import com.google.gson.annotations.SerializedName;
@@ -28,18 +29,22 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * MTMVJobInfo
  */
 public class MTMVJobInfo {
-    @SerializedName("jobName")
-    private String jobName;
+    @SerializedName("job")
+    private MTMVJob job;
     @SerializedName("ht")
     private ConcurrentLinkedQueue<MTMVTask> historyTasks;
 
-    public MTMVJobInfo(String jobName) {
-        this.jobName = jobName;
+    public MTMVJobInfo(MTMVJob job) {
+        this.job = job;
         historyTasks = new ConcurrentLinkedQueue<>();
     }
 
     public String getJobName() {
-        return jobName;
+        return job.getJobName();
+    }
+
+    public MTMVJob getJob() {
+        return job;
     }
 
     public void addHistoryTask(MTMVTask task) {
@@ -57,9 +62,10 @@ public class MTMVJobInfo {
     }
 
     // toString() is not easy to find where to call the method
+    // TODO: 2025/1/24 zd
     public String toInfoString() {
         return "MTMVJobInfo{"
-                + "jobName='" + jobName + '\''
+                + "jobName='" + getJobName() + '\''
                 + ", historyTasks=" + historyTasks
                 + '}';
     }

@@ -804,7 +804,7 @@ public class Alter {
             }
 
             if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
+                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable, isReplay);
             }
         }
     }
