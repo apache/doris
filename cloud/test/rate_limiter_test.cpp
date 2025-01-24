@@ -19,8 +19,11 @@
 
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
+#include <stdatomic.h>
 
+#include <chrono>
 #include <cstddef>
+#include <thread>
 
 #include "common/config.h"
 #include "common/util.h"
@@ -98,7 +101,7 @@ void mock_add_cluster(MetaServiceProxy& meta_service, std::string instance_id) {
 }
 
 void mock_get_cluster(MetaServiceProxy& meta_service, const std::string& cloud_uid,
-                      MetaServiceCode code) {
+                      MetaServiceCode code, atomic_size_t& failed_cnt) {
     GetClusterRequest req;
     req.set_cloud_unique_id(cloud_uid);
     req.set_cluster_id(mock_cluster_id);
@@ -108,18 +111,26 @@ void mock_get_cluster(MetaServiceProxy& meta_service, const std::string& cloud_u
     meta_service.get_cluster(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                              &res, nullptr);
 
-    ASSERT_EQ(res.status().code(), code);
+    if (code == MetaServiceCode::OK) {
+        ASSERT_EQ(res.status().code(), code);
+    } else {
+        ++failed_cnt;
+    }
 }
 
 template <typename Rpc>
 void mock_parallel_rpc(Rpc rpc, MetaServiceProxy* meta_service, const std::string& cloud_uid,
                        MetaServiceCode expected, size_t times) {
+    atomic_size_t failed_cnt;
     std::vector<std::thread> threads;
     for (size_t i = 0; i < times; ++i) {
-        threads.emplace_back([&]() { rpc(*meta_service, cloud_uid, expected); });
+        threads.emplace_back([&]() { rpc(*meta_service, cloud_uid, expected, failed_cnt); });
     }
     for (auto& t : threads) {
         t.join();
+    }
+    if (expected != MetaServiceCode::OK) {
+        ASSERT_GT(failed_cnt, 0);
     }
 }
 
@@ -222,6 +233,109 @@ TEST(RateLimiterTest, AdjustLimitInfluenceTest) {
                         ->qps_limiter_.at(mock_instance_1)
                         ->max_qps_limit();
         ASSERT_EQ(limit, 200);
+    }
+}
+
+TEST(RateLimiterTest, TestAdjustLimitInfluence1) {
+    auto meta_service = get_meta_service();
+    mock_add_cluster(*meta_service, mock_instance_0);
+    mock_add_cluster(*meta_service, mock_instance_1);
+    mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                      MetaServiceCode::OK, 1);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    {
+        ASSERT_TRUE(meta_service->rate_limiter()->set_rate_limit(0));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::MAX_QPS_LIMIT, 1);
+        // have to sleep 5s to ensure sucess, maybe related with bvar latency
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+    {
+        ASSERT_TRUE(meta_service->rate_limiter()->set_rate_limit(2, "get_cluster"));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::OK, 1);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
+                          MetaServiceCode::MAX_QPS_LIMIT, 1);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    {
+        ASSERT_TRUE(
+                meta_service->rate_limiter()->set_rate_limit(4, "get_cluster", mock_instance_0));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::OK, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
+                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    {
+        ASSERT_TRUE(
+                meta_service->rate_limiter()->set_rate_limit(2, "get_cluster", mock_instance_0));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    {
+        ASSERT_TRUE(
+                meta_service->rate_limiter()->set_rate_limit(6, "get_cluster", mock_instance_0));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::OK, 5);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
+TEST(RateLimiterTest, TestAdjustLimitInfluence2) {
+    auto meta_service = get_meta_service();
+    mock_add_cluster(*meta_service, mock_instance_0);
+    mock_add_cluster(*meta_service, mock_instance_1);
+    mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                      MetaServiceCode::OK, 1);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    {
+        ASSERT_TRUE(
+                meta_service->rate_limiter()->set_rate_limit(6, "get_cluster", mock_instance_0));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::MAX_QPS_LIMIT, 7);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::OK, 5);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
+                          MetaServiceCode::OK, 7);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    {
+        ASSERT_TRUE(meta_service->rate_limiter()->set_instance_rate_limit(4, mock_instance_0));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::MAX_QPS_LIMIT, 5);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::OK, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
+                          MetaServiceCode::OK, 7);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    {
+        ASSERT_TRUE(meta_service->rate_limiter()->set_rate_limit(1));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_0,
+                          MetaServiceCode::OK, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        mock_parallel_rpc(mock_get_cluster, meta_service.get(), mock_cloud_unique_id_1,
+                          MetaServiceCode::MAX_QPS_LIMIT, 3);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
 
