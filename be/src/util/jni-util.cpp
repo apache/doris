@@ -141,6 +141,7 @@ const std::string GetKerb5ConfPath() {
             std::istringstream stream(java_opts);
             options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
                                                std::istream_iterator<std::string>());
+            options.push_back(GetKerb5ConfPath());
             options.push_back(GetDorisJNIClasspathOption());
         }
         options.push_back(GetKerb5ConfPath());
