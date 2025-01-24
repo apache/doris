@@ -19,7 +19,6 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorColumn;
@@ -28,6 +27,7 @@ import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -38,6 +38,8 @@ import org.semver4j.Semver;
 import java.io.FileNotFoundException;
 import java.lang.reflect.Array;
 import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
@@ -58,6 +60,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
+    private ClassLoader classLoader = null;
     private Connection conn = null;
     protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
@@ -69,6 +72,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected int batchSizeNum = 0;
     protected int curBlockRows = 0;
     protected String jdbcDriverVersion;
+    private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
         setJdbcDriverSystemProperties();
@@ -299,8 +303,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         String hikariDataSourceKey = config.createCacheKey();
         try {
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
+            initializeClassLoader(config);
             Thread.currentThread().setContextClassLoader(classLoader);
             hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
             if (hikariDataSource == null) {
@@ -355,6 +358,22 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
+        }
+    }
+
+    private synchronized void initializeClassLoader(JdbcDataSourceConfig config)
+            throws MalformedURLException, FileNotFoundException {
+        try {
+            URL[] urls = {new URL(config.getJdbcDriverUrl())};
+            if (classLoaderMap.containsKey(urls[0])) {
+                this.classLoader = classLoaderMap.get(urls[0]);
+            } else {
+                ClassLoader parent = getClass().getClassLoader();
+                this.classLoader = URLClassLoader.newInstance(urls, parent);
+                classLoaderMap.put(urls[0], this.classLoader);
+            }
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Error loading JDBC driver.", e);
         }
     }
 
