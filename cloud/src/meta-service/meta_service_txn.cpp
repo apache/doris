@@ -1229,37 +1229,8 @@ void commit_txn_immediately(
             LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
                       << " txn_id=" << txn_id;
 
-            int64_t lock_id = lock_info.lock_id();
             for (auto tablet_id : table_id_tablet_ids[table_id]) {
                 std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-
-                // check that if the pending info's lock_id is correct
-                std::string pending_val;
-                err = txn->get(pending_key, &pending_val);
-                if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                    ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
-                       << " tablet_id=" << tablet_id << " key=" << hex(pending_key)
-                       << " err=" << err;
-                    msg = ss.str();
-                    code = cast_as<ErrCategory::READ>(err);
-                    return;
-                }
-                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) continue;
-                PendingDeleteBitmapPB pending_info;
-                if (!pending_info.ParseFromString(pending_val)) [[unlikely]] {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = "failed to parse PendingDeleteBitmapPB";
-                    return;
-                }
-                if (pending_info.has_lock_id() && pending_info.lock_id() != lock_id) {
-                    TEST_SYNC_POINT_CALLBACK("commit_txn:check_pending_delete_bitmap_lock_id",
-                                             &tablet_id);
-                    LOG_WARNING(
-                            "wrong lock_id in pending delete bitmap infos, expect lock_id={}, but "
-                            "found {} tablet_id={} instance_id={}",
-                            lock_id, pending_info.lock_id(), tablet_id, instance_id);
-                }
-
                 txn->remove(pending_key);
                 LOG(INFO) << "xxx remove delete bitmap pending key, pending_key="
                           << hex(pending_key) << " txn_id=" << txn_id;
