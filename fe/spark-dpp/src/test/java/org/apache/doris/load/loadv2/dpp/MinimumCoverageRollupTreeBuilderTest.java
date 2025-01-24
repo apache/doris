@@ -55,24 +55,24 @@ public class MinimumCoverageRollupTreeBuilderTest {
         baseColumns.add(column3);
         baseColumns.add(column4);
         EtlJobConfig.EtlIndex baseIndex = new EtlJobConfig.EtlIndex(10000,
-                baseColumns, 12345, "DUPLICATE", true);
+                baseColumns, 12345, "DUPLICATE", true, 1);
         List<EtlJobConfig.EtlColumn> roll1Columns = new ArrayList<>();
         roll1Columns.add(column1);
         roll1Columns.add(column2);
         roll1Columns.add(column4);
         EtlJobConfig.EtlIndex roll1Index = new EtlJobConfig.EtlIndex(10001,
-                roll1Columns, 12346, "AGGREGATE", false);
+                roll1Columns, 12346, "AGGREGATE", false, 1);
         List<EtlJobConfig.EtlColumn> roll2Columns = new ArrayList<>();
         roll2Columns.add(column1);
         roll2Columns.add(column4);
         EtlJobConfig.EtlIndex roll2Index = new EtlJobConfig.EtlIndex(10002,
-                roll2Columns, 12347, "AGGREGATE", false);
+                roll2Columns, 12347, "AGGREGATE", false, 1);
 
         List<EtlJobConfig.EtlColumn> roll3Columns = new ArrayList<>();
         roll3Columns.add(column3);
         roll3Columns.add(column4);
         EtlJobConfig.EtlIndex roll3Index = new EtlJobConfig.EtlIndex(10003,
-                roll3Columns, 12348, "AGGREGATE", false);
+                roll3Columns, 12348, "AGGREGATE", false, 1);
 
         List<EtlJobConfig.EtlIndex> indexes = new ArrayList<>();
         indexes.add(baseIndex);
