@@ -3393,4 +3393,7 @@ public class Config extends ConfigBase {
     public static long meta_service_rpc_reconnect_interval_ms = 5000;
 
     public static long meta_service_rpc_retry_cnt = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {})
+    public static boolean mock_audit_load = false;
 }
