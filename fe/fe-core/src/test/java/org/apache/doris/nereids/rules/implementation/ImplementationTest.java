@@ -93,7 +93,8 @@ public class ImplementationTest {
         int offset = 100;
         OrderKey key1 = new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true);
         OrderKey key2 = new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true);
-        LogicalTopN<GroupPlan> topN = new LogicalTopN<>(Lists.newArrayList(key1, key2), limit, offset, groupPlan);
+        LogicalTopN<GroupPlan> topN = new LogicalTopN<>(Lists.newArrayList(key1, key2), limit, offset, groupPlan,
+                false);
 
         PhysicalPlan physicalPlan = executeImplementationRule(topN);
         Assertions.assertEquals(PlanType.PHYSICAL_TOP_N, physicalPlan.getType());

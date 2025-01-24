@@ -305,7 +305,8 @@ public class StatsCalculatorTest {
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan);
+        LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan,
+                false);
         GroupExpression groupExpression = new GroupExpression(logicalTopN, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
