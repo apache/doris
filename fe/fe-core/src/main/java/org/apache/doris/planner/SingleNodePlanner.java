@@ -1937,9 +1937,10 @@ public class SingleNodePlanner {
             case SCHEMA:
                 if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                         tblRef.getDesc().getTable().getName())) {
-                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                        null, null, null);
                 } else {
-                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(), null, null, null);
                 }
                 break;
             case BROKER:

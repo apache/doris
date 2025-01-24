@@ -111,6 +111,8 @@ Status SchemaTablesScanner::_get_new_table() {
     _db_index++;
     if (nullptr != _param->common_param->wild) {
         table_params.__set_pattern(*(_param->common_param->wild));
+    } else if (nullptr != _param->common_param->table) {
+        table_params.__set_pattern(*(_param->common_param->table));
     }
     if (nullptr != _param->common_param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
