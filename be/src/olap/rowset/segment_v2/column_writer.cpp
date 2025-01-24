@@ -29,7 +29,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -492,7 +491,7 @@ Status ScalarColumnWriter::init() {
                     _opts.gram_bf_size, &_bloom_filter_index_builder));
         } else {
             RETURN_IF_ERROR(BloomFilterIndexWriter::create(
-                    BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
+                    _opts.bf_options, get_field()->type_info(), &_bloom_filter_index_builder));
         }
     }
     return Status::OK();
