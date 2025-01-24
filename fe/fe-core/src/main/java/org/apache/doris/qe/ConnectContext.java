@@ -1111,6 +1111,10 @@ public class ConnectContext {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    public boolean supportHandleByFe() {
+        return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
+    }
+
     // maybe user set cluster by SQL hint of session variable: cloud_cluster
     // so first check it and then get from connect context.
     public String getCurrentCloudCluster() throws ComputeGroupException {
