@@ -21,13 +21,13 @@
 #pragma once
 
 #include <libdivide.h>
-#include <string.h>
 
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename A, typename B>
 struct DivideIntegralImpl {
@@ -38,20 +38,26 @@ struct DivideIntegralImpl {
     static void apply(const typename Traits::ArrayA& a, B b,
                       typename ColumnVector<Result>::Container& c,
                       typename Traits::ArrayNull& null_map) {
-        size_t size = c.size();
-        UInt8 is_null = b == 0;
-        memset(null_map.data(), is_null, size);
+        if constexpr (!std::is_integral_v<A> || !std::is_integral_v<B>) {
+            throw doris::Exception(ErrorCode::RUNTIME_ERROR,
+                                   "DivideIntegralImpl only support integral types");
+            __builtin_unreachable();
+        } else {
+            size_t size = c.size();
+            UInt8 is_null = b == 0;
+            memset(null_map.data(), is_null, size);
 
-        if (!is_null) {
-            if constexpr (!std::is_floating_point_v<A> && !std::is_same_v<A, Int128> &&
-                          !std::is_same_v<A, Int8> && !std::is_same_v<A, UInt8>) {
-                const auto divider = libdivide::divider<A>(A(b));
-                for (size_t i = 0; i < size; i++) {
-                    c[i] = a[i] / divider;
-                }
-            } else {
-                for (size_t i = 0; i < size; i++) {
-                    c[i] = Result(a[i] / b);
+            if (!is_null) {
+                if constexpr (!std::is_floating_point_v<A> && !std::is_same_v<A, Int128> &&
+                              !std::is_same_v<A, Int8> && !std::is_same_v<A, UInt8>) {
+                    const auto divider = libdivide::divider<A>(A(b));
+                    for (size_t i = 0; i < size; i++) {
+                        c[i] = a[i] / divider;
+                    }
+                } else {
+                    for (size_t i = 0; i < size; i++) {
+                        c[i] = Result(a[i] / b);
+                    }
                 }
             }
         }
@@ -59,9 +65,16 @@ struct DivideIntegralImpl {
 
     template <typename Result = ResultType>
     static inline Result apply(A a, B b, UInt8& is_null) {
-        is_null = b == 0;
-        return Result(a / (b + is_null));
+        if constexpr (!std::is_integral_v<A> || !std::is_integral_v<B>) {
+            throw doris::Exception(ErrorCode::RUNTIME_ERROR,
+                                   "DivideIntegralImpl only support integral types");
+            __builtin_unreachable();
+        } else {
+            is_null = b == 0;
+            return Result(a / (b + is_null));
+        }
     }
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
