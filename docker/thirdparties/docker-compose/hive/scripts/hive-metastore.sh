@@ -22,23 +22,21 @@ parallel=$(getconf _NPROCESSORS_ONLN)
 
 nohup /opt/hive/bin/hive --service metastore &
 
+# wait lockfile
+lockfile1="/mnt/scripts/run-data.lock"
+while [[ -f "${lockfile1}" ]]; do
+    sleep 10
+done
+touch "${lockfile1}"
+
 # wait metastore start
-while [[ $(nc -z localhost "${HMS_PORT:-9083}") ]]; do
+while ! $(nc -z localhost "${HMS_PORT:-9083}"); do
     sleep 1s
 done
 
 # create tables for other cases
 # new cases should use separate dir
 hadoop fs -mkdir -p /user/doris/suites/
-
-lockfile1="/mnt/scripts/run-data.lock"
-
-# wait lockfile
-while [[ -f "${lockfile1}" ]]; do
-    sleep 10
-done
-
-touch "${lockfile1}"
 
 DATA_DIR="/mnt/scripts/data/"
 find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P "${parallel}" -I {} bash -ec '
