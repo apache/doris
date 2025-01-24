@@ -113,6 +113,9 @@ public class InlineViewRef extends TableRef {
         baseTblSmap = new ExprSubstitutionMap();
         setJoinAttrs(origTblRef);
         explicitColLabels = view.getColLabels();
+        if (origTblRef.getLateralViewRefs() != null) {
+            lateralViewRefs = (ArrayList<LateralViewRef>) origTblRef.getLateralViewRefs().clone();
+        }
         // Set implicit aliases if no explicit one was given.
         if (hasExplicitAlias()) {
             return;
@@ -123,9 +126,6 @@ public class InlineViewRef extends TableRef {
             aliases = new String[]{view.getName()};
         } else {
             aliases = new String[]{name.toString(), view.getName()};
-        }
-        if (origTblRef.getLateralViewRefs() != null) {
-            lateralViewRefs = (ArrayList<LateralViewRef>) origTblRef.getLateralViewRefs().clone();
         }
     }
 
