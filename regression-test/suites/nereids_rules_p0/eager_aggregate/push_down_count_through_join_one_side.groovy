@@ -26,6 +26,8 @@ suite("push_down_count_through_join_one_side") {
     sql """
         DROP TABLE IF EXISTS count_t_one_side;
     """
+    def var_result = sql "show variables"
+    logger.info("show variales result: " + var_result )
 
     sql """
     CREATE TABLE IF NOT EXISTS count_t_one_side(
