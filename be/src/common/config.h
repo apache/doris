@@ -750,6 +750,8 @@ DECLARE_mInt32(es_http_timeout_ms);
 // TODO(cmy): use different config to set different client cache if necessary.
 DECLARE_Int32(max_client_cache_size_per_host);
 
+DECLARE_Int32(max_master_fe_client_cache_size);
+
 // Dir to save files downloaded by SmallFileMgr
 DECLARE_String(small_file_dir);
 // path gc
