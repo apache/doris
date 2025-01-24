@@ -115,4 +115,20 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
     EXPECT_EQ(0, strncmp(buf + 43, "test", 4));
 }
 
+TEST(MysqlRowBufferTest, TestBinaryTimeCompressedEncoding) {
+    MysqlRowBuffer<true> buffer;
+
+    // case1 : all 0, should only send 1 byte
+    buffer.push_timev2(0.0, 6);
+
+    // case2: no micro second, send 8bytes
+    buffer.push_timev2(3661.0, 6); // 1:01:01
+
+    // case3: include micro second, send 12bytes
+    buffer.push_timev2(3661.123456, 6); // 1:01:01.123456
+
+    // case3: negative number
+    buffer.push_timev2(-3661.123456, 6); // -1:01:01.12345
+}
+
 } // namespace doris
