@@ -23,7 +23,9 @@ parallel=$(getconf _NPROCESSORS_ONLN)
 nohup /opt/hive/bin/hive --service metastore &
 
 # wait metastore start
-sleep 10s
+while [[ ! $(nc -z localhost "${HMS_PORT:-9083}") ]]; do
+    sleep 1s
+done
 
 # create tables for other cases
 # new cases should use separate dir
