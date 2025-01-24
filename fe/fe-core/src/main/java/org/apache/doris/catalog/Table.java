@@ -60,6 +60,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -86,6 +88,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @SerializedName(value = "createTime")
     protected long createTime;
     protected MonitoredReentrantReadWriteLock rwLock;
+    protected final Map<String, Lock> partitionLockMap = Maps.newConcurrentMap();
     // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
@@ -314,6 +317,27 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             return true;
         }
         return false;
+    }
+
+    public void lockPartition(String partitionName) {
+        Lock lock  = partitionLockMap.computeIfAbsent(partitionName, k -> new ReentrantLock());
+        lock.lock();
+    }
+
+    public void unlockPartition(String partitionName) {
+        Lock lock = partitionLockMap.get(partitionName);
+        if(lock != null){
+            try {
+                lock.unlock();
+            } finally {
+                if (lock instanceof ReentrantLock) {
+                    ReentrantLock reentrantLock = (ReentrantLock) lock;
+                    if (!reentrantLock.isLocked() && reentrantLock.getQueueLength() == 0) {
+                        partitionLockMap.remove(partitionName, lock);
+                    }
+                }
+            }
+        }
     }
 
     public void commitLock() {
