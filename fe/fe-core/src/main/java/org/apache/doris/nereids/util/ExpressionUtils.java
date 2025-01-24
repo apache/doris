@@ -89,7 +89,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -193,19 +192,24 @@ public class ExpressionUtils {
     }
 
     /**
+     *  AND / OR expression, also remove duplicate expression, boolean literal
+     */
+    public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
+        return isAnd ? and(expressions) : or(expressions);
+    }
+
+    /**
      *  AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(BooleanLiteral.FALSE)) {
-                return BooleanLiteral.FALSE;
-            } else if (!expression.equals(BooleanLiteral.TRUE)) {
-                distinctExpressions.add(expression);
-            }
+        if (expressions.stream().anyMatch(expr -> expr.equals(BooleanLiteral.FALSE))) {
+            return BooleanLiteral.FALSE;
         }
-
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = dedupFoldableExpression(expressions);
+        exprList.remove(BooleanLiteral.TRUE);
         if (exprList.isEmpty()) {
             return BooleanLiteral.TRUE;
         } else if (exprList.size() == 1) {
@@ -241,16 +245,12 @@ public class ExpressionUtils {
      *  OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(BooleanLiteral.TRUE)) {
-                return BooleanLiteral.TRUE;
-            } else if (!expression.equals(BooleanLiteral.FALSE)) {
-                distinctExpressions.add(expression);
-            }
+        if (expressions.stream().anyMatch(expr -> expr.equals(BooleanLiteral.TRUE))) {
+            return BooleanLiteral.TRUE;
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = dedupFoldableExpression(expressions);
+        exprList.remove(BooleanLiteral.FALSE);
         if (exprList.isEmpty()) {
             return BooleanLiteral.FALSE;
         } else if (exprList.size() == 1) {
@@ -282,47 +282,6 @@ public class ExpressionUtils {
         } else {
             return new InPredicate(reference, ImmutableList.copyOf(values));
         }
-    }
-
-    /**
-     * Use AND/OR to combine expressions together.
-     */
-    public static Expression combineAsLeftDeepTree(
-            Class<? extends Expression> type, Collection<Expression> expressions) {
-        /*
-         *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
-         *               ▲   ▲   ▲       ▲       ▲          ▲
-         *               │   │   │       │       │          │
-         * A B C D E ──► A B C D E ──► (AB) (CD) E ──► ((AB)(CD)) E ──► (((AB)(CD))E)
-         */
-        Preconditions.checkArgument(type == And.class || type == Or.class);
-        Objects.requireNonNull(expressions, "expressions is null");
-
-        Expression shortCircuit = (type == And.class ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
-        Expression skip = (type == And.class ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(shortCircuit)) {
-                return shortCircuit;
-            } else if (!expression.equals(skip)) {
-                distinctExpressions.add(expression);
-            }
-        }
-
-        if (distinctExpressions.isEmpty()) {
-            return BooleanLiteral.of(type == And.class);
-        }
-        Expression result = null;
-        for (Expression expr : distinctExpressions) {
-            if (result == null) {
-                result = expr;
-            } else if (type == And.class) {
-                result = new And(result, expr);
-            } else {
-                result = new Or(result, expr);
-            }
-        }
-        return result;
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
@@ -1120,6 +1079,21 @@ public class ExpressionUtils {
             }
         }
         return builder.build();
+    }
+
+    /**
+     * remove duplicate foldable expression, but not remove duplicate non-foldable expression.
+     */
+    public static List<Expression> dedupFoldableExpression(Collection<? extends Expression> expressions) {
+        List<Expression> result = Lists.newArrayListWithExpectedSize(expressions.size());
+        Set<Expression> dedupSet = Sets.newHashSet();
+        for (Expression expr : expressions) {
+            if (!dedupSet.contains(expr) || expr.containsNonfoldable()) {
+                result.add(expr);
+                dedupSet.add(expr);
+            }
+        }
+        return result;
     }
 
     private static class UnboundSlotRewriter extends DefaultExpressionRewriter<Void> {
