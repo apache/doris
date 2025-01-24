@@ -350,7 +350,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
-            LOG.info("try to commit transaction, transactionId: {}", transactionId);
+            LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
+                    tableList.stream().map(Table::getId).collect(Collectors.toList()));
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
             if (!mowTableList.isEmpty()) {
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
@@ -900,11 +901,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
-            LOG.info("get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
-                            + "partitionSize: {}. time cost: {} ms.", transactionId, totalRetryTime,
-                    lockContext.getTableToPartitions().size(), stopWatch.getTime());
-        }
+        LOG.info("get delete bitmap lock successfully. txnId: {}. totalRetryTime: {}. "
+                        + "tableSize: {}. cost: {} ms.", transactionId, totalRetryTime,
+                lockContext.getTableToPartitions().size(), stopWatch.getTime());
     }
 
     private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
