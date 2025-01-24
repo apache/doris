@@ -208,7 +208,7 @@ public class StatisticsUtil {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
-        sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
+        sessionVariable.setWorkloadGroup(StatisticConstants.STATISTICS_WORKLOAD_GROUP_NAME);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1.0);
         sessionVariable.enablePageCache = false;
