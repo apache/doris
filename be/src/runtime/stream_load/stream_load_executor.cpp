@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "common/utils.h"
@@ -319,7 +320,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_commit_request_total->increment(1);
 
     int timeout_ms = config::txn_commit_rpc_timeout_ms;
-    if (ctx->is_mow_table()) {
+    if (config::is_cloud_mode() && ctx->is_mow_table()) {
         timeout_ms *= config::mow_commit_rpc_timeout_multiplier;
     }
     TLoadTxnCommitRequest request;

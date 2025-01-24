@@ -442,8 +442,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                         { status = Status::InternalError(""); });
 
         int timeout_ms = config::txn_commit_rpc_timeout_ms;
-        bool is_mow_table = pipeline_params.__isset.is_mow_table && pipeline_params.is_mow_table;
-        if (is_mow_table) {
+        bool is_cloud_mow_table = config::is_cloud_mode() && pipeline_params.__isset.is_mow_table &&
+                                  pipeline_params.is_mow_table;
+        if (is_cloud_mow_table) {
             timeout_ms *= config::mow_commit_rpc_timeout_multiplier;
         }
         // commit txn
