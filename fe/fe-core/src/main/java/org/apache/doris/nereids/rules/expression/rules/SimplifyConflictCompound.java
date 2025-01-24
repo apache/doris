@@ -22,16 +22,9 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -46,15 +39,11 @@ import java.util.stream.Collectors;
 /**
  * Remove conflict predicate
  * for example:
- * `a > b and not (a > b)` => `falseOrNull(a > b)`
- * `a > b and b >= a` => `falseOrNull(a > b)`
- * `a > b or not (a > b)` => `trueOrNull(a >b)`
- * `a > b or b >= a` => `trueOrNull(a > b)`
- *  `a is null and not a is null` => `FALSE`
- *  `a is null or not a is null` => `TRUE`
+ *  `x and not x` => `falseOrNull(x)`
+ *  `x or not x` => `trueOrNull(x)`
  */
-public class SimplifyConflictPredicate implements ExpressionPatternRuleFactory {
-    public static final SimplifyConflictPredicate INSTANCE = new SimplifyConflictPredicate();
+public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
+    public static final SimplifyConflictCompound INSTANCE = new SimplifyConflictCompound();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
@@ -128,32 +117,12 @@ public class SimplifyConflictPredicate implements ExpressionPatternRuleFactory {
 
     // normal expr, then return <normalExpr, isNot> will satisfy:
     // if expr is not(not ...()), normalExpr will eliminate all the NOTs.
-    // if expr is <, <=, >, >=, normalExpr will convert to '<'
-    // if expr is =, <=>, normalExpr left child's hash code <= right child's hash code
     private Pair<Expression, Boolean> normalComparisonAndNot(Expression expr) {
         boolean isNot = false;
         Expression normalExpr = expr;
         while (normalExpr instanceof Not) {
             isNot = !isNot;
             normalExpr = ((Not) normalExpr).child();
-        }
-
-        // convert '<, <=, >, >=' to '<'
-        if (normalExpr instanceof ComparisonPredicate) {
-            Expression left = ((ComparisonPredicate) normalExpr).left();
-            Expression right = ((ComparisonPredicate) normalExpr).right();
-            if (normalExpr instanceof GreaterThan) {
-                normalExpr = new LessThan(right, left);
-            } else if (normalExpr instanceof GreaterThanEqual) {
-                normalExpr = new LessThan(left, right);
-                isNot = !isNot;
-            } else if (normalExpr instanceof LessThanEqual) {
-                normalExpr = new LessThan(right, left);
-                isNot = !isNot;
-            } else if ((normalExpr instanceof EqualTo || normalExpr instanceof NullSafeEqual)
-                    && (left.hashCode() > right.hashCode())) {
-                normalExpr = ((ComparisonPredicate) normalExpr).commute();
-            }
         }
 
         return Pair.of(normalExpr, isNot);

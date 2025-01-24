@@ -26,7 +26,7 @@ import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
-import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -86,7 +86,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyConflictPredicate() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(SimplifyConflictPredicate.INSTANCE)
+                ExpressionRewrite.bottomUp(SimplifyConflictCompound.INSTANCE)
         ));
 
         assertRewriteAfterTypeCoercion("a > b and not(a > b)",
