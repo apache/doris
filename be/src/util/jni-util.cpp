@@ -92,6 +92,10 @@ const std::string GetDorisJNIClasspathOption() {
     }
 }
 
+const std::string GetKerb5ConfPath() {
+    return "-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path;
+}
+
 [[maybe_unused]] void SetEnvIfNecessary() {
     const auto* doris_home = getenv("DORIS_HOME");
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
@@ -136,6 +140,7 @@ const std::string GetDorisJNIClasspathOption() {
             std::istringstream stream(java_opts);
             options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
                                                std::istream_iterator<std::string>());
+            options.push_back(GetKerb5ConfPath());
             options.push_back(GetDorisJNIClasspathOption());
         }
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
