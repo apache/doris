@@ -74,7 +74,8 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         } else {
             val = MIN_DATE_V2;
         }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
+    } else if (ReadBuffer rb(slice.data, slice.size);
+               !read_date_v2_text_impl<UInt32>(val, rb, *options.time_zone)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
