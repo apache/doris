@@ -549,24 +549,25 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
         }
         if (!CollectionUtils.isEmpty(projectList)) {
-            expBuilder.append(detailPrefix).append("final projections: ")
-                .append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("final projections:\n")
+                .append(getExplainString(projectList, detailPrefix)).append("\n");
             expBuilder.append(detailPrefix).append("final project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
         }
         if (!intermediateProjectListList.isEmpty()) {
             int layers = intermediateProjectListList.size();
             for (int i = layers - 1; i >= 0; i--) {
-                expBuilder.append(detailPrefix).append("intermediate projections: ")
-                        .append(getExplainString(intermediateProjectListList.get(i))).append("\n");
+                expBuilder.append(detailPrefix).append("intermediate projections:\n")
+                        .append(getExplainString(intermediateProjectListList.get(i),
+                                detailPrefix)).append("\n");
                 expBuilder.append(detailPrefix).append("intermediate tuple id: ")
                         .append(intermediateOutputTupleDescList.get(i).getId().asInt()).append("\n");
             }
         }
         if (!CollectionUtils.isEmpty(childrenDistributeExprLists)) {
             for (List<Expr> distributeExprList : childrenDistributeExprLists) {
-                expBuilder.append(detailPrefix).append("distribute expr lists: ")
-                    .append(getExplainString(distributeExprList)).append("\n");
+                expBuilder.append(detailPrefix).append("distribute expr lists:\n")
+                    .append(getExplainString(distributeExprList, detailPrefix + detailPrefix)).append("\n");
             }
         }
         // Output Tuple Ids only when explain plan level is set to verbose
@@ -596,14 +597,15 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
-    private String getplanNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    private String getPlanNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         expBuilder.append(getNodeExplainString(prefix, detailLevel));
         if (limit != -1) {
             expBuilder.append(prefix + "limit: " + limit + "\n");
         }
         if (!CollectionUtils.isEmpty(projectList)) {
-            expBuilder.append(prefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(prefix).append("projections:\n")
+                    .append(getExplainString(projectList, prefix)).append("\n");
             expBuilder.append(prefix).append("project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
         }
@@ -611,7 +613,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
-        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
+        planNodeMap.put(id.asInt(), getPlanNodeExplainString("", detailLevel));
         for (int i = 0; i < children.size(); ++i) {
             children.get(i).getExplainStringMap(detailLevel, planNodeMap);
         }
@@ -997,18 +999,17 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return output.toString();
     }
 
-    public static String getExplainString(List<? extends Expr> exprs) {
+    public static String getExplainString(List<? extends Expr> exprs, String prefix) {
         if (exprs == null) {
             return "";
         }
-        StringBuilder output = new StringBuilder();
-        for (int i = 0; i < exprs.size(); ++i) {
-            if (i > 0) {
-                output.append(", ");
-            }
-            output.append(exprs.get(i).toSql());
-        }
-        return output.toString();
+        // expr1, expr2, expr3
+        // ==>
+        // [prefix  ]expr1,
+        // [prefix  ]expr2,
+        // [prefix  ]expr3
+        return Joiner.on("\n").join(exprs.stream()
+                .map(expr -> prefix + "  " + expr.toSql()).collect(Collectors.toList()));
     }
 
     /**
@@ -1215,19 +1216,24 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         runtimeFilters.clear();
     }
 
-    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief) {
+    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief, String prefix) {
         if (runtimeFilters.isEmpty()) {
             return "";
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getId()));
+            filtersStr.add(prefix + "  " + filter.getExplainString(isBuildNode, isBrief, getId()));
         }
-        return Joiner.on(", ").join(filtersStr) + "\n";
+        return Joiner.on("\n").join(filtersStr) + "\n";
     }
 
+    protected String getRuntimeFilterExplainString(boolean isBuildNode, String prefix) {
+        return getRuntimeFilterExplainString(isBuildNode, false, prefix);
+    }
+
+    // For test only
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
-        return getRuntimeFilterExplainString(isBuildNode, false);
+        return getRuntimeFilterExplainString(isBuildNode, false, "");
     }
 
     /**
