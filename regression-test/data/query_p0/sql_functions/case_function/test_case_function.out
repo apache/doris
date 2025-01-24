@@ -39,3 +39,13 @@ number	1
 number	5
 number	9
 
+-- !test_not_null_then --
+A259	A259
+A300	OTHER
+A5	A5
+
+-- !test_null_then --
+A259	A259
+A300	\N
+A5	A5
+
