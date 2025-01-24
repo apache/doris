@@ -133,12 +133,11 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void set_wake_up_early(const std::string& reason) {
+    void set_wake_up_early() {
         if (_wake_up_early) {
             return;
         }
         _wake_up_early = true;
-        _wake_up_early_reason = reason;
     }
 
     void clear_blocking_state() {
@@ -319,7 +318,6 @@ private:
     std::atomic<bool> _running = false;
     std::atomic<bool> _eos = false;
     std::atomic<bool> _wake_up_early = false;
-    std::string _wake_up_early_reason;
 };
 
 } // namespace doris::pipeline
