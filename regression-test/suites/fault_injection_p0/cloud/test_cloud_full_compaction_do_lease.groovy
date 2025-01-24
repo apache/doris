@@ -62,6 +62,10 @@ suite("test_cloud_full_compaction_do_lease","nonConcurrent") {
     ]
 
     setBeConfigTemporary(customBeConfig) {
+        // the default value of lease_compaction_interval_seconds is 20s, which means
+        // the compaction lease thread will sleep for 20s first, we sleep 20s in case
+        // so that compaction lease thread can be scheduled as we expect(2s)
+        Thread.sleep(20000)
         try {
             // block the full compaction
             GetDebugPoint().enableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.block")
@@ -83,13 +87,14 @@ suite("test_cloud_full_compaction_do_lease","nonConcurrent") {
             Thread.sleep(10000);
 
             {
-                // trigger cumu compaction, it will be blokced in modify_rowsets
+                // trigger cumu compaction
                 logger.info("trigger cumu compaction on BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
                 def (code, out, err) = be_run_cumulative_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assert code == 0
                 def compactJson = parseJson(out.trim())
-                assert "success" == compactJson.status.toLowerCase()
+                // this will fail due to existing full compaction
+                assert "e-2000" == compactJson.status.toLowerCase()
             }
 
             Thread.sleep(1000);
@@ -97,13 +102,13 @@ suite("test_cloud_full_compaction_do_lease","nonConcurrent") {
             // unblock full compaction
             GetDebugPoint().disableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.block")
 
-            Thread.sleep(1000);
+            Thread.sleep(3000);
 
             {
                 def (code, out, err) = be_show_tablet_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
                 assert code == 0
                 def compactJson = parseJson(out.trim())
-                assert compactJson["rowsets"].toString().contains("[2-10]")
+                assert compactJson["rowsets"].toString().contains("[2-21]")
             }
             
 
