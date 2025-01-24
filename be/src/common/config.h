@@ -637,6 +637,10 @@ DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
 DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
 DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
 
+// Fragment thread pool for prepare
+DECLARE_Int32(fragment_mgr_prepare_work_pool_thread_num);
+DECLARE_Int32(fragment_mgr_prepare_work_pool_queue_size);
+
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
 // The read size is the size of the reads sent to os.
