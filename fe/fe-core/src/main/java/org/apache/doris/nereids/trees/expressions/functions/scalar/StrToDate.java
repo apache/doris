@@ -88,8 +88,7 @@ public class StrToDate extends ScalarFunction
         if (getArgument(1) instanceof StringLikeLiteral) {
             if (DateLiteral.hasTimePart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
                 returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
-                if (returnType.isDateTimeV2Type()
-                        && DateLiteral.hasMicroSecondPart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
+                if (returnType.isDateTimeV2Type()) {
                     returnType = DataType.fromCatalogType(Type.DATETIMEV2_WITH_MAX_SCALAR);
                 }
             } else {
