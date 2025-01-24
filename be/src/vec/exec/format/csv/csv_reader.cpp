@@ -463,7 +463,9 @@ Status CsvReader::init_reader(bool is_load) {
         //      eg, the file_slot_descs is k1, k3, k5, and columns in block are p1, k1, k3, k5
         //      where "p1" is the partition col which does not exist in file
         //      the _file_slot_idx_map will save: 1, 2, 3
-        DCHECK(_params.__isset.column_idxs);
+        if (!_params.__isset.column_idxs) {
+            throw Exception(Status::FatalError("Check failed: _params.__isset.column_idxs"));
+        }
         _col_idxs = _params.column_idxs;
         int idx = 0;
         for (const auto& slot_info : _params.required_slots) {

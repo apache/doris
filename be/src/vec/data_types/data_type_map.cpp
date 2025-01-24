@@ -179,7 +179,9 @@ bool is_empty_null_element(StringRef element, IColumn* nested_column, bool has_q
     return false;
 }
 Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
-    DCHECK(!rb.eof());
+    if (rb.eof()) {
+        return Status::InvalidArgument("Check failed: !rb.eof()");
+    }
     auto* map_column = assert_cast<ColumnMap*>(column);
 
     if (*rb.position() != '{') {
@@ -200,9 +202,13 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
         ++rb.position();
         ColumnArray::Offsets64& map_off = map_column->get_offsets();
         IColumn& nested_key_column = map_column->get_keys();
-        DCHECK(nested_key_column.is_nullable());
+        if (!nested_key_column.is_nullable()) {
+            return Status::FatalError("Check failed: nested_key_column.is_nullable()");
+        }
         IColumn& nested_val_column = map_column->get_values();
-        DCHECK(nested_val_column.is_nullable());
+        if (!nested_val_column.is_nullable()) {
+            return Status::FatalError("Check failed: nested_val_column.is_nullable()");
+        }
 
         size_t element_num = 0;
         while (!rb.eof()) {

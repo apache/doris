@@ -56,7 +56,9 @@ struct AggregateFunctionMapAggData {
     }
 
     void add(StringRef key, const Field& value) {
-        DCHECK(key.data != nullptr);
+        if (key.data == nullptr) {
+            throw Exception(Status::FatalError("Check failed: key.data != nullptr"));
+        }
         if (UNLIKELY(_map.find(key) != _map.end())) {
             return;
         }
@@ -69,12 +71,16 @@ struct AggregateFunctionMapAggData {
     }
 
     void add(const Field& key_, const Field& value) {
-        DCHECK(!key_.is_null());
+        if (key_.is_null()) {
+            throw Exception(Status::FatalError("Check failed: !key_.is_null()"));
+        }
         auto key_array = vectorized::get<Array>(key_);
         auto value_array = vectorized::get<Array>(value);
 
         const auto count = key_array.size();
-        DCHECK_EQ(count, value_array.size());
+        if (count != value_array.size()) {
+            throw Exception(Status::FatalError("Check failed: count == value_array.size()"));
+        }
 
         for (size_t i = 0; i != count; ++i) {
             StringRef key;
@@ -158,7 +164,9 @@ struct AggregateFunctionMapAggData {
         StringRef key;
         for (size_t i = 0; i < size; i++) {
             read_binary(key, buf);
-            DCHECK(_map.find(key) == _map.cend());
+            if (_map.find(key) != _map.cend()) {
+                throw Exception(Status::FatalError("Check failed: _map.find(key) == _map.cend()"));
+            }
             key.data = _arena.insert(key.data, key.size);
             assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
                     .insert_data(key.data, key.size);
@@ -292,8 +300,12 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > end) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end, "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
         const auto& col = assert_cast<const ColumnMap&>(column);
         for (size_t i = begin; i <= end; ++i) {
             auto map = doris::vectorized::get<Map>(col[i]);

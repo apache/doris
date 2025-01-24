@@ -266,7 +266,9 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
                                           uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
     auto s = rows;
-    DCHECK(s == size());
+    if (s != size()) {
+        throw Exception(Status::FatalError("Check failed: s == size()"));
+    }
 
     if (null_data == nullptr) {
         for (size_t i = 0; i < s; i++) {
@@ -454,7 +456,9 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 template <typename T>
 void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                                const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
+    if (null_map == nullptr) {
+        throw Exception(Status::FatalError("Check failed: null_map != nullptr"));
+    }
 
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
 
@@ -614,7 +618,9 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
     auto sz = offsets.size();
-    DCHECK(cmp_res.size() == sz);
+    if (cmp_res.size() != sz) {
+        throw Exception(Status::FatalError("Check failed: cmp_res.size() == sz"));
+    }
     const auto& cmp_base =
             assert_cast<const ColumnStr<T>&, TypeCheckOnRelease::DISABLE>(rhs).get_data_at(
                     rhs_row_id);

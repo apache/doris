@@ -100,7 +100,9 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
 }
 
 Array create_empty_array_field(size_t num_dimensions) {
-    DCHECK(num_dimensions > 0);
+    if (num_dimensions <= 0) {
+        throw Exception(Status::FatalError("Check failed: num_dimensions > 0"));
+    }
     Array array;
     Array* current_array = &array;
     for (size_t i = 1; i < num_dimensions; ++i) {
@@ -365,7 +367,9 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema) {
-    DCHECK(target.is_extracted_column());
+    if (!target.is_extracted_column()) {
+        throw Exception(Status::FatalError("Check failed: target.is_extracted_column()"));
+    }
     target.set_aggregation_method(source.aggregation());
 
     // 1. bloom filter

@@ -92,7 +92,9 @@ struct EqualRangeIterator {
         }
 
         _cur_range_end = simd::find_zero(_flags, _cur_range_begin + 1);
-        DCHECK(_cur_range_end <= _end);
+        if (_cur_range_end > _end) {
+            throw Exception(Status::FatalError("Check failed: _cur_range_end <= _end"));
+        }
 
         if (_cur_range_begin >= _cur_range_end) {
             return false;
