@@ -107,11 +107,3 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
-
-  hive-hello-world:
-    image: hello-world
-    container_name: ${CONTAINER_UID}hive2-hello-world
-    depends_on:
-      hive-metastore:
-        condition: service_healthy
-    network_mode: "host"
