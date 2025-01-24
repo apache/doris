@@ -479,6 +479,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 
 import com.google.common.collect.ImmutableList;
 
@@ -974,7 +976,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsSub.class, "years_sub"),
             scalar(MultiMatch.class, "multi_match"),
             scalar(SessionUser.class, "session_user"),
-            scalar(LastQueryId.class, "last_query_id"));
+            scalar(LastQueryId.class, "last_query_id"),
+            scalar(Compress.class, "compress"),
+            scalar(Uncompress.class, "uncompress"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
