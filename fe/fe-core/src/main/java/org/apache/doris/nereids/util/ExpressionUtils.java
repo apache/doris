@@ -286,43 +286,6 @@ public class ExpressionUtils {
         }
     }
 
-    /**
-     * Use AND/OR to combine expressions together.
-     */
-    public static Expression combineAsLeftDeepTree(
-            Class<? extends Expression> type, Collection<Expression> expressions) {
-        /*
-         *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
-         *               ▲   ▲   ▲       ▲       ▲          ▲
-         *               │   │   │       │       │          │
-         * A B C D E ──► A B C D E ──► (AB) (CD) E ──► ((AB)(CD)) E ──► (((AB)(CD))E)
-         */
-        Preconditions.checkArgument(type == And.class || type == Or.class);
-        Objects.requireNonNull(expressions, "expressions is null");
-
-        Expression shortCircuit = (type == And.class ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
-        Expression skip = (type == And.class ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
-        if (expressions.stream().anyMatch(expr -> expr.equals(shortCircuit))) {
-            return shortCircuit;
-        }
-        List<Expression> distinctExpressions = dedupFoldableExpression(expressions);
-        distinctExpressions.remove(skip);
-        if (distinctExpressions.isEmpty()) {
-            return BooleanLiteral.of(type == And.class);
-        }
-        Expression result = null;
-        for (Expression expr : distinctExpressions) {
-            if (result == null) {
-                result = expr;
-            } else if (type == And.class) {
-                result = new And(result, expr);
-            } else {
-                result = new Or(result, expr);
-            }
-        }
-        return result;
-    }
-
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
         return shuttleExpressionWithLineage(Lists.newArrayList(expression),
                 plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
