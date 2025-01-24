@@ -50,13 +50,12 @@ public class StatisticAction extends RestBaseController {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
 
-        try {
-            if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMasterOrException(request, response);
-            }
-        } catch (Exception e) {
-            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        if (checkForwardToMaster(request)) {
+            return forwardToMaster(request);
         }
 
         Map<String, Object> resultMap = Maps.newHashMap();
