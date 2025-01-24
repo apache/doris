@@ -677,7 +677,7 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayShuffle, context);
     }
 
-    default R visitArrayFlatten(ArrayShuffle arrayFlatten, C context) {
+    default R visitArrayFlatten(ArrayFlatten arrayFlatten, C context) {
         return visitScalarFunction(arrayFlatten, context);
     }
 
