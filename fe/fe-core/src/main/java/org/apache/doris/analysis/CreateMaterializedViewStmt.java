@@ -413,6 +413,20 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
         if (beginIndexOfAggregation != -1 && (orderByElements.size() != (beginIndexOfAggregation))) {
             throw new AnalysisException("The key of columns in mv must be all of group by columns");
         }
+
+        int nonAggNumber = 0;
+        for (MVColumnItem mvColumnItem : mvColumnItemList) {
+            if (mvColumnItem.getAggregationType() != null) {
+                break;
+            }
+            nonAggNumber++;
+        }
+
+        if (orderByElements.size() != nonAggNumber) {
+            throw new AnalysisException("The number of columns in order clause must be equal with the number of "
+                    + "non-agg columns in select clause");
+        }
+
         for (int i = 0; i < orderByElements.size(); i++) {
             Expr orderByElement = selectStmt.getExprFromAliasSMapDirect(orderByElements.get(i).getExpr());
 
@@ -428,17 +442,6 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
             mvColumnItem.setIsKey(true);
-        }
-
-        // supplement none aggregate type
-        for (MVColumnItem mvColumnItem : mvColumnItemList) {
-            if (mvColumnItem.isKey()) {
-                continue;
-            }
-            if (mvColumnItem.getAggregationType() != null) {
-                break;
-            }
-            mvColumnItem.setAggregationType(AggregateType.NONE, true);
         }
     }
 
