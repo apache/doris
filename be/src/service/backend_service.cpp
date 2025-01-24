@@ -113,10 +113,23 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 
     auto& request = arg->request;
 
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t total_download_bytes = 0;
+    int64_t total_download_files = 0;
     TStatus tstatus;
     std::vector<std::string> download_success_files;
-    Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus]() {
-        LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
+    Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
+                  &total_download_bytes, &total_download_files]() {
+        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time() / 1000000);
+        double copy_rate = 0.0;
+        if (elapsed_time_ms > 0) {
+            copy_rate = total_download_bytes / ((double)elapsed_time_ms) / 1000;
+        }
+        LOG(INFO) << "ingest binlog elapsed " << elapsed_time_ms << " ms, download "
+                  << total_download_files << " files, total " << total_download_bytes
+                  << " bytes, avg rate " << copy_rate
+                  << " MB/s. result: " << apache::thrift::ThriftDebugString(tstatus);
         if (tstatus.status_code != TStatusCode::OK) {
             // abort txn
             engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet_id,
@@ -269,6 +282,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    total_download_bytes = total_size;
+    total_download_files = num_segments;
 
     // Step 5.3: get all segment files
     for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
@@ -442,6 +457,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    total_download_bytes += total_index_size;
+    total_download_files += segment_index_file_urls.size();
 
     // Step 6.3: get all segment index files
     DCHECK(segment_index_file_sizes.size() == segment_index_file_names.size());
