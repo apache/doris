@@ -70,9 +70,9 @@ suite("test_slow_close") {
     """
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("PipelineFragmentContext::close_a_pipeline.sleep",[pipeline_id: 4])
+        GetDebugPoint().enableDebugPointForAllBEs("Pipeline::make_all_runnable",[pipeline_id: 4])
         qt_sql "select count(*),sleep(2) from (select t1.k1 from t5 join [broadcast] t1 on t1.k1=t5.k1) tmp join [broadcast] t3 join t3 t3s [broadcast] on tmp.k1=t3.k1 and t3s.k1=t3.k1 where t3.k2=5;"
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("PipelineFragmentContext::close_a_pipeline.sleep")
+        GetDebugPoint().disableDebugPointForAllBEs("Pipeline::make_all_runnable")
     }
 }
