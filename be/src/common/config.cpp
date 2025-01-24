@@ -1193,6 +1193,8 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
                  [](const int64_t config) -> bool { return config < 1717986918; });
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
+DEFINE_mBool(merge_mow_delete_bitmap_when_compaction, "false")
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

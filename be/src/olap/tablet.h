@@ -510,12 +510,20 @@ public:
             CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
 
     Status update_delete_bitmap(TabletTxnInfo* txn_info, int64_t txn_id);
+    /**
+     * min_version: The min version of output delete bitmap.
+     * As show in #41447, there are still some issues that have not been identified and affect the
+     * import speed.
+     * But, we can merge the delete bitmap and reduce the number of delete bitmaps to improve
+     * the load speed.
+     */
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
             std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-            const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap);
+            const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap,
+            uint64_t min_version);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     Status check_rowid_conversion(
             RowsetSharedPtr dst_rowset,
