@@ -287,7 +287,8 @@ FileBlocksHolder::~FileBlocksHolder() {
                 std::lock_guard block_lock(file_block->_mutex);
                 file_block->complete_unlocked(block_lock);
                 if (file_block.use_count() == 2 &&
-                    file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
+                    (file_block->is_deleting() ||
+                     file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
                     should_remove = true;
                 }
             }
@@ -297,8 +298,9 @@ FileBlocksHolder::~FileBlocksHolder() {
                 if (file_block.use_count() == 2) {
                     DCHECK(file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADING);
                     // one in cache, one in here
-                    if (file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
-                        _mgr->remove(file_block, cache_lock, block_lock);
+                    if (file_block->is_deleting() ||
+                        file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
+                        _mgr->remove(file_block, cache_lock, block_lock, false);
                     }
                 }
             }

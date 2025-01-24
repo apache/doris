@@ -86,8 +86,8 @@ public:
 
 struct RankData {
     int64_t rank = 0;
-    int64_t count = 0;
-    int64_t peer_group_start = 0;
+    int64_t count = 1;
+    int64_t peer_group_start = -1;
 };
 
 class WindowFunctionRank final : public IAggregateFunctionDataHelper<RankData, WindowFunctionRank> {
@@ -131,7 +131,7 @@ public:
 
 struct DenseRankData {
     int64_t rank = 0;
-    int64_t peer_group_start = 0;
+    int64_t peer_group_start = -1;
 };
 
 class WindowFunctionDenseRank final
@@ -173,8 +173,8 @@ public:
 
 struct PercentRankData {
     int64_t rank = 0;
-    int64_t count = 0;
-    int64_t peer_group_start = 0;
+    int64_t count = 1;
+    int64_t peer_group_start = -1;
     int64_t partition_size = 0;
 };
 
@@ -230,7 +230,7 @@ public:
 struct CumeDistData {
     int64_t numerator = 0;
     int64_t denominator = 0;
-    int64_t peer_group_start = 0;
+    int64_t peer_group_start = -1;
 };
 
 class WindowFunctionCumeDist final

@@ -621,10 +621,11 @@ public:
         }
         for (int i = 0; i < _columns.size(); ++i) {
             if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
-                throw Exception(Status::FatalError(
-                        "Check failed: _data_types[i]->equals(*block.get_by_position(i).type "
-                        "target type: {} src type: {}",
-                        _data_types[i]->get_name(), block.get_by_position(i).type->get_name()));
+                throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                       "Merge block not match, self:[columns: {}, types: {}], "
+                                       "input:[columns: {}, types: {}], ",
+                                       dump_names(), dump_types(), block.dump_names(),
+                                       block.dump_types());
             }
             _columns[i]->insert_range_from_ignore_overflow(
                     *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,

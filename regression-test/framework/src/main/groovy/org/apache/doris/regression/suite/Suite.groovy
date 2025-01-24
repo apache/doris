@@ -1501,21 +1501,21 @@ class Suite implements GroovyInterceptable {
 
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         List<String> toCheckTaskRow = new ArrayList<>();
-        while (timeoutTimestamp > System.currentTimeMillis() && (status != "SUCCESS")) {
+        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL')) {
             result = sql(showTasks)
-            logger.info("current db is " + dbName + ", showTasks is " + showTasks)
+            logger.info("current db is " + dbName + ", showTasks is " + result.toString())
             if (result.isEmpty()) {
                 logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
                 Thread.sleep(1000);
                 continue;
             }
-            toCheckTaskRow = result.get(0);
+            toCheckTaskRow = result.last();
             status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
@@ -1539,14 +1539,14 @@ class Suite implements GroovyInterceptable {
 
     def waitingMTMVTaskFinishedByMvNameAllowCancel = {mvName, dbName = context.dbName ->
         Thread.sleep(2000);
-        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime DESC LIMIT 1"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
 
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
         List<String> toCheckTaskRow = new ArrayList<>();
-        while (timeoutTimestamp > System.currentTimeMillis() && (status != "SUCCESS")) {
+        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL' || status == 'CANCELED')) {
             result = sql(showTasks)
             logger.info("current db is " + dbName + ", showTasks result: " + result.toString())
             if (result.isEmpty()) {
@@ -1554,7 +1554,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000);
                 continue;
             }
-            toCheckTaskRow = result.get(0)
+            toCheckTaskRow = result.last()
             status = toCheckTaskRow.get(4)
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
@@ -1685,36 +1685,6 @@ class Suite implements GroovyInterceptable {
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
-    }
-
-    def getMVJobState = { tableName  ->
-        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit 1"""
-        if (jobStateResult == null || jobStateResult.isEmpty()) {
-            logger.info("show alter table roll is empty" + jobStateResult)
-            return "NOT_READY"
-        }
-        logger.info("getMVJobState jobStateResult is " + jobStateResult.toString())
-        if (!jobStateResult[0][8].equals("FINISHED")) {
-            return "NOT_READY"
-        }
-        return "FINISHED";
-    }
-    def waitForRollUpJob =  (tbName, timeoutMillisecond) -> {
-
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + timeoutMillisecond
-
-        String result
-        while (timeoutTimestamp > System.currentTimeMillis()){
-            result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                sleep(200)
-                return
-            } else {
-                sleep(200)
-            }
-        }
-        Assert.assertEquals("FINISHED", result)
     }
 
     void testFoldConst(String foldSql) {

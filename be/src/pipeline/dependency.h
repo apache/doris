@@ -549,41 +549,15 @@ public:
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 
-struct BlockRowPos {
-    int64_t block_num {}; //the pos at which block
-    int64_t row_num {};   //the pos at which row
-    int64_t pos {};       //pos = all blocks size + row_num
-    std::string debug_string() const {
-        std::string res = "\t block_num: ";
-        res += std::to_string(block_num);
-        res += "\t row_num: ";
-        res += std::to_string(row_num);
-        res += "\t pos: ";
-        res += std::to_string(pos);
-        return res;
-    }
-};
-
 struct AnalyticSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AnalyticSharedState)
 
 public:
     AnalyticSharedState() = default;
-
-    int64_t current_row_position = 0;
-    BlockRowPos partition_by_end;
-    int64_t input_total_rows = 0;
-    BlockRowPos all_block_end;
-    std::vector<vectorized::Block> input_blocks;
-    bool input_eos = false;
-    BlockRowPos found_partition_end;
-    std::vector<int64_t> origin_cols;
-    std::vector<int64_t> input_block_first_row_positions;
-    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
-
-    // TODO: maybe global?
-    std::vector<int64_t> partition_by_column_idxs;
-    std::vector<int64_t> ordey_by_column_idxs;
+    std::queue<vectorized::Block> blocks_buffer;
+    std::mutex buffer_mutex;
+    bool sink_eos = false;
+    std::mutex sink_eos_lock;
 };
 
 struct JoinSharedState : public BasicSharedState {

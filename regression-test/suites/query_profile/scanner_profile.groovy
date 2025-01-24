@@ -76,6 +76,7 @@ suite('scanner_profile') {
 
     def uuidString = UUID.randomUUID().toString()
     sql "set enable_profile=true"
+    sql "set profile_level=2;"
     // With Limit, MaxScannerThreadNum = 1
     sql """
         select "with_limit_1_${uuidString}", * from scanner_profile limit 10;
@@ -104,5 +105,5 @@ suite('scanner_profile') {
 
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
     logger.info("Profile of ${queryIdWithLimit1} ${profileWithLimit1}")
-    assertTrue(profileWithLimit1.contains("- PeakRunningScannerPeak: 1"))
+    assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
 }

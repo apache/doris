@@ -97,6 +97,7 @@ Suite.metaClass.calculateFolderLength = { OSS client, String bucketName, String 
     ObjectListing objectListing = null;
     do {
         // The default value for MaxKey is 100, and the maximum value is 1000
+        logger.info("debug:" + folder)
         ListObjectsRequest request = new ListObjectsRequest(bucketName).withPrefix(folder).withMaxKeys(1000);
         if (objectListing != null) {
             request.setMarker(objectListing.getNextMarker());
@@ -104,6 +105,12 @@ Suite.metaClass.calculateFolderLength = { OSS client, String bucketName, String 
         objectListing = client.listObjects(request);
         List<OSSObjectSummary> sums = objectListing.getObjectSummaries();
         for (OSSObjectSummary s : sums) {
+            logger.info("Object Key: ${s.getKey()}")
+            logger.info("Size: ${s.getSize()} bytes")
+            logger.info("Last Modified: ${s.getLastModified()}")
+            logger.info("Storage Class: ${s.getStorageClass()}")
+            logger.info("Owner: ${s.getOwner()?.getId()}")
+            logger.info("-------------------")
             size += s.getSize();
         }
     } while (objectListing.isTruncated());
