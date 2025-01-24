@@ -1206,7 +1206,8 @@ void commit_txn_immediately(
             // by another transaction and successfully committed.
             if (!lock_values[i].has_value()) {
                 ss << "get delete bitmap update lock info, lock is expired"
-                   << " table_id=" << table_id << " key=" << hex(lock_keys[i]);
+                   << " table_id=" << table_id << " key=" << hex(lock_keys[i])
+                   << " txn_id=" << txn_id;
                 code = MetaServiceCode::LOCK_EXPIRED;
                 msg = ss.str();
                 LOG(WARNING) << msg << " txn_id=" << txn_id;
@@ -1221,13 +1222,14 @@ void commit_txn_immediately(
                 return;
             }
             if (lock_info.lock_id() != request->txn_id()) {
-                msg = "lock is expired";
+                ss << "lock is expired, locked by lock_id=" << lock_info.lock_id();
+                msg = ss.str();
                 code = MetaServiceCode::LOCK_EXPIRED;
                 return;
             }
             txn->remove(lock_keys[i]);
             LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
-                      << " txn_id=" << txn_id;
+                      << " table_id=" << table_id << " txn_id=" << txn_id;
 
             for (auto tablet_id : table_id_tablet_ids[table_id]) {
                 std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
