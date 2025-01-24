@@ -443,7 +443,6 @@ public class DataTrait {
         }
 
         public void add(Slot slot) {
-            slots.remove(slot);
             slots.add(slot);
         }
 
