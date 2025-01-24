@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -179,6 +180,8 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def to avoid them change before lock
     private final Map<List<String>, String> viewInfos = Maps.newHashMap();
+    // save insert into schema to avoid schema changed between two read locks
+    private final List<Column> insertTargetSchema = new ArrayList<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -274,6 +277,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public List<Column> getInsertTargetSchema() {
+        return insertTargetSchema;
     }
 
     public void setTables(Map<List<String>, TableIf> tables) {
