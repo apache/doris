@@ -540,7 +540,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
             auto schema_version = get_rowset_res->rowset_meta(10).schema_version();
             get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(3);
             EXPECT_EQ(get_rowset_res->rowset_meta(10).tablet_schema().SerializeAsString(),
-                      schema->SerializeAsString());
+                      schema->SerializeAsString())
+                    << "table_id=" << table_id;
             get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(
                     schema_version);
         }
