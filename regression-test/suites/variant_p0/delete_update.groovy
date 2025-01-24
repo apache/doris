@@ -55,7 +55,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "store_row_column" = "true");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
     """
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"
