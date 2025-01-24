@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/tablet.h"
@@ -514,8 +515,8 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
             DCHECK(current_scan_task->cached_blocks.empty());
             DCHECK(!current_scan_task->is_eos());
             if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
-                // This should not happen.
-                return Status::InternalError("Scanner schduler logical error.");
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Scanner schduler logical error.");
             }
             // This usually happens when we should downgrade the concurrency.
             _pending_scanners.push(current_scan_task->scanner);
@@ -547,7 +548,8 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                     DCHECK(!current_scan_task->is_eos());
                     if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
                         // This should not happen.
-                        return Status::InternalError("Scanner schduler logical error.");
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                               "Scanner schduler logical error.");
                     }
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
@@ -600,7 +602,7 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         DCHECK(!current_scan_task->is_eos());
         if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
             // This should not happen.
-            return Status::InternalError("Scanner schduler logical error.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner schduler logical error.");
         }
         return current_scan_task;
     }
