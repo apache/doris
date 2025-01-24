@@ -324,7 +324,7 @@ public class CatalogTestUtil {
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
         Backend backend = new Backend(id, host, heartPort);
-        // backend.updateOnce(bePort, httpPort, 10000);
+        backend.updateOnce(bePort, httpPort, 10000);
         backend.setAlive(true);
         return backend;
     }
