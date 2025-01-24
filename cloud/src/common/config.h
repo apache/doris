@@ -62,7 +62,7 @@ CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
-CONF_Int32(recycle_job_lease_expired_ms, "60000");
+CONF_mInt32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
@@ -110,7 +110,7 @@ CONF_String(test_hdfs_fs_name, "");
 // CONF_Bool(b, "true");
 
 // txn config
-CONF_Int32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
@@ -133,7 +133,7 @@ CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
 
-CONF_Int32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
@@ -249,4 +249,7 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 CONF_Bool(enable_check_instance_id, "true");
+
+// Check if ip eq 127.0.0.1, ms/recycler exit
+CONF_Bool(enable_loopback_address_for_ms, "false");
 } // namespace doris::cloud::config
