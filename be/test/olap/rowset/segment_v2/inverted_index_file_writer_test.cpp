@@ -1042,9 +1042,14 @@ TEST_F(InvertedIndexFileWriterTest, CacheUpdateTest) {
     auto mock_builder_new = std::make_unique<MockIndexSearcherBuilder>();
 
     EXPECT_CALL(*mock_builder_new, get_index_searcher(testing::_))
-            .WillOnce(testing::Return(Result<IndexSearcherPtr>(
-                    std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>(
-                            std::make_shared<lucene::util::bkd::bkd_reader>()))));
+            .WillOnce(testing::Invoke(
+                    [](lucene::store::Directory* directory) -> Result<IndexSearcherPtr> {
+                        auto close_directory = true;
+                        auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
+                                directory, close_directory);
+                        _CLDECDELETE(directory)
+                        return bkd_reader;
+                    }));
 
     EXPECT_CALL(writer_new, _construct_index_searcher_builder(testing::_))
             .WillOnce(testing::Return(testing::ByMove(std::move(mock_builder_new))));
