@@ -1292,9 +1292,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAlterView(AlterViewContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        String querySql = getOriginSql(ctx.query());
-        AlterViewInfo info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
-                ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
+        String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
+        AlterViewInfo info;
+        if (comment != null) {
+            info = new AlterViewInfo(new TableNameInfo(nameParts), comment);
+        } else {
+            String querySql = getOriginSql(ctx.query());
+            info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
+                    ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
+        }
         return new AlterViewCommand(info);
     }
 
