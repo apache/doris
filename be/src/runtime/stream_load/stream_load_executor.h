@@ -45,7 +45,7 @@ public:
 
     virtual Status commit_txn(StreamLoadContext* ctx);
 
-    void get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request);
+    void get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request, int timeout_ms);
 
     virtual void rollback_txn(StreamLoadContext* ctx);
 

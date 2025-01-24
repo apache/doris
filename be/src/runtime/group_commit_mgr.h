@@ -172,7 +172,8 @@ private:
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, const TPipelineFragmentParams& pipeline_params);
     Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
-                                     int64_t txn_id, const TUniqueId& instance_id, Status& status,
+                                     int64_t txn_id, const TUniqueId& instance_id,
+                                     const TPipelineFragmentParams& pipeline_params, Status& status,
                                      RuntimeState* state);
 
     ExecEnv* _exec_env = nullptr;

@@ -413,10 +413,11 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
         }
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, result.pipeline_params);
+
     if (!st.ok()) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
         auto finish_st = _finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
-                                                   st, nullptr);
+                                                   result.pipeline_params, st, nullptr);
         if (!finish_st.ok()) {
             LOG(WARNING) << "finish group commit error, label=" << label
                          << ", st=" << finish_st.to_string();
@@ -427,8 +428,9 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
 
 Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_id,
                                                    const std::string& label, int64_t txn_id,
-                                                   const TUniqueId& instance_id, Status& status,
-                                                   RuntimeState* state) {
+                                                   const TUniqueId& instance_id,
+                                                   const TPipelineFragmentParams& pipeline_params,
+                                                   Status& status, RuntimeState* state) {
     Status st;
     Status result_status;
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status",
@@ -438,6 +440,13 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     if (status.ok()) {
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.commit_error",
                         { status = Status::InternalError(""); });
+
+        int timeout_ms = config::txn_commit_rpc_timeout_ms;
+        bool is_cloud_mow_table = config::is_cloud_mode() && pipeline_params.__isset.is_mow_table &&
+                                  pipeline_params.is_mow_table;
+        if (is_cloud_mow_table) {
+            timeout_ms *= config::mow_commit_rpc_timeout_multiplier;
+        }
         // commit txn
         TLoadTxnCommitRequest request;
         // deprecated and should be removed in 3.1, use token instead
@@ -446,7 +455,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
-        request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+        request.__set_thrift_rpc_timeout_ms(timeout_ms);
         request.__set_groupCommit(true);
         request.__set_receiveBytes(state->num_bytes_load_total());
         if (_exec_env->cluster_info()->backend_id != 0) {
@@ -466,7 +475,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     [&request, &result](FrontendServiceConnection& client) {
                         client->loadTxnCommit(result, request);
                     },
-                    config::txn_commit_rpc_timeout_ms);
+                    timeout_ms);
             result_status = Status::create(result.status);
             // DELETE_BITMAP_LOCK_ERROR will be retried
             if (result_status.ok() || !result_status.is<ErrorCode::DELETE_BITMAP_LOCK_ERROR>()) {
@@ -576,10 +585,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
 Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                              const std::string& label, int64_t txn_id,
                                              const TPipelineFragmentParams& pipeline_params) {
-    auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
+    auto finish_cb = [db_id, table_id, label, txn_id, pipeline_params, this](RuntimeState* state,
+                                                                             Status* status) {
         DCHECK(state);
         auto finish_st = _finish_group_commit_load(db_id, table_id, label, txn_id,
-                                                   state->fragment_instance_id(), *status, state);
+                                                   state->fragment_instance_id(), pipeline_params,
+                                                   *status, state);
         if (!finish_st.ok()) {
             LOG(WARNING) << "finish group commit error, label=" << label
                          << ", st=" << finish_st.to_string();
