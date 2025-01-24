@@ -41,6 +41,13 @@ import java.util.function.Supplier;
 public class BackendDistributedPlanWorkerManager implements DistributedPlanWorkerManager {
     private static final Logger LOG = LogManager.getLogger(BackendDistributedPlanWorkerManager.class);
 
+    private static final Backend DUMMY_BACKEND;
+
+    static {
+        DUMMY_BACKEND = new Backend(-1, "dummy", -1);
+        DUMMY_BACKEND.setAlive(true);
+    }
+
     private final Supplier<ImmutableMap<Long, Backend>> allClusterBackends = Suppliers.memoize(() -> {
         try {
             return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
@@ -51,14 +58,17 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
 
     private final ImmutableMap<Long, Backend> currentClusterBackends;
 
-    public BackendDistributedPlanWorkerManager(ConnectContext context, boolean skipCheckCluster) throws UserException {
-        this.currentClusterBackends = checkAndInitClusterBackends(context, skipCheckCluster);
+    public BackendDistributedPlanWorkerManager(ConnectContext context, boolean notNeedBackend) throws UserException {
+        this.currentClusterBackends = checkAndInitClusterBackends(context, notNeedBackend);
     }
 
     private ImmutableMap<Long, Backend> checkAndInitClusterBackends(
-            ConnectContext context, boolean skipCheckCluster) throws UserException {
-        if (!Config.isCloudMode() || skipCheckCluster) {
+            ConnectContext context, boolean noNeedBackend) throws UserException {
+        if (!Config.isCloudMode()) {
             return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
+        } else if (noNeedBackend) {
+            // `select 1` will not need backend
+            return ImmutableMap.of(-1L, DUMMY_BACKEND);
         }
 
         checkCluster(context);

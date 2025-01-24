@@ -171,7 +171,7 @@ public class EnvFactory {
             if (statementContext == null) {
                 statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
             }
-            DistributePlanner distributePlanner = new DistributePlanner(statementContext, fragments, true);
+            DistributePlanner distributePlanner = new DistributePlanner(statementContext, fragments, false);
             FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan(true);
 
             return new NereidsCoordinator(

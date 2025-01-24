@@ -67,13 +67,13 @@ public class DistributePlanner {
     private static final Logger LOG = LogManager.getLogger(DistributePlanner.class);
     private final StatementContext statementContext;
     private final FragmentIdMapping<PlanFragment> idToFragments;
-    private final boolean skipCheckCluster;
+    private final boolean notNeedBackend;
 
     public DistributePlanner(StatementContext statementContext,
-            List<PlanFragment> fragments, boolean skipCheckCluster) {
+            List<PlanFragment> fragments, boolean notNeedBackend) {
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
         this.idToFragments = FragmentIdMapping.buildFragmentMapping(fragments);
-        this.skipCheckCluster = skipCheckCluster;
+        this.notNeedBackend = notNeedBackend;
     }
 
     /** plan */
@@ -81,7 +81,7 @@ public class DistributePlanner {
         updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
         try {
             BackendDistributedPlanWorkerManager workerManager
-                    = new BackendDistributedPlanWorkerManager(statementContext.getConnectContext(), skipCheckCluster);
+                    = new BackendDistributedPlanWorkerManager(statementContext.getConnectContext(), notNeedBackend);
             LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(workerManager);
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
