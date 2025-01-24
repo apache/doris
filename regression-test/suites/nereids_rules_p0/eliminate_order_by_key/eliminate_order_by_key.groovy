@@ -47,7 +47,10 @@ suite("eliminate_order_by_key") {
     qt_fd_duplicate "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,abs(a),a,abs(a),a+1,id"
     qt_fd_topn "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,abs(a),a+1,id limit 5"
     qt_fd_duplicate_topn "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,abs(a),a,abs(a),a+1,id limit 5"
-
+    qt_fd_multi_column "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,b,a+b"
+    qt_fd_desc "select a,b,c,d,dt from eliminate_order_by_constant_t order by a desc,abs(a) asc,a+1 desc,id"
+    qt_fd_multi_column_desc "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,b desc,a+b"
+    qt_fd_multi_column_desc_with_other_in_middle "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,c,b desc,a+b asc"
     // duplicate
     qt_dup_shape "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,a,id"
     qt_dup_expr_shape "select a,b,c,d,dt from eliminate_order_by_constant_t order by a+1,a+1,id"
