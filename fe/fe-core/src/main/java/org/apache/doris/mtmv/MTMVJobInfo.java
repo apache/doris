@@ -47,6 +47,10 @@ public class MTMVJobInfo {
         return job;
     }
 
+    public void setJob(MTMVJob job) {
+        this.job = job;
+    }
+
     public void addHistoryTask(MTMVTask task) {
         if (Config.max_persistence_task_count < 1) {
             return;

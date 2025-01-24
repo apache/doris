@@ -177,7 +177,11 @@ public class MTMV extends OlapTable {
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
         writeMvLock();
         try {
-            return refreshInfo.updateNotNull(newRefreshInfo);
+            MTMVRefreshInfo mtmvRefreshInfo = refreshInfo.updateNotNull(newRefreshInfo);
+            MTMVJob mtmvJob = MTMVJobManager.buildMTMVJob(getDatabase().getId(), id,
+                    ConnectContext.get().getCurrentUserIdentity(), refreshInfo);
+            jobInfo.setJob(mtmvJob);
+            return mtmvRefreshInfo;
         } finally {
             writeMvUnlock();
         }
