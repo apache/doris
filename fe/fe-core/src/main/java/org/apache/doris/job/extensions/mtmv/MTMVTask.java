@@ -80,6 +80,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -203,7 +204,7 @@ public class MTMVTask extends AbstractTask {
                     MTMVPartitionUtil.alignMvPartition(mtmv);
                 }
                 context = MTMVRefreshContext.buildContext(mtmv);
-                this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
+                this.needRefreshPartitions = filterHistoryPartition(calculateNeedRefreshPartitions(context), context);
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);
             }
@@ -477,6 +478,16 @@ public class MTMVTask extends AbstractTask {
         } else {
             return MTMVTaskRefreshMode.PARTIAL;
         }
+    }
+
+    private List<String> filterHistoryPartition(List<String> needRefreshPartitions, MTMVRefreshContext context) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return needRefreshPartitions;
+        }
+        return needRefreshPartitions.stream()
+                .filter(partitionName -> CollectionUtils.isNotEmpty(context.getPartitionMappings().get(partitionName)))
+                .collect(
+                        Collectors.toList());
     }
 
     public List<String> calculateNeedRefreshPartitions(MTMVRefreshContext context)
