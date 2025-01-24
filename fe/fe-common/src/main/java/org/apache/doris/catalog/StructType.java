@@ -51,18 +51,25 @@ public class StructType extends Type {
 
     public StructType(ArrayList<StructField> fields) {
         Preconditions.checkNotNull(fields);
-        this.fields = fields;
-        for (int i = 0; i < this.fields.size(); ++i) {
-            this.fields.get(i).setPosition(i);
-            fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
+        Preconditions.checkArgument(!fields.isEmpty());
+        this.fields = new ArrayList<>();
+        for (StructField field : fields) {
+            String fieldName = field.getName().toLowerCase();
+            field.setPosition(this.fields.size());
+            this.fields.add(field);
+            fieldMap.put(fieldName, field);
         }
     }
 
     public StructType(List<Type> types) {
         Preconditions.checkNotNull(types);
+        Preconditions.checkArgument(!types.isEmpty());
         ArrayList<StructField> newFields = new ArrayList<>();
-        for (Type type : types) {
-            newFields.add(new StructField(type));
+        for (int i = 0; i < types.size(); ++i) {
+            StructField field = new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), types.get(i));
+            newFields.add(field);
+            field.setPosition(i);
+            fieldMap.put(field.getName(), field);
         }
         this.fields = newFields;
     }
@@ -152,12 +159,6 @@ public class StructType extends Type {
             }
         }
         return false;
-    }
-
-    public void addField(StructField field) {
-        field.setPosition(fields.size());
-        fields.add(field);
-        fieldMap.put(field.getName().toLowerCase(), field);
     }
 
     public ArrayList<StructField> getFields() {
