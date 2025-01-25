@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.amazonaws.services.dynamodbv2.xspec.L;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
@@ -102,7 +103,11 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNo
         // Do type coercion manually because the function signature accept any initially.
         DataType queryType = getArgumentType(2);
         if (dictionary.getLayout() == LayoutType.HASH_MAP) {
-            DataType colType = dictionary.getKeyColumnType();
+            List<DataType> colTypes = dictionary.getKeyColumnTypes();
+            if (colTypes.size() != 1) {
+                throw new AnalysisException("dict_get() only support one key column");
+            }
+            DataType colType = colTypes.get(0);
             Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, colType);
             if (castType.isPresent() && !castType.get().equals(queryType)) {
                 queryType = castType.get();

@@ -84,7 +84,7 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
     }
 
     /**
-     * use for visitDictGet to get real signature
+     * use for visitDictGetMany to get real signature
      */
     public Pair<FunctionSignature, Dictionary> customSignatureDict() {
         DictionaryManager dicMgr = Env.getCurrentEnv().getDictionaryManager();
@@ -116,14 +116,18 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
             returnFields.add(field);
         }
 
-        StructType originQueryTypes = (StructType) getArgumentType(2); // origin
-        List<StructField> targetQueryFields = new ArrayList<>(); // after changed
         // generate target query types(for 3rd argument) one by one for each nested column in the struct
-        for (StructField field : originQueryTypes.getFields()) {
+        List<StructField> originQueryFields = ((StructType) getArgumentType(2)).getFields();
+        List<StructField> targetQueryFields = new ArrayList<>(); // after add essential castExpr
+        List<DataType> targetTypes = dictionary.getKeyColumnTypes(); // query columns should cast to key columns' types
+
+        for (int i = 0; i < originQueryFields.size(); i++) {
+            StructField field = originQueryFields.get(i);
             DataType queryType = field.getDataType();
+            DataType targetType = targetTypes.get(i);
+
             if (dictionary.getLayout() == LayoutType.HASH_MAP) {
-                DataType colType = dictionary.getKeyColumnType();
-                Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, colType);
+                Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, targetType);
                 if (castType.isPresent() && !castType.get().equals(queryType)) {
                     queryType = castType.get();
                 }
