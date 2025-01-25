@@ -16,27 +16,12 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
-    def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][8]
-    }
-    def waitForJob =  (tbName, timeout) -> {
-        while (timeout--){
-            String result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
-    }
+
 
     try {
         String backend_id;
@@ -80,16 +65,16 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
-    waitForJob(tableName, 3000)
+    create_sync_mv(context.dbName, tableName, mvName, """select user_id, date, city, age, sex from ${tableName}""")
 
     // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    if (!isCloudMode()) {
+        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
+    }
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName};"
-    waitForJob(tableName, 3000)
+    create_sync_mv(context.dbName, tableName, mvName2, """select user_id, date, city, age, sex, cost from ${tableName};""")
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

@@ -66,11 +66,11 @@ suite ("test_28741") {
     sql "INSERT INTO test(a,a1,b,b1,c,t,d,d1,e) VALUES (1,1,2,'-',3,'2023-12-20 17:21:00', 56, 78, 89)"
 
     sql """analyze table test with sync;"""
+    sql """alter table test modify column a set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
 
     sql """set enable_stats=true;"""
-    sql """alter table test modify column a set stats ('row_count'='2');"""
     mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
 }
