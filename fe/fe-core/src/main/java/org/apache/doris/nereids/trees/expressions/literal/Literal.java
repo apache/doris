@@ -344,7 +344,9 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             case IPV4: return new IPv4Literal(stringValue);
             case IPV6: return new IPv6Literal(stringValue);
             case TIME:
-            case TIMEV2: return new TimeLiteral(stringValue);
+            case TIMEV2: {
+                return new TimeLiteral(stringValue);
+            }
             default: {
             }
         }

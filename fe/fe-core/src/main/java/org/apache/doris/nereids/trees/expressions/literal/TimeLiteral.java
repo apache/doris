@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
 public class TimeLiteral extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0, 0, 0);
+    private static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0, 0, 0);
     private static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59, 999999, 6);
 
     protected long hour;
@@ -68,6 +68,9 @@ public class TimeLiteral extends Literal {
         this.scale = 0;
     }
 
+    /**
+     * C'tor for time type.
+     */
     public TimeLiteral(long hour, long minute, long second, long microsecond, int scale) {
         super(TimeV2Type.INSTANCE);
         this.hour = hour;
@@ -177,14 +180,12 @@ public class TimeLiteral extends Literal {
         long ms = Math.max(Math.min(getMicroSecond(), MAX_TIME.getMicroSecond()), MIN_TIME.getMicroSecond());
 
         StringBuilder sb = new StringBuilder();
-        if (h > 99 || h < -99) {
+        if (h > 99) {
             sb.append(String.format("%03d:%02d:%02d", h, m, s));
         } else {
             sb.append(String.format("%02d:%02d:%02d", h, m, s));
         }
         switch ((int) scale) {
-            case 0:
-                break;
             case 1:
                 sb.append(String.format(".%1d", ms));
                 break;
@@ -202,6 +203,8 @@ public class TimeLiteral extends Literal {
                 break;
             case 6:
                 sb.append(String.format(".%6d", ms));
+                break;
+            default:
                 break;
         }
         return sb.toString();

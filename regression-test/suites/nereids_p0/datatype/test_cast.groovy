@@ -106,10 +106,25 @@ suite("test_cast") {
 
     qt_select1 "select cast('838:59:59' as time);"
 
-    qt_select2 "select cast('-838:59:59' as time);"
+    qt_select2 "select cast('-01:00:00' as time);"
 
     qt_select3 "select cast('839:00:00' as time);"
 
+    qt_select4 "select cast(11111111 as time);"
+
+    qt_select5 "select cast(1111111 as time);"
+
+    qt_select6 "select cast(111111 as time);"
+
+    qt_select7 "select cast(11111 as time);"
+
+    qt_select8 "select cast(1111 as time);"
+
+    qt_select9 "select cast(111 as time);"
+
+    qt_select8 "select cast(11 as time);"
+
+    qt_select9 "select cast(1 as time);"
 
     sql """ DROP TABLE IF EXISTS table_decimal38_4;"""
     sql """
