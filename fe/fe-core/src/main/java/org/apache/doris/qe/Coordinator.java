@@ -3436,5 +3436,10 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentInstanceAddr = host;
         }
     }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
+    }
 }
 

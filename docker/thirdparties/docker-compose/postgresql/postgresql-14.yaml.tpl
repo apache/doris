@@ -35,13 +35,6 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--postgres
-  doris--postgres--hello-world:
-    image: hello-world
-    depends_on:
-      doris--postgres:
-        condition: service_healthy
-    networks:
-      - doris--postgres
 
 networks:
   doris--postgres:

@@ -1111,7 +1111,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.REMOVED)
     public boolean enableVectorizedEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, needForward = true,
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
             varType = VariableAnnotation.REMOVED)
     private boolean enablePipelineEngine = true;
 
@@ -1224,7 +1224,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
 
-    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, needForward = true)
+    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
     private boolean runtimeFilterWaitInfinitely = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
@@ -1533,7 +1533,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, flag = VariableMgr.INVISIBLE,
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VariableMgr.INVISIBLE,
             varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
@@ -1768,7 +1768,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"batch方式中BE获取splits的最大等待时间",
                     "The max wait time of getting splits in batch mode."},
             needForward = true)
-    public long fetchSplitsMaxWaitTime = 4000;
+    public long fetchSplitsMaxWaitTime = 1000;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -2225,7 +2225,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用join算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of join operation. "
                             + "The default value is false."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public boolean enableJoinSpill = false;
 
     @VariableMgr.VarAttr(
@@ -2233,7 +2233,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用排序算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of sort operation. "
                             + "The default value is false."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public boolean enableSortSpill = false;
 
     @VariableMgr.VarAttr(
@@ -2250,7 +2250,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用聚合算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of aggregation operation. "
                             + "The default value is false."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public boolean enableAggSpill = false;
 
     @VariableMgr.VarAttr(
@@ -2258,7 +2258,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否开启强制落盘（即使在内存足够的情况），默认为 false。",
                     "Controls whether enable force spill."
             },
-            needForward = true, fuzzy = true
+            needForward = true, fuzzy = false
     )
     public boolean enableForceSpill = false;
 
@@ -2266,14 +2266,14 @@ public class SessionVariable implements Serializable, Writable {
             name = DATA_QUEUE_MAX_BLOCKS,
             description = {"DataQueue 中每个子队列允许最大的 block 个数",
                     "Max blocks in DataQueue."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public long dataQueueMaxBlocks = 1;
 
     @VariableMgr.VarAttr(
             name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
             description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
                     "Disable the runtime filter on the BE for testing purposes."},
-            needForward = true, fuzzy = false)
+            needForward = true, fuzzy = true)
     public boolean fuzzyDisableRuntimeFilterInBE = false;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
@@ -2285,13 +2285,13 @@ public class SessionVariable implements Serializable, Writable {
 
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
-    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
+    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
-            checker = "checkExternalAggPartitionBits", fuzzy = true)
+            checker = "checkExternalAggPartitionBits", fuzzy = false)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
@@ -2507,7 +2507,7 @@ public class SessionVariable implements Serializable, Writable {
 
         this.runtimeFilterType = 1 << randomInt;
         this.enableParallelScan = random.nextInt(2) == 0;
-        this.enableRuntimeFilterPrune = (randomInt % 2) == 0;
+        this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
 
         switch (randomInt) {
             case 0:
@@ -2538,40 +2538,12 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableFoldConstantByBe = false;
             }
 
-            this.fuzzyDisableRuntimeFilterInBE = true;
         }
+        this.fuzzyDisableRuntimeFilterInBE = random.nextBoolean();
+        this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
-
-        // for spill to disk
-        if (Config.pull_request_id > 10000) {
-            if (Config.pull_request_id % 2 == 0) {
-                this.enableJoinSpill = true;
-                this.enableSortSpill = true;
-                this.enableAggSpill = true;
-
-                randomInt = random.nextInt(4);
-                switch (randomInt) {
-                    case 0:
-                        this.minRevocableMem = 0;
-                        break;
-                    case 1:
-                        this.minRevocableMem = 1;
-                        break;
-                    case 2:
-                        this.minRevocableMem = 1024 * 1024;
-                        break;
-                    default:
-                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
-                        break;
-                }
-            } else {
-                this.enableJoinSpill = false;
-                this.enableSortSpill = false;
-                this.enableAggSpill = false;
-            }
-        }
     }
 
     public String printFuzzyVariables() {
