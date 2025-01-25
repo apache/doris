@@ -18,6 +18,7 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1682406065');
 
 ALTER TABLE partition_location_2 ADD PARTITION (part1='part1_1', part2='part2_1') LOCATION '/user/doris/suites/multi_catalog/partition_location_2/part1=part1_1/part2=part2_1';
-ALTER TABLE partition_location_2 ADD PARTITION (part1='part1_2', part2='part2_2') LOCATION '/user/doris/suites/multi_catalog/partition_location_2/part1=part1_2/part2=part2_2';
+ALTER TABLE partition_location_2 ADD PARTITION (part1='part1_2', part2='part2_2') LOCATION '/user/doris/suites/multi_catalog/partition_location_2/20230425';
 
+set hive.msck.path.validation=ignore;
 msck repair table partition_location_2;
