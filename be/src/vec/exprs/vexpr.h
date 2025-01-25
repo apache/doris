@@ -379,7 +379,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -489,6 +489,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
+    } else if constexpr (T == TYPE_TIMEV2) {
+        const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
+        TTimeLiteral time_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        time_literal.__set_value(convert_buffer);
+        (*node).__set_time_literal(time_literal);
+        (*node).__set_node_type(TExprNodeType::TIME_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

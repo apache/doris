@@ -256,6 +256,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
+        case TExprNodeType::TIME_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
         case TExprNodeType::NULL_LITERAL: {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -25,28 +27,46 @@ import org.apache.doris.thrift.TTimeLiteral;
 
 public class TimeLiteral extends LiteralExpr {
 
-    public static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0);
-    public static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59);
+    public static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0, 0, 0);
+    public static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59, 999999, 6);
 
     protected long hour;
     protected long minute;
     protected long second;
+    protected long microsecond;
 
     /**
      * C'tor forcing type, e.g., due to implicit cast
      */
     // for restore
     private TimeLiteral() {
+        this.type = Type.TIMEV2;
         this.hour = 0;
         this.minute = 0;
         this.second = 0;
+        this.microsecond = 0;
     }
 
     public TimeLiteral(long hour, long minute, long second) {
         super();
+        this.type = Type.TIMEV2;
         this.hour = hour;
         this.minute = minute;
         this.second = second;
+        this.microsecond = 0;
+        analysisDone();
+    }
+
+    public TimeLiteral(long hour, long minute, long second, long microsecond, long scale) {
+        super();
+        this.type = ScalarType.createTimeV2Type((int) scale);
+        this.hour = hour;
+        this.minute = minute;
+        this.second = second;
+        this.microsecond = microsecond;
+        while (microsecond != 0 && this.microsecond < 100000) {
+            this.microsecond *= 10;
+        }
         analysisDone();
     }
 
@@ -58,9 +78,11 @@ public class TimeLiteral extends LiteralExpr {
 
     protected TimeLiteral(TimeLiteral other) {
         super(other);
+        this.type = ScalarType.createTimeV2Type(((ScalarType) other.type).getScalarScale());
         this.hour = other.getHour();
         this.minute = other.getMinute();
         this.second = other.getSecond();
+        this.microsecond = other.getMicroSecond();
     }
 
     @Override
@@ -69,19 +91,59 @@ public class TimeLiteral extends LiteralExpr {
     }
 
     protected void init(String s) throws AnalysisException {
-        if (s.length() == 8) {
-            hour = readNextInt(s, 0, 2);
-            minute = readNextInt(s, 3, 2);
-            second = readNextInt(s, 6, 2);
-        } else if (s.length() == 9) {
-            hour = readNextInt(s, 0, 3);
-            minute = readNextInt(s, 4, 2);
-            second = readNextInt(s, 7, 2);
-        } else {
-            hour = minute = second = -1;
+        String[] parts = s.split(":");
+        if (parts.length != 3) {
+            throw new AnalysisException("Invalid format, must have 3 parts separated by ':'");
+        }
+        int scale = 0;
+        try {
+            hour = Long.parseLong(parts[0]);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid hour format", e);
         }
 
-        if (checkRange(hour, minute, second)) {
+        try {
+            minute = Long.parseLong(parts[1]);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid minute format", e);
+        }
+
+        String[] secondParts = parts[2].split("\\.");
+        if (secondParts.length > 2) {
+            throw new AnalysisException("Invalid second format");
+        }
+
+        try {
+            second = Long.parseLong(secondParts[0]);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid second format", e);
+        }
+
+        if (secondParts.length == 2) {
+            String microStr = secondParts[1];
+            scale = microStr.length();
+
+            if (scale > 6) {
+                microStr = microStr.substring(0, 6);
+            }
+
+            StringBuilder sb = new StringBuilder(microStr);
+            while (sb.length() < 6) {
+                sb.append('0');
+            }
+
+            try {
+                microsecond = Long.parseLong(sb.toString());
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid microsecond format", e);
+            }
+        } else {
+            microsecond = 0L;
+            scale = 0;
+        }
+
+        this.type = ScalarType.createTimeV2Type(scale);
+        if (checkRange(hour, minute, second, microsecond)) {
             throw new AnalysisException("time literal [" + s + "] is out of range");
         }
     }
@@ -99,7 +161,7 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     public boolean isMinValue() {
-        return hour == MIN_TIME.getHour() && minute == MIN_TIME.getMinute() && second == MIN_TIME.getSecond();
+        return hour == MIN_TIME.getHour() && minute == 59 && second == 59 && microsecond == 999999;
     }
 
     @Override
@@ -112,11 +174,37 @@ public class TimeLiteral extends LiteralExpr {
         long h = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
         long m = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
         long s = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
+        long ms = Math.max(Math.min(getMicroSecond(), MAX_TIME.getMicroSecond()), MIN_TIME.getMicroSecond());
 
-        if (h > 99) {
-            return String.format("%03d:%02d:%02d", h, m, s);
+        StringBuilder sb = new StringBuilder();
+        if (h > 99 || h < -99) {
+            sb.append(String.format("%03d:%02d:%02d", h, m, s));
+        } else {
+            sb.append(String.format("%02d:%02d:%02d", h, m, s));
         }
-        return String.format("%02d:%02d:%02d", h, m, s);
+        switch (((ScalarType) type).getScalarScale()) {
+            case 0:
+                break;
+            case 1:
+                sb.append(String.format(".%1d", ms));
+                break;
+            case 2:
+                sb.append(String.format(".%2d", ms));
+                break;
+            case 3:
+                sb.append(String.format(".%3d", ms));
+                break;
+            case 4:
+                sb.append(String.format(".%4d", ms));
+                break;
+            case 5:
+                sb.append(String.format(".%5d", ms));
+                break;
+            case 6:
+                sb.append(String.format(".%6d", ms));
+                break;
+        }
+        return sb.toString();
     }
 
     @Override
@@ -124,9 +212,10 @@ public class TimeLiteral extends LiteralExpr {
         return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
-    protected static boolean checkRange(long hour, long minute, long second) {
+    protected static boolean checkRange(long hour, long minute, long second, long microsecond) {
         return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond()
-                || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond();
+                || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond()
+                || microsecond > MIN_TIME.getMicroSecond() || microsecond > MAX_TIME.getMicroSecond();
     }
 
     public long getHour() {
@@ -141,18 +230,8 @@ public class TimeLiteral extends LiteralExpr {
         return second;
     }
 
-    private static Integer readNextInt(String str, int offset, int readLength) {
-        int value = 0;
-        int realReadLength = 0;
-        for (int i = offset; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if ('0' <= c && c <= '9') {
-                realReadLength++;
-                value = value * 10 + (c - '0');
-            } else {
-                break;
-            }
-        }
-        return readLength == realReadLength ? value : null;
+    public long getMicroSecond() {
+        return (long) (microsecond / Math.pow(10, 6 - ((ScalarType) type).getScalarScale()));
     }
+
 }

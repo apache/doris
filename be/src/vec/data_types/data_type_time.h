@@ -79,6 +79,8 @@ public:
     const char* get_family_name() const override { return "timev2"; }
     UInt32 get_scale() const override { return _scale; }
 
+    Field get_field(const TExprNode& node) const override;
+
 private:
     UInt32 _scale;
 };

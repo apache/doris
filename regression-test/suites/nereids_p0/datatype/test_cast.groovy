@@ -97,7 +97,19 @@ suite("test_cast") {
         result([[null]])
     }
 
-    qt_test_cast_to_time "explain select cast('12:30:30' as time)"
+    explain {
+        sql("select cast('12:00:00' as time);")
+        notContains "cast("
+    }
+
+    qt_time_to_string "select cast(cast('16:32:04' as time) as string);"
+
+    qt_select1 "select cast('838:59:59' as time);"
+
+    qt_select2 "select cast('-838:59:59' as time);"
+
+    qt_select3 "select cast('839:00:00' as time);"
+
 
     sql """ DROP TABLE IF EXISTS table_decimal38_4;"""
     sql """
