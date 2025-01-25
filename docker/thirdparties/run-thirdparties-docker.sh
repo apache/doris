@@ -233,7 +233,7 @@ start_mysql() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d --wait
     fi
 }
 
@@ -245,7 +245,7 @@ start_pg() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-        sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d --wait
     fi
 }
 
@@ -257,7 +257,7 @@ start_oracle() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d --wait
     fi
 }
 
@@ -269,7 +269,7 @@ start_db2() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/db2/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d --wait
     fi
 }
 
@@ -281,7 +281,7 @@ start_oceanbase() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/oceanbase/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/oceanbase/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d --wait
     fi
 }
 
@@ -293,7 +293,7 @@ start_sqlserver() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d --wait
     fi
 }
 
@@ -305,7 +305,7 @@ start_clickhouse() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d --wait
     fi
 }
 
@@ -374,7 +374,7 @@ start_hive2() {
     envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
     sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env up --build --remove-orphans -d --wait
     fi
 }
 
@@ -413,7 +413,7 @@ start_hive3() {
     envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
     sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d --wait
     fi
 }
 
@@ -447,7 +447,7 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
-        sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi
 }
 
@@ -558,7 +558,7 @@ start_mariadb() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
-        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d --wait
     fi
 }
 
