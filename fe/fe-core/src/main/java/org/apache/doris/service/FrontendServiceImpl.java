@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -3441,16 +3442,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(new TStatus(TStatusCode.OK));
         long prevCommitSeq = request.getPrevCommitSeq();
 
-        Pair<TStatus, Long> statusLagPair = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
-        TStatus status = statusLagPair.first;
+        Pair<TStatus, BinlogLagInfo> binlogLagInfo = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
+        TStatus status = binlogLagInfo.first;
         if (status != null && status.getStatusCode() != TStatusCode.OK) {
             result.setStatus(status);
         }
-        Long binlogLag = statusLagPair.second;
-        if (binlogLag != null) {
-            result.setLag(binlogLag);
+        BinlogLagInfo lagInfo = binlogLagInfo.second;
+        if (lagInfo != null) {
+            result.setLag(lagInfo.getLag());
+            result.setFirstCommitSeq(lagInfo.getFirstCommitSeq());
+            result.setLastCommitSeq(lagInfo.getLastCommitSeq());
+            result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
+            result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
         }
-
         return result;
     }
 
