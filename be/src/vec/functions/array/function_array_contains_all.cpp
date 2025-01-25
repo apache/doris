@@ -21,7 +21,9 @@
 #include <type_traits>
 
 #include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
@@ -42,18 +44,22 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto left_data_type = remove_nullable(arguments[0]);
-        auto right_data_type = remove_nullable(arguments[1]);
-        DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
-        DCHECK(is_array(right_data_type)) << arguments[1]->get_name();
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        auto left_data_type = remove_nullable(arguments[0].type);
+        auto right_data_type = remove_nullable(arguments[1].type);
+        DCHECK(is_array(left_data_type)) << arguments[0].type->get_name();
+        DCHECK(is_array(right_data_type)) << arguments[1].type->get_name();
         auto left_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
         auto right_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*right_data_type).get_nested_type());
         DCHECK(left_nested_type->equals(*right_nested_type))
-                << "data type " << arguments[0]->get_name() << " not equal with "
-                << arguments[1]->get_name();
+                << "data type " << arguments[0].type->get_name() << " not equal with "
+                << arguments[1].type->get_name();
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeUInt8>();
     }
 

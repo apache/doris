@@ -49,6 +49,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool has_return_type_in_signature() const override { return false; }
+
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {

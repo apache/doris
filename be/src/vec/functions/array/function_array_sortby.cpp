@@ -58,6 +58,8 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    bool has_return_type_in_signature() const override { return false; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(remove_nullable(arguments[0])))
                 << "first argument for function: " << name << " should be DataTypeArray"
