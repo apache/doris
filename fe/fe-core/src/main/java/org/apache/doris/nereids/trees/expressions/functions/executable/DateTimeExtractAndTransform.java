@@ -628,10 +628,8 @@ public class DateTimeExtractAndTransform {
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
             DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
             if (returnType instanceof DateTimeV2Type) {
-                boolean hasMicroPart = org.apache.doris.analysis.DateLiteral
-                        .hasMicroSecondPart(format.getStringValue());
                 return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
-                        .toFormatter(), str.getValue()), hasMicroPart ? 6 : 0);
+                        .toFormatter(), str.getValue()));
             } else {
                 return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
                         .toFormatter(), str.getValue()));
