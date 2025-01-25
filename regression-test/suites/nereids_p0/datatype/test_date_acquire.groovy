@@ -25,8 +25,7 @@ suite("test_date_acquire") {
     assertFalse(res1.contains("()") || res1.contains("(3)"))
 
     String res2 = sql 'explain select CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, LOCALTIME, LOCALTIMESTAMP, CURRENT_USER'
-    print(res2)
-    assertTrue(res2.contains("CURRENT_DATE") || res2.contains("CURRENT_TIME") || res2.contains("CURRENT_TIMESTAMP") || res2.contains("LOCALTIME") || res2.contains("LOCALTIMESTAMP") || res2.contains("CURRENT_USER"))
+    assertFalse(res2.contains("CURRENT_DATE") || res2.contains("CURRENT_TIME") || res2.contains("CURRENT_TIMESTAMP") || res2.contains("LOCALTIME") || res2.contains("LOCALTIMESTAMP") || res2.contains("CURRENT_USER"))
 
     sql "set enable_fold_constant_by_be=true"
 
