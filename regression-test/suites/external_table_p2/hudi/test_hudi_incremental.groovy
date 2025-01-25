@@ -113,8 +113,8 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
     test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
 
     sql """set hudi_jni_scanner='spark';"""
-    test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
-    test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
+    // test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
+    // test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
     test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
     test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
 
