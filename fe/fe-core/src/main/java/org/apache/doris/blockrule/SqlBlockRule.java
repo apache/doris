@@ -19,6 +19,8 @@ package org.apache.doris.blockrule;
 
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
@@ -201,5 +203,14 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
                 this.getSql())) {
             this.setSqlPattern(Pattern.compile(this.getSql()));
         }
+    }
+
+    @Override
+    public SqlBlockRule clone() {
+        SqlBlockRule copied = DeepCopy.copy(this, SqlBlockRule.class, FeConstants.meta_version);
+        if (copied == null) {
+            return null;
+        }
+        return copied;
     }
 }

@@ -131,4 +131,7 @@ public class PasswordPolicyManager implements Writable {
         return GsonUtils.GSON.fromJson(Text.readString(in), PasswordPolicyManager.class);
     }
 
+    public Map<UserIdentity, PasswordPolicy> getPolicyMap() {
+        return  policyMap;
+    }
 }
