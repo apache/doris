@@ -70,7 +70,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
-    _query_thread_context.init_unlocked();
+    _resource_ctx = thread_context()->resource_ctx();
 
     _reset_mem_table();
 
@@ -144,7 +144,7 @@ Status MemTableWriter::flush_async() {
     // into thread context, ATTACH cannot be repeated here.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`, no ATTACH because LoadChannelMgr
     // not know Load context.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
