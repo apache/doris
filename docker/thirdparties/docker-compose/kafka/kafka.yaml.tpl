@@ -30,6 +30,13 @@ services:
         container_name: doris--zookeeper
         ports:
             - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:2181
+        healthcheck:
+            # https://github.com/bitnami/charts/blob/62399ed3863e70775d66f9581e28129026a86e5d/bitnami/zookeeper/templates/statefulset.yaml#L404
+            test: /bin/bash -ec ZOO_HC_TIMEOUT=10 /opt/bitnami/scripts/zookeeper/healthcheck.sh
+            start_period: 10s
+            interval: 5s
+            timeout: 60s
+            retries: 60
         environment:
             - ZOO_CFG_LISTEN_PORT=2181
             - ALLOW_ANONYMOUS_LOGIN=yes
@@ -43,6 +50,13 @@ services:
             - doris--zookeeper
         ports:
             - ${DOCKER_KAFKA_EXTERNAL_PORT}:19193
+        healthcheck:
+            # https://github.com/bitnami/containers/issues/33325#issuecomment-1541443315
+            test: kafka-topics.sh --zookeeper doris--zookeeper:2181 --topic healthycheck --partitions 1 --replication-factor 1 --create --if-not-exists && kafka-topics.sh --zookeeper doris--zookeeper:2181 --topic healthycheck --describe
+            start_period: 10s
+            interval: 10s
+            timeout: 60s
+            retries: 60
         environment:
             - KAFKA_BROKER_ID=1
             - KAFKA_LISTENERS=PLAINTEXT://:19193
