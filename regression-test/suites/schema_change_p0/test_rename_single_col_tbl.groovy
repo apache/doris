@@ -15,26 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
-
-import org.apache.doris.common.Status;
-import org.apache.doris.thrift.TNetworkAddress;
-
-import java.util.List;
-
-public interface CoordInterface {
-
-    public void exec() throws Exception;
-
-    public RowBatch getNext() throws Exception;
-
-    public void cancel(Status cancelReason);
-
-    // When call exec or get next data finished, should call this method to release
-    // some resource.
-    public default void close() {}
-
-    List<TNetworkAddress> getInvolvedBackends();
-
-    void setIsProfileSafeStmt(boolean isSafe);
+suite("test_rename_single_col_tbl") {
+    def tblName = "test_rename_single_col_tbl"
+    sql """ DROP TABLE IF EXISTS ${tblName} """
+    sql """
+        CREATE TABLE ${tblName}
+        (
+            col0 DATE NOT NULL,
+        )
+        DUPLICATE KEY(col0)
+        DISTRIBUTED BY HASH(col0) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        ALTER TABLE ${tblName} RENAME COLUMN col0 rename_partition_col
+    """
+    sql """ SYNC """
+    qt_desc """ DESC ${tblName} ALL """
 }

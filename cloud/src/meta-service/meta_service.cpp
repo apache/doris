@@ -1209,6 +1209,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
               << request->txn_id() << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to save rowset meta, err=" << err;
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
             LOG(WARNING) << "failed to commit rowset, err=value too large"
                          << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
@@ -1217,9 +1219,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", num_segments=" << rowset_meta.num_segments()
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
         }
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to save rowset meta, err=" << err;
         msg = ss.str();
         return;
     }
@@ -1313,6 +1316,8 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
               << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to update rowset meta, err=" << err;
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
             const auto& rowset_id = rowset_meta.rowset_id_v2();
             LOG(WARNING) << "failed to update tmp rowset, err=value too large"
@@ -1321,9 +1326,10 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
                          << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
         }
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to update rowset meta, err=" << err;
         msg = ss.str();
         return;
     }
@@ -1870,7 +1876,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         txn->put(pending_key, pending_val);
         fdb_txn_size = fdb_txn_size + pending_key.size() + pending_val.size();
         LOG(INFO) << "xxx update delete bitmap put pending_key=" << hex(pending_key)
-                  << " lock_id=" << request->lock_id() << " value_size: " << pending_val.size();
+                  << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                  << " value_size: " << pending_val.size();
     } else if (request->lock_id() == -3) {
         // delete existing key
         for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
@@ -1899,7 +1906,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
             LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
                       << ", current size: " << txn->approximate_bytes()
-                      << " lock_id=" << request->lock_id() << ", need to commit";
+                      << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                      << ", need to commit";
             err = txn->commit();
             total_txn_put_keys += txn->num_put_keys();
             total_txn_put_bytes += txn->put_bytes();
@@ -1907,7 +1915,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
                 ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
-                   << " lock_id=" << request->lock_id()
+                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
                    << " delete_bitmap_key=" << current_key_count
                    << " delete_bitmap_value=" << current_value_count
                    << " put_size=" << txn->put_bytes() << " num_put_keys=" << txn->num_put_keys()
@@ -1940,8 +1948,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         total_key_count++;
         total_value_count += val.size();
         VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
-                   << " lock_id=" << request->lock_id() << " key_size: " << key.size()
-                   << " value_size: " << val.size();
+                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                   << " key_size: " << key.size() << " value_size: " << val.size();
     }
     err = txn->commit();
     total_txn_put_keys += txn->num_put_keys();
@@ -1950,13 +1958,15 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
-           << " lock_id=" << request->lock_id() << " delete_bitmap_key=" << current_key_count
+           << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+           << " delete_bitmap_key=" << current_key_count
            << " delete_bitmap_value=" << current_value_count << " put_size=" << txn->put_bytes()
            << " num_put_keys=" << txn->num_put_keys() << " txn_size=" << txn->approximate_bytes();
         msg = ss.str();
         return;
     }
     LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
+              << " initiator=" << request->initiator()
               << " rowset_num=" << request->rowset_ids_size()
               << " total_key_count=" << total_key_count
               << " total_value_count=" << total_value_count << " unlock=" << unlock
@@ -2230,8 +2240,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         return;
     }
     txn->put(lock_key, lock_val);
-    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " lock_id=" << request->lock_id()
-              << " initiators_size: " << lock_info.initiators_size();
+    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
+              << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+              << " initiators_size=" << lock_info.initiators_size();
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
