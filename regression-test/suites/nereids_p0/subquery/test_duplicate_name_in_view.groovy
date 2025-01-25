@@ -77,7 +77,7 @@ suite("test_duplicate_name_in_view") {
                         issue_19611_t1.c0 + 1
                     FROM issue_19611_t1 ) tmp;
         """
-        exception "Duplicated inline view column alias: '(c0 + 1)' in inline view: 'tmp'"
+        exception "Duplicated inline view column alias: 'issue_19611_t1.c0 + 1' in inline view: 'tmp'"
     }
 
     test {

@@ -240,7 +240,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2) > 0";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -363,7 +363,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
         Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
         Alias countA11 = new Alias(new ExprId(10), new Add(countA1.toSlot(), Literal.of((byte) 1)), "(count(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -476,7 +476,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 ORDER BY sum(a1 + a2)";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalSort(
@@ -562,7 +562,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
         Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
         Alias countA11 = new Alias(new ExprId(10), new Add(new Count(a1), Literal.of((byte) 1)), "(count(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum(a1 + a2)");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalProject(logicalSort(logicalProject(logicalAggregate(logicalProject(
