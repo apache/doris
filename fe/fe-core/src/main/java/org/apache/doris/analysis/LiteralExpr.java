@@ -106,6 +106,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case IPV6:
                 literalExpr = new IPv6Literal(value);
                 break;
+            case TIME:
+                literalExpr = new TimeLiteral(value);
+                break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
         }
@@ -169,6 +172,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             literalExpr = new JsonLiteral(value);
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
+        } else if (expr instanceof TimeLiteral) {
+            literalExpr = new TimeLiteral(value);
         } else {
             throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
         }

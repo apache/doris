@@ -96,6 +96,9 @@ suite("test_cast") {
         sql "select cast(true as date);"
         result([[null]])
     }
+
+    qt_test_cast_to_time "explain select cast('12:30:30' as time)"
+
     sql """ DROP TABLE IF EXISTS table_decimal38_4;"""
     sql """
         CREATE TABLE IF NOT EXISTS table_decimal38_4 (
