@@ -111,7 +111,6 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    private static String MICRO_SECOND_FORMATTER = "%f";
     private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
     static {
@@ -718,7 +717,7 @@ public class DateLiteral extends LiteralExpr {
             int scale = ((ScalarType) type).getScalarScale();
             long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
 
-            if (scale > 0) {
+            if (scaledMicroseconds != 0) {
                 dateTimeChars[19] = '.';
                 fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
                 return new String(dateTimeChars, 0, 20 + scale);
@@ -1061,10 +1060,6 @@ public class DateLiteral extends LiteralExpr {
 
     public static boolean hasTimePart(String format) {
         return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
-    }
-
-    public static boolean hasMicroSecondPart(String format) {
-        return format.indexOf(MICRO_SECOND_FORMATTER) != -1;
     }
 
     // Return the date stored in the dateliteral as pattern format.
@@ -1609,9 +1604,6 @@ public class DateLiteral extends LiteralExpr {
                     case 'T':
                         partUsed |= timePart;
                         break;
-                    case 'f':
-                        partUsed |= fracPart;
-                        break;
                     default:
                         break;
                 }
@@ -1673,7 +1665,7 @@ public class DateLiteral extends LiteralExpr {
 
         // Compute timestamp type
         if ((partUsed & datePart) != 0) { // Ymd part only
-            if (hasMicroSecondPart(format)) {
+            if ((partUsed & fracPart) != 0) {
                 this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             } else if ((partUsed & timePart) != 0) {
                 this.type = ScalarType.getDefaultDateType(Type.DATETIME);
