@@ -107,17 +107,6 @@ suite("test_ddl") {
         exception "Column k0 is used more than once"
     }
 
-    test { // more than one key
-        sql """
-        create dictionary dic1 using dc
-        (
-            k0 KEY, 
-            k1 KEY
-        )LAYOUT(HASH_MAP);
-        """
-        exception "Now only support one key column"
-    }
-
     // complex type
     sql """
         create table ctype(
@@ -254,4 +243,55 @@ suite("test_ddl") {
     origin_res = sql "show dictionaries"
     log.info(origin_res.toString())
     assertTrue(origin_res.size() == 0) // should also be removed
+
+    // test multiple key columns
+    sql """
+        create table multi_key_table(
+            k1 varchar(64) not null,
+            k2 decimal(15, 9) not null,
+            k3 int not null,
+            v1 datetime not null
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    sql "insert into multi_key_table values ('1', 1.1, 1, '2020-01-01 00:00:00'), ('2', 2.2, 2, '2020-02-02 00:00:00')"
+
+    sql """
+        create dictionary dic_multi_key using multi_key_table
+        (
+            k1 KEY,
+            v1 VALUE,
+            k2 KEY,
+            k3 KEY
+        )LAYOUT(HASH_MAP);
+    """
+
+    // test refresh for multiple key columns dictionary
+    sql "refresh dictionary dic_multi_key"
+    def refresh_res = (sql "show dictionaries")[0]
+    assertTrue(refresh_res[1] == "dic_multi_key" && refresh_res[4] == "NORMAL")
+
+    // test no key columns error
+    test {
+        sql """
+        create dictionary dic_no_key using multi_key_table
+        (
+            v1 VALUE
+        )LAYOUT(HASH_MAP);
+        """
+        exception "Need at least one key column"
+    }
+
+    // test no value columns error
+    test {
+        sql """
+        create dictionary dic_no_value using multi_key_table
+        (
+            k1 KEY,
+            k2 KEY
+        )LAYOUT(HASH_MAP);
+        """
+        exception "Need at least one value column"
+    }
 }

@@ -168,9 +168,12 @@ public class CreateDictionaryInfo {
             sourceColumns.put(column.getName().toLowerCase(), column);
         }
 
-        // Validate only one Key
-        if (columns.stream().filter(DictionaryColumnDefinition::isKey).count() > 1) {
-            throw new DdlException("Now only support one key column");
+        // Validate at least one Key/Value column
+        if (columns.stream().filter(DictionaryColumnDefinition::isKey).count() < 1) {
+            throw new DdlException("Need at least one key column");
+        }
+        if (columns.stream().filter(c -> !c.isKey()).count() < 1) {
+            throw new DdlException("Need at least one value column");
         }
 
         // Validate each dictionary column exists in source table and set its type

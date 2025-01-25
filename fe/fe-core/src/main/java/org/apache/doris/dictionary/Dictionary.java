@@ -178,13 +178,17 @@ public class Dictionary extends Table {
         throw new IllegalArgumentException("Column " + columnName + " not found in dictionary " + getName());
     }
 
-    public DataType getKeyColumnType() {
+    public List<DataType> getKeyColumnTypes() {
+        List<DataType> keyTypes = Lists.newArrayList();
         for (DictionaryColumnDefinition column : columns) {
             if (column.isKey()) {
-                return DataType.fromCatalogType(column.getType());
+                keyTypes.add(DataType.fromCatalogType(column.getType()));
             }
         }
-        throw new IllegalArgumentException("Key column not found in dictionary " + getName());
+        if (keyTypes.isEmpty()) {
+            throw new IllegalArgumentException("Key column not found in dictionary " + getName());
+        }
+        return keyTypes;
     }
 
     public Map<String, String> getProperties() {
