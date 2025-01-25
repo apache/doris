@@ -31,7 +31,7 @@ touch "${lockfile1}"
 
 # wait metastore start
 while ! $(nc -z localhost "${HMS_PORT:-9083}"); do
-    sleep 1s
+    sleep 5s
 done
 
 # create tables for other cases
@@ -41,7 +41,7 @@ hadoop fs -mkdir -p /user/doris/suites/
 DATA_DIR="/mnt/scripts/data/"
 find "${DATA_DIR}" -type f -name "run.sh" -print0 | xargs -0 -n 1 -P "${parallel}" -I {} bash -ec '
     START_TIME=$(date +%s)
-    bash -e "{}" || echo "Failed to executing script: {}" && exit 1
+    bash -e "{}" || (echo "Failed to executing script: {}" && exit 1)
     END_TIME=$(date +%s)
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
@@ -147,7 +147,7 @@ fi
 # create tables
 ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P "${parallel}" -I {} bash -ec '
     START_TIME=$(date +%s)
-    hive -f {} || echo "Failed to executing hql: {}" && exit 1
+    hive -f {} || (echo "Failed to executing hql: {}" && exit 1)
     END_TIME=$(date +%s)
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
