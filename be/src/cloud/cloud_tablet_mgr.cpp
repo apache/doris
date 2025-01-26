@@ -419,12 +419,13 @@ void CloudTabletMgr::get_tablet_info(int64_t num_tablets, std::vector<TabletInfo
     }
 }
 
-void CloudTabletMgr::get_max_tablet_delete_bitmap_score(
-        uint64_t* max_delete_bitmap_score, uint64_t* max_base_rowset_delete_bitmap_score) {
+void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score) {
     int64_t max_delete_bitmap_score_tablet_id = 0;
-    int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
     OlapStopWatch watch;
     uint64_t total_delete_map_count = 0;
+    int n = config::check_tablet_delete_bitmap_score_top_n;
+    std::vector<std::pair<int64_t, int64_t>> buf;
+    buf.reserve(n + 1);
     auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
         auto t = tablet_wk.lock();
         if (!t) return;
@@ -435,19 +436,25 @@ void CloudTabletMgr::get_max_tablet_delete_bitmap_score(
             max_delete_bitmap_score_tablet_id = t->tablet_id();
             *max_delete_bitmap_score = delete_bitmap_count;
         }
-        t->get_base_rowset_delete_bitmap_count(max_base_rowset_delete_bitmap_score,
-                                               &max_base_rowset_delete_bitmap_score_tablet_id);
+        buf.emplace_back(t.get()->tablet_id(), delete_bitmap_count);
+        std::sort(buf.begin(), buf.end(), [](auto& a, auto& b) { return a.second > b.second; });
+        if (buf.size() > n) {
+            buf.pop_back();
+        }
     };
     auto weak_tablets = get_weak_tablets();
     std::for_each(weak_tablets.begin(), weak_tablets.end(), handler);
-    LOG(INFO) << "tablet size=" << weak_tablets.size()
+    std::stringstream ss;
+    for (auto& i : buf) {
+        ss << i.first << ":" << i.second << ",";
+    }
+    LOG(INFO) << "get_topn_tablet_delete_bitmap_score, n=" << n
+              << ",tablet size=" << weak_tablets.size()
               << ",total_delete_map_count=" << total_delete_map_count
               << ",cost(us)=" << watch.get_elapse_time_us()
               << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
               << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
-              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
-              << ",max_base_rowset_delete_bitmap_score_tablet_id="
-              << max_base_rowset_delete_bitmap_score_tablet_id;
+              << ",tablets=[" << ss.str() << "]";
 }
 
 } // namespace doris

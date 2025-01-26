@@ -143,90 +143,80 @@ suite("test_delete_bitmap_metrics", "p0") {
     sql testTableDDL
     sql "sync"
 
-    // store the original value
-    get_be_param("check_tablet_delete_bitmap_score_enable")
+    sql "sync"
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'1'),(1,1,'1'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'2'),(2,2,'2'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'3'),(3,3,'3'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'4'),(4,4,'4'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'5'),(5,5,'5'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'6'),(6,6,'6'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'7'),(7,7,'7'); """
+    sql """ INSERT INTO ${testTable} VALUES (0,0,'8'),(8,8,'8'); """
 
-    try {
-        set_be_param("check_tablet_delete_bitmap_score_enable", "true")
-        sql "sync"
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'1'),(1,1,'1'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'2'),(2,2,'2'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'3'),(3,3,'3'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'4'),(4,4,'4'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'5'),(5,5,'5'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'6'),(6,6,'6'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'7'),(7,7,'7'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'8'),(8,8,'8'); """
-
-        qt_sql "select * from ${testTable} order by plan_id"
+    qt_sql "select * from ${testTable} order by plan_id"
 
 
-        def tablets = sql_return_maparray """ show tablets from ${testTable}; """
-        logger.info("tablets: " + tablets)
-        def local_delete_bitmap_count = 0
-        def ms_delete_bitmap_count = 0
-        def local_delete_bitmap_cardinality = 0;
-        def ms_delete_bitmap_cardinality = 0;
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-            logger.info("tablet: " + tablet_info)
-            String trigger_backend_id = tablet.BackendId
+    def tablets = sql_return_maparray """ show tablets from ${testTable}; """
+    logger.info("tablets: " + tablets)
+    def local_delete_bitmap_count = 0
+    def ms_delete_bitmap_count = 0
+    def local_delete_bitmap_cardinality = 0;
+    def ms_delete_bitmap_cardinality = 0;
+    for (def tablet in tablets) {
+        String tablet_id = tablet.TabletId
+        def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
+        logger.info("tablet: " + tablet_info)
+        String trigger_backend_id = tablet.BackendId
 
-            // before compaction, delete_bitmap_count is (rowsets num - 1)
-            local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
-            logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
-            logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
-            assertTrue(local_delete_bitmap_count == 7)
-            assertTrue(local_delete_bitmap_cardinality == 7)
+        // before compaction, delete_bitmap_count is (rowsets num - 1)
+        local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+        local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+        logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
+        logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
+        assertTrue(local_delete_bitmap_count == 7)
+        assertTrue(local_delete_bitmap_cardinality == 7)
 
-            if (isCloudMode()) {
-                ms_delete_bitmap_count = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-                ms_delete_bitmap_cardinality = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
-                logger.info("ms_delete_bitmap_count:" + ms_delete_bitmap_count)
-                logger.info("ms_delete_bitmap_cardinality:" + ms_delete_bitmap_cardinality)
-                assertTrue(ms_delete_bitmap_count == 7)
-                assertTrue(ms_delete_bitmap_cardinality == 7)
-            }
-            def tablet_delete_bitmap_count = 0;
-            def base_rowset_delete_bitmap_count = 0;
-            int retry_time = 0;
-            while (retry_time < 10) {
-                log.info("retry_time: ${retry_time}")
-                getMetricsMethod.call() {
-                    respCode, body ->
-                        logger.info("test get delete bitmap count resp Code {}", "${respCode}".toString())
-                        assertEquals("${respCode}".toString(), "200")
-                        String out = "${body}".toString()
-                        def strs = out.split('\n')
-                        for (String line in strs) {
-                            if (line.startsWith("tablet_max_delete_bitmap_score")) {
-                                logger.info("find: {}", line)
-                                tablet_delete_bitmap_count = line.replaceAll("tablet_max_delete_bitmap_score ", "").toInteger()
-                                break
-                            }
-                        }
-                        for (String line in strs) {
-                            if (line.startsWith("tablet_max_base_rowset_delete_bitmap_score")) {
-                                logger.info("find: {}", line)
-                                base_rowset_delete_bitmap_count = line.replaceAll("tablet_max_base_rowset_delete_bitmap_score ", "").toInteger()
-                                break
-                            }
-                        }
-                }
-                if (tablet_delete_bitmap_count > 0 && base_rowset_delete_bitmap_count > 0) {
-                    break;
-                } else {
-                    Thread.sleep(10000)
-                    retry_time++;
-                }
-            }
-            assertTrue(tablet_delete_bitmap_count > 0)
-            assertTrue(base_rowset_delete_bitmap_count > 0)
+        if (isCloudMode()) {
+            ms_delete_bitmap_count = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+            ms_delete_bitmap_cardinality = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+            logger.info("ms_delete_bitmap_count:" + ms_delete_bitmap_count)
+            logger.info("ms_delete_bitmap_cardinality:" + ms_delete_bitmap_cardinality)
+            assertTrue(ms_delete_bitmap_count == 7)
+            assertTrue(ms_delete_bitmap_cardinality == 7)
         }
-    } finally {
-        reset_be_param("check_tablet_delete_bitmap_score_enable")
+        def tablet_delete_bitmap_count = 0;
+        int retry_time = 0;
+        while (retry_time < 10) {
+            log.info("retry_time: ${retry_time}")
+            getMetricsMethod.call() {
+                respCode, body ->
+                    logger.info("test get delete bitmap count resp Code {}", "${respCode}".toString())
+                    assertEquals("${respCode}".toString(), "200")
+                    String out = "${body}".toString()
+                    def strs = out.split('\n')
+                    for (String line in strs) {
+                        if (line.startsWith("tablet_max_delete_bitmap_score")) {
+                            logger.info("find: {}", line)
+                            tablet_delete_bitmap_count = line.replaceAll("tablet_max_delete_bitmap_score ", "").toInteger()
+                            break
+                        }
+                    }
+                    for (String line in strs) {
+                        if (line.startsWith("tablet_max_base_rowset_delete_bitmap_score")) {
+                            logger.info("find: {}", line)
+                            base_rowset_delete_bitmap_count = line.replaceAll("tablet_max_base_rowset_delete_bitmap_score ", "").toInteger()
+                            break
+                        }
+                    }
+            }
+            if (tablet_delete_bitmap_count > 0) {
+                break;
+            } else {
+                Thread.sleep(20000)
+                retry_time++;
+            }
+        }
+        assertTrue(tablet_delete_bitmap_count > 0)
     }
 
 }
