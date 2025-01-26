@@ -44,36 +44,43 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr arg_0 = arguments[0];
-        DCHECK(is_array(arg_0));
-        return remove_nullable(assert_cast<const DataTypeArray*>(arg_0.get())->get_nested_type());
+        DataTypePtr arg = arguments[0];
+        while (is_array(arg)) {
+            arg = remove_nullable(assert_cast<const DataTypeArray*>(arg.get())->get_nested_type());
+        }
+        return std::make_shared<DataTypeArray>(make_nullable(arg));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto& src_column_array =
-                assert_cast<const ColumnArray&>(*remove_nullable(src_column));
-        const auto& nested_src_column_array =
-                assert_cast<const ColumnArray&>(*remove_nullable(src_column_array.get_data_ptr()));
+        auto* src_column_array_ptr =
+                assert_cast<ColumnArray*>(remove_nullable(src_column)->assume_mutable().get());
+        ColumnArray* nested_src_column_array_ptr = src_column_array_ptr;
 
-        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
-        auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
+        auto result_column_offsets =
+                assert_cast<ColumnArray::ColumnOffsets&>(src_column_array_ptr->get_offsets_column())
+                        .clone();
+        auto* offsets = assert_cast<ColumnArray::ColumnOffsets*>(result_column_offsets.get())
+                                ->get_data()
+                                .data();
 
-        auto result_column_offsets = ColumnArray::ColumnOffsets::create(input_rows_count);
-        auto* offsets = result_column_offsets->get_data().data();
+        while (src_column_array_ptr->get_data_ptr()->is_column_array()) {
+            nested_src_column_array_ptr = assert_cast<ColumnArray*>(
+                    remove_nullable(src_column_array_ptr->get_data_ptr())->assume_mutable().get());
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            offsets[i] =
-                    nested_src_column_array.get_offsets()[src_column_array.get_offsets()[i] - 1];
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
+            }
+            src_column_array_ptr = nested_src_column_array_ptr;
         }
 
-        block.replace_by_position(result,
-                                  ColumnArray::create(assert_cast<const ColumnNullable&>(
-                                                              nested_src_column_array.get_data())
-                                                              .clone(),
-                                                      std::move(result_column_offsets)));
+        block.replace_by_position(
+                result, ColumnArray::create(assert_cast<const ColumnNullable&>(
+                                                    nested_src_column_array_ptr->get_data())
+                                                    .clone(),
+                                            std::move(result_column_offsets)));
         return Status::OK();
     }
 };

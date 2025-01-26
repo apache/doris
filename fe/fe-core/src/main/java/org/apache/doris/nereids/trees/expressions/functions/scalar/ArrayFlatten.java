@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -35,17 +37,22 @@ import java.util.List;
  * ScalarFunction 'array_flatten'
  */
 public class ArrayFlatten extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
-                    .args(ArrayType.of(ArrayType.of(new AnyDataType(0)))));
+        implements CustomSignature, PropagateNullable {
 
     /**
      * constructor with 1 arguments.
      */
     public ArrayFlatten(Expression arg) {
         super("array_flatten", arg);
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        DataType dataType = getArgument(0).getDataType();
+        while (dataType instanceof ArrayType) {
+            dataType = ((ArrayType)dataType).getItemType();
+        }
+        return FunctionSignature.ret(ArrayType.of(dataType)).args(getArgument(0).getDataType());
     }
 
     /**
@@ -61,10 +68,4 @@ public class ArrayFlatten extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitArrayFlatten(this, context);
     }
-
-    @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
-    }
-
 }
