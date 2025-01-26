@@ -67,7 +67,7 @@ public class ConnectionProperties {
         if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
             return Maps.newHashMap();
         }
-        Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(resourceConfig);
+        Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(origProps.get(resourceConfig));
         Map<String, String> confMap = Maps.newHashMap();
         for (Map.Entry<String, String> entry : conf) {
             confMap.put(entry.getKey(), entry.getValue());

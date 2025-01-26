@@ -17,16 +17,25 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties.Type;
 
 import com.google.common.collect.Maps;
 import org.apache.paimon.options.Options;
 import org.junit.Assert;
+import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.net.URL;
 import java.util.Map;
 
 public class AliyunDLFPropertiesTest {
+
+    @Before
+    public void setUp() {
+        Config.hadoop_config_dir = getClass().getClassLoader().getResource("property").getPath();
+    }
 
     @Test
     public void testBasicProperties() {
@@ -231,17 +240,21 @@ public class AliyunDLFPropertiesTest {
     @Test
     public void testLoadConfigFromFile() {
         Map<String, String> props = Maps.newHashMap();
-        props.put("dlf.resource_config", "test-dlf-config.xml");
+        props.put("dlf.resource_config", "dlf.xml");
         props.put("dlf.access_key", "test_access_key");
         props.put("dlf.secret_key", "test_secret_key");
         props.put("dlf.region", "cn-hangzhou");
-        props.put("dlf.uid", "test_uid");
 
         AliyunDLFProperties dlfProperties = (AliyunDLFProperties) MetastoreProperties.create(Type.DLF, props);
         // Verify that the properties are loaded correctly
         // Note: This assumes the config file exists and contains certain properties
         Options options = new Options();
         dlfProperties.toPaimonOptions(options);
+        Assert.assertEquals("test_access_key", options.get("dlf.catalog.accessKeyId"));
+        // read from dlf.xml
+        Assert.assertEquals("123456789", options.get("dlf.catalog.uid"));
+        Assert.assertEquals("test.endpoint", options.get("dlf.catalog.endpoint"));
+        // override by direct properties
         Assert.assertEquals("test_access_key", options.get("dlf.catalog.accessKeyId"));
     }
 
@@ -259,6 +272,25 @@ public class AliyunDLFPropertiesTest {
         Options options = new Options();
         dlfProperties.toPaimonOptions(options);
         Assert.assertEquals("override_access_key", options.get("dlf.catalog.accessKeyId"));
+    }
+
+    @Test
+    public void testHash() {
+        // 给定的字符串
+        String key = "export_p0_test_label";
+
+        // 计算 hash 值
+        int hash = spread(key.hashCode());
+
+        // 打印结果
+        System.out.println("Key: " + key);
+        System.out.println("Key.hashCode(): " + key.hashCode());
+        System.out.println("Spread Hash: " + hash);
+        System.out.println("Hash: " + ((1024 - 1) & hash));
+    }
+
+    private static int spread(int h) {
+        return (h ^ (h >>> 16)) & 0x7fffffff; // 保证结果为非负数
     }
 
     @Test

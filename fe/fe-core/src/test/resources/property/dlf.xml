@@ -1,0 +1,18 @@
+<configuration>
+    <property>
+        <name>dlf.catalog.uid</name>
+        <value>123456789</value>
+    </property>
+    <property>
+        <name>dlf.catalog.endpoint</name>
+        <value>test.endpoint</value>
+    </property>
+    <property>
+        <name>dlf.catalog.accessKeyId</name>
+        <value>test_ak</value>
+    </property>
+    <property>
+        <name>dlf.catalog.proxyMode</name>
+        <value>TEST_PROXY</value>
+    </property>
+</configuration>
