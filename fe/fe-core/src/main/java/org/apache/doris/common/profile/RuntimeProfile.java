@@ -531,7 +531,7 @@ public class RuntimeProfile {
             if (counter == null) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Child counter {} of {} not found in profile {}", childCounterName, parentCounterName,
-                        templateProfile.toString());
+                            templateProfile.toString());
                 }
                 continue;
             }
