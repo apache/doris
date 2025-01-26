@@ -1769,9 +1769,11 @@ void TabletManager::get_max_tablet_delete_bitmap_score(
     int64_t max_delete_bitmap_score_tablet_id = 0;
     int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
     OlapStopWatch watch;
+    uint64_t total_delete_map_count = 0;
     auto handler = [&](const TabletSharedPtr& tablet) {
         uint64_t delete_bitmap_count =
                 tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+        total_delete_map_count += delete_bitmap_count;
         if (delete_bitmap_count > *max_delete_bitmap_score) {
             max_delete_bitmap_score_tablet_id = tablet->tablet_id();
             *max_delete_bitmap_score = delete_bitmap_count;
@@ -1781,6 +1783,7 @@ void TabletManager::get_max_tablet_delete_bitmap_score(
     };
     for_each_tablet(handler, filter_all_tablets);
     LOG(INFO) << "tablet size=" << _tablets_shards.size()
+              << ",total_delete_map_count=" << total_delete_map_count
               << ",cost(us)=" << watch.get_elapse_time_us()
               << "max_delete_bitmap_score=" << *max_delete_bitmap_score
               << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
