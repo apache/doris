@@ -359,6 +359,12 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
                             if (!newRange.isEmpty()) {
                                 value.range = newRange;
                                 value.isDiscrete = value.isDiscrete && otherValue.isDiscrete;
+                                if (newRange.hasLowerBound() && newRange.hasUpperBound()
+                                        && newRange.lowerEndpoint().compareTo(newRange.upperEndpoint()) == 0
+                                        && newRange.lowerBoundType() == BoundType.CLOSED
+                                        && newRange.upperBoundType() == BoundType.CLOSED) {
+                                    value.isDiscrete = true;
+                                }
                             } else {
                                 value.range = null;
                             }

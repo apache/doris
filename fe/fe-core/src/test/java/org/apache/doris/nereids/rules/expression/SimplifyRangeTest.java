@@ -117,6 +117,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA >= 3 and TA < 3", "TA is null and null");
         assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA = 1 and TA > 10", "TA is null and null");
+        assertRewrite("TA >= 1 and TA <= 1", "TA = 1");
         assertRewrite("TA > 5 or TA < 1", "TA < 1 or TA > 5");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
         assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA is not null or null");

@@ -369,7 +369,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 if (range.isConnected(o.range)) {
                     Range<Literal> newRange = range.intersection(o.range);
                     if (!newRange.isEmpty()) {
-                        return new RangeValue(context, reference, newRange);
+                        if (newRange.hasLowerBound() && newRange.hasUpperBound()
+                                && newRange.lowerEndpoint().compareTo(newRange.upperEndpoint()) == 0
+                                && newRange.lowerBoundType() == BoundType.CLOSED
+                                && newRange.lowerBoundType() == BoundType.CLOSED) {
+                            return new DiscreteValue(context, reference, Sets.newHashSet(newRange.lowerEndpoint()));
+                        } else {
+                            return new RangeValue(context, reference, newRange);
+                        }
                     }
                 }
                 return new EmptyValue(context, reference);
