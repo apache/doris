@@ -45,7 +45,7 @@ suite("local_shuffle") {
         insert into test_local_shuffle1 values (1, 1), (2, 2);
         insert into test_local_shuffle2 values (2, 2), (3, 3);
         
-        // set enable_nereids_distribute_planner=true;
+        -- set enable_nereids_distribute_planner=true;
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
         set enable_local_shuffle=true;
