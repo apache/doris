@@ -1921,6 +1921,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                    << " put_size=" << txn->put_bytes() << " num_put_keys=" << txn->num_put_keys()
                    << " txn_size=" << txn->approximate_bytes();
                 msg = ss.str();
+                g_bvar_update_delete_bitmap_fail_counter << 1;
                 return;
             }
             current_key_count = 0;
@@ -1963,6 +1964,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
            << " delete_bitmap_value=" << current_value_count << " put_size=" << txn->put_bytes()
            << " num_put_keys=" << txn->num_put_keys() << " txn_size=" << txn->approximate_bytes();
         msg = ss.str();
+        g_bvar_update_delete_bitmap_fail_counter << 1;
         return;
     }
     LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
@@ -2075,6 +2077,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 ss << "internal error, failed to get delete bitmap, internal round=" << round
                    << ", ret=" << err;
                 msg = ss.str();
+                g_bvar_get_delete_bitmap_fail_counter << 1;
                 return;
             }
 
@@ -2118,6 +2121,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                    << ",exceed max byte";
                 msg = ss.str();
                 LOG(WARNING) << msg;
+                g_bvar_get_delete_bitmap_fail_counter << 1;
                 return;
             }
             round++;
