@@ -17,13 +17,16 @@
 
 package org.apache.doris.common.security.authentication;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A cache class for storing and retrieving PreExecutionAuthenticator instances based on Hadoop configurations.
@@ -38,13 +41,12 @@ import java.util.Map;
 public class PreExecutionAuthenticatorCache {
     private static final Logger LOG = LogManager.getLogger(PreExecutionAuthenticatorCache.class);
     private static final int MAX_CACHE_SIZE = 100;
-    private static final Map<HadoopConfigWrapper, PreExecutionAuthenticator> preExecutionAuthenticatorCache =
-            new LinkedHashMap<HadoopConfigWrapper, PreExecutionAuthenticator>(MAX_CACHE_SIZE, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<HadoopConfigWrapper, PreExecutionAuthenticator> eldest) {
-                    return size() > MAX_CACHE_SIZE;
-                }
-            };
+
+    private static final Cache<HadoopConfigWrapper, PreExecutionAuthenticator> preExecutionAuthenticatorCache =
+            CacheBuilder.newBuilder()
+                    .maximumSize(MAX_CACHE_SIZE)
+                    .expireAfterAccess(60 * 24, TimeUnit.MINUTES)
+                    .build();
 
     /**
      * Retrieves a PreExecutionAuthenticator instance from the cache or creates a new one if it doesn't exist.
@@ -57,22 +59,26 @@ public class PreExecutionAuthenticatorCache {
     public static PreExecutionAuthenticator getAuthenticator(Map<String, String> hadoopConfig) {
 
         HadoopConfigWrapper hadoopConfigWrapper = new HadoopConfigWrapper(hadoopConfig);
-        PreExecutionAuthenticator cachedAuthenticator = preExecutionAuthenticatorCache.get(hadoopConfigWrapper);
-        if (cachedAuthenticator != null) {
-            return cachedAuthenticator;
+
+        PreExecutionAuthenticator authenticator = null;
+        try {
+            authenticator = preExecutionAuthenticatorCache.get(hadoopConfigWrapper, () -> {
+                Configuration conf = new Configuration();
+                hadoopConfig.forEach(conf::set);
+                PreExecutionAuthenticator preExecutionAuthenticator = new PreExecutionAuthenticator();
+                AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(
+                        conf, AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                        AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
+                HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator
+                        .getHadoopAuthenticator(authenticationConfig);
+                preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
+                LOG.info("Created new authenticator for configuration: " + hadoopConfigWrapper);
+                return preExecutionAuthenticator;
+            });
+        } catch (ExecutionException exception) {
+            throw new RuntimeException(exception.getCause().getMessage(), exception);
         }
-        return preExecutionAuthenticatorCache.computeIfAbsent(hadoopConfigWrapper, config -> {
-            Configuration conf = new Configuration();
-            hadoopConfig.forEach(conf::set);
-            PreExecutionAuthenticator preExecutionAuthenticator = new PreExecutionAuthenticator();
-            AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-            HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
-            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
-            LOG.info("Created new authenticator for configuration: " + hadoopConfigWrapper);
-            return preExecutionAuthenticator;
-        });
+        return authenticator;
     }
 
 
