@@ -21,6 +21,7 @@ version: "3.8"
 services:
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    restart: always
     environment:
       - CLUSTER_NAME=test
     env_file:
@@ -38,6 +39,7 @@ services:
 
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    restart: always
     env_file:
       - ./hadoop-hive-2x.env
     environment:
@@ -82,6 +84,7 @@ services:
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:50070 ${IP_HOST}:50075 ${IP_HOST}:${PG_PORT}"
+      HMS_PORT: "${HMS_PORT}"
     container_name: ${CONTAINER_UID}hive2-metastore
     expose:
       - "${HMS_PORT}"
