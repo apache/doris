@@ -102,29 +102,117 @@ suite("test_cast") {
         notContains "cast("
     }
 
-    qt_time_to_string "select cast(cast('16:32:04' as time) as string);"
+    testFoldConst("select cast(cast('16:32:04' as time) as string);")
 
-    qt_select1 "select cast('838:59:59' as time);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as bigint);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as char);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as double);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as float);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as int);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as integer);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as json);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as jsonb);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as largeint);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as smallint);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as string);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as text);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as tinyint);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as varchar);"
+    check_fold_consistency "cast(cast('11:11:11' as time) as variant);"
 
-    qt_select2 "select cast('-01:00:00' as time);"
+    test {
+        sql "select cast(cast('11:11:11' as time) as bitmap);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as decimal);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as decimalv2);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as decimalv3);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as hll);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as quantile_state);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as datetime);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as date);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as quantile_state);"
+        exception "cannot cast"
+    }
 
-    qt_select3 "select cast('839:00:00' as time);"
+    qt_sql "select cast(11111111 as time);"
+    qt_sql "select cast(1111111 as time);"
+    qt_sql "select cast('839:00:00' as time);"
+    qt_sql "select cast('8385959' as time);"
+    qt_sql "select cast(cast('838:59:59' as variant) as time);"
+    qt_sql "select cast(cast('838:59:59' as text) as time);"
+    qt_sql "select cast(cast('838:59:59' as string) as time);"
+    qt_sql "select cast(cast('838:59:59' as char) as time);"
+    qt_sql "select cast(cast('838:59:59' as varchar) as time);"
+    qt_sql "select cast('111:11' as time);"
+    qt_sql "select cast('1111:11' as time);"
+    check_fold_consistency "cast(111111 as time);"
+    check_fold_consistency "cast(11111 as time);"
+    check_fold_consistency "cast(1111 as time);"
+    check_fold_consistency "cast(111 as time);"
+    check_fold_consistency "cast(11 as time);"
+    check_fold_consistency "cast(1 as time);"
+    check_fold_consistency "cast(cast(1111.1 as float) as time);"
+    check_fold_consistency "cast(cast(1111.1 as double) as time);"
+    check_fold_consistency "cast(cast(111111 as json) as time);"
+    check_fold_consistency "cast(cast(111111 as jsonb) as time);"
+    check_fold_consistency "cast('-01:00:00' as time);"
+    check_fold_consistency "cast('11-11-11' as time);"
+    check_fold_consistency "cast('11@11@11' as time);"
+    check_fold_consistency "cast('11.11.11' as time);"
+    check_fold_consistency "cast('11_11_11' as time);"
+    check_fold_consistency "cast('11,11,11' as time);"
 
-    qt_select4 "select cast(11111111 as time);"
-
-    qt_select5 "select cast(1111111 as time);"
-
-    qt_select6 "select cast(111111 as time);"
-
-    qt_select7 "select cast(11111 as time);"
-
-    qt_select8 "select cast(1111 as time);"
-
-    qt_select9 "select cast(111 as time);"
-
-    qt_select8 "select cast(11 as time);"
-
-    qt_select9 "select cast(1 as time);"
+    test {
+        sql "select cast(true as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('2025-01-25 11:11:11' as datetime) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('2025-01-25' as date) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast(1111 as decimalv2) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast(1111 as decimalv3) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast(1111 as ipv4) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast(1111 as ipv6) as time);"
+        exception "cannot cast"
+    }
 
     sql """ DROP TABLE IF EXISTS table_decimal38_4;"""
     sql """

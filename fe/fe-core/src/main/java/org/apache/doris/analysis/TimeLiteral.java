@@ -91,6 +91,13 @@ public class TimeLiteral extends LiteralExpr {
     }
 
     protected void init(String s) throws AnalysisException {
+        if (!s.contains(":")) {
+            int len = s.length();
+            s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
+        }
+        if (s.indexOf(':') == s.lastIndexOf(':')) {
+            s = s + ":00";
+        }
         String[] parts = s.split(":");
         if (parts.length != 3) {
             throw new AnalysisException("Invalid format, must have 3 parts separated by ':'");

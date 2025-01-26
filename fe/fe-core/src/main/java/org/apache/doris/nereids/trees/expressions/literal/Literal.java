@@ -203,6 +203,12 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
                         String.format("%s can't cast to %s", desc, targetType));
             }
         }
+        if (getDataType().isTimeLikeType() && !(targetType.isStringType()
+                || targetType.isIntegerLikeType() || targetType.isFloatLikeType()
+                || targetType.isTimeLikeType() || targetType.isVariantType())) {
+            throw new AnalysisException(
+                    String.format("can't cast %s to %s", getDataType(), targetType));
+        }
         return uncheckedCastTo(targetType);
     }
 
@@ -288,7 +294,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new IPv4Literal(desc);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
-        } else if (targetType.isTimeType()) {
+        } else if (targetType.isTimeLikeType()) {
             return new TimeLiteral(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
