@@ -160,20 +160,17 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         SCOPED_TIMER(_publish_runtime_filter_timer);
         RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
     } catch (Exception& e) {
-        bool blocked_by_complete_build_stage = p._shared_hashtable_controller &&
-                                               !p._shared_hash_table_context->complete_build_stage;
         bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
                                                    p._shared_hashtable_controller &&
                                                    !p._shared_hash_table_context->signaled;
 
         return Status::InternalError(
                 "rf process meet error: {}, wake_up_early: {}, should_build_hash_table: "
-                "{}, _finish_dependency: {}, blocked_by_complete_build_stage: {}, "
+                "{}, _finish_dependency: {}, "
                 "blocked_by_shared_hash_table_signal: "
                 "{}",
                 e.to_string(), state->get_task()->wake_up_early(), _should_build_hash_table,
-                _finish_dependency->debug_string(), blocked_by_complete_build_stage,
-                blocked_by_shared_hash_table_signal);
+                _finish_dependency->debug_string(), blocked_by_shared_hash_table_signal);
     }
 
     return Base::close(state, exec_status);
@@ -618,7 +615,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
-            _shared_hash_table_context->complete_build_stage = true;
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = local_state._shared_state->arena;
             _shared_hash_table_context->hash_table_variants =
@@ -631,12 +627,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             local_state._runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
             _shared_hashtable_controller->signal(node_id());
         }
-    } else if (!local_state._should_build_hash_table &&
-               _shared_hash_table_context->complete_build_stage) {
+    } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         // the instance which is not build hash table, it's should wait the signal of hash table build finished.
-        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit,
+        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
+        // return eof will make task marked as wake_up_early
         if (!_shared_hash_table_context->signaled) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
