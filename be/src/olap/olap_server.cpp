@@ -1652,7 +1652,7 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
     LOG(INFO) << "try to start check tablet delete bitmap score!";
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::check_tablet_delete_bitmap_interval_seconds))) {
-        if (!config::check_tablet_delete_bitmap_score_enable) {
+        if (!config::enable_check_tablet_delete_bitmap_score) {
             return;
         }
         uint64_t max_delete_bitmap_score = 0;
