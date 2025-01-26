@@ -529,18 +529,20 @@ public class RuntimeProfile {
         for (String childCounterName : childCounterSet) {
             Counter counter = templateProfile.counterMap.get(childCounterName);
             if (counter == null) {
-                throw new RuntimeException("Child counter " + childCounterName + " of " + parentCounterName
-                        + " not found in profile");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Child counter {} of {} not found in profile {}", childCounterName, parentCounterName,
+                        templateProfile.toString());
+                }
+                continue;
             }
             if (counter.getLevel() == 1) {
                 Counter oldCounter = templateCounterMap.get(childCounterName);
                 AggCounter aggCounter = new AggCounter(oldCounter.getType());
                 for (RuntimeProfile profile : profiles) {
+                    // orgCounter could be null if counter structure is changed
+                    // change of counter structure happens when NonZeroCounter is involved.
+                    // So here we have to ignore the counter if it is not found in the profile.
                     Counter orgCounter = profile.counterMap.get(childCounterName);
-                    if (orgCounter == null) {
-                        throw new RuntimeException("Child counter " + childCounterName
-                                                + " of " + parentCounterName + " not found in profile");
-                    }
                     aggCounter.addCounter(orgCounter);
                 }
                 if (nereidsId != null && childCounterName.equals("RowsProduced")) {
