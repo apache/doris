@@ -95,6 +95,7 @@ public class HiveTableSinkTest {
             hiveTableSink.bindDataSink(Optional.empty());
 
             Assert.assertEquals(hiveTableSink.tDataSink.hive_table_sink.location.original_write_path, location);
+            Assert.assertEquals(hiveTableSink.tDataSink.hive_table_sink.location.target_path, location);
         }
     }
 
