@@ -20,7 +20,7 @@ suite("test_column_boundary") {
     sql """
         CREATE TABLE IF NOT EXISTS test_column_boundary (
             u_id int NULL COMMENT "",
-            u_city varchar(20) NULL COMMENT ""
+            u_city varchar(40) NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(`u_id`, `u_city`)
         DISTRIBUTED BY HASH(`u_id`, `u_city`) BUCKETS 1
