@@ -422,10 +422,6 @@ Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_
         _enqueue_data_and_set_ready(*sink_info.channel_id, sink_info.local_state,
                                     BlockWrapper::create_shared(std::move(new_block)));
     }
-    if (eos && sink_info.local_state) {
-        sink_info.local_state->_shared_state->source_deps[*sink_info.channel_id]
-                ->set_always_ready();
-    }
     return Status::OK();
 }
 

@@ -514,10 +514,8 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
     _closed = true;
-    // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
-    // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
-    if (_shared_state && _shared_state->sink_deps.size() == 1) {
-        _shared_state->sink_deps.front()->set_always_ready();
+    if (_shared_state) {
+        _shared_state->unfinished_source_counter--;
     }
     return Status::OK();
 }

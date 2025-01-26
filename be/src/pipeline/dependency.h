@@ -79,6 +79,7 @@ struct BasicSharedState {
     std::vector<DependencySPtr> sink_deps;
     int id = 0;
     std::set<int> related_op_ids;
+    std::atomic_int unfinished_source_counter = 0;
 
     virtual ~BasicSharedState() = default;
 

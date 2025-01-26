@@ -120,16 +120,9 @@ void Pipeline::make_all_runnable() {
         }
     });
 
-    if (_sink->count_down_destination()) {
-        for (auto* task : _tasks) {
-            if (task) {
-                task->set_wake_up_early();
-            }
-        }
-        for (auto* task : _tasks) {
-            if (task) {
-                task->clear_blocking_state();
-            }
+    for (auto* task : _tasks) {
+        if (task) {
+            task->make_runnable_if_all_downstream_finished();
         }
     }
 }
