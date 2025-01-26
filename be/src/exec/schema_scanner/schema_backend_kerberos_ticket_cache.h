@@ -17,36 +17,35 @@
 
 #pragma once
 
-#include <string>
+#include <vector>
 
-#include "io/fs/hdfs.h"
-#include "io/fs/path.h"
+#include "cctz/time_zone.h"
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
 namespace doris {
-class HDFSCommonBuilder;
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-namespace io {
+class SchemaBackendKerberosTicketCacheScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaBackendKerberosTicketCacheScanner);
 
-class HDFSHandle {
 public:
-    ~HDFSHandle() {}
+    SchemaBackendKerberosTicketCacheScanner();
+    ~SchemaBackendKerberosTicketCacheScanner() override;
 
-    static HDFSHandle& instance();
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
-    hdfsFS create_hdfs_fs(HDFSCommonBuilder& builder);
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    HDFSHandle() {}
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    std::unique_ptr<vectorized::Block> _info_block = nullptr;
+    cctz::time_zone _timezone_obj;
 };
-
-// if the format of path is hdfs://ip:port/path, replace it to /path.
-// path like hdfs://ip:port/path can't be used by libhdfs3.
-Path convert_path(const Path& path, const std::string& namenode);
-
-std::string get_fs_name(const std::string& path);
-
-// return true if path_or_fs contains "hdfs://"
-bool is_hdfs(const std::string& path_or_fs);
-
-} // namespace io
-} // namespace doris
+}; // namespace doris

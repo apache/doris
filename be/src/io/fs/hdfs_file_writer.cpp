@@ -28,8 +28,8 @@
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_system.h"
+#include "io/hdfs_util.h"
 #include "service/backend_options.h"
-#include "util/hdfs_util.h"
 
 namespace doris {
 namespace io {
@@ -55,7 +55,7 @@ Status HdfsFileWriter::close() {
     if (_hdfs_file == nullptr) {
         return Status::OK();
     }
-    int result = hdfsFlush(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file);
+    int result = hdfsFlush(_hdfs_fs->_fs_handler->hdfs_fs, _hdfs_file);
     if (result == -1) {
         std::stringstream ss;
         ss << "failed to flush hdfs file. "
@@ -65,7 +65,7 @@ Status HdfsFileWriter::close() {
         return Status::InternalError(ss.str());
     }
 
-    result = hdfsCloseFile(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file);
+    result = hdfsCloseFile(_hdfs_fs->_fs_handler->hdfs_fs, _hdfs_file);
     _hdfs_file = nullptr;
     if (result != 0) {
         std::string err_msg = hdfs_error();
@@ -89,7 +89,7 @@ Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
         const char* p = result.data;
         while (left_bytes > 0) {
             int64_t written_bytes =
-                    hdfsWrite(_hdfs_fs->_fs_handle->hdfs_fs, _hdfs_file, p, left_bytes);
+                    hdfsWrite(_hdfs_fs->_fs_handler->hdfs_fs, _hdfs_file, p, left_bytes);
             if (written_bytes < 0) {
                 return Status::InternalError("write hdfs failed. namenode: {}, path: {}, error: {}",
                                              _hdfs_fs->_fs_name, _path.native(), hdfs_error());
@@ -123,10 +123,10 @@ Status HdfsFileWriter::open() {
 Status HdfsFileWriter::_open() {
     _path = convert_path(_path, _hdfs_fs->_fs_name);
     std::string hdfs_dir = _path.parent_path().string();
-    int exists = hdfsExists(_hdfs_fs->_fs_handle->hdfs_fs, hdfs_dir.c_str());
+    int exists = hdfsExists(_hdfs_fs->_fs_handler->hdfs_fs, hdfs_dir.c_str());
     if (exists != 0) {
         VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
-        int ret = hdfsCreateDirectory(_hdfs_fs->_fs_handle->hdfs_fs, hdfs_dir.c_str());
+        int ret = hdfsCreateDirectory(_hdfs_fs->_fs_handler->hdfs_fs, hdfs_dir.c_str());
         if (ret != 0) {
             std::stringstream ss;
             ss << "create dir failed. "
@@ -138,7 +138,7 @@ Status HdfsFileWriter::_open() {
         }
     }
     // open file
-    _hdfs_file = hdfsOpenFile(_hdfs_fs->_fs_handle->hdfs_fs, _path.c_str(), O_WRONLY, 0, 0, 0);
+    _hdfs_file = hdfsOpenFile(_hdfs_fs->_fs_handler->hdfs_fs, _path.c_str(), O_WRONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         std::stringstream ss;
         ss << "open file failed. "
