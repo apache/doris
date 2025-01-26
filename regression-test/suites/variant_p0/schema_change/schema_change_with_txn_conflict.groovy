@@ -43,6 +43,9 @@ suite("test_schema_change_txn_conflict", "nonConcurrent") {
             sql """insert into ${tableName} values (2, '{"a" : 12345}')"""
         } catch (Exception e) {
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict")
+            GetDebugPoint().clearDebugPointsForAllFEs()
         }
     }
     qt_sql "select * from ${tableName} order by k limit 5"
