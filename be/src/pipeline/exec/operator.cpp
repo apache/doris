@@ -515,6 +515,7 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
     }
     _closed = true;
     if (_shared_state) {
+        DCHECK_GT(_shared_state->unfinished_source_counter, 0);
         _shared_state->unfinished_source_counter--;
     }
     return Status::OK();
