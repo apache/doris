@@ -144,6 +144,10 @@ public class PartitionKeyDesc {
         return partitionKeyValueType;
     }
 
+    public boolean hasInValues() {
+        return inValues != null;
+    }
+
     public void analyze(int partColNum) throws AnalysisException {
         if (isDummy()) {
             return;
