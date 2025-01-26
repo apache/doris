@@ -74,6 +74,14 @@ T IntervalHistogramStat<T>::min() {
     return *std::min_element(window.begin(), window.end());
 }
 
+template <typename T>
+void IntervalHistogramStat<T>::reduce_size(size_t n) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    for (size_t i = 0; i < n && !window.empty(); ++i) {
+        window.pop_front();
+    }
+}
+
 template class doris::IntervalHistogramStat<int64>;
 template class doris::IntervalHistogramStat<int32>;
 

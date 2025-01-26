@@ -75,4 +75,22 @@ TEST(IntervalHistogramStatTest, ParallelTest) {
     EXPECT_EQ(stat.median(), (total_values - 1) / 2);
 }
 
+TEST(IntervalHistogramStatTest, ReduceSizeTest) {
+    IntervalHistogramStat<int> stat(5);
+
+    stat.add(10);
+    stat.add(20);
+    stat.add(30);
+    stat.add(40);
+    stat.add(50);
+
+    stat.reduce_size(2);
+
+    // window now contains [30, 40, 50]
+    EXPECT_EQ(stat.mean(), 40);
+    EXPECT_EQ(stat.median(), 40);
+    EXPECT_EQ(stat.max(), 50);
+    EXPECT_EQ(stat.min(), 30);
+}
+
 } // namespace doris

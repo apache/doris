@@ -331,6 +331,10 @@ Status ThreadPool::init() {
                 _task_execution_time_ns_statistic.mean());
         task_wait_worker_ns_avg_in_last_1000_times->set_value(
                 _task_wait_worker_time_ns_statistic.mean());
+
+        // Remove older data from the histogram so that we can see curve could be more smooth.
+        _task_execution_time_ns_statistic.reduce_size(1);
+        _task_wait_worker_time_ns_statistic.reduce_size(1);
     });
     return Status::OK();
 }
