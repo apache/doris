@@ -234,12 +234,14 @@ public:
     bool wake_up_early() const { return _wake_up_early; }
 
     void make_runnable_if_all_downstream_finished() {
-        DCHECK_GE(_sink_shared_state->unfinished_source_counter, 0);
-        if (!_sink_shared_state || _sink_shared_state->unfinished_source_counter != 0) {
+        if (!_sink_shared_state) {
             return;
         }
-        set_wake_up_early();
-        clear_blocking_state();
+        DCHECK_GE(_sink_shared_state->unfinished_source_counter, 0);
+        if (!_sink_shared_state->unfinished_source_counter) {
+            set_wake_up_early();
+            clear_blocking_state();
+        }
     }
 
 private:
