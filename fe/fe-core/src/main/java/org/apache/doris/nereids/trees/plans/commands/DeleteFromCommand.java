@@ -475,7 +475,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 expr = new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN);
             } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
                     && targetTable.getSequenceMapCol() != null) {
-                expr = new UnboundSlot(tableName, targetTable.getSequenceMapCol());
+                expr = new UnboundAlias(new UnboundSlot(tableName, targetTable.getSequenceMapCol()),
+                        Column.SEQUENCE_COL);
             } else if (column.isKey()) {
                 expr = new UnboundSlot(tableName, column.getName());
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
