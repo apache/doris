@@ -20,16 +20,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -50,7 +46,7 @@ public class ArrayFlatten extends ScalarFunction
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
         while (dataType instanceof ArrayType) {
-            dataType = ((ArrayType)dataType).getItemType();
+            dataType = ((ArrayType) dataType).getItemType();
         }
         return FunctionSignature.ret(ArrayType.of(dataType)).args(getArgument(0).getDataType());
     }
