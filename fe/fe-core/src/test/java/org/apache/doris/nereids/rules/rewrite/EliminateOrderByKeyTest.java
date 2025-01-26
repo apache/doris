@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -158,5 +159,52 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .rewrite()
                 .printlnTree()
                 .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
+    }
+
+    @Test
+    void testWindowDup() {
+        PlanChecker.from(connectContext)
+                .analyze("select sum(a) over (partition by a order by a,a)  from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 1));
+    }
+
+    @Test
+    void testWindowFd() {
+        PlanChecker.from(connectContext)
+                .analyze("select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b)  from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 2));
+    }
+
+    @Test
+    void testWindowUniform() {
+        PlanChecker.from(connectContext)
+                .analyze("select sum(a) over (partition by a order by b) from eliminate_order_by_constant_t where b=100")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().isEmpty()));
+    }
+
+    @Test
+    void testWindowMulti() {
+        PlanChecker.from(connectContext)
+                .analyze("select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b)"
+                        + ", max(a) over (partition by a order by b,b+1,b,abs(b)) from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 2
+                                && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
+                                .getOrderKeys().size() == 1));
     }
 }

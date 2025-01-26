@@ -54,4 +54,12 @@ suite("eliminate_order_by_key") {
     // duplicate
     qt_dup_shape "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,a,id"
     qt_dup_expr_shape "select a,b,c,d,dt from eliminate_order_by_constant_t order by a+1,a+1,id"
+
+    // window
+    qt_dup_window "select sum(a) over (partition by a order by a,a)  from eliminate_order_by_constant_t order by 1"
+    qt_fd_window "select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b)  from eliminate_order_by_constant_t order by 1"
+    qt_uniform_window "select sum(a) over (partition by a order by b)  from eliminate_order_by_constant_t where b=100 order by 1"
+    qt_uniform_window "select first_value(c) over (partition by a order by b)  from eliminate_order_by_constant_t where b=100 order by 1"
+    qt_multi_window """select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b), max(a) over (partition by a order by b,b+1,b,abs(b)) 
+                        from eliminate_order_by_constant_t order by 1,2"""
 }
