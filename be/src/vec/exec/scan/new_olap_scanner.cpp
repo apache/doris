@@ -656,10 +656,53 @@ void NewOlapScanner::_collect_profile_before_close() {
     } else {
         pipeline::OlapScanLocalState* local_state = (pipeline::OlapScanLocalState*)_local_state;
         INCR_COUNTER(local_state);
+
+        COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
+        COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,
+                       stats.tablet_reader_capture_rs_readers_timer_ns);
+        COUNTER_UPDATE(local_state->_tablet_reader_init_return_columns_timer,
+                       stats.tablet_reader_init_return_columns_timer_ns);
+        COUNTER_UPDATE(local_state->_tablet_reader_init_keys_param_timer,
+                       stats.tablet_reader_init_keys_param_timer_ns);
+        COUNTER_UPDATE(local_state->_tablet_reader_init_orderby_keys_param_timer,
+                       stats.tablet_reader_init_orderby_keys_param_timer_ns);
+        COUNTER_UPDATE(local_state->_tablet_reader_init_conditions_param_timer,
+                       stats.tablet_reader_init_conditions_param_timer_ns);
+        COUNTER_UPDATE(local_state->_tablet_reader_init_delete_condition_param_timer,
+                       stats.tablet_reader_init_delete_condition_param_timer_ns);
+        COUNTER_UPDATE(local_state->_block_reader_vcollect_iter_init_timer,
+                       stats.block_reader_vcollect_iter_init_timer_ns);
+        COUNTER_UPDATE(local_state->_block_reader_rs_readers_init_timer,
+                       stats.block_reader_rs_readers_init_timer_ns);
+        COUNTER_UPDATE(local_state->_block_reader_build_heap_init_timer,
+                       stats.block_reader_build_heap_init_timer_ns);
+
+        COUNTER_UPDATE(local_state->_rowset_reader_get_segment_iterators_timer,
+                       stats.rowset_reader_get_segment_iterators_timer_ns);
+        COUNTER_UPDATE(local_state->_rowset_reader_create_iterators_timer,
+                       stats.rowset_reader_create_iterators_timer_ns);
+        COUNTER_UPDATE(local_state->_rowset_reader_init_iterators_timer,
+                       stats.rowset_reader_init_iterators_timer_ns);
+        COUNTER_UPDATE(local_state->_rowset_reader_load_segments_timer,
+                       stats.rowset_reader_load_segments_timer_ns);
+
+        COUNTER_UPDATE(local_state->_segment_iterator_init_timer,
+                       stats.segment_iterator_init_timer_ns);
+        COUNTER_UPDATE(local_state->_segment_iterator_init_return_column_iterators_timer,
+                       stats.segment_iterator_init_return_column_iterators_timer_ns);
+        COUNTER_UPDATE(local_state->_segment_iterator_init_bitmap_index_iterators_timer,
+                       stats.segment_iterator_init_bitmap_index_iterators_timer_ns);
+        COUNTER_UPDATE(local_state->_segment_iterator_init_inverted_index_iterators_timer,
+                       stats.segment_iterator_init_inverted_index_iterators_timer_ns);
+
+        COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
+                       stats.segment_create_column_readers_timer_ns);
+        COUNTER_UPDATE(local_state->_segment_load_index_timer, stats.segment_load_index_timer_ns);
     }
 
 #undef INCR_COUNTER
 #endif
+
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(_scan_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(_scan_rows);
