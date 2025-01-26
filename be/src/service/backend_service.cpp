@@ -90,7 +90,7 @@ class TTransportException;
 namespace doris {
 
 namespace {
-constexpr uint64_t kMaxTimeoutMs = 3000; // 3s
+
 struct IngestBinlogArg {
     int64_t txn_id;
     int64_t partition_id;
@@ -156,6 +156,14 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         tstatus.error_msgs.push_back(std::move(error_msg));
     };
 
+    auto estimate_download_timeout = [](int64_t file_size) {
+        uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+        if (estimate_timeout < config::download_low_speed_time) {
+            estimate_timeout = config::download_low_speed_time;
+        }
+        return estimate_timeout;
+    };
+
     // Step 3: get binlog info
     auto binlog_api_url = fmt::format("http://{}:{}/api/_binlog/_download", request.remote_host,
                                       request.remote_port);
@@ -167,7 +175,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::string binlog_info;
     auto get_binlog_info_cb = [&get_binlog_info_url, &binlog_info](HttpClient* client) {
         RETURN_IF_ERROR(client->init(get_binlog_info_url));
-        client->set_timeout_ms(kMaxTimeoutMs);
+        client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&binlog_info);
     };
     auto status = HttpClient::execute_with_retry(max_retry, 1, get_binlog_info_cb);
@@ -206,7 +214,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::string rowset_meta_str;
     auto get_rowset_meta_cb = [&get_rowset_meta_url, &rowset_meta_str](HttpClient* client) {
         RETURN_IF_ERROR(client->init(get_rowset_meta_url));
-        client->set_timeout_ms(kMaxTimeoutMs);
+        client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&rowset_meta_str);
     };
     status = HttpClient::execute_with_retry(max_retry, 1, get_rowset_meta_cb);
@@ -255,7 +263,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         auto get_segment_file_size_cb = [&get_segment_file_size_url,
                                          &segment_file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_size_url));
-            client->set_timeout_ms(kMaxTimeoutMs);
+            client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
@@ -291,16 +299,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         auto get_segment_file_url =
                 fmt::format("{}&acquire_md5=true", segment_file_urls[segment_index]);
 
-        uint64_t estimate_timeout =
-                segment_file_size / config::download_low_speed_limit_kbps / 1024;
-        if (estimate_timeout < config::download_low_speed_time) {
-            estimate_timeout = config::download_low_speed_time;
-        }
-
         auto segment_path = local_segment_path(local_tablet->tablet_path(),
                                                rowset_meta->rowset_id().to_string(), segment_index);
         LOG(INFO) << "download segment file from " << get_segment_file_url << " to "
                   << segment_path;
+        uint64_t estimate_timeout = estimate_download_timeout(segment_file_size);
         auto get_segment_file_cb = [&get_segment_file_url, &segment_path, segment_file_size,
                                     estimate_timeout, &download_success_files](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
@@ -309,7 +312,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             download_success_files.push_back(segment_path);
 
             std::string remote_file_md5;
-            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            if (config::enable_download_md5sum_check) {
+                RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            }
             LOG(INFO) << "download segment file to " << segment_path
                       << ", remote md5: " << remote_file_md5
                       << ", remote size: " << segment_file_size;
@@ -381,7 +386,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                         [&get_segment_index_file_size_url,
                          &segment_index_file_size](HttpClient* client) {
                             RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
-                            client->set_timeout_ms(kMaxTimeoutMs);
+                            client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
                         };
@@ -420,7 +425,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                         [&get_segment_index_file_size_url,
                          &segment_index_file_size](HttpClient* client) {
                             RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
-                            client->set_timeout_ms(kMaxTimeoutMs);
+                            client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
                         };
@@ -468,12 +473,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         auto get_segment_index_file_url =
                 fmt::format("{}&acquire_md5=true", segment_index_file_urls[i]);
 
-        uint64_t estimate_timeout =
-                segment_index_file_size / config::download_low_speed_limit_kbps / 1024;
-        if (estimate_timeout < config::download_low_speed_time) {
-            estimate_timeout = config::download_low_speed_time;
-        }
-
+        uint64_t estimate_timeout = estimate_download_timeout(segment_index_file_size);
         auto local_segment_index_path = segment_index_file_names[i];
         LOG(INFO) << fmt::format("download segment index file from {} to {}",
                                  get_segment_index_file_url, local_segment_index_path);
@@ -486,7 +486,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             download_success_files.push_back(local_segment_index_path);
 
             std::string remote_file_md5;
-            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            if (config::enable_download_md5sum_check) {
+                RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            }
 
             std::error_code ec;
             // Check file length
