@@ -1521,25 +1521,28 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             InvertedIndexInfo index_info;
             int get_ret =
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
-            if (get_ret != 0) {
-                if (get_ret == 1) { // Schema kv not found
-                    // Check tablet existence
-                    std::string tablet_idx_key, tablet_idx_val;
-                    meta_tablet_idx_key({instance_id_, tablet_id}, &tablet_idx_key);
-                    if (txn_get(txn_kv_.get(), tablet_idx_key, tablet_idx_val) == 1) {
-                        // Tablet has been recycled, rowset data has already been deleted
-                        std::lock_guard lock(recycled_tablets_mtx_);
-                        recycled_tablets_.insert(tablet_id);
-                        continue;
-                    }
+            if (get_ret == 0) {
+                index_format = index_info.first;
+                index_ids = std::move(index_info.second);
+            } else if (get_ret == 1) {
+                // Schema kv not found means tablet has been recycled
+                // Maybe some tablet recycle failed by some bugs
+                // We need to delete again to double check
+                LOG_INFO(
+                        "delete rowset data schema kv not found, need to delete again to double "
+                        "check")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset", rs.ShortDebugString());
+                for (int64_t i = 0; i < num_segments; ++i) {
+                    file_paths.push_back(segment_path(tablet_id, rowset_id, i));
                 }
+            } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
                              << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
                 ret = -1;
                 continue;
             }
-            index_format = index_info.first;
-            index_ids = std::move(index_info.second);
         }
         if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
             // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
