@@ -81,8 +81,8 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
                 _rows_start_offset = b.rows_offset_value;
                 if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_start_offset *= -1; //preceding--> negative
-                } //current_row  0
+                    _rows_start_offset *= -1;                                //preceding--> negative
+                }                                                            //current_row  0
             } else {                                                         //following    positive
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                 _rows_start_offset = 0;
