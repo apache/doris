@@ -276,11 +276,11 @@ public class MTMVTask extends AbstractTask {
                         + "taskId {} execPartitionNames {} lastQueryId {}, randomMillis {}",
                         e.getMessage(), retryCount, retryTime, getTaskId(),
                         execPartitionNames, lastQueryId, randomMillis);
+                if (tryCount >= retryTime) {
+                    throw new Exception("Max retry attempts reached, original: " + lastException);
+                }
                 Thread.sleep(randomMillis);
             }
-        }
-        if (retryCount == retryTime) {
-            throw new Exception("Max retry attempts reached, original: " + lastException);
         }
     }
 
