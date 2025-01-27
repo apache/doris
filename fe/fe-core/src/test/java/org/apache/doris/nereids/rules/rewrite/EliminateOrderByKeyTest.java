@@ -222,7 +222,4 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                                 && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
                                 .getOrderKeys().size() == 1));
     }
-
-
-
 }
