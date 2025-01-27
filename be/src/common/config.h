@@ -1100,7 +1100,8 @@ DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
-DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_mInt64(cache_lock_wait_long_tail_threshold_us);
+DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // Base compaction may retrieve and produce some less frequently accessed data,
 // potentially affecting the file cache hit rate.
 // This configuration determines whether to retain the output within the file cache.
