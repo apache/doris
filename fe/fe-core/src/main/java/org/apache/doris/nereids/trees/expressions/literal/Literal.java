@@ -204,7 +204,6 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             }
         }
         if (getDataType().isTimeLikeType() && !(targetType.isStringType()
-                || targetType.isIntegerLikeType() || targetType.isFloatLikeType()
                 || targetType.isTimeLikeType() || targetType.isVariantType())) {
             throw new AnalysisException(
                     String.format("can't cast %s to %s", getDataType(), targetType));

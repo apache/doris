@@ -22,13 +22,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import java.util.List;
 
 /**
- * some function PropagateNullable when args are datev2 or datetimev2
+ * some function PropagateNullable when args are datev2 or datetimev2 or time like
  * and AlwaysNullable when other type parameters
  */
-public interface PropagateNullableOnDateLikeV2Args extends PropagateNullable, AlwaysNullable {
+public interface PropagateNullableOnDateOrTimeLikeV2Args extends PropagateNullable, AlwaysNullable {
     @Override
     default boolean nullable() {
-        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType())) {
+        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType() 
+                || e.getDataType().isTimeLikeType())) {
             return PropagateNullable.super.nullable();
         } else {
             return AlwaysNullable.super.nullable();

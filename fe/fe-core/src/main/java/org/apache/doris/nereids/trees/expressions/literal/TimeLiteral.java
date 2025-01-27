@@ -86,7 +86,17 @@ public class TimeLiteral extends Literal {
     protected void init(String s) throws AnalysisException {
         if (!s.contains(":")) {
             int len = s.length();
-            s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
+            if (len == 1) {
+                s = "00:00:0" + s;
+            } else if (len == 2) {
+                s = "00:00:" + s;
+            } else if (len == 3) {
+                s = "00:0" + s.charAt(0) + ":" + s.substring(1);
+            } else if (len == 4) {
+                s = "00:" + s.substring(0, 2) + ":" + s.substring(3);
+            } else {
+                s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
+            }
         }
         if (s.indexOf(':') == s.lastIndexOf(':')) {
             s = s + ":00";

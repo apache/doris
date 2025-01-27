@@ -97,29 +97,57 @@ suite("test_cast") {
         result([[null]])
     }
 
-    explain {
-        sql("select cast('12:00:00' as time);")
-        notContains "cast("
-    }
+    testFoldConst("select cast('12:00:00' as time);")
+    testFoldConst("select cast('111111' as time);")
 
-    testFoldConst("select cast(cast('16:32:04' as time) as string);")
+    qt_sql "select cast(cast('11:11:11' as time) as char);"
+    qt_sql "select cast(cast('11:11:11' as time) as json);"
+    qt_sql "select cast(cast('11:11:11' as time) as jsonb);"
+    qt_sql "select cast(cast('11:11:11' as time) as string);"
+    qt_sql "select cast(cast('11:11:11' as time) as text);"
+    qt_sql "select cast(cast('11:11:11' as time) as varchar);"
+    qt_sql "select cast(cast('11:11:11' as time) as variant);"
 
-    check_fold_consistency "cast(cast('11:11:11' as time) as bigint);"
     check_fold_consistency "cast(cast('11:11:11' as time) as char);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as double);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as float);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as int);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as integer);"
     check_fold_consistency "cast(cast('11:11:11' as time) as json);"
     check_fold_consistency "cast(cast('11:11:11' as time) as jsonb);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as largeint);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as smallint);"
     check_fold_consistency "cast(cast('11:11:11' as time) as string);"
     check_fold_consistency "cast(cast('11:11:11' as time) as text);"
-    check_fold_consistency "cast(cast('11:11:11' as time) as tinyint);"
     check_fold_consistency "cast(cast('11:11:11' as time) as varchar);"
     check_fold_consistency "cast(cast('11:11:11' as time) as variant);"
 
+    test {
+        sql "select cast(cast('11:11:11' as time) as bigint);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as double);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as float);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as int);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as integer);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as largeint);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as smallint);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as tinyint);"
+        exception "cannot cast"
+    }
     test {
         sql "select cast(cast('11:11:11' as time) as bitmap);"
         exception "cannot cast"
@@ -157,17 +185,62 @@ suite("test_cast") {
         exception "cannot cast"
     }
 
-    qt_sql "select cast(11111111 as time);"
-    qt_sql "select cast(1111111 as time);"
+    qt_sql "select cast('-01:00:00' as time);"
+    qt_sql "select cast('00:-01:00' as time);"
+    qt_sql "select cast('00:00:-01' as time);"
+    qt_sql "select cast('00:00:00' as time);"
+    qt_sql "select cast('838:59:59' as time);"
+    qt_sql "select cast('838:60:59' as time);"
+    qt_sql "select cast('838:59:60' as time);"
     qt_sql "select cast('839:00:00' as time);"
+
+    qt_sql "select cast('-010000' as time);"
+    qt_sql "select cast('-000100' as time);"
+    qt_sql "select cast('-000001' as time);"
+    qt_sql "select cast('000000' as time);"
     qt_sql "select cast('8385959' as time);"
+    qt_sql "select cast('8386059' as time);"
+    qt_sql "select cast('8385960' as time);"
+    qt_sql "select cast('8390000' as time);"
+
+    qt_sql "select cast(-010000 as time);"
+    qt_sql "select cast(-000100 as time);"
+    qt_sql "select cast(-000001 as time);"
+    qt_sql "select cast(000000 as time);"
+    qt_sql "select cast(8385959 as time);"
+    qt_sql "select cast(8386059 as time);"
+    qt_sql "select cast(8385960 as time);"
+    qt_sql "select cast(8390000 as time);"
+
     qt_sql "select cast(cast('838:59:59' as variant) as time);"
     qt_sql "select cast(cast('838:59:59' as text) as time);"
     qt_sql "select cast(cast('838:59:59' as string) as time);"
     qt_sql "select cast(cast('838:59:59' as char) as time);"
     qt_sql "select cast(cast('838:59:59' as varchar) as time);"
-    qt_sql "select cast('111:11' as time);"
-    qt_sql "select cast('1111:11' as time);"
+
+    qt_sql "select cast('00:00' as time);"
+    qt_sql "select cast('838:60' as time);"
+    qt_sql "select cast('838:59' as time);"
+    qt_sql "select cast('839:00' as time);"
+
+    qt_sql "select cast(11111111 as time);"
+    qt_sql "select cast(1111111 as time);"
+    qt_sql "select cast(111111 as time);"
+    qt_sql "select cast(11111 as time);"
+    qt_sql "select cast(1111 as time);"
+    qt_sql "select cast(111 as time);"
+    qt_sql "select cast(11 as time);"
+    qt_sql "select cast(1 as time);"
+    qt_sql "select cast(cast(1111.1 as float) as time);"
+    qt_sql "select cast(cast(1111.1 as double) as time);"
+    qt_sql "select cast(cast(111111 as json) as time);"
+    qt_sql "select cast(cast(111111 as jsonb) as time);"
+    qt_sql "select cast('11-11-11' as time);"
+    qt_sql "select cast('11@11@11' as time);"
+    qt_sql "select cast('11.11.11' as time);"
+    qt_sql "select cast('11_11_11' as time);"
+    qt_sql "select cast('11,11,11' as time);"
+
     check_fold_consistency "cast(111111 as time);"
     check_fold_consistency "cast(11111 as time);"
     check_fold_consistency "cast(1111 as time);"
