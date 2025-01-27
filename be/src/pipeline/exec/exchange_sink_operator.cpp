@@ -102,6 +102,13 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
     _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
+    // do the shufffle make sure enough random
+    if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
+        _part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
+        std::random_device rd;
+        std::mt19937 g(rd());
+        shuffle(channels.begin(), channels.end(), g);
+    }
 
     size_t local_size = 0;
     for (int i = 0; i < channels.size(); ++i) {
@@ -200,12 +207,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     _writer.reset(new Writer());
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
 
-    if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
-        _part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
-        std::random_device rd;
-        std::mt19937 g(rd());
-        shuffle(channels.begin(), channels.end(), g);
-    }
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->open(state));
     }
