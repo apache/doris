@@ -40,10 +40,19 @@ import java.util.List;
 
 /** AlterViewInfo */
 public class AlterViewInfo extends BaseViewInfo {
+
+    private final String comment;
+
     /** constructor*/
     public AlterViewInfo(TableNameInfo viewName,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
+        this.comment = null;
+    }
+
+    public AlterViewInfo(TableNameInfo viewName, String comment) {
+        super(viewName, null, null);
+        this.comment = comment;
     }
 
     /** init */
@@ -69,6 +78,10 @@ public class AlterViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
+        if (comment != null) {
+            // Modify comment only.
+            return;
+        }
         analyzeAndFillRewriteSqlMap(querySql, ctx);
         PlanUtils.OutermostPlanFinderContext outermostPlanFinderContext = new PlanUtils.OutermostPlanFinderContext();
         analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
@@ -78,6 +91,9 @@ public class AlterViewInfo extends BaseViewInfo {
 
     /**translateToLegacyStmt*/
     public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
+        if (comment != null) {
+            return new AlterViewStmt(viewName.transferToTableName(), comment);
+        }
         // expand star(*) in project list and replace table name with qualifier
         String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // rewrite project alias
@@ -91,5 +107,9 @@ public class AlterViewInfo extends BaseViewInfo {
         alterViewStmt.setInlineViewDef(rewrittenSql);
         alterViewStmt.setFinalColumns(finalCols);
         return alterViewStmt;
+    }
+
+    public String getComment() {
+        return comment;
     }
 }

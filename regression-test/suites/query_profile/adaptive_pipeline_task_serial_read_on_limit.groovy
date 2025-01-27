@@ -75,6 +75,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     """
 
     sql "set enable_profile=true"
+    sql "set profile_level=2"
     // set parallel_pipeline_task_num to 1 so that only one scan operator is created,
     // and we can check MaxScannerThreadNum in profile.
     sql "set parallel_pipeline_task_num=1;"

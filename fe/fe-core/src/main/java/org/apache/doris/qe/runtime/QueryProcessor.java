@@ -137,7 +137,8 @@ public class QueryProcessor extends AbstractJobProcessor {
             }
         }
 
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+        ConnectContext connectContext = coordinatorContext.connectContext;
+        if (connectContext != null && connectContext.getSessionVariable().dryRunQuery) {
             if (resultBatch.isEos()) {
                 numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
             }

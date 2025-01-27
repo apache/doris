@@ -43,9 +43,10 @@ public class UnassignedGatherJob extends AbstractUnassignedJob {
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        ConnectContext connectContext = statementContext.getConnectContext();
-        useSerialSource = fragment.useSerialSource(connectContext);
+        useSerialSource = fragment.useSerialSource(
+                distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
+        ConnectContext connectContext = statementContext.getConnectContext();
         int expectInstanceNum = degreeOfParallelism();
 
         DistributedPlanWorker selectedWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
