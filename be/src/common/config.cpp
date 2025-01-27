@@ -1407,7 +1407,7 @@ DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 DEFINE_mInt32(compaction_num_per_round, "1");
 
-DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "60");
+DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 

@@ -105,6 +105,8 @@ BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
             static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
     _tablet_max_delete_bitmap_score_metrics =
             std::make_shared<bvar::Status<size_t>>("tablet_max", "delete_bitmap_score", 0);
+    _tablet_max_base_rowset_delete_bitmap_score_metrics = std::make_shared<bvar::Status<size_t>>(
+            "tablet_max_base_rowset", "delete_bitmap_score", 0);
 }
 
 BaseStorageEngine::~BaseStorageEngine() = default;

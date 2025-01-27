@@ -178,7 +178,8 @@ public:
     bool update_tablet_partition_id(::doris::TPartitionId partition_id,
                                     ::doris::TTabletId tablet_id);
 
-    void get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score);
+    void get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score,
+                                             uint64_t* max_base_rowset_delete_bitmap_score);
 
 private:
     // Add a tablet pointer to StorageEngine

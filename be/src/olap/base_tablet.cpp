@@ -1895,11 +1895,10 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
                 break;
             }
             base_found = true;
-            DeleteBitmap subset_map(this->tablet_id());
-            this->tablet_meta()->delete_bitmap().subset(
-                    {rowset->rowset_id(), 0, 0}, {rowset->rowset_id(), UINT32_MAX, UINT64_MAX},
-                    &subset_map);
-            uint64_t base_rowset_delete_bitmap_count = subset_map.get_delete_bitmap_count();
+            uint64_t base_rowset_delete_bitmap_count =
+                    this->tablet_meta()->delete_bitmap().get_count_with_range(
+                            {rowset->rowset_id(), 0, 0},
+                            {rowset->rowset_id(), UINT32_MAX, UINT64_MAX});
             if (base_rowset_delete_bitmap_count > *max_base_rowset_delete_bitmap_score) {
                 *max_base_rowset_delete_bitmap_score = base_rowset_delete_bitmap_count;
                 *max_base_rowset_delete_bitmap_score_tablet_id = this->tablet_id();

@@ -171,6 +171,7 @@ protected:
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
     std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
 };
 
 class CompactionSubmitRegistry {

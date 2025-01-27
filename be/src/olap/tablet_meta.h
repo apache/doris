@@ -502,6 +502,14 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Gets count of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     */
+    size_t get_count_with_range(const BitmapKey& start, const BitmapKey& end) const;
+
+    /**
      * Merges the given segment delete bitmap into *this
      *
      * @param bmk
