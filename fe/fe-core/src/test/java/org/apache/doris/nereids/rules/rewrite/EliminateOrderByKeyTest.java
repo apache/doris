@@ -207,4 +207,22 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                                 && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
                                 .getOrderKeys().size() == 1));
     }
+
+    @Test
+    void testWindowMultiDesc() {
+        PlanChecker.from(connectContext)
+                .analyze("select sum(a) over (partition by a order by a desc,a+1 asc,abs(a) desc,1-a,b),"
+                        + "max(a) over (partition by a order by b desc,b+1 desc,b asc,abs(b) desc)\n"
+                        + "from eliminate_order_by_constant_t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 2
+                                && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
+                                .getOrderKeys().size() == 1));
+    }
+
+
+
 }
