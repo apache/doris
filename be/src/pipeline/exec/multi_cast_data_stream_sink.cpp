@@ -50,10 +50,6 @@ Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, vectorized::B
     if (in_block->rows() > 0 || eos) {
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         auto st = local_state._shared_state->multi_cast_data_streamer->push(state, in_block, eos);
-        // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
-        if (st.template is<ErrorCode::END_OF_FILE>()) {
-            return Status::OK();
-        }
         return st;
     }
     return Status::OK();

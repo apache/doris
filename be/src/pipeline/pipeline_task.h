@@ -233,7 +233,7 @@ public:
 
     bool wake_up_early() const { return _wake_up_early; }
 
-    void make_runnable_if_all_downstream_finished() {
+    void wake_up_early_if_all_downstream_finished() {
         if (!_sink_shared_state) {
             return;
         }
