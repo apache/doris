@@ -598,6 +598,7 @@ public class StmtExecutor {
                         i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
+                context.getState().reset();
             } catch (Exception e) {
                 throw e;
             }
@@ -1912,8 +1913,7 @@ public class StmtExecutor {
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         // TODO FE not support doris field type conversion to arrow field type.
-        if (!context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)
-                    && context.getCommand() != MysqlCommand.COM_STMT_EXECUTE) {
+        if (context.supportHandleByFe()) {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());

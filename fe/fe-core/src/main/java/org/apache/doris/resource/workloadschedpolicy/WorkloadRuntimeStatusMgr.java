@@ -109,10 +109,11 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
-            if (queryAuditEventList.size() >= Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missed."
+            if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
+                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
                                 + "you can check whether qps is too high or reset audit_event_log_queue_size",
                         queryAuditEventList.size());
+                Env.getCurrentAuditEventProcessor().handleAuditEvent(event, true);
                 return;
             }
             event.pushToAuditLogQueueTime = System.currentTimeMillis();

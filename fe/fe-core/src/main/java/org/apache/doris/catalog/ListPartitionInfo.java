@@ -81,6 +81,10 @@ public class ListPartitionInfo extends PartitionInfo {
         // get partition key
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
 
+        if (!partitionKeyDesc.hasInValues()) {
+            throw new DdlException("List partition expected 'VALUES [IN or ((\"xxx\", \"xxx\"), ...)]'");
+        }
+
         // we might receive one whole empty values list, we should add default partition value for
         // such occasion
         for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {

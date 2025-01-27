@@ -749,12 +749,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
-
         if (job == null) {
             LOG.warn("failed to find backup or restore job for task: {}", task);
             // return true to remove this task from AgentTaskQueue
             return true;
         }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid snapshot task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
         if (job instanceof BackupJob) {
             if (task.isRestoreTask()) {
                 LOG.warn("expect finding restore job, but get backup job {} for task: {}", job, task);
@@ -779,19 +785,25 @@ public class BackupHandler extends MasterDaemon implements Writable {
             LOG.info("invalid upload task: {}, no backup job is found. db id: {}", task, task.getDbId());
             return false;
         }
-        BackupJob restoreJob = (BackupJob) job;
-        if (restoreJob.getJobId() != task.getJobId() || restoreJob.getState() != BackupJobState.UPLOADING) {
+        BackupJob backupJob = (BackupJob) job;
+        if (backupJob.getJobId() != task.getJobId() || backupJob.getState() != BackupJobState.UPLOADING) {
             LOG.info("invalid upload task: {}, job id: {}, job state: {}",
-                     task, restoreJob.getJobId(), restoreJob.getState().name());
+                     task, backupJob.getJobId(), backupJob.getState().name());
             return false;
         }
-        return restoreJob.finishSnapshotUploadTask(task, request);
+        return backupJob.finishSnapshotUploadTask(task, request);
     }
 
     public boolean handleDownloadSnapshotTask(DownloadTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (!(job instanceof RestoreJob)) {
             LOG.warn("failed to find restore job for task: {}", task);
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid download task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
@@ -803,6 +815,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (!(job instanceof RestoreJob)) {
             LOG.warn("failed to find restore job for task: {}", task);
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid dir move task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
