@@ -62,4 +62,6 @@ suite("eliminate_order_by_key") {
     qt_uniform_window "select first_value(c) over (partition by a order by b)  from eliminate_order_by_constant_t where b=100 order by 1"
     qt_multi_window """select sum(a) over (partition by a order by a,a+1,abs(a),1-a,b), max(a) over (partition by a order by b,b+1,b,abs(b)) 
                         from eliminate_order_by_constant_t order by 1,2"""
+    qt_multi_window_desc """select sum(a) over (partition by a order by a desc,a+1 asc,abs(a) desc,1-a,b), max(a) over (partition by a order by b desc,b+1 desc,b asc,abs(b) desc) 
+                        from eliminate_order_by_constant_t order by 1,2"""
 }
