@@ -517,14 +517,23 @@ Status PointQueryExecutor::_lookup_row_data() {
     }
     // filter rows by delete sign
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
-        vectorized::ColumnPtr delete_filter_columns =
-                _result_block->get_columns()[_reusable->delete_sign_idx()];
-        const auto& filter =
-                assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())->get_data();
-        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-        if (count == filter.size()) {
-            _result_block->clear();
-        } else if (count > 0) {
+        size_t filtered = 0;
+        size_t total = 0;
+        {
+            // clear_column_data will check reference of ColumnPtr, so we need to release
+            // reference before clear_column_data
+            vectorized::ColumnPtr delete_filter_columns =
+                    _result_block->get_columns()[_reusable->delete_sign_idx()];
+            const auto& filter =
+                    assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())
+                            ->get_data();
+            filtered = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+            total = filter.size();
+        }
+
+        if (filtered == total) {
+            _result_block->clear_column_data();
+        } else if (filtered > 0) {
             return Status::NotSupported("Not implemented since only single row at present");
         }
     }

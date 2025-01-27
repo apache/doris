@@ -47,7 +47,7 @@ ScannerContext::ScannerContext(
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
         std::shared_ptr<pipeline::Dependency> dependency, bool ignore_data_distribution,
-        bool is_file_scan_operator)
+        bool is_file_scan_operator, int num_parallel_instances)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -60,7 +60,8 @@ ScannerContext::ScannerContext(
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _ignore_data_distribution(ignore_data_distribution),
-          _is_file_scan_operator(is_file_scan_operator) {
+          _is_file_scan_operator(is_file_scan_operator),
+          _num_parallel_instances(num_parallel_instances) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
@@ -104,8 +105,6 @@ Status ScannerContext::init() {
 #endif
     _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
                                                     thread_token == nullptr ? "False" : "True");
-
-    const int num_parallel_instances = _state->query_parallel_instance_num();
 
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
@@ -176,7 +175,7 @@ Status ScannerContext::init() {
         } else {
             const size_t factor = _is_file_scan_operator ? 1 : 4;
             _max_thread_num = factor * (config::doris_scanner_thread_pool_thread_num /
-                                        num_parallel_instances);
+                                        _num_parallel_instances);
             // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
             // in parallel. We need to make sure the _max_thread_num is smaller than previous value.
             _max_thread_num =

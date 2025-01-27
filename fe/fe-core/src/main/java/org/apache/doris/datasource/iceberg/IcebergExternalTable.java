@@ -323,7 +323,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public IcebergPartitionInfo loadPartitionInfo(long snapshotId) throws AnalysisException {
         // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
         if (!isValidRelatedTable() || snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
-            return new IcebergPartitionInfo();
+            return IcebergPartitionInfo.empty();
         }
         List<IcebergPartition> icebergPartitions = loadIcebergPartition(snapshotId);
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();

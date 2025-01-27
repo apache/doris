@@ -77,6 +77,23 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
 
+#ifdef BE_TEST
+SlotDescriptor::SlotDescriptor()
+        : _id(0),
+          _type(TypeDescriptor {}),
+          _parent(0),
+          _col_pos(0),
+          _is_nullable(false),
+          _col_unique_id(0),
+          _col_type(PrimitiveType {}),
+          _slot_idx(0),
+          _field_idx(-1),
+          _is_materialized(false),
+          _is_key(false),
+          _need_materialize(true),
+          _is_auto_increment(false) {}
+#endif
+
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
     pslot->set_parent(_parent);

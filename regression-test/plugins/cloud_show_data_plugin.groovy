@@ -69,7 +69,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
     }
 
     Suite.metaClass.get_tablets_from_table = { String table ->
-        def res = sql_return_maparray """show tablets from  ${table}"""
+        def res = sql_return_maparray """show tablets from ${table}"""
+        logger.info("get tablets from ${table}:" + res)
         return res 
     }
 
@@ -120,10 +121,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
                 if (tabletStatusAfterCompaction.rowsets.size() < tabletStatusBeforeCompaction.rowsets.size()){
                     compactionStatus = 'FINISHED'
                 }
-                Thread.sleep(60 * 1000)
-            } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
+                Thread.sleep(10 * 1000)
+            } while (timeoutTimestamp > System.currentTimeMillis() && (compactionStatus != 'FINISHED'))
 
-            if (status != "FINISHED") {
+            if (compactionStatus != "FINISHED") {
                 logger.info("compaction not Finish or failed")
                 return false
             }
@@ -132,8 +133,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
     Suite.metaClass.trigger_compaction = { List<List<Object>> tablets ->
         for(def tablet: tablets) {
-            trigger_tablet_compaction(tablet, "cumulative")
-            trigger_tablet_compaction(tablet, "base")
             trigger_tablet_compaction(tablet, "full")
         }
     }
@@ -157,7 +156,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
             def client = initOssClient(ak, sk, endpoint)
             for(String tabletId: tabletIds) {
-                storageSize += calculateFolderLength(client, bucketName, storagePrefix + "/data/" + tabletId)
+                storageSize += calculateFolderLength(client, bucketName, storagePrefix + "data/" + tabletId)
             }
             shutDownOssClient(client)
         }
@@ -168,8 +167,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             def fsUser = context.config.otherConfigs.get("cbsFsUser")
             def storagePrefix = context.config.otherConfigs.get("cbsFsPrefix")
         }
-
-        return storageSize
+        def round_size = new BigDecimal(storageSize/1024/1024).setScale(0, BigDecimal.ROUND_FLOOR);
+        return round_size
     }
 
     Suite.metaClass.translate_different_unit_to_MB = { String size, String unitField ->
@@ -196,7 +195,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             def unitField = fields[1]
             mysqlShowDataSize = translate_different_unit_to_MB(sizeField, unitField)
         }
-        return mysqlShowDataSize
+        def round_size = new BigDecimal(mysqlShowDataSize).setScale(0, BigDecimal.ROUND_FLOOR);
+        return round_size
     }
 
     Suite.metaClass.caculate_table_data_size_through_api = { List<List<Object>> tablets ->
@@ -214,7 +214,79 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
                 }
             }
         }
+        def round_size = new BigDecimal(apiCaculateSize).setScale(0, BigDecimal.ROUND_FLOOR);
+        return round_size
+    }
 
-        return apiCaculateSize
+    Suite.metaClass.update_ms_config = { String ms_endpoint, String key, String value /*param */ ->
+        return curl("POST", String.format("http://%s/MetaService/http/v1/update_config?%s=%s", ms_endpoint, key, value))
+    }
+
+    Suite.metaClass.set_config_before_show_data_test = { ->
+
+        sql """admin set frontend config ("tablet_stat_update_interval_second" = "1")"""
+        sql """admin set frontend config ("catalog_trash_expire_second" = "1")"""
+
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        def get_be_param = { paramName ->
+            // assuming paramName on all BEs have save value
+            def (code, out, err) = show_be_config(backendIdToBackendIP.get(backendId), backendIdToBackendHttpPort.get(backendId))
+            assertEquals(code, 0)
+            def configList = parseJson(out.trim())
+            assert configList instanceof List
+            for (Object ele in (List) configList) {
+                assert ele instanceof List<String>
+                if (((List<String>) ele)[0] == paramName) {
+                    return ((List<String>) ele)[2]
+                }
+            }
+        }
+
+        def ms_endpoint = get_be_param("meta_service_endpoint");
+
+        update_ms_config.call(ms_endpoint, "recycle_interval_seconds", "5")
+        update_ms_config.call(ms_endpoint, "retention_seconds", "0")
+        update_ms_config.call(ms_endpoint, "compacted_rowset_retention_seconds", "0")
+        update_ms_config.call(ms_endpoint, "recycle_job_lease_expired_ms", "0")
+        update_ms_config.call(ms_endpoint, "dropped_partition_retention_seconds", "0")
+        update_ms_config.call(ms_endpoint, "label_keep_max_second", "0")
+        update_ms_config.call(ms_endpoint, "copy_job_max_retention_second", "0")
+    }
+
+    Suite.metaClass.set_config_after_show_data_test = { ->
+
+        sql """admin set frontend config ("tablet_stat_update_interval_second" = "10")"""
+        sql """admin set frontend config ("catalog_trash_expire_second" = "600")"""
+
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        def get_be_param = { paramName ->
+            // assuming paramName on all BEs have save value
+            def (code, out, err) = show_be_config(backendIdToBackendIP.get(backendId), backendIdToBackendHttpPort.get(backendId))
+            assertEquals(code, 0)
+            def configList = parseJson(out.trim())
+            assert configList instanceof List
+            for (Object ele in (List) configList) {
+                assert ele instanceof List<String>
+                if (((List<String>) ele)[0] == paramName) {
+                    return ((List<String>) ele)[2]
+                }
+            }
+        }
+
+        def ms_endpoint = get_be_param("meta_service_endpoint");
+
+        update_ms_config.call(ms_endpoint, "recycle_interval_seconds", "600")
+        update_ms_config.call(ms_endpoint, "retention_seconds", "259200")
+        update_ms_config.call(ms_endpoint, "compacted_rowset_retention_seconds", "1800")
+        update_ms_config.call(ms_endpoint, "recycle_job_lease_expired_ms", "60000")
+        update_ms_config.call(ms_endpoint, "dropped_partition_retention_seconds", "10800")
+        update_ms_config.call(ms_endpoint, "label_keep_max_second", "300")
+        update_ms_config.call(ms_endpoint, "copy_job_max_retention_second", "259200")
     }
 //http://qa-build.oss-cn-beijing.aliyuncs.com/regression/show_data/fullData.1.part1.gz

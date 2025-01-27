@@ -91,11 +91,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
-        return catalog.tableExists(getTableIdentifier(dbName, tblName));
+        try {
+            return preExecutionAuthenticator.execute(() -> catalog.tableExists(getTableIdentifier(dbName, tblName)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to check table exist, error message is:" + e.getMessage(), e);
+        }
     }
 
     public boolean databaseExist(String dbName) {
-        return nsCatalog.namespaceExists(getNamespace(dbName));
+        try {
+            return preExecutionAuthenticator.execute(() -> nsCatalog.namespaceExists(getNamespace(dbName)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
+        }
     }
 
     public List<String> listDatabaseNames() {
@@ -112,8 +120,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listTableNames(String dbName) {
-        List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
-        return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+        try {
+            return preExecutionAuthenticator.execute(() -> {
+                List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
+                return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list table names, error message is:" + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -275,7 +289,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public Table loadTable(String dbName, String tblName) {
-        return catalog.loadTable(getTableIdentifier(dbName, tblName));
+        try {
+            return preExecutionAuthenticator.execute(() -> catalog.loadTable(getTableIdentifier(dbName, tblName)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+        }
     }
 
     private TableIdentifier getTableIdentifier(String dbName, String tblName) {

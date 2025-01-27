@@ -59,7 +59,11 @@ protected:
     RuntimeProfile::Counter* _load_jar_timer = nullptr;
     RuntimeProfile::Counter* _init_connector_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
-    RuntimeProfile::Counter* _get_block_address_timer = nullptr;
+    RuntimeProfile::Counter* _jni_setup_timer = nullptr;
+    RuntimeProfile::Counter* _has_next_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_params_timer = nullptr;
+    RuntimeProfile::Counter* _cast_timer = nullptr;
+    RuntimeProfile::Counter* _read_and_fill_vector_table_timer = nullptr;
     RuntimeProfile::Counter* _fill_block_timer = nullptr;
     RuntimeProfile::Counter* _check_type_timer = nullptr;
     RuntimeProfile::Counter* _execte_read_timer = nullptr;

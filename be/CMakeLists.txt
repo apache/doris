@@ -713,6 +713,9 @@ endif ()
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
 if (BUILD_BENCHMARK)
     add_definitions(-DBE_TEST)
+# The separate BENCHMARK marker is introduced here because 
+# some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
+    add_definitions(-DBE_BENCHMARK)
 endif()
 
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)

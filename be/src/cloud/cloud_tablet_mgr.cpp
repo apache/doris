@@ -238,7 +238,9 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
 
         num_vacuumed += t->delete_expired_stale_rowsets();
     }
-    LOG_INFO("finish vacuum stale rowsets").tag("num_vacuumed", num_vacuumed);
+    LOG_INFO("finish vacuum stale rowsets")
+            .tag("num_vacuumed", num_vacuumed)
+            .tag("num_tablets", tablets_to_vacuum.size());
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {

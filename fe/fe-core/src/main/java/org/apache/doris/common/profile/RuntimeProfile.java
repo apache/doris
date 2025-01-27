@@ -435,7 +435,12 @@ public class RuntimeProfile {
         }
 
         // 3. counters
-        printChildCounters(prefix, ROOT_COUNTER, builder);
+        try {
+            printChildCounters(prefix, ROOT_COUNTER, builder);
+        } catch (Exception e) {
+            builder.append("print child counters error: ").append(e.getMessage());
+        }
+
 
         // 4. children
         childLock.readLock().lock();
@@ -486,7 +491,7 @@ public class RuntimeProfile {
     public static void mergeProfiles(List<RuntimeProfile> profiles,
             RuntimeProfile simpleProfile, Map<Integer, String> planNodeMap) {
         mergeCounters(ROOT_COUNTER, profiles, simpleProfile);
-        if (profiles.size() < 1) {
+        if (profiles.isEmpty()) {
             return;
         }
         RuntimeProfile templateProfile = profiles.get(0);
@@ -506,10 +511,11 @@ public class RuntimeProfile {
 
     private static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
             RuntimeProfile simpleProfile) {
-        if (profiles.size() == 0) {
+        if (profiles.isEmpty()) {
             return;
         }
         RuntimeProfile templateProfile = profiles.get(0);
+        Map<String, Counter> templateCounterMap = templateProfile.counterMap;
         Pattern pattern = Pattern.compile("nereids_id=(\\d+)");
         Matcher matcher = pattern.matcher(templateProfile.getName());
         String nereidsId = null;
@@ -522,11 +528,19 @@ public class RuntimeProfile {
         }
         for (String childCounterName : childCounterSet) {
             Counter counter = templateProfile.counterMap.get(childCounterName);
+            if (counter == null) {
+                throw new RuntimeException("Child counter " + childCounterName + " of " + parentCounterName
+                        + " not found in profile");
+            }
             if (counter.getLevel() == 1) {
-                Counter oldCounter = profiles.get(0).counterMap.get(childCounterName);
+                Counter oldCounter = templateCounterMap.get(childCounterName);
                 AggCounter aggCounter = new AggCounter(oldCounter.getType());
                 for (RuntimeProfile profile : profiles) {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
+                    if (orgCounter == null) {
+                        throw new RuntimeException("Child counter " + childCounterName
+                                                + " of " + parentCounterName + " not found in profile");
+                    }
                     aggCounter.addCounter(orgCounter);
                 }
                 if (nereidsId != null && childCounterName.equals("RowsProduced")) {
@@ -552,10 +566,14 @@ public class RuntimeProfile {
         try {
             for (String childCounterName : childCounterSet) {
                 Counter counter = this.counterMap.get(childCounterName);
-                Preconditions.checkState(counter != null);
-                builder.append(prefix).append("   - ").append(childCounterName).append(": ")
-                        .append(counter.print()).append("\n");
-                this.printChildCounters(prefix + "  ", childCounterName, builder);
+                if (counter != null) {
+                    builder.append(prefix).append("   - ").append(childCounterName).append(": ")
+                            .append(counter.print()).append("\n");
+                    this.printChildCounters(prefix + "  ", childCounterName, builder);
+                } else {
+                    throw new RuntimeException("Child counter " + childCounterName + " of " + counterName
+                            + " not found in profile");
+                }
             }
         } finally {
             counterLock.readLock().unlock();

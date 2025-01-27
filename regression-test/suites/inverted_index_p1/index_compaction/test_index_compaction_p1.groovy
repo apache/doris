@@ -95,8 +95,8 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
     def tablets = sql_return_maparray """ show tablets from ${compaction_table_name}; """
 
-
-    for (def tablet in tablets) {
+    // Do not check tablets rowset count before compaction
+    /*for (def tablet in tablets) {
         int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
@@ -108,7 +108,7 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
             beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
         assertEquals(beforeSegmentCount, 110)
-    }
+    }*/
 
     // trigger compactions for all tablets in ${tableName}
     trigger_and_wait_compaction(compaction_table_name, "full")

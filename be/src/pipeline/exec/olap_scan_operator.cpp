@@ -81,10 +81,13 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _rows_short_circuit_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredFiltered", TUnit::UNIT);
+    _rows_expr_cond_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsExprPredFiltered", TUnit::UNIT);
     _rows_vec_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredInput", TUnit::UNIT);
     _rows_short_circuit_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredInput", TUnit::UNIT);
+    _rows_expr_cond_input_counter = ADD_COUNTER(_segment_profile, "RowsExprPredInput", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");

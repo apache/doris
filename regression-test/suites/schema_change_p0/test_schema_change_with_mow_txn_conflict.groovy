@@ -18,13 +18,14 @@
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_schema_change_with_mow_txn_conflict", "nonConcurrent") {
+suite("test_schema_change_with_mow_txn_conflict", "p0, nonConcurrent") {
     def customFeConfig = [
             schema_change_max_retry_time: 10
     ]
     setFeConfigTemporary(customFeConfig) {
         try {
-            def tableName3 = "test_all_unique_mow"
+            def tableName3 = "test_all_unique_mow_txn_conflict"
+            GetDebugPoint().clearDebugPointsForAllFEs()
             GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict")
 
             def getJobState = { tableName ->
@@ -62,28 +63,28 @@ suite("test_schema_change_with_mow_txn_conflict", "nonConcurrent") {
             sql """ DROP TABLE IF EXISTS ${tableName3} """
 
             sql """
-    CREATE TABLE IF NOT EXISTS ${tableName3} (
-      `k1` int(11) NULL,
-      `k2` tinyint(4) NULL,
-      `k3` smallint(6) NULL,
-      `k4` int(30) NULL,
-      `k5` largeint(40) NULL,
-      `k6` float NULL,
-      `k7` double NULL,
-      `k8` decimal(9, 0) NULL,
-      `k9` char(10) NULL,
-      `k10` varchar(1024) NULL,
-      `k11` text NULL,
-      `k12` date NULL,
-      `k13` datetime NULL
-    ) ENGINE=OLAP
-    unique KEY(k1, k2, k3)
-    DISTRIBUTED BY HASH(`k1`) BUCKETS 5
-    PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "enable_unique_key_merge_on_write" = "true"
-    );
-    """
+                CREATE TABLE IF NOT EXISTS ${tableName3} (
+                  `k1` int(11) NULL,
+                  `k2` tinyint(4) NULL,
+                  `k3` smallint(6) NULL,
+                  `k4` int(30) NULL,
+                  `k5` largeint(40) NULL,
+                  `k6` float NULL,
+                  `k7` double NULL,
+                  `k8` decimal(9, 0) NULL,
+                  `k9` char(10) NULL,
+                  `k10` varchar(1024) NULL,
+                  `k11` text NULL,
+                  `k12` date NULL,
+                  `k13` datetime NULL
+                ) ENGINE=OLAP
+                unique KEY(k1, k2, k3)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "enable_unique_key_merge_on_write" = "true"
+                );
+                """
             execStreamLoad()
 
             sql """ alter table ${tableName3} modify column k4 string NULL"""
@@ -123,6 +124,7 @@ suite("test_schema_change_with_mow_txn_conflict", "nonConcurrent") {
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict")
+            GetDebugPoint().clearDebugPointsForAllFEs()
         }
     }
 

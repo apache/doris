@@ -58,6 +58,7 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         _dependency->set_ready();
     }
     if (rows) {
+        _memory_used_counter->update(add_block->allocated_bytes());
         _data_queue.emplace_back(std::move(add_block));
         if (!_data_queue_is_available() && !_is_finished()) {
             _dependency->block();
@@ -81,10 +82,18 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     if (_data_queue_is_available()) {
         _dependency->set_ready();
     }
+    _memory_used_counter->update(-block->allocated_bytes());
     return block;
 }
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+    // Attention!!!
+    // AsyncResultWriter::open is called asynchronously,
+    // so we need to setupt the profile and memory counter here,
+    // or else the counter can be nullptr when AsyncResultWriter::sink is called.
+    _profile = profile;
+    _memory_used_counter = _profile->get_counter("MemoryUsage");
+
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
@@ -222,6 +231,7 @@ void AsyncResultWriter::force_close(Status s) {
 }
 
 void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
+    _memory_used_counter->update(b->allocated_bytes());
     _free_blocks.enqueue(std::move(b));
 }
 
@@ -230,6 +240,8 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     std::unique_ptr<Block> b;
     if (!_free_blocks.try_dequeue(b)) {
         b = block->create_same_struct_block(rows, true);
+    } else {
+        _memory_used_counter->update(-b->allocated_bytes());
     }
     b->swap(*block);
     return b;

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
-import org.apache.doris.nereids.trees.plans.distribute.worker.LoadBalanceScanWorkerSelector;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -47,14 +46,19 @@ import java.util.Map.Entry;
  * build UnassignedJob by fragment
  */
 public class UnassignedJobBuilder {
-    private final ScanWorkerSelector scanWorkerSelector = new LoadBalanceScanWorkerSelector();
+    private final ScanWorkerSelector scanWorkerSelector;
+
+    public UnassignedJobBuilder(ScanWorkerSelector scanWorkerSelector) {
+        this.scanWorkerSelector = scanWorkerSelector;
+    }
 
     /**
      * build job from fragment.
      */
     public static FragmentIdMapping<UnassignedJob> buildJobs(
+            ScanWorkerSelector scanWorkerSelector,
             StatementContext statementContext, FragmentIdMapping<PlanFragment> fragments) {
-        UnassignedJobBuilder builder = new UnassignedJobBuilder();
+        UnassignedJobBuilder builder = new UnassignedJobBuilder(scanWorkerSelector);
 
         FragmentLineage fragmentLineage = buildFragmentLineage(fragments);
         FragmentIdMapping<UnassignedJob> unassignedJobs = new FragmentIdMapping<>();

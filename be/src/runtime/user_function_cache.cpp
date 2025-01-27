@@ -42,7 +42,6 @@
 #include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
-#include "util/spinlock.h"
 #include "util/string_util.h"
 
 namespace doris {

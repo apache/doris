@@ -39,13 +39,6 @@ services:
     restart: always
     networks:
       - doris--db2_network
-  db2-hello-world:
-    image: hello-world
-    depends_on:
-      doris--db2_11:
-        condition: service_healthy
-    networks:
-      - doris--db2_network
 networks:
   doris--db2_network:
     ipam:
