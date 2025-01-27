@@ -1523,7 +1523,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
             if (get_ret == 0) {
                 index_format = index_info.first;
-                index_ids = std::move(index_info.second);
+                index_ids = index_info.second;
             } else if (get_ret == 1) {
                 // Schema kv not found means tablet has been recycled
                 // Maybe some tablet recycle failed by some bugs
@@ -1534,9 +1534,11 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                         .tag("instance_id", instance_id_)
                         .tag("tablet_id", tablet_id)
                         .tag("rowset", rs.ShortDebugString());
-                for (int64_t i = 0; i < num_segments; ++i) {
-                    file_paths.push_back(segment_path(tablet_id, rowset_id, i));
-                }
+                // Ensure this operation only deletes tablets and does not perform any operations on indexes,
+                // because we are uncertain about the inverted index information.
+                // If there are inverted indexes, some data might not be deleted,
+                // but this is acceptable as we have made our best effort to delete the data.
+                index_ids.clear();
             } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
                              << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
