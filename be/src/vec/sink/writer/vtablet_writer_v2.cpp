@@ -399,7 +399,8 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
                       << ", stream_ok=" << (stream == nullptr ? "no" : "yes");
         });
         if (stream == nullptr) {
-            LOG(WARNING) << "skip writing to backend " << node_id << ": stream not open";
+            LOG(WARNING) << "skip writing tablet " << tablet_id << " to backend " << node_id
+                         << ": stream is not open";
             failed_node_ids.push_back(node_id);
             continue;
         }
