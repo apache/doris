@@ -46,9 +46,15 @@ public:
                         "consuming "
                         "tracker:<{}>, peak used {}, current used {}.",
                         doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str(),
-                        doris::thread_context()->thread_mem_tracker()->label(),
-                        doris::thread_context()->thread_mem_tracker()->peak_consumption(),
-                        doris::thread_context()->thread_mem_tracker()->consumption()));
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->label(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->peak_consumption(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->consumption()));
             }
 
             uint32_t id = _segments_rowid_map.size();

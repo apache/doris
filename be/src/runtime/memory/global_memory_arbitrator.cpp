@@ -62,7 +62,7 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     return true;
 }
 
-void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
+void GlobalMemoryArbitrator::shrink_process_reserved(int64_t bytes) {
     _process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
 }
 
