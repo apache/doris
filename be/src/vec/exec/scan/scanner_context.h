@@ -56,12 +56,12 @@ class SimplifiedScanScheduler;
 class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
-        _query_thread_context.init_unlocked();
+        _resource_ctx = thread_context()->resource_ctx();
         DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
         cached_blocks.clear();
         DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
@@ -70,7 +70,7 @@ private:
     // whether current scanner is finished
     bool eos = false;
     Status status = Status::OK();
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
 public:
     std::weak_ptr<ScannerDelegate> scanner;
@@ -111,7 +111,7 @@ public:
                    int num_parallel_instances);
 
     ~ScannerContext() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
         _tasks_queue.clear();
         vectorized::BlockUPtr block;
         while (_free_blocks.try_dequeue(block)) {
@@ -210,7 +210,7 @@ protected:
     RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
     bool _ignore_data_distribution = false;
     bool _is_file_scan_operator = false;
