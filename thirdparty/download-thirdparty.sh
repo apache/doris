@@ -425,6 +425,58 @@ if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
 fi
 echo "Finished patching ${BASE64_SOURCE}"
 
+# patch libuuid
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUUID " ]]; then
+    if [[ "${LIBUUID_SOURCE}" = "libuuid-1.0.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libuuid-1.0.3.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUUID_SOURCE}"
+fi
+
+# patch libdivide
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBDIVIDE " ]]; then
+    if [[ "${LIBDIVIDE_SOURCE}" = "libdivide-5.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBDIVIDE_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libdivide-5.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBDIVIDE_SOURCE}"
+fi
+
+# patch grpc
+if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
+    if [[ "${GRPC_SOURCE}" = "grpc-1.54.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${GRPC_SOURCE}"
+fi
+
+# patch flatbuffer
+if [[ " ${TP_ARCHIVES[*]} " =~ " FLATBUFFERS " ]]; then
+    if [[ "${FLATBUFFERS_SOURCE}" = "flatbuffers-2.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${FLATBUFFERS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/flatbuffers-2.0.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${FLATBUFFERS_SOURCE}"
+fi
+
 # patch krb
 if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
     cd "${TP_SOURCE_DIR}/${KRB5_SOURCE}"
