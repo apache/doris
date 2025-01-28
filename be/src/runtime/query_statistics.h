@@ -47,7 +47,9 @@ public:
               max_peak_memory_bytes(0),
               current_used_memory_bytes(0),
               shuffle_send_bytes(0),
-              shuffle_send_rows(0) {}
+              shuffle_send_rows(0),
+              _spill_write_bytes_to_local_storage(0),
+              _spill_read_bytes_from_local_storage(0) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
@@ -80,6 +82,14 @@ public:
         current_used_memory_bytes = current_used_memory;
     }
 
+    void add_spill_write_bytes_to_local_storage(int64_t bytes) {
+        _spill_write_bytes_to_local_storage += bytes;
+    }
+
+    void add_spill_read_bytes_from_local_storage(int64_t bytes) {
+        _spill_read_bytes_from_local_storage += bytes;
+    }
+
     void to_pb(PQueryStatistics* statistics);
     void to_thrift(TQueryStatistics* statistics) const;
     void from_pb(const PQueryStatistics& statistics);
@@ -106,6 +116,9 @@ private:
 
     std::atomic<int64_t> shuffle_send_bytes;
     std::atomic<int64_t> shuffle_send_rows;
+
+    std::atomic<int64_t> _spill_write_bytes_to_local_storage;
+    std::atomic<int64_t> _spill_read_bytes_from_local_storage;
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.

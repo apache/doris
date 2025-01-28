@@ -154,6 +154,7 @@ private:
     RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
     RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
+
     RuntimeProfile::Counter* _compute_range_between_function_timer = nullptr;
     RuntimeProfile::Counter* _partition_search_timer = nullptr;
     RuntimeProfile::Counter* _order_search_timer = nullptr;
@@ -161,6 +162,8 @@ private:
     RuntimeProfile::Counter* _remove_count = nullptr;
     RuntimeProfile::Counter* _remove_rows = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+
+    int64_t _reserve_mem_size = 0;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
@@ -188,6 +191,8 @@ public:
     }
 
     bool require_data_distribution() const override { return true; }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class AnalyticSinkLocalState;

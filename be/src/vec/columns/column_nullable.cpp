@@ -249,13 +249,13 @@ size_t ColumnNullable::get_max_row_byte_size() const {
     return flag_size + get_nested_column().get_max_row_byte_size();
 }
 
-void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
     const auto& arr = get_null_map_data();
     get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
-void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
     auto& arr = get_null_map_data();
     const size_t old_size = arr.size();
     arr.resize(old_size + num_rows);

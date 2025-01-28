@@ -43,6 +43,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "runtime/query_context.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
@@ -118,6 +119,8 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
+    void set_low_memory_mode() { _sender_queue_mem_limit = 1012 * 1024; }
+
 private:
     friend struct BlockSupplierSortCursorImpl;
 
@@ -127,6 +130,8 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
 
     QueryThreadContext _query_thread_context;
+
+    std::weak_ptr<QueryContext> _query_context_wptr;
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;
@@ -143,7 +148,8 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
-    const size_t _sender_queue_mem_limit;
+
+    std::atomic<size_t> _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 

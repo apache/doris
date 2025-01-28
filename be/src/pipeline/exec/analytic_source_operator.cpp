@@ -51,6 +51,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     output_block->clear_column_data();
     size_t output_rows = 0;
     {

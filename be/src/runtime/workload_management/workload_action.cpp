@@ -23,7 +23,7 @@ namespace doris {
 
 void WorkloadActionCancelQuery::exec(WorkloadQueryInfo* query_info) {
     std::stringstream msg;
-    msg << "query " << query_info->query_id
+    msg << "Query " << query_info->query_id
         << " cancelled by workload policy: " << query_info->policy_name
         << ", id:" << query_info->policy_id << ", " << query_info->cond_eval_msg;
     std::string msg_str = msg.str();

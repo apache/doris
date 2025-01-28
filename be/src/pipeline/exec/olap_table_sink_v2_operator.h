@@ -66,6 +66,11 @@ public:
         return local_state.sink(state, in_block, eos);
     }
 
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state._writer->set_low_memory_mode();
+    }
+
 private:
     friend class OlapTableSinkV2LocalState;
     template <typename Writer, typename Parent>
