@@ -560,7 +560,7 @@ private:
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             // Now, Doris only support decimal +-*/ decimal.
             if constexpr (check_overflow) {
-                auto res = Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
+                auto res = Op::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
                 if (res > max_result_number.value || res < -max_result_number.value) {
                     THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                             DecimalV2Value(a).to_string(), Name::name,
@@ -569,7 +569,7 @@ private:
                 }
                 return res;
             } else {
-                return Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
+                return Op::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
             }
         } else {
             NativeResultType res;
@@ -664,7 +664,7 @@ private:
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);
-            auto ans = Op::template apply(l, r, is_null);
+            auto ans = Op::apply(l, r, is_null);
             using ANS_TYPE = std::decay_t<decltype(ans)>;
             if constexpr (check_overflow && OpTraits::is_division) {
                 if constexpr (std::is_same_v<ANS_TYPE, DecimalV2Value>) {
