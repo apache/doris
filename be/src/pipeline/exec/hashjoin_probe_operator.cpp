@@ -252,7 +252,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            st = process_hashtable_ctx.template process(
+                            st = process_hashtable_ctx.process(
                                     arg,
                                     local_state._null_map_column
                                             ? &local_state._null_map_column->get_data()
