@@ -43,7 +43,7 @@ import java.util.Objects;
  * Example: '1996-01-01' + INTERVAL '3' month;
  * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
-public class TimestampArithmetic extends Expression 
+public class TimestampArithmetic extends Expression
         implements BinaryExpression, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private final String funcName;
