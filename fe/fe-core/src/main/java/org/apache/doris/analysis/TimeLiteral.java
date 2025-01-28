@@ -100,7 +100,7 @@ public class TimeLiteral extends LiteralExpr {
             } else if (len == 3) {
                 s = "00:0" + s.charAt(0) + ":" + s.substring(1);
             } else if (len == 4) {
-                s = "00:" + s.substring(0, 2) + ":" + s.substring(3);
+                s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
             } else {
                 s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
             }
