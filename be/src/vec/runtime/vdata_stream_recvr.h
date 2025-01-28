@@ -126,7 +126,7 @@ private:
 
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;

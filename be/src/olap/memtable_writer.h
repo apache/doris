@@ -132,7 +132,7 @@ private:
     std::vector<std::weak_ptr<MemTable>> _freezed_mem_tables;
     // The lock to protect _memtable and _freezed_mem_tables structure to avoid concurrency modification or read
     SpinLock _mem_table_ptr_lock;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::mutex _lock;
 

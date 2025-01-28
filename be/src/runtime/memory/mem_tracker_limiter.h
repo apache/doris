@@ -224,7 +224,7 @@ public:
         return rt;
     }
 
-    void release_reserved(int64_t bytes) {
+    void shrink_reserved(int64_t bytes) {
         _reserved_counter.sub(bytes);
         DCHECK(reserved_consumption() >= 0);
     }
