@@ -56,4 +56,26 @@ TEST_F(BrpcClientCacheTest, invalid) {
     EXPECT_EQ(nullptr, stub1);
 }
 
+TEST_F(BrpcClientCacheTest, failure) {
+    BrpcClientCache<PBackendService_Stub> cache;
+    TNetworkAddress address;
+    address.hostname = "127.0.0.1";
+    address.port = 123;
+    std::shared_ptr<PBackendService_Stub> stub1 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub1);
+    std::shared_ptr<PBackendService_Stub> stub2 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub2);
+    EXPECT_EQ(stub1, stub2);
+    EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub1->channel())->channel_status()->ok());
+
+    // update channel st to error
+    static_cast<FailureDetectChannel*>(stub1->channel())
+            ->channel_status()
+            ->update(Status::NetworkError("test brpc error"));
+    std::shared_ptr<PBackendService_Stub> stub3 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub3);
+    EXPECT_NE(stub2, stub3);
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub1->channel())->channel_status()->ok());
+}
+
 } // namespace doris
