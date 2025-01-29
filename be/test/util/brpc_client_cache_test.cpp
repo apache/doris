@@ -100,7 +100,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
 
     // Check map size is 1
-    EXPECT_NE(1, cache.size());
+    EXPECT_EQ(1, cache.size());
 }
 
 } // namespace doris

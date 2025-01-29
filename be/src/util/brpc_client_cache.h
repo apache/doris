@@ -72,7 +72,7 @@ public:
         auto* cntl = static_cast<brpc::Controller*>(_controller);
         if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
             Status error_st = Status::NetworkError(
-                    "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+                    "1Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
                     berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
                     cntl->latency_us());
             LOG(WARNING) << error_st;
@@ -118,7 +118,7 @@ public:
             auto* cntl = static_cast<brpc::Controller*>(controller);
             if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
                 Status error_st = Status::NetworkError(
-                        "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+                        "2Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
                         berror(cntl->ErrorCode()), cntl->ErrorText(),
                         BackendOptions::get_localhost(), cntl->latency_us());
                 LOG(WARNING) << error_st;
