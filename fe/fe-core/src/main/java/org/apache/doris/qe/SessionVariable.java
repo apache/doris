@@ -253,7 +253,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
-    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 

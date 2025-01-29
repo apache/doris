@@ -682,7 +682,7 @@ DEFINE_mBool(sync_file_on_close, "true");
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "180000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
