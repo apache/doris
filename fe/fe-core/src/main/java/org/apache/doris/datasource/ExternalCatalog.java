@@ -977,13 +977,23 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(), stmt.isSetIfExists(),
+                stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                          boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");
             return;
         }
         try {
-            metadataOps.dropTable(stmt);
+            metadataOps.dropTable(dbName, tableName, ifExists);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
             throw e;
