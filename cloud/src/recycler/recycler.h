@@ -222,7 +222,8 @@ private:
                            const std::string& rowset_id);
 
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
+    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
+                           bool is_recycle_tmp_rowset = false);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
