@@ -97,6 +97,8 @@ public class Backend implements Writable {
     @SerializedName("isDecommissioned")
     private AtomicBoolean isDecommissioned;
 
+    private AtomicBoolean isDecommissioning = new AtomicBoolean(false);
+
     // rootPath -> DiskInfo
     @SerializedName("disksRef")
     private volatile ImmutableMap<String, DiskInfo> disksRef;
@@ -404,6 +406,14 @@ public class Backend implements Writable {
         return false;
     }
 
+    public boolean setDecommissioning(boolean isDecommissioning) {
+        if (this.isDecommissioning.compareAndSet(!isDecommissioning, isDecommissioning)) {
+            LOG.warn("{} set decommissioning: {}", this.toString(), isDecommissioning);
+            return true;
+        }
+        return false;
+    }
+
     public void setHost(String host) {
         this.host = host;
     }
@@ -488,6 +498,10 @@ public class Backend implements Writable {
 
     public boolean isDecommissioned() {
         return this.isDecommissioned.get();
+    }
+
+    public boolean isDecommissioning() {
+        return this.isDecommissioning.get();
     }
 
     public boolean isQueryAvailable() {
