@@ -113,8 +113,9 @@ public:
             failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
         }
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
+        // Done == nullptr, it is a sync call, should also deal with the bad channel.
         if (done == nullptr) {
-            auto* cntl = static_cast<brpc::Controller*>(_controller);
+            auto* cntl = static_cast<brpc::Controller*>(controller);
             if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
                 Status error_st = Status::NetworkError(
                         "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
