@@ -78,7 +78,9 @@ public:
             LOG(WARNING) << error_st;
             _channel_st->update(error_st);
         }
-        _done->Run();
+        if (_done != nullptr) {
+            _done->Run();
+        }
         // _done->Run may throw exception, so that move delete this to Defer.
         // delete this;
     }

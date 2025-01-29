@@ -65,6 +65,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_NE(nullptr, stub1);
     std::shared_ptr<PBackendService_Stub> stub2 = cache.get_client(address);
     EXPECT_NE(nullptr, stub2);
+    // The channel is ok, so that the stub is the same
     EXPECT_EQ(stub1, stub2);
     EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub1->channel())->channel_status()->ok());
 
@@ -74,8 +75,15 @@ TEST_F(BrpcClientCacheTest, failure) {
             ->update(Status::NetworkError("test brpc error"));
     std::shared_ptr<PBackendService_Stub> stub3 = cache.get_client(address);
     EXPECT_NE(nullptr, stub3);
+    EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
+    // Then will get a new brpc stub not the previous one.
     EXPECT_NE(stub2, stub3);
-    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub1->channel())->channel_status()->ok());
+    // The previous channel is not ok.
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub2->channel())->channel_status()->ok());
+
+    // Call handshake method, it will trigger host is down error.
+    cache.available(stub3, "127.0.0.1:123");
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
 }
 
 } // namespace doris
