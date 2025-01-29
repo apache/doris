@@ -69,7 +69,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_EQ(stub1, stub2);
     EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub1->channel())->channel_status()->ok());
 
-    // update channel st to error
+    // update channel st to error, will get a new stub
     static_cast<FailureDetectChannel*>(stub1->channel())
             ->channel_status()
             ->update(Status::NetworkError("test brpc error"));
@@ -81,7 +81,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     // The previous channel is not ok.
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub2->channel())->channel_status()->ok());
 
-    // Call handshake method, it will trigger host is down error.
+    // Call handshake method, it will trigger host is down error. It is a sync call, not use closure.
     cache.available(stub3, address.hostname, address.port);
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
 
@@ -89,7 +89,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_NE(nullptr, stub4);
     EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
 
-    // Call handshake method, it will trigger host is down error.
+    // Call handshake method, it will trigger host is down error. It is a async all, will use closure.
     PHandShakeRequest request;
     request.set_hello(message);
     PHandShakeResponse response;

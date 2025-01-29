@@ -114,11 +114,12 @@ public:
         }
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
         if (done == nullptr) {
-            if (controller->Failed() && controller->ErrorCode() == EHOSTDOWN) {
+            auto* cntl = static_cast<brpc::Controller*>(_controller);
+            if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
                 Status error_st = Status::NetworkError(
                         "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
-                        berror(controller->ErrorCode()), controller->ErrorText(),
-                        BackendOptions::get_localhost(), controller->latency_us());
+                        berror(cntl->ErrorCode()), cntl->ErrorText(),
+                        BackendOptions::get_localhost(), cntl->latency_us());
                 LOG(WARNING) << error_st;
                 std::cout << error_st << std::endl;
                 _channel_st->update(error_st);
