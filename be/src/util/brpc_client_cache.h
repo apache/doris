@@ -76,8 +76,10 @@ public:
                     berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
                     cntl->latency_us());
             LOG(WARNING) << error_st;
+            std::cout << error_st << std::endl;
             _channel_st->update(error_st);
         }
+        // Sometimes done == nullptr, for example hand_shake API.
         if (_done != nullptr) {
             _done->Run();
         }

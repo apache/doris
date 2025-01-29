@@ -82,7 +82,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub2->channel())->channel_status()->ok());
 
     // Call handshake method, it will trigger host is down error.
-    cache.available(stub3, "127.0.0.1:123");
+    cache.available(stub3, address.hostname, address.port);
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
 }
 
