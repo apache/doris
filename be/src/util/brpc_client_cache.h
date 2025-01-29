@@ -42,6 +42,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "util/dns_cache.h"
 #include "util/network_util.h"
 
@@ -157,7 +158,7 @@ public:
             // All client created from this cache will use FailureDetectChannel, so it is
             // safe to do static cast here.
             // Check if the base channel is OK, if not ignore the stub and create new one.
-            if (static_cast<FailureDetectChannel*>(stub_ptr->channel())->channel_status().ok()) {
+            if (static_cast<FailureDetectChannel*>(stub_ptr->channel())->channel_status()->ok()) {
                 return stub_ptr;
             } else {
                 _stub_map.erase(host_port);
