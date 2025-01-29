@@ -108,9 +108,22 @@ public:
                     google::protobuf::Closure* done) override {
         FailureDetectClosure* failure_detect_closure = nullptr;
         if (done != nullptr) {
+            // If done == nullptr, then it means the call is sync call, so that should not
+            // gen a failure detect closure for it. Or it will core.
             failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
         }
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
+        if (done == nullptr) {
+            if (controller->Failed() && controller->ErrorCode() == EHOSTDOWN) {
+                Status error_st = Status::NetworkError(
+                        "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+                        berror(controller->ErrorCode()), controller->ErrorText(),
+                        BackendOptions::get_localhost(), controller->latency_us());
+                LOG(WARNING) << error_st;
+                std::cout << error_st << std::endl;
+                _channel_st->update(error_st);
+            }
+        }
     }
 
     std::shared_ptr<AtomicStatus> channel_status() { return _channel_st; }

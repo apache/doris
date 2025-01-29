@@ -84,6 +84,22 @@ TEST_F(BrpcClientCacheTest, failure) {
     // Call handshake method, it will trigger host is down error.
     cache.available(stub3, address.hostname, address.port);
     EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
+
+    std::shared_ptr<PBackendService_Stub> stub4 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub4);
+    EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
+
+    // Call handshake method, it will trigger host is down error.
+    PHandShakeRequest request;
+    request.set_hello(message);
+    PHandShakeResponse response;
+    brpc::Controller cntl4;
+    stub4->hand_shake(&cntl4, &request, &response, brpc::DoNothing());
+    brpc::Join(cntl4.call_id());
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
+
+    // Check map size is 1
+    EXPECT_NE(1, cache.size());
 }
 
 } // namespace doris
