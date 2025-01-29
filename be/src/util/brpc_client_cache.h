@@ -72,7 +72,7 @@ public:
         if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
             Status error_st = Status::NetworkError(
                     "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
-                    berror(cntl->ErrorCode()), cntl > ErrorText(), BackendOptions::get_localhost(),
+                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
                     cntl->latency_us());
             LOG(WARNING) << error_st;
             _channel_st->update(error_st);
@@ -105,7 +105,7 @@ public:
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
     }
 
-    AtomicStatus& channel_status() { return _channel_st; }
+    std::shared_ptr<AtomicStatus> channel_status() { return _channel_st; }
 
 private:
     std::shared_ptr<AtomicStatus> _channel_st;
