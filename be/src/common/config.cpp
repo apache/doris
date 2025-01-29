@@ -1348,6 +1348,8 @@ DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 DEFINE_mInt32(snappy_compression_block_size, "262144");
 DEFINE_mInt32(lz4_compression_block_size, "262144");
 
+DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
+
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
