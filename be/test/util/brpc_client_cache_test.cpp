@@ -90,6 +90,7 @@ TEST_F(BrpcClientCacheTest, failure) {
     EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
 
     // Call handshake method, it will trigger host is down error. It is a async all, will use closure.
+    std::string message = "hello doris!";
     PHandShakeRequest request;
     request.set_hello(message);
     PHandShakeResponse response;
