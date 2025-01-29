@@ -40,6 +40,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "util/dns_cache.h"
 #include "util/network_util.h"
@@ -55,6 +56,60 @@ using StubMap = phmap::parallel_flat_hash_map<
         std::allocator<std::pair<const std::string, std::shared_ptr<T>>>, 8, std::mutex>;
 
 namespace doris {
+
+class FailureDetectClosure : public ::google::protobuf::Closure {
+public:
+    FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st,
+                         ::google::protobuf::RpcController* controller,
+                         ::google::protobuf::Closure* done)
+            : _channel_st(channel_st), _controller(controller), _done(done) {}
+
+    void Run() override {
+        Defer defer {[&]() { delete this; }};
+        // All brpc related API will use brpc::Controller, so that it is safe
+        // to do static cast here.
+        auto* cntl = static_cast<brpc::Controller*>(_controller);
+        if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
+            Status error_st = Status::NetworkError(
+                    "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+                    berror(cntl->ErrorCode()), cntl > ErrorText(), BackendOptions::get_localhost(),
+                    cntl->latency_us());
+            LOG(WARNING) << error_st;
+            _channel_st->update(error_st);
+        }
+        _done->Run();
+        // _done->Run may throw exception, so that move delete this to Defer.
+        // delete this;
+    }
+
+private:
+    std::shared_ptr<AtomicStatus> _channel_st;
+    ::google::protobuf::RpcController* _controller;
+    ::google::protobuf::Closure* _done;
+};
+
+// This channel will use FailureDetectClosure to wrap the original closure
+// If some non-recoverable rpc failure happens, it will save the error status in
+// _channel_st.
+// And brpc client cache will depend on it to detect if the client is health.
+class FailureDetectChannel : ::brpc::Channel {
+public:
+    FailureDetectChannel() : ::brpc::Channel() {
+        _channel_st = std::make_shared<AtomicStatus>(); // default OK
+    }
+    void CallMethod(const google::protobuf::MethodDescriptor* method,
+                    google::protobuf::RpcController* controller,
+                    const google::protobuf::Message* request, google::protobuf::Message* response,
+                    google::protobuf::Closure* done) override {
+        auto* failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
+        ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
+    }
+
+    AtomicStatus& channel_status() { return _channel_st; }
+
+private:
+    std::shared_ptr<AtomicStatus> _channel_st;
+};
 
 template <class T>
 class BrpcClientCache {
@@ -99,7 +154,14 @@ public:
         auto get_value = [&stub_ptr](const auto& v) { stub_ptr = v.second; };
         if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
             DCHECK(stub_ptr != nullptr);
-            return stub_ptr;
+            // All client created from this cache will use FailureDetectChannel, so it is
+            // safe to do static cast here.
+            // Check if the base channel is OK, if not ignore the stub and create new one.
+            if (static_cast<FailureDetectChannel*>(stub_ptr->channel())->channel_status().ok()) {
+                return stub_ptr;
+            } else {
+                _stub_map.erase(host_port);
+            }
         }
 
         // new one stub and insert into map
@@ -148,7 +210,7 @@ public:
         options.timeout_ms = 2000;
         options.max_retry = 10;
 
-        std::unique_ptr<brpc::Channel> channel(new brpc::Channel());
+        std::unique_ptr<FailureDetectChannel> channel(new FailureDetectChannel());
         int ret_code = 0;
         if (host_port.find("://") == std::string::npos) {
             ret_code = channel->Init(host_port.c_str(), &options);
