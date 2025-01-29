@@ -92,7 +92,7 @@ private:
 // If some non-recoverable rpc failure happens, it will save the error status in
 // _channel_st.
 // And brpc client cache will depend on it to detect if the client is health.
-class FailureDetectChannel : ::brpc::Channel {
+class FailureDetectChannel : public ::brpc::Channel {
 public:
     FailureDetectChannel() : ::brpc::Channel() {
         _channel_st = std::make_shared<AtomicStatus>(); // default OK
