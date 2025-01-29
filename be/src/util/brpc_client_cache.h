@@ -72,11 +72,10 @@ public:
         auto* cntl = static_cast<brpc::Controller*>(_controller);
         if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
             Status error_st = Status::NetworkError(
-                    "1Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+                    "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
                     berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
                     cntl->latency_us());
             LOG(WARNING) << error_st;
-            std::cout << error_st << std::endl;
             _channel_st->update(error_st);
         }
         // Sometimes done == nullptr, for example hand_shake API.
@@ -118,11 +117,10 @@ public:
             auto* cntl = static_cast<brpc::Controller*>(controller);
             if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
                 Status error_st = Status::NetworkError(
-                        "2Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+                        "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
                         berror(cntl->ErrorCode()), cntl->ErrorText(),
                         BackendOptions::get_localhost(), cntl->latency_us());
                 LOG(WARNING) << error_st;
-                std::cout << error_st << std::endl;
                 _channel_st->update(error_st);
             }
         }
