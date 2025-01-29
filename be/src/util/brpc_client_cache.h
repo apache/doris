@@ -106,7 +106,10 @@ public:
                     google::protobuf::RpcController* controller,
                     const google::protobuf::Message* request, google::protobuf::Message* response,
                     google::protobuf::Closure* done) override {
-        auto* failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
+        FailureDetectClosure* failure_detect_closure = nullptr;
+        if (done != nullptr) {
+            failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
+        }
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
     }
 
