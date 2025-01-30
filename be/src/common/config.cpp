@@ -253,6 +253,10 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to check md5sum when download
+DEFINE_mBool(enable_download_md5sum_check, "true");
+// download binlog meta timeout, default 30s
+DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -678,7 +682,7 @@ DEFINE_mBool(sync_file_on_close, "true");
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "180000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");

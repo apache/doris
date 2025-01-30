@@ -81,8 +81,7 @@ ScannerContext::ScannerContext(
     if (limit < 0) {
         limit = -1;
     }
-    _query_thread_context = {_query_id, _state->query_mem_tracker(),
-                             _state->get_query_ctx()->workload_group()};
+    _resource_ctx = _state->get_query_ctx()->resource_ctx;
     _dependency = dependency;
     if (_min_scan_concurrency_of_scan_scheduler == 0) {
         _min_scan_concurrency_of_scan_scheduler = 2 * config::doris_scanner_thread_pool_thread_num;

@@ -144,7 +144,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     memtable->update_mem_type(MemType::FLUSH);
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
-    SCOPED_ATTACH_TASK(memtable->query_thread_context());
+    SCOPED_ATTACH_TASK(memtable->resource_ctx());
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
     {
