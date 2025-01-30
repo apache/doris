@@ -58,6 +58,10 @@ suite("test_fold_constant_by_fe") {
     }
 
     for (date in test_date) {
+        qt_sql "select date('${date}'),  date('${date}', 'Asia/Bangkok')"
+    }
+
+    for (date in test_date) {
         qt_sql "select date_trunc('${date}', 'year'), date_trunc('${date}', 'month'), date_trunc('${date}', 'day')"
         qt_sql "select date_trunc('${date}', 'hour'), date_trunc('${date}', 'minute'), date_trunc('${date}', 'second')"
     }
