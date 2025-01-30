@@ -495,7 +495,6 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             }
             return std::make_tuple(false, orc::Literal(false));
         }
-            return std::make_tuple(true, orc::Literal(*((int64_t*)value)));
         case orc::TypeKind::FLOAT: {
             if constexpr (primitive_type == TYPE_FLOAT) {
                 return std::make_tuple(true, orc::Literal(double(*((float*)value))));

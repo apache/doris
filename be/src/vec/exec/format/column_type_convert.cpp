@@ -354,6 +354,10 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
     PrimitiveType src_primitive_type = src_type.type;
     PrimitiveType dst_primitive_type =
             remove_nullable(dst_type)->get_type_as_type_descriptor().type;
+    if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
+        return std::make_unique<ConsistentConverter>();
+    }
+
     if (_is_decimal_type(src_primitive_type) && _is_decimal_type(dst_primitive_type)) {
         return _decimal_converter(src_type, dst_type);
     }
