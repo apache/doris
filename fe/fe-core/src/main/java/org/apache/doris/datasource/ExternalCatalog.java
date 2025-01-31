@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -961,11 +960,11 @@ public abstract class ExternalCatalog
             return;
         }
         try {
-            metadataOps.dropDb(dbName, ifExists, force);
+            metadataOps.dropDb(getName(), dbName, ifExists, force);
             DropDbInfo info = new DropDbInfo(getName(), dbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
-            LOG.warn("Failed to drop database {} in catalog {}", stmt.getDbName(), getName(), e);
+            LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
             throw e;
         }
     }

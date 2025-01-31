@@ -19,7 +19,6 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructField;

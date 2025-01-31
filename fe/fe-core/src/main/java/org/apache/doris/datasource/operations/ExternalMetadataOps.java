@@ -56,6 +56,11 @@ public interface ExternalMetadataOps {
         afterDropDb(stmt.getCtlName());
     }
 
+    default void dropDb(String ctlName, String dbName, boolean ifExists, boolean force) throws DdlException {
+        dropDbImpl(dbName, ifExists, force);
+        afterDropDb(ctlName);
+    }
+
     /**
      * drop db in external metastore for nereids
      * @param dbName
