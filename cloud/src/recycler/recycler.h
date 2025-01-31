@@ -221,9 +221,13 @@ private:
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                            const std::string& rowset_id);
 
+    enum class RowsetRecyclingState {
+        FORMAL_ROWSET,
+        TMP_ROWSET,
+    };
     // return 0 for success otherwise error
     int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
-                           bool is_recycle_tmp_rowset = false);
+                           RowsetRecyclingState type);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
