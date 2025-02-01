@@ -1028,7 +1028,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 }
 
 void BlockFileCache::try_evict_in_advance(size_t size, std::lock_guard<std::mutex>& cache_lock) {
-    UInt128Wrapper hash;
+    UInt128Wrapper hash = UInt128Wrapper();
     size_t offset = 0;
     CacheContext context;
     context.cache_type = FileCacheType::NORMAL;
