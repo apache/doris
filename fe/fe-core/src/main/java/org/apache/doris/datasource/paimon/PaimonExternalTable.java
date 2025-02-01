@@ -208,7 +208,7 @@ public class PaimonExternalTable extends ExternalTable implements MvccTable {
         PredicateBuilder builder = new PredicateBuilder(table.rowType());
         Predicate predicate = builder.equal(0, key.getSchemaId());
         // Adding predicates will also return excess data
-        List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}, {1}, {2}}, predicate);
+        List<InternalRow> rows = PaimonUtil.read(table, new int[] {0, 1, 2}, predicate);
         for (InternalRow row : rows) {
             PaimonSchema schema = PaimonUtil.rowToSchema(row);
             if (schema.getSchemaId() == key.getSchemaId()) {
