@@ -208,7 +208,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
+                slot -> source.getPaimonTable().rowType()
+                        .getFieldNames()
+                        .stream()
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList())
+                        .indexOf(slot.getColumn().getName()))
                 .toArray();
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)

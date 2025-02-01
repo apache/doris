@@ -35,6 +35,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
@@ -94,7 +95,15 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> catalog.tableExists(Identifier.create(dbName, tblName)));
+            return hadoopAuthenticator.doAs(() -> {
+                try {
+                    catalog.getTable(Identifier.create(dbName, tblName));
+                    return true;
+                } catch (TableNotExistException e) {
+                    return false;
+                }
+            });
+
         } catch (IOException e) {
             throw new RuntimeException("Failed to check table existence, catalog name: " + getName(), e);
         }
