@@ -186,7 +186,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return source.getCatalog().getPreExecutionAuthenticator().execute(() -> doGetSplits(numBackends));
         } catch (Exception e) {
-            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            Optional<NotSupportedException> opt = checkNotSupportedException(e);
+            if (opt.isPresent()) {
+                throw opt.get();
+            } else {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
         }
 
     }
@@ -459,5 +464,40 @@ public class IcebergScanNode extends FileQueryScanNode {
             ((IcebergSplit) splits.get(i)).setTableLevelRowCount(countPerSplit);
         }
         ((IcebergSplit) splits.get(size - 1)).setTableLevelRowCount(countPerSplit + totalCount % size);
+    }
+
+    private Optional<NotSupportedException> checkNotSupportedException(Exception e) {
+        if (e instanceof NullPointerException) {
+            /*
+        Caused by: java.lang.NullPointerException: Type cannot be null
+            at org.apache.iceberg.relocated.com.google.common.base.Preconditions.checkNotNull
+                (Preconditions.java:921) ~[iceberg-bundled-guava-1.4.3.jar:?]
+            at org.apache.iceberg.types.Types$NestedField.<init>(Types.java:447) ~[iceberg-api-1.4.3.jar:?]
+            at org.apache.iceberg.types.Types$NestedField.optional(Types.java:416) ~[iceberg-api-1.4.3.jar:?]
+            at org.apache.iceberg.PartitionSpec.partitionType(PartitionSpec.java:132) ~[iceberg-api-1.4.3.jar:?]
+            at org.apache.iceberg.DeleteFileIndex.lambda$new$0(DeleteFileIndex.java:97) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.relocated.com.google.common.collect.RegularImmutableMap.forEach
+                (RegularImmutableMap.java:297) ~[iceberg-bundled-guava-1.4.3.jar:?]
+            at org.apache.iceberg.DeleteFileIndex.<init>(DeleteFileIndex.java:97) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.DeleteFileIndex.<init>(DeleteFileIndex.java:71) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.DeleteFileIndex$Builder.build(DeleteFileIndex.java:578) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.ManifestGroup.plan(ManifestGroup.java:183) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.ManifestGroup.planFiles(ManifestGroup.java:170) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.DataTableScan.doPlanFiles(DataTableScan.java:89) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.iceberg.SnapshotScan.planFiles(SnapshotScan.java:139) ~[iceberg-core-1.4.3.jar:?]
+            at org.apache.doris.datasource.iceberg.source.IcebergScanNode.doGetSplits
+                (IcebergScanNode.java:209) ~[doris-fe.jar:1.2-SNAPSHOT]
+        EXAMPLE:
+             CREATE TABLE iceberg_tb(col1 INT,col2 STRING) USING ICEBERG PARTITIONED BY (bucket(10,col2));
+             INSERT INTO iceberg_tb VALUES( ... );
+             ALTER  TABLE iceberg_tb DROP PARTITION FIELD bucket(10,col2);
+             ALTER TABLE iceberg_tb DROP COLUMNS col2 STRING;
+        Link: https://github.com/apache/iceberg/pull/10755
+        */
+            LOG.warn("Iceberg TableScanUtil.splitFiles throw NullPointerException. Cause : ", e);
+            return Optional.of(
+                new NotSupportedException("Unable to read Iceberg table with dropped old partition column."));
+        }
+        return Optional.empty();
     }
 }
