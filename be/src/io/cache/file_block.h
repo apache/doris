@@ -66,6 +66,7 @@ public:
     ~FileBlock() = default;
 
     State state() const;
+    State state_unsafe() const;
 
     static std::string state_to_string(FileBlock::State state);
 
