@@ -356,6 +356,7 @@ std::string extract_parent_path(const std::string& path) {
 }
 
 int HdfsAccessor::init() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("HdfsAccessor::init", 0);
     // TODO(plat1ko): Cache hdfsFS
     fs_ = HDFSBuilder::create_fs(info_.build_conf());
     if (!fs_) {
