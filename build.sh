@@ -443,7 +443,7 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
 fi
 
 if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='OFF'
+    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
