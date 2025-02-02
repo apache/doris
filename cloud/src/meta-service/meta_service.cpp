@@ -685,10 +685,13 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
         return;
     }
 
-    if (tablet_meta->has_schema()) { // tablet meta saved before detach schema kv
+    if (tablet_meta->has_schema() && tablet_meta->schema().column_size() > 0) { // tablet meta saved before detach schema kv
         tablet_meta->set_schema_version(tablet_meta->schema().schema_version());
     }
-    if (!tablet_meta->has_schema() && !skip_schema) {
+
+    if ((!tablet_meta->has_schema()
+            || (tablet_meta->has_schema() && tablet_meta->schema().column_size() <= 0))
+            && !skip_schema) {
         if (!tablet_meta->has_schema_version()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "tablet_meta must have either schema or schema_version";
@@ -768,8 +771,32 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold());
         } else if (tablet_meta_info.has_disable_auto_compaction()) {
-            tablet_meta.mutable_schema()->set_disable_auto_compaction(
-                    tablet_meta_info.disable_auto_compaction());
+            if (tablet_meta.has_schema() && tablet_meta.schema().column_size() > 0) {
+                tablet_meta.mutable_schema()->set_disable_auto_compaction(
+                        tablet_meta_info.disable_auto_compaction());
+            } else {
+                auto key = meta_schema_key(
+                        {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
+                ValueBuf val_buf;
+                err = cloud::get(txn.get(), key, &val_buf);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get schema, err={}",
+                                      err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found"
+                                                                             : "internal error");
+                    return;
+                }
+                doris::TabletSchemaCloudPB schema_pb;
+                if (!parse_schema_value(val_buf, &schema_pb)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = fmt::format("malformed schema value, key={}", key);
+                    return;
+                }
+
+                schema_pb.set_disable_auto_compaction(tablet_meta_info.disable_auto_compaction());
+                put_schema_kv(code, msg, txn.get(), key, schema_pb);
+                if (code != MetaServiceCode::OK) return;
+            }
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
