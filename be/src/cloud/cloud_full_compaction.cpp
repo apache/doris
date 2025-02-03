@@ -118,7 +118,6 @@ Status CloudFullCompaction::prepare_compact() {
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size);
             .tag("input_rowsets_data_size", _input_rowsets_data_size)
             .tag("input_rowsets_index_size", _input_rowsets_index_size)
             .tag("input_rowsets_total_size", _input_rowsets_total_size);
