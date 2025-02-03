@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_dup_table_inverted_index", "p1") {
-    
+
     // load data
     def load_data = { loadTableName, fileName ->
         streamLoad {
@@ -56,51 +56,6 @@ suite("test_dup_table_inverted_index", "p1") {
                 logger.info("sql is {}", executedSql[i])
                 assertTrue(False)
             }
-        }
-    }
-
-    def run_compaction = { compactionTableName ->
-        String backend_id;
-
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        def tablets = sql_return_maparray """ show tablets from ${compactionTableName}; """
-        
-        // run
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            times = 1
-
-            do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                logger.info("Compaction was done automatically!")
-            }
-        }
-
-        // wait
-        for (def tablet : tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                def tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
         }
     }
 
@@ -174,7 +129,7 @@ suite("test_dup_table_inverted_index", "p1") {
         // <=
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request <= 'POST'");
         list.add("SELECT id FROM ${tableName} WHERE request <= 'POST' ORDER BY id LIMIT 2");
-        
+
         // >
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request > 'POST'");
         list.add("SELECT id FROM ${tableName} WHERE request > 'POST' ORDER BY id LIMIT 2");
@@ -418,11 +373,11 @@ suite("test_dup_table_inverted_index", "p1") {
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request <= 'POST';");
         list.add("SELECT id FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request <= 'POST' ORDER BY id LIMIT 2;");
 
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request > 'POST' ") 
-        list.add("SELECT id FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request > 'POST' ORDER BY id LIMIT 2 ") 
+        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request > 'POST' ")
+        list.add("SELECT id FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request > 'POST' ORDER BY id LIMIT 2 ")
 
-        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request >= 'POST' ") 
-        list.add("SELECT id FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request >= 'POST' ORDER BY id LIMIT 2 ") 
+        list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request >= 'POST' ")
+        list.add("SELECT id FROM ${tableName} WHERE request MATCH_REGEXP 'GET' AND request >= 'POST' ORDER BY id LIMIT 2 ")
 
         // FULLTEXT MATCH_PHRASE_EDGE with others
         list.add("SELECT COUNT(*) FROM ${tableName} WHERE request MATCH_PHRASE_EDGE 'GET' AND request LIKE '%GET%' ");
@@ -713,8 +668,8 @@ suite("test_dup_table_inverted_index", "p1") {
         list.add("SELECT `@timestamp` FROM ${tableName} WHERE id != 200 OR request LIKE '%GET%' OR NOT (size > 100 AND size LIKE '%0%') OR clientip > '17.0.0.0' ORDER BY id LIMIT 2;");
         return list
     }
-    
-    
+
+
     try {
          sql """ set enable_match_without_inverted_index = true """
         sql """ set enable_common_expr_pushdown = true """
@@ -723,7 +678,7 @@ suite("test_dup_table_inverted_index", "p1") {
         // create table
         sql """
             CREATE TABLE IF NOT EXISTS dup_httplogs
-            (   
+            (
                 `id`          bigint NOT NULL AUTO_INCREMENT(100),
                 `@timestamp` int(11) NULL,
                 `clientip`   varchar(20) NULL,
@@ -787,7 +742,7 @@ suite("test_dup_table_inverted_index", "p1") {
         logger.info("dup_result4 is {}", dup_result4);
         compare_result(dup_result3, dup_result4, all_dup_sql)
 
-        run_compaction.call(dupTableName)
+        trigger_and_wait_compaction(dupTableName, "full")
         def dup_result5 = execute_sql.call("enable_no_need_read_data_opt", "true", all_dup_sql)
         logger.info("dup_result5 is {}", dup_result5);
         def dup_result6 = execute_sql.call("enable_no_need_read_data_opt", "false", all_dup_sql)
@@ -807,7 +762,7 @@ suite("test_dup_table_inverted_index", "p1") {
         // create table
         sql """
             CREATE TABLE IF NOT EXISTS mow_httplogs
-            (   
+            (
                 `@timestamp` int(11) NULL,
                 `clientip`   varchar(20) NULL,
                 `request`    text NULL,
@@ -854,7 +809,7 @@ suite("test_dup_table_inverted_index", "p1") {
         sql """ INSERT INTO ${mowTable} (`@timestamp`, clientip, request, status, size) VALUES (100, '1zyvBkWVAy5H0DDDaQnrp9MmAhfo0UNB9bOGyvSEX9MW66eymeDElVzVmsvUKHORwWg2hRLN7yd253zhXGs6k7PVPHy6uqtYTaxvHWm7njZYWtlqraDGE1fvrtnyUvlrGFPJZzkuj5FQfpYl6dV2bJHV0A3gpzogKSXJSyfH02ryb2ObKaJC6dnkMic00P6R3rUCBotrU7KAaGieALbFUXBGTvjsFKUvLgJexqAEJcKwiioTp0JH9Y3NUWgi2y5kclPmUG4xVrKHWXu7bI1MYJ1DCL1eCQCuqXmUf7eFyKcR6pzTFpkurcYq5R3SjprK13EkuLmVcDJMS8DNiLVCcCIOpHQMNgVFNLI7SPCl461FPOrL1xSuULAsLNjP5xgjjpn5Bu2dAug906fSVcnJwfHuuCly0sqYfNEI0Bd1IMiQOyoqA1pwdJMYMa6hig6imR3bJcnPptA6Fo1rooqzzt6gFnloqXeo9Hd9UB1F7QhfZO21QOZho19A5d12wcnOZCb3sRzomQqcPKSyvb17SxzoP9coAEpfXZEBrds60iuPjZaez79zeGP8X4KxuK1WwVDFw661zB6nvKCtNKFQqeKVMSFWAazw735TkQRGkjlif31f3uspvmBrLagvtjlfMoT138NnNxc2FbsK5wmssNfKFRk9zNg629b46rX7qLnC3ItPYgXyPSFqSF7snjqOUHJpzvcPhyY7tuDZVW2VTd3OtRdjdlAwHbSUrI5jWI1BCeP8cObIsOjd5', '1zyvBkWVAy5H0DDDaQnrp9MmAhfo0UNB9bOGyvSEX9MW66eymeDElVzVmsvUKHORwWg2hRLN7yd253zhXGs6k7PVPHy6uqtYTaxvHWm7njZYWtlqraDGE1fvrtnyUvlrGFPJZzkuj5FQfpYl6dV2bJHV0A3gpzogKSXJSyfH02ryb2ObKaJC6dnkMic00P6R3rUCBotrU7KAaGieALbFUXBGTvjsFKUvLgJexqAEJcKwiioTp0JH9Y3NUWgi2y5kclPmUG4xVrKHWXu7bI1MYJ1DCL1eCQCuqXmUf7eFyKcR6pzTFpkurcYq5R3SjprK13EkuLmVcDJMS8DNiLVCcCIOpHQMNgVFNLI7SPCl461FPOrL1xSuULAsLNjP5xgjjpn5Bu2dAug906fSVcnJwfHuuCly0sqYfNEI0Bd1IMiQOyoqA1pwdJMYMa6hig6imR3bJcnPptA6Fo1rooqzzt6gFnloqXeo9Hd9UB1F7QhfZO21QOZho19A5d12wcnOZCb3sRzomQqcPKSyvb17SxzoP9coAEpfXZEBrds60iuPjZaez79zeGP8X4KxuK1WwVDFw661zB6nvKCtNKFQqeKVMSFWAazw735TkQRGkjlif31f3uspvmBrLagvtjlfMoT138NnNxc2FbsK5wmssNfKFRk9zNg629b46rX7qLnC3ItPYgXyPSFqSF7snjqOUHJpzvcPhyY7tuDZVW2VTd3OtRdjdlAwHbSUrI5jWI1BCeP8cObIsOjd5', -2, -3) """
         sql """ INSERT INTO ${mowTable} (`@timestamp`, clientip, request, status, size) VALUES (100, '1zyvBkWVAy5H0DDDaQnrp9MmAhfo0UNB9bOGyvSEX9MW66eymeDElVzVmsvUKHORwWg2hRLN7yd253zhXGs6k7PVPHy6uqtYTaxvHWm7njZYWtlqraDGE1fvrtnyUvlrGFPJZzkuj5FQfpYl6dV2bJHV0A3gpzogKSXJSyfH02ryb2ObKaJC6dnkMic00P6R3rUCBotrU7KAaGieALbFUXBGTvjsFKUvLgJexqAEJcKwiioTp0JH9Y3NUWgi2y5kclPmUG4xVrKHWXu7bI1MYJ1DCL1eCQCuqXmUf7eFyKcR6pzTFpkurcYq5R3SjprK13EkuLmVcDJMS8DNiLVCcCIOpHQMNgVFNLI7SPCl461FPOrL1xSuULAsLNjP5xgjjpn5Bu2dAug906fSVcnJwfHuuCly0sqYfNEI0Bd1IMiQOyoqA1pwdJMYMa6hig6imR3bJcnPptA6Fo1rooqzzt6gFnloqXeo9Hd9UB1F7QhfZO21QOZho19A5d12wcnOZCb3sRzomQqcPKSyvb17SxzoP9coAEpfXZEBrds60iuPjZaez79zeGP8X4KxuK1WwVDFw661zB6nvKCtNKFQqeKVMSFWAazw735TkQRGkjlif31f3uspvmBrLagvtjlfMoT138NnNxc2FbsK5wmssNfKFRk9zNg629b46rX7qLnC3ItPYgXyPSFqSF7snjqOUHJpzvcPhyY7tuDZVW2VTd3OtRdjdlAwHbSUrI5jWI1BCeP8cObIsOjd5', '1zyvBkWVAy5H0DDDaQnrp9MmAhfo0UNB9bOGyvSEX9MW66eymeDElVzVmsvUKHORwWg2hRLN7yd253zhXGs6k7PVPHy6uqtYTaxvHWm7njZYWtlqraDGE1fvrtnyUvlrGFPJZzkuj5FQfpYl6dV2bJHV0A3gpzogKSXJSyfH02ryb2ObKaJC6dnkMic00P6R3rUCBotrU7KAaGieALbFUXBGTvjsFKUvLgJexqAEJcKwiioTp0JH9Y3NUWgi2y5kclPmUG4xVrKHWXu7bI1MYJ1DCL1eCQCuqXmUf7eFyKcR6pzTFpkurcYq5R3SjprK13EkuLmVcDJMS8DNiLVCcCIOpHQMNgVFNLI7SPCl461FPOrL1xSuULAsLNjP5xgjjpn5Bu2dAug906fSVcnJwfHuuCly0sqYfNEI0Bd1IMiQOyoqA1pwdJMYMa6hig6imR3bJcnPptA6Fo1rooqzzt6gFnloqXeo9Hd9UB1F7QhfZO21QOZho19A5d12wcnOZCb3sRzomQqcPKSyvb17SxzoP9coAEpfXZEBrds60iuPjZaez79zeGP8X4KxuK1WwVDFw661zB6nvKCtNKFQqeKVMSFWAazw735TkQRGkjlif31f3uspvmBrLagvtjlfMoT138NnNxc2FbsK5wmssNfKFRk9zNg629b46rX7qLnC3ItPYgXyPSFqSF7snjqOUHJpzvcPhyY7tuDZVW2VTd3OtRdjdlAwHbSUrI5jWI1BCeP8cObIsOjd5', -2, -3) """
         sql """ sync """
-        
+
         def all_mow_sql = generate_dup_mow_sql.call(mowTable)
         def mow_result1 = execute_sql.call("enable_no_need_read_data_opt", "true", all_mow_sql)
         logger.info("mow_result1 is {}", mow_result1);
@@ -875,7 +830,7 @@ suite("test_dup_table_inverted_index", "p1") {
         logger.info("mow_result4 is {}", mow_result4);
         compare_result(mow_result3, mow_result4, all_mow_sql)
 
-        run_compaction.call(mowTable)
+        trigger_and_wait_compaction(mowTable, "full")
         def mow_result5 = execute_sql.call("enable_no_need_read_data_opt", "true", all_mow_sql)
         logger.info("mow_result5 is {}", mow_result5);
         def mow_result6 = execute_sql.call("enable_no_need_read_data_opt", "false", all_mow_sql)

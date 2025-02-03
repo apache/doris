@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -25,19 +26,17 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.SerializableTable;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -51,6 +50,7 @@ public class IcebergMetadataCache {
 
     private final LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
     private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
+    private final LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
 
     public IcebergMetadataCache(ExecutorService executor) {
         CacheFactory snapshotListCacheFactory = new CacheFactory(
@@ -68,6 +68,14 @@ public class IcebergMetadataCache {
                 true,
                 null);
         this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
+
+        CacheFactory snapshotCacheFactory = new CacheFactory(
+                OptionalLong.of(28800L),
+                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                Config.max_external_table_cache_num,
+                true,
+                null);
+        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
@@ -94,6 +102,11 @@ public class IcebergMetadataCache {
         return restTable;
     }
 
+    public IcebergSnapshotCacheValue getSnapshotCache(CatalogIf catalog, String dbName, String tbName) {
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
+        return snapshotCache.get(key);
+    }
+
     @NotNull
     private List<Snapshot> loadSnapshots(IcebergMetadataCacheKey key) {
         Table icebergTable = getIcebergTable(key.catalog, key.dbName, key.tableName);
@@ -104,18 +117,31 @@ public class IcebergMetadataCache {
 
     @NotNull
     private Table loadTable(IcebergMetadataCacheKey key) {
-        Catalog icebergCatalog;
+        IcebergMetadataOps ops;
         if (key.catalog instanceof HMSExternalCatalog) {
-            icebergCatalog = ((HMSExternalCatalog) key.catalog).getIcebergHiveCatalog();
+            ops = ((HMSExternalCatalog) key.catalog).getIcebergMetadataOps();
         } else if (key.catalog instanceof IcebergExternalCatalog) {
-            icebergCatalog = ((IcebergExternalCatalog) key.catalog).getCatalog();
+            ops = (IcebergMetadataOps) (((IcebergExternalCatalog) key.catalog).getMetadataOps());
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
-        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(((ExternalCatalog) key.catalog).getConfiguration(),
-                () -> icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName)));
-        initIcebergTableFileIO(icebergTable, key.catalog.getProperties());
-        return icebergTable;
+        try {
+            return ((ExternalCatalog) key.catalog).getPreExecutionAuthenticator().execute(()
+                    -> ops.loadTable(key.dbName, key.tableName));
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+
+    }
+
+    @NotNull
+    private IcebergSnapshotCacheValue loadSnapshot(IcebergMetadataCacheKey key) throws AnalysisException {
+        IcebergExternalTable table = (IcebergExternalTable) key.catalog.getDbOrAnalysisException(key.dbName)
+                .getTableOrAnalysisException(key.tableName);
+        long snapshotId = table.getLatestSnapshotId();
+        long schemaId = table.getSchemaId(snapshotId);
+        IcebergPartitionInfo icebergPartitionInfo = table.loadPartitionInfo(snapshotId);
+        return new IcebergSnapshotCacheValue(icebergPartitionInfo, new IcebergSnapshot(snapshotId, schemaId));
     }
 
     public void invalidateCatalogCache(long catalogId) {
@@ -129,6 +155,10 @@ public class IcebergMetadataCache {
                     ManifestFiles.dropCache(entry.getValue().io());
                     tableCache.invalidate(entry.getKey());
                 });
+
+        snapshotCache.asMap().keySet().stream()
+                .filter(key -> key.catalog.getId() == catalogId)
+                .forEach(snapshotCache::invalidate);
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -147,6 +177,11 @@ public class IcebergMetadataCache {
                     ManifestFiles.dropCache(entry.getValue().io());
                     tableCache.invalidate(entry.getKey());
                 });
+
+        snapshotCache.asMap().keySet().stream()
+                .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
+                    tblName))
+                .forEach(snapshotCache::invalidate);
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
@@ -163,6 +198,10 @@ public class IcebergMetadataCache {
                     ManifestFiles.dropCache(entry.getValue().io());
                     tableCache.invalidate(entry.getKey());
                 });
+
+        snapshotCache.asMap().keySet().stream()
+                .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName))
+                .forEach(snapshotCache::invalidate);
     }
 
     private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
@@ -216,10 +255,12 @@ public class IcebergMetadataCache {
 
     public Map<String, Map<String, String>> getCacheStats() {
         Map<String, Map<String, String>> res = Maps.newHashMap();
-        res.put("iceberg_snapshot_cache", ExternalMetaCacheMgr.getCacheStats(snapshotListCache.stats(),
+        res.put("iceberg_snapshot_list_cache", ExternalMetaCacheMgr.getCacheStats(snapshotListCache.stats(),
                 snapshotListCache.estimatedSize()));
         res.put("iceberg_table_cache", ExternalMetaCacheMgr.getCacheStats(tableCache.stats(),
                 tableCache.estimatedSize()));
+        res.put("iceberg_snapshot_cache", ExternalMetaCacheMgr.getCacheStats(snapshotCache.stats(),
+                snapshotCache.estimatedSize()));
         return res;
     }
 }

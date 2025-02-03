@@ -95,7 +95,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
         if (!_check_input_type(arg1.type) || !_check_input_type(arg2.type)) {
@@ -123,13 +123,13 @@ public:
         // prepare return data
         auto dst = ColumnFloat64::create(input_rows_count);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         const auto& offsets1 = *arr1.offsets_ptr;
         const auto& offsets2 = *arr2.offsets_ptr;
-        const auto& nested_col1 = assert_cast<const ColumnFloat64*>(arr1.nested_col);
-        const auto& nested_col2 = assert_cast<const ColumnFloat64*>(arr2.nested_col);
+        const auto& nested_col1 = assert_cast<const ColumnFloat64*>(arr1.nested_col.get());
+        const auto& nested_col2 = assert_cast<const ColumnFloat64*>(arr2.nested_col.get());
         for (ssize_t row = 0; row < offsets1.size(); ++row) {
             if (arr1.array_nullmap_data && arr1.array_nullmap_data[row]) {
                 dst_null_data[row] = true;

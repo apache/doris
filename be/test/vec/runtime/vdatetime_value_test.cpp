@@ -75,7 +75,7 @@ TEST(VDateTimeValueTest, date_v2_from_uint32_test) {
         uint8_t day = 24;
 
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.from_date((uint32_t)((year << 9) | (month << 5) | day));
+        date_v2.unchecked_set_time(year, month, day, 0, 0, 0, 0);
 
         EXPECT_TRUE(date_v2.year() == year);
         EXPECT_TRUE(date_v2.month() == month);
@@ -114,10 +114,7 @@ TEST(VDateTimeValueTest, datetime_v2_from_uint64_test) {
         uint32_t microsecond = 999999;
 
         DateV2Value<DateTimeV2ValueType> datetime_v2;
-        datetime_v2.from_datetime((uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
-                                             ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
-                                             ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
-                                             (uint64_t)microsecond));
+        datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
 
         EXPECT_TRUE(datetime_v2.year() == year);
         EXPECT_TRUE(datetime_v2.month() == month);
@@ -142,10 +139,11 @@ TEST(VDateTimeValueTest, datetime_v2_from_uint64_test) {
         uint32_t microsecond = 123000;
 
         DateV2Value<DateTimeV2ValueType> datetime_v2;
-        datetime_v2.from_datetime((uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
-                                             ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
-                                             ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
-                                             (uint64_t)microsecond));
+        auto ui64 = (uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
+                               ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
+                               ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
+                               (uint64_t)microsecond);
+        datetime_v2 = (DateV2Value<DateTimeV2ValueType>&)ui64;
 
         EXPECT_TRUE(datetime_v2.year() == year);
         EXPECT_TRUE(datetime_v2.month() == month);

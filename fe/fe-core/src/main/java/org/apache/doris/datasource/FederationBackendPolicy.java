@@ -155,6 +155,7 @@ public class FederationBackendPolicy {
 
     public void init(List<String> preLocations) throws UserException {
         Set<Tag> tags = Sets.newHashSet();
+        boolean allowResourceTagDowngrade = false;
         if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
             String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
             // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
@@ -164,6 +165,7 @@ public class FederationBackendPolicy {
                 if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
                     throw new UserException("No valid resource tag for user: " + qualifiedUser);
                 }
+                allowResourceTagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(qualifiedUser);
             }
         } else {
             if (LOG.isDebugEnabled()) {
@@ -176,6 +178,7 @@ public class FederationBackendPolicy {
                 .needQueryAvailable()
                 .needLoadAvailable()
                 .addTags(tags)
+                .setAllowResourceTagDowngrade(allowResourceTagDowngrade)
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations)
@@ -497,7 +500,7 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getPathString().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
         }

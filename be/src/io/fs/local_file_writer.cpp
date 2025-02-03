@@ -147,6 +147,15 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(
                                     ::writev(_fd, iov.data() + completed_iov, iov_count),
                                     "LocalFileWriter::writev", _fd));
+        DBUG_EXECUTE_IF("LocalFileWriter::appendv.io_error", {
+            auto sub_path = dp->param<std::string>("sub_path", "");
+            if ((sub_path.empty() && _path.filename().compare(kTestFilePath)) ||
+                (!sub_path.empty() && _path.native().find(sub_path) != std::string::npos)) {
+                res = -1;
+                errno = EIO;
+                LOG(WARNING) << Status::IOError("debug write io error: {}", _path.native());
+            }
+        });
         if (UNLIKELY(res < 0)) {
             return localfs_error(errno, fmt::format("failed to write {}", _path.native()));
         }

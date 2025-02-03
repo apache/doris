@@ -18,17 +18,20 @@
 #include "set_source_operator.h"
 
 #include <memory>
+#include <type_traits>
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
+    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
@@ -75,21 +78,26 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     _create_mutable_cols(local_state, block);
-    auto st = std::visit(
-            [&](auto&& arg) -> Status {
-                using HashTableCtxType = std::decay_t<decltype(arg)>;
-                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
-                                                                    state->batch_size(), eos);
-                } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                    __builtin_unreachable();
-                }
-            },
-            *local_state._shared_state->hash_table_variants);
-    RETURN_IF_ERROR(st);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    {
+        SCOPED_TIMER(local_state._get_data_timer);
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& arg) -> Status {
+                    using HashTableCtxType = std::decay_t<decltype(arg)>;
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
+                                                                        state->batch_size(), eos);
+                    } else {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
+                    }
+                },
+                local_state._shared_state->hash_table_variants->method_variant));
+    }
+    {
+        SCOPED_TIMER(local_state._filter_timer);
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
+    }
     local_state.reached_limit(block, eos);
     return Status::OK();
 }
@@ -115,14 +123,12 @@ template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
         vectorized::Block* output_block, const int batch_size, bool* eos) {
-    int left_col_len = local_state._left_table_data_types.size();
+    size_t left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
-    auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
 
-    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
-        auto& value = iter->get_second();
-        auto it = value.begin();
+    auto add_result = [&local_state, &block_size, this](auto value) {
+        auto* it = &value;
         if constexpr (is_intersect) {
             if (it->visited) { //intersected: have done probe, so visited values it's the result
                 _add_result_columns(local_state, value, block_size);
@@ -132,9 +138,21 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
                 _add_result_columns(local_state, value, block_size);
             }
         }
+    };
+
+    auto& iter = hash_table_ctx.iterator;
+    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
+        add_result(iter->get_second());
     }
 
     *eos = iter == hash_table_ctx.hash_table->end();
+    if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
+        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
+        if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
+            add_result(value);
+        }
+    }
+
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
             output_block->insert(
@@ -150,15 +168,13 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
 template <bool is_intersect>
 void SetSourceOperatorX<is_intersect>::_add_result_columns(
-        SetSourceLocalState<is_intersect>& local_state, RowRefListWithFlags& value,
-        int& block_size) {
+        SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value, int& block_size) {
     auto& build_col_idx = local_state._shared_state->build_col_idx;
     auto& build_block = local_state._shared_state->build_block;
 
-    auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
         auto& column = *build_block.get_by_position(idx->second).column;
-        local_state._mutable_cols[idx->first]->insert_from(column, it->row_num);
+        local_state._mutable_cols[idx->first]->insert_from(column, value.row_num);
     }
     block_size++;
 }

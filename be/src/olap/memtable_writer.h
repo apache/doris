@@ -45,13 +45,13 @@ namespace doris {
 
 class FlushToken;
 class MemTable;
-class MemTracker;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
 struct FlushStatistic;
+class WorkloadGroup;
 
 namespace vectorized {
 class Block;
@@ -67,7 +67,7 @@ public:
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                ThreadPool* wg_flush_pool_ptr, bool unique_key_mow = false);
+                std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
     Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
 
@@ -132,7 +132,7 @@ private:
     std::vector<std::weak_ptr<MemTable>> _freezed_mem_tables;
     // The lock to protect _memtable and _freezed_mem_tables structure to avoid concurrency modification or read
     SpinLock _mem_table_ptr_lock;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::mutex _lock;
 

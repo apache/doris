@@ -42,6 +42,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
@@ -253,8 +254,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
     const std::string container_name = s3_conf.bucket;
-    const std::string uri = fmt::format("{}://{}.blob.core.windows.net/{}",
-                                        config::s3_client_http_scheme, s3_conf.ak, container_name);
+    const std::string uri =
+            fmt::format("{}://{}.blob.core.windows.net/{}", "https", s3_conf.ak, container_name);
 
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
@@ -307,8 +308,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.scheme = Aws::Http::Scheme::HTTP;
     }
 
-    aws_config.retryStrategy =
-            std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
+    aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
+            config::max_s3_client_retry /*scaleFactor = 25*/);
     std::shared_ptr<Aws::S3::S3Client> new_client;
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
         Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
@@ -401,15 +402,15 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     S3Conf ret {
             .bucket = info.bucket(),
             .prefix = info.prefix(),
-            .client_conf {
-                    .endpoint = info.endpoint(),
-                    .region = info.region(),
-                    .ak = info.ak(),
-                    .sk = info.sk(),
-                    .token {},
-                    .bucket = info.bucket(),
-                    .provider = io::ObjStorageType::AWS,
-            },
+            .client_conf {.endpoint = info.endpoint(),
+                          .region = info.region(),
+                          .ak = info.ak(),
+                          .sk = info.sk(),
+                          .token {},
+                          .bucket = info.bucket(),
+                          .provider = io::ObjStorageType::AWS,
+                          .use_virtual_addressing =
+                                  info.has_use_path_style() ? !info.use_path_style() : true},
             .sse_enabled = info.sse_enabled(),
     };
 

@@ -34,6 +34,13 @@ suite("test_limit") {
         result([[1]])
     }
 
+    test {
+        sql """
+            select * from test1 t1 join (select * from test1 limit 1 offset 1) t2
+        """
+        result([[1,1],[1,1]])
+    }
+
     sql """
     drop table if exists row_number_limit_tbl; 
     """
@@ -57,9 +64,13 @@ suite("test_limit") {
 
     sql """ INSERT INTO row_number_limit_tbl VALUES (7788, 'SCOTT', 'ANALYST', 7566, '1987-04-19', 3000, 0, 20); """
     sql """ INSERT INTO row_number_limit_tbl VALUES (7844, 'TURNER', 'SALESMAN', 7698, '1981-09-08', 1500, 0, 30); """
-    qt_limit1 """
-            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t order by k6s limit 1 offset 1;
+
+    test {
+        sql """
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t order by k6s limit 1 offset 1
         """
+        rowNum 1
+    }
 
     sql """ truncate table row_number_limit_tbl; """
 
@@ -67,7 +78,18 @@ suite("test_limit") {
     sql """ INSERT INTO row_number_limit_tbl VALUES (7844, 'TURNER', 'SALESMAN', 7698, '1981-09-08', 1500, 0, 30); """
     sql """ INSERT INTO row_number_limit_tbl VALUES (7934, 'MILLER', 'CLERK', 7782, '1982-01-23', 1300, 0, 10); """
 
-    qt_lmit2 """
-            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2;
+    test {
+        sql """
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2
         """
+        rowNum 1
+    }
+
+    sql """ set parallel_pipeline_task_num = 1; """
+    test {
+        sql """
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2
+        """
+        rowNum 1
+    }
 }

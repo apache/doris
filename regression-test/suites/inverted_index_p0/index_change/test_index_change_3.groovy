@@ -110,7 +110,7 @@ suite("test_index_change_3") {
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // create inverted index idx_city
-    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
+    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
     if (!isCloudMode()) {
@@ -185,7 +185,7 @@ suite("test_index_change_3") {
     qt_select6_v1 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
     // create inverted index idx_city
-    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
+    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
     if (!isCloudMode()) {

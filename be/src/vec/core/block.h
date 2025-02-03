@@ -194,7 +194,9 @@ public:
     // Skip the rows in block, use in OFFSET, LIMIT operation
     void skip_num_rows(int64_t& offset);
 
-    size_t columns() const { return data.size(); }
+    /// As the assumption we used around, the number of columns won't exceed int16 range. so no need to worry when we
+    ///  assign it to int32.
+    uint32_t columns() const { return static_cast<uint32_t>(data.size()); }
 
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;
@@ -247,7 +249,7 @@ public:
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int column_size = -1) noexcept;
+    void clear_column_data(int64_t column_size = -1) noexcept;
 
     bool mem_reuse() { return !data.empty(); }
 
@@ -553,9 +555,13 @@ public:
                     dump_names(), dump_types(), block.dump_names(), block.dump_types());
         }
         for (int i = 0; i < _columns.size(); ++i) {
-            DCHECK(_data_types[i]->equals(*block.get_by_position(i).type))
-                    << " target type: " << _data_types[i]->get_name()
-                    << " src type: " << block.get_by_position(i).type->get_name();
+            if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
+                throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                       "Merge block not match, self:[columns: {}, types: {}], "
+                                       "input:[columns: {}, types: {}], ",
+                                       dump_names(), dump_types(), block.dump_names(),
+                                       block.dump_types());
+            }
             _columns[i]->insert_range_from_ignore_overflow(
                     *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
                     block.rows());
@@ -624,7 +630,7 @@ public:
     Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
                     const std::vector<int>* column_offset = nullptr);
     Status add_rows(const Block* block, size_t row_begin, size_t length);
-    Status add_rows(const Block* block, std::vector<int64_t> rows);
+    Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
     /// remove the column with the specified name
     void erase(const String& name);

@@ -92,6 +92,6 @@ suite("schema_change_modify_mv_column_type_agg") {
             }
         }
     }
-    qt_sql """ desc ${testTable} all """
+    qt_master_sql """ desc ${testTable} all """
     sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
 }

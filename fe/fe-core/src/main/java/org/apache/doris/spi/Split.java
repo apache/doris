@@ -48,4 +48,9 @@ public interface Split {
 
     void setAlternativeHosts(List<String> alternativeHosts);
 
+    default String getConsistentHashString() {
+        return getPathString();
+    }
+
+    void setTargetSplitSize(Long targetSplitSize);
 }

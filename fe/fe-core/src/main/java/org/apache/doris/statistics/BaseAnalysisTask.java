@@ -81,7 +81,7 @@ public abstract class BaseAnalysisTask {
             + "         NOW() AS `update_time` "
             + " FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
 
-    protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
+    protected static final String LINEAR_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             + "${catalogId} AS `catalog_id`, "
             + "${dbId} AS `db_id`, "
@@ -95,8 +95,8 @@ public abstract class BaseAnalysisTask {
             + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
             + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}";
+            + "NOW() FROM ( "
+            + "SELECT * FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit})  as t";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
@@ -484,6 +484,11 @@ public abstract class BaseAnalysisTask {
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            if (!colStatsData.isValid()) {
+                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
+                LOG.warn(message);
+                throw new RuntimeException(message);
+            }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {
                 AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);

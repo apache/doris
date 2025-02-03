@@ -36,7 +36,7 @@ public class ExternalInfoSchemaDatabase extends ExternalDatabase {
      * @param dbId The id of this database.
      */
     public ExternalInfoSchemaDatabase(ExternalCatalog extCatalog, long dbId) {
-        super(extCatalog, dbId, InfoSchemaDb.DATABASE_NAME, Type.INFO_SCHEMA_DB);
+        super(extCatalog, dbId, InfoSchemaDb.DATABASE_NAME, InfoSchemaDb.DATABASE_NAME, Type.INFO_SCHEMA_DB);
     }
 
     public static List<String> listTableNames() {
@@ -44,8 +44,10 @@ public class ExternalInfoSchemaDatabase extends ExternalDatabase {
     }
 
     @Override
-    protected ExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
-        return new ExternalInfoSchemaTable(tblId, tableName, catalog);
+    public ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+            ExternalCatalog catalog,
+            ExternalDatabase db) {
+        return new ExternalInfoSchemaTable(tblId, localTableName, catalog, db);
     }
 
     @Override

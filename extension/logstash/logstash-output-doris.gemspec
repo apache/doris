@@ -38,10 +38,9 @@ Gem::Specification.new do |s|
 
   # Gem dependencies
   s.add_runtime_dependency "logstash-core-plugin-api", ">= 1.60", "<= 2.99"
-  s.add_runtime_dependency 'mini_cache', ">= 1.0.0", "< 2.0.0"
   s.add_runtime_dependency "rest-client", '~> 2.1'
 
-  s.add_development_dependency 'logstash-devutils', '~> 2.0', '>= 2.0.3'
-  s.add_development_dependency 'sinatra', '~> 2.0', '>= 2.0.8.1'
-  s.add_development_dependency 'webrick', '~> 1.6'
+  s.add_development_dependency 'logstash-devutils', '~> 1.3'
+  s.add_development_dependency 'sinatra', '~> 1.4'
+  s.add_development_dependency 'webrick', '~> 1.9'
 end

@@ -87,7 +87,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
     return Status::OK();
 }
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
-                                       const ColumnNumbers& arguments, size_t result,
+                                       const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
@@ -109,12 +109,11 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     if (source_col->is_column_array()) {
         array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
-            return Status::NotSupported(
-                    fmt::format("unsupported nested array of type {} for function {}",
-                                is_column_nullable(array_col->get_data())
-                                        ? array_col->get_data().get_name()
-                                        : array_col->get_data().get_family_name(),
-                                get_name()));
+            return Status::NotSupported(fmt::format(
+                    "unsupported nested array of type {} for function {}",
+                    is_column_nullable(array_col->get_data()) ? array_col->get_data().get_name()
+                                                              : array_col->get_data().get_name(),
+                    get_name()));
         }
 
         if (is_column_nullable(array_col->get_data())) {
@@ -172,6 +171,9 @@ std::vector<std::string> FunctionMatchBase::analyse_query_str_token(
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
     std::vector<std::string> query_tokens;
+    if (inverted_index_ctx == nullptr) {
+        return query_tokens;
+    }
     if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
@@ -457,10 +459,11 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
 
     if (hs_compile(pattern.data(), HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
                    HS_MODE_BLOCK, nullptr, &database, &compile_err) != HS_SUCCESS) {
-        LOG(ERROR) << "hyperscan compilation failed: " << compile_err->message;
+        std::string err_message = "hyperscan compilation failed: ";
+        err_message.append(compile_err->message);
+        LOG(ERROR) << err_message;
         hs_free_compile_error(compile_err);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                std::string("hyperscan compilation failed:") + compile_err->message);
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(err_message);
     }
 
     if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {

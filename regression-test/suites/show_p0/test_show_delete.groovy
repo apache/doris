@@ -44,6 +44,7 @@ suite("test_show_delete") {
     // don't care nereids planner
     sql """ delete from ${tableName} PARTITION Mar  where type ='2'"""
     sql """ delete from ${tableName}   where type ='1'"""
+    checkNereidsExecute("show DELETE")
     def showDeleteResult = sql """ show delete"""
     //When we test locally, multiple history results will be included, so size will be >= 2
     assert showDeleteResult.size() >= 0

@@ -283,7 +283,7 @@ void RleDecoder<T>::RewindOne() {
 
     switch (rewind_state_) {
     case CANT_REWIND:
-        LOG(FATAL) << "Can't rewind more than once after each read!";
+        throw Exception(Status::FatalError("Can't rewind more than once after each read!"));
         break;
     case REWIND_RUN:
         ++repeat_count_;

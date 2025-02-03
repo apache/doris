@@ -1417,11 +1417,11 @@ TEST(function_string_test, function_concat_ws_test) {
     {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Array, TypeIndex::String};
 
-        Array vec1 = {Field("", 0), Field("", 0), Field("", 0)};
-        Array vec2 = {Field("123", 3), Field("456", 3), Field("789", 3)};
-        Array vec3 = {Field("", 0), Field("?", 1), Field("", 0)};
-        Array vec4 = {Field("abc", 3), Field("", 0), Field("def", 3)};
-        Array vec5 = {Field("abc", 3), Field("def", 3), Field("ghi", 3)};
+        Array vec1 = {Field(String("", 0)), Field(String("", 0)), Field(String("", 0))};
+        Array vec2 = {Field(String("123", 3)), Field(String("456", 3)), Field(String("789", 3))};
+        Array vec3 = {Field(String("", 0)), Field(String("?", 1)), Field(String("", 0))};
+        Array vec4 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        Array vec5 = {Field(String("abc", 3)), Field(String("def", 3)), Field(String("ghi", 3))};
         DataSet data_set = {{{std::string("-"), vec1}, std::string("--")},
                             {{std::string(""), vec2}, std::string("123456789")},
                             {{std::string("-"), vec3}, std::string("-?-")},

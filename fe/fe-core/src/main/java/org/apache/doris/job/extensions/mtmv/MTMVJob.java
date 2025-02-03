@@ -219,6 +219,13 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     }
 
     @Override
+    public String formatMsgWhenExecuteQueueFull(Long taskId) {
+        return commonFormatMsgWhenExecuteQueueFull(taskId, "mtmv_task_queue_size",
+                "job_mtmv_task_consumer_thread_num");
+
+    }
+
+    @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));

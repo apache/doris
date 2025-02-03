@@ -334,6 +334,29 @@ public class SystemInfoServiceTest {
     }
 
     @Test
+    public void testResourceTagDowngrade() throws Exception {
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+        addBackend(10001, "192.168.1.1", 9050);
+        Backend be1 = infoService.getBackend(10001);
+        be1.setTagMap(taga.toMap());
+        be1.setAlive(true);
+
+        addBackend(10002, "192.168.1.2", 9050);
+        Backend be2 = infoService.getBackend(10002);
+        be2.setAlive(true);
+
+        BeSelectionPolicy policy1 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga)).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy1, 1).size());
+
+        be1.setAlive(false);
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy1, 1).size());
+
+        BeSelectionPolicy policy2 = new BeSelectionPolicy.Builder().setAllowResourceTagDowngrade(true)
+                .addTags(Sets.newHashSet(taga)).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy2, 1).size());
+    }
+
+    @Test
     public void testPreferLocationsSelect() throws Exception {
         Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
 

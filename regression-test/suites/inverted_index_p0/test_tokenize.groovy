@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.sql.SQLException
 
 suite("test_tokenize"){
     // prepare test table
@@ -98,4 +99,14 @@ suite("test_tokenize"){
 
     qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="unicode"');"""
     qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="unicode","stopwords" = "none"');"""
+
+    try {
+      sql """ SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="eng"'); """
+    } catch (SQLException e) {
+      if (e.message.contains("E-6000")) {
+        log.info("e message: {}", e.message)
+      } else {
+        throw e
+      }
+    }
 }

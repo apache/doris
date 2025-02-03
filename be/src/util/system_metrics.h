@@ -31,6 +31,7 @@
 namespace doris {
 
 struct CpuMetrics;
+struct CpuNumberMetrics;
 struct MemoryMetrics;
 struct DiskMetrics;
 struct NetworkMetrics;
@@ -64,6 +65,8 @@ public:
     void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
     void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
     void update_allocator_metrics();
+
+    void update_be_avail_cpu_num();
 
 private:
     void _install_cpu_metrics();
@@ -99,6 +102,7 @@ private:
     static const char* _s_hook_name;
 
     std::map<std::string, CpuMetrics*> _cpu_metrics;
+    std::unique_ptr<CpuNumberMetrics> _cpu_num_metrics;
     std::unique_ptr<MemoryMetrics> _memory_metrics;
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetworkMetrics*> _network_metrics;

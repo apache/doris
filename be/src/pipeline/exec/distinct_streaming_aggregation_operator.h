@@ -23,6 +23,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "pipeline/common/distinct_agg_utils.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -32,7 +33,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class DistinctStreamingAggOperatorX;
 
 class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -65,7 +66,6 @@ private:
         _cache_block = block->clone_empty();
     }
 
-    std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
     size_t _input_num_rows = 0;
@@ -73,7 +73,7 @@ private:
     bool _stop_emplace_flag = false;
     const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
-    AggregatedDataVariantsUPtr _agg_data = nullptr;
+    std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -104,6 +104,9 @@ public:
     bool need_more_input_data(RuntimeState* state) const override;
 
     DataDistribution required_data_distribution() const override {
+        if (_needs_finalize && _probe_expr_ctxs.empty()) {
+            return {ExchangeType::NOOP};
+        }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
@@ -113,9 +116,6 @@ public:
     }
 
     bool require_data_distribution() const override { return _is_colocate; }
-    bool require_shuffled_data_distribution() const override {
-        return _needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg);
-    }
 
 private:
     friend class DistinctStreamingAggLocalState;
@@ -136,7 +136,9 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
     bool _is_streaming_preagg = false;
+    const bool _without_key;
 };
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

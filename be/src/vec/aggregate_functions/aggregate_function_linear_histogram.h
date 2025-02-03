@@ -35,6 +35,7 @@
 // TODO: support foreach
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 struct AggregateFunctionLinearHistogramData {
@@ -70,7 +71,8 @@ public:
         double val = 0;
         if constexpr (IsDecimalNumber<T>) {
             using NativeType = typename T::NativeType;
-            val = static_cast<double>(value.value) / decimal_scale_multiplier<NativeType>(scale);
+            val = static_cast<double>(value.value) /
+                  static_cast<double>(decimal_scale_multiplier<NativeType>(scale));
         } else {
             val = static_cast<double>(value);
         }
@@ -199,7 +201,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         double interval =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
@@ -233,7 +235,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -255,3 +257,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

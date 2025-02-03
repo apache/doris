@@ -116,9 +116,8 @@ main() {
 
     check_init_cloud &
 
-    health_log "input args: $ARGS"
-
-    bash bin/start.sh $ARGS --daemon
+    health_log "run starts.sh with args: $ARGS"
+    bash bin/start.sh $ARGS --daemon | tee -a $DORIS_HOME/log/doris_cloud.out
 
     wait_process
 }

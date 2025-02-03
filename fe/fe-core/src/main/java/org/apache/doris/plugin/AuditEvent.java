@@ -60,6 +60,8 @@ public class AuditEvent {
     public String ctl = "";
     @AuditField(value = "Db")
     public String db = "";
+    @AuditField(value = "CommandType")
+    public String commandType = "";
     @AuditField(value = "State")
     public String state = "";
     @AuditField(value = "ErrorCode")
@@ -80,9 +82,9 @@ public class AuditEvent {
     public String queryId = "";
     @AuditField(value = "IsQuery")
     public boolean isQuery = false;
-    @AuditField(value = "isNereids")
+    @AuditField(value = "IsNereids")
     public boolean isNereids = false;
-    @AuditField(value = "feIp")
+    @AuditField(value = "FeIp")
     public String feIp = "";
     @AuditField(value = "StmtType")
     public String stmtType = "";
@@ -96,22 +98,20 @@ public class AuditEvent {
     public long shuffleSendRows = -1;
     @AuditField(value = "SqlHash")
     public String sqlHash = "";
-    @AuditField(value = "peakMemoryBytes")
+    @AuditField(value = "PeakMemoryBytes")
     public long peakMemoryBytes = -1;
     @AuditField(value = "SqlDigest")
     public String sqlDigest = "";
-    @AuditField(value = "cloudClusterName")
+    @AuditField(value = "ComputeGroupName")
     public String cloudClusterName = "";
-    @AuditField(value = "TraceId")
-    public String traceId = "";
     @AuditField(value = "WorkloadGroup")
     public String workloadGroup = "";
     // note: newly added fields should be always before fuzzyVariables
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
-    @AuditField(value = "scanBytesFromLocalStorage")
+    @AuditField(value = "ScanBytesFromLocalStorage")
     public long scanBytesFromLocalStorage = -1;
-    @AuditField(value = "scanBytesFromRemoteStorage")
+    @AuditField(value = "ScanBytesFromRemoteStorage")
     public long scanBytesFromRemoteStorage = -1;
 
     public long pushToAuditLogQueueTime;
@@ -269,6 +269,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setScanBytesFromRemoteStorage(long scanBytesFromRemoteStorage) {
             auditEvent.scanBytesFromRemoteStorage = scanBytesFromRemoteStorage;
+            return this;
+        }
+
+        public AuditEventBuilder setCommandType(String commandType) {
+            auditEvent.commandType = commandType;
             return this;
         }
 

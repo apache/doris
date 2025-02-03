@@ -81,10 +81,15 @@ fe_daemon() {
     done
 }
 
+run_fe() {
+    health_log "run start_fe.sh"
+    bash $DORIS_HOME/bin/start_fe.sh --daemon $@ | tee -a $DORIS_HOME/log/fe.out
+}
+
 start_cloud_fe() {
     if [ -f "$REGISTER_FILE" ]; then
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        run_fe
         return
     fi
 
@@ -95,11 +100,8 @@ start_cloud_fe() {
         touch $REGISTER_FILE
 
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        run_fe
 
-        if [ "$MY_ID" == "1" ]; then
-            echo $MY_IP >$MASTER_FE_IP_FILE
-        fi
         return
     fi
 
@@ -162,11 +164,7 @@ start_cloud_fe() {
     touch $REGISTER_FILE
 
     fe_daemon &
-    bash $DORIS_HOME/bin/start_fe.sh --daemon
-
-    if [ "$MY_ID" == "1" ]; then
-        echo $MY_IP >$MASTER_FE_IP_FILE
-    fi
+    run_fe
 }
 
 stop_frontend() {
@@ -199,11 +197,11 @@ start_local_fe() {
 
     if [ -f $REGISTER_FILE ]; then
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        run_fe
     else
         add_local_fe
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT --daemon
+        run_fe --helper $MASTER_FE_IP:$FE_EDITLOG_PORT
     fi
 }
 

@@ -24,6 +24,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -44,6 +45,8 @@ public:
 private:
     friend class DataGenSourceOperatorX;
     std::shared_ptr<VDataGenFunctionInf> _table_func;
+    RuntimeProfile::Counter* _table_function_execution_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
@@ -68,4 +71,5 @@ private:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

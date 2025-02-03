@@ -95,26 +95,23 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_FACTORY_CLASS,
                                                    &_executor_factory_clazz));
 
-    _executor_factory_ctor_id =
-            env->GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
-                                   "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;");
-    if (_executor_factory_ctor_id == nullptr) {
-        return Status::InternalError("Failed to find method ID for getExecutorClass");
-    }
+    JNI_CALL_METHOD_CHECK_EXCEPTION(
+            , _executor_factory_ctor_id, env,
+            GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
+                              "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;"));
 
     jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
 
-    jstring executor_name = (jstring)env->CallStaticObjectMethod(
-            _executor_factory_clazz, _executor_factory_ctor_id, jtable_type);
-    if (executor_name == nullptr) {
-        return Status::InternalError("getExecutorClass returned null");
-    }
-    const char* executor_name_str = env->GetStringUTFChars(executor_name, nullptr);
+    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
+            jobject, executor_name, env,
+            CallStaticObjectMethod(_executor_factory_clazz, _executor_factory_ctor_id,
+                                   jtable_type));
+
+    const char* executor_name_str = env->GetStringUTFChars((jstring)executor_name, nullptr);
 
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
     env->DeleteLocalRef(jtable_type);
-    env->ReleaseStringUTFChars(executor_name, executor_name_str);
-    env->DeleteLocalRef(executor_name);
+    env->ReleaseStringUTFChars((jstring)executor_name, executor_name_str);
 
 #undef GET_BASIC_JAVA_CLAZZ
     RETURN_IF_ERROR(_register_func_id(env));
@@ -190,14 +187,19 @@ Status JdbcConnector::test_connection() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
 
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_test_connection_id);
-    return JniUtil::GetJniExceptionMsg(env);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::clean_datasource() {
+    if (!_is_open) {
+        return Status::OK();
+    }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_clean_datasource_id);
-    return JniUtil::GetJniExceptionMsg(env);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::query() {
@@ -232,14 +234,25 @@ Status JdbcConnector::query() {
 }
 
 Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
+    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer); // Timer for the entire method
+
     if (!_is_open) {
         return Status::InternalError("get_next before open of jdbc connector.");
     }
-    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer);
+
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jboolean has_next =
-            env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz, _executor_has_next_id);
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._jni_setup_timer); // Timer for setting up JNI environment
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    } // _jni_setup_timer stops when going out of this scope
+
+    jboolean has_next = JNI_FALSE;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._has_next_timer); // Timer for hasNext check
+        has_next = env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz,
+                                                    _executor_has_next_id);
+    } // _has_next_timer stops here
+
     if (has_next != JNI_TRUE) {
         *eos = true;
         return Status::OK();
@@ -250,28 +263,44 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     auto column_size = _tuple_desc->slots().size();
     auto slots = _tuple_desc->slots();
 
-    jobject map = _get_reader_params(block, env, column_size);
-    SCOPED_RAW_TIMER(&_jdbc_statistic._get_block_address_timer);
-    long address =
-            env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
+    jobject map;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._prepare_params_timer); // Timer for preparing params
+        map = _get_reader_params(block, env, column_size);
+    } // _prepare_params_timer stops here
+
+    long address = 0;
+    {
+        SCOPED_RAW_TIMER(
+                &_jdbc_statistic
+                         ._read_and_fill_vector_table_timer); // Timer for getBlockAddress call
+        address =
+                env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
+    } // _get_block_address_timer stops here
+
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteLocalRef(map);
 
-    std::vector<size_t> all_columns;
-    for (size_t i = 0; i < column_size; ++i) {
+    std::vector<uint32_t> all_columns;
+    for (uint32_t i = 0; i < column_size; ++i) {
         all_columns.push_back(i);
     }
-    SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer);
-    Status fill_block_status = JniConnector::fill_block(block, all_columns, address);
+
+    Status fill_block_status;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer); // Timer for fill_block
+        fill_block_status = JniConnector::fill_block(block, all_columns, address);
+    } // _fill_block_timer stops here
+
     if (!fill_block_status) {
         return fill_block_status;
     }
 
-    Status cast_status = _cast_string_to_special(block, env, column_size);
-
-    if (!cast_status) {
-        return cast_status;
-    }
+    Status cast_status;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._cast_timer); // Timer for casting process
+        cast_status = _cast_string_to_special(block, env, column_size);
+    } // _cast_timer stops here
 
     return JniUtil::GetJniExceptionMsg(env);
 }
@@ -305,7 +334,7 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
     env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_stmt_write_id,
                                  hashmap_object);
     env->DeleteLocalRef(hashmap_object);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    RETURN_ERROR_IF_EXC(env);
     *num_rows_sent = block->rows();
     return Status::OK();
 }
@@ -315,7 +344,7 @@ Status JdbcConnector::begin_trans() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_begin_trans_id);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        RETURN_ERROR_IF_EXC(env);
         _is_in_transaction = true;
     }
     return Status::OK();
@@ -328,7 +357,8 @@ Status JdbcConnector::abort_trans() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_abort_trans_id);
-    return JniUtil::GetJniExceptionMsg(env);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::finish_trans() {
@@ -336,7 +366,7 @@ Status JdbcConnector::finish_trans() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_finish_trans_id);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        RETURN_ERROR_IF_EXC(env);
         _is_in_transaction = false;
     }
     return Status::OK();

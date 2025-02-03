@@ -21,7 +21,7 @@
 #include "vec/exec/scan/new_jdbc_scanner.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 std::string JDBCScanLocalState::name_suffix() const {
     return fmt::format(" (id={}. nereids_id={} . table name = {})",
                        std::to_string(_parent->node_id()), std::to_string(_parent->nereids_id()),

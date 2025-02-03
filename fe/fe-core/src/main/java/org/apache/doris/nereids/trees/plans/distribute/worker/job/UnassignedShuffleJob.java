@@ -17,16 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
@@ -38,13 +41,20 @@ import java.util.function.Function;
 
 /** UnassignedShuffleJob */
 public class UnassignedShuffleJob extends AbstractUnassignedJob {
-    public UnassignedShuffleJob(PlanFragment fragment, ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
-        super(fragment, ImmutableList.of(), exchangeToChildJob);
+    private boolean useSerialSource;
+
+    public UnassignedShuffleJob(
+            StatementContext statementContext, PlanFragment fragment,
+            ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
+        super(statementContext, fragment, ImmutableList.of(), exchangeToChildJob);
     }
 
     @Override
     public List<AssignedJob> computeAssignedJobs(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        useSerialSource = fragment.useSerialSource(
+                distributeContext.isLoadJob ? null : statementContext.getConnectContext());
+
         int expectInstanceNum = degreeOfParallelism();
         List<AssignedJob> biggestParallelChildFragment = getInstancesOfBiggestParallelChildFragment(inputJobs);
 
@@ -70,16 +80,12 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
     }
 
     protected int degreeOfParallelism() {
-        if (!fragment.getDataPartition().isPartitioned()) {
-            return 1;
-        }
-
         // TODO: check we use nested loop join do right outer / semi / anti join,
         //       we should add an exchange node with gather distribute under the nested loop join
-
         int expectInstanceNum = -1;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            expectInstanceNum = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
+        ConnectContext connectContext = statementContext.getConnectContext();
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
         }
         return expectInstanceNum;
     }
@@ -99,15 +105,52 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         return biggestParallelChildFragment;
     }
 
-    private List<AssignedJob> buildInstances(int instanceNum, Function<Integer, DistributedPlanWorker> workerSelector) {
+    private List<AssignedJob> buildInstances(
+            int instanceNum, Function<Integer, DistributedPlanWorker> workerSelector) {
+        ConnectContext connectContext = statementContext.getConnectContext();
+        if (useSerialSource) {
+            return buildInstancesWithLocalShuffle(instanceNum, workerSelector, connectContext);
+        } else {
+            return buildInstancesWithoutLocalShuffle(instanceNum, workerSelector, connectContext);
+        }
+    }
+
+    private List<AssignedJob> buildInstancesWithoutLocalShuffle(
+            int instanceNum, Function<Integer, DistributedPlanWorker> workerSelector, ConnectContext connectContext) {
         ImmutableList.Builder<AssignedJob> instances = ImmutableList.builderWithExpectedSize(instanceNum);
-        ConnectContext context = ConnectContext.get();
         for (int i = 0; i < instanceNum; i++) {
             DistributedPlanWorker selectedWorker = workerSelector.apply(i);
             AssignedJob assignedJob = assignWorkerAndDataSources(
-                    i, context.nextInstanceId(), selectedWorker, new DefaultScanSource(ImmutableMap.of())
+                    i, connectContext.nextInstanceId(),
+                    selectedWorker, new DefaultScanSource(ImmutableMap.of())
             );
             instances.add(assignedJob);
+        }
+        return instances.build();
+    }
+
+    private List<AssignedJob> buildInstancesWithLocalShuffle(
+            int instanceNum, Function<Integer, DistributedPlanWorker> workerSelector, ConnectContext connectContext) {
+        ImmutableList.Builder<AssignedJob> instances = ImmutableList.builderWithExpectedSize(instanceNum);
+        Multimap<DistributedPlanWorker, Integer> workerToInstanceIds = ArrayListMultimap.create();
+        for (int i = 0; i < instanceNum; i++) {
+            DistributedPlanWorker selectedWorker = workerSelector.apply(i);
+            workerToInstanceIds.put(selectedWorker, i);
+        }
+
+        int shareScanId = 0;
+        for (Entry<DistributedPlanWorker, Collection<Integer>> kv : workerToInstanceIds.asMap().entrySet()) {
+            DistributedPlanWorker worker = kv.getKey();
+            Collection<Integer> indexesInFragment = kv.getValue();
+            DefaultScanSource shareScanSource = new DefaultScanSource(ImmutableMap.of());
+            for (Integer indexInFragment : indexesInFragment) {
+                LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
+                        indexInFragment, shareScanId, connectContext.nextInstanceId(),
+                        this, worker, shareScanSource
+                );
+                instances.add(instance);
+            }
+            shareScanId++;
         }
         return instances.build();
     }

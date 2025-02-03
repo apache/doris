@@ -37,7 +37,7 @@ import java.util.Set;
 /**
  * Used for unit test only.
  */
-public class FakePlan implements Plan {
+public class FakePlan implements Plan, BlockFuncDepsPropagation {
     private MutableState mutableState = new MultiMutableState();
 
     @Override

@@ -213,7 +213,7 @@ Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_
     base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
-       << std::to_string(wal_version) << "_" << _exec_env->master_info()->backend_id << "_"
+       << std::to_string(wal_version) << "_" << _exec_env->cluster_info()->backend_id << "_"
        << std::to_string(wal_id) << "_" << label;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
@@ -377,8 +377,8 @@ Status WalManager::_replay_background() {
             break;
         }
         // port == 0 means not received heartbeat yet
-        if (_exec_env->master_info() != nullptr &&
-            _exec_env->master_info()->network_address.port == 0) {
+        if (_exec_env->cluster_info() != nullptr &&
+            _exec_env->cluster_info()->master_fe_addr.port == 0) {
             continue;
         }
         // replay residual wal,only replay once

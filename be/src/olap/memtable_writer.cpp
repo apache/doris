@@ -65,31 +65,21 @@ MemTableWriter::~MemTableWriter() {
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
                             TabletSchemaSPtr tablet_schema,
                             std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                            ThreadPool* wg_flush_pool_ptr, bool unique_key_mow) {
+                            std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow) {
     _rowset_writer = rowset_writer;
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
-    _query_thread_context.init_unlocked();
+    _resource_ctx = thread_context()->resource_ctx();
 
     _reset_mem_table();
 
     // create flush handler
     // by assigning segment_id to memtable before submiting to flush executor,
     // we can make sure same keys sort in the same order in all replicas.
-    if (wg_flush_pool_ptr) {
-        RETURN_IF_ERROR(
-                ExecEnv::GetInstance()
-                        ->storage_engine()
-                        .memtable_flush_executor()
-                        ->create_flush_token(_flush_token, _rowset_writer, wg_flush_pool_ptr));
-    } else {
-        RETURN_IF_ERROR(
-                ExecEnv::GetInstance()
-                        ->storage_engine()
-                        .memtable_flush_executor()
-                        ->create_flush_token(_flush_token, _rowset_writer, _req.is_high_priority));
-    }
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
+                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr));
 
     _is_init = true;
     return Status::OK();
@@ -154,7 +144,7 @@ Status MemTableWriter::flush_async() {
     // into thread context, ATTACH cannot be repeated here.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`, no ATTACH because LoadChannelMgr
     // not know Load context.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -168,8 +158,8 @@ Status MemTableWriter::flush_async() {
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                << ", load id: " << print_id(_req.load_id);
+                << PrettyPrinter::print_bytes(_mem_table->memory_usage())
+                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
     _reset_mem_table();
     return s;

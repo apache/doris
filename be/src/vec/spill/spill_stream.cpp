@@ -34,6 +34,7 @@
 #include "vec/spill/spill_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                          std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                          RuntimeProfile* profile)

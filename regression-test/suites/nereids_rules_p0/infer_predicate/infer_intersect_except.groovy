@@ -115,10 +115,28 @@ suite("infer_intersect_except") {
     select a+1,b from infer_intersect_except1 where a>0 intersect select a+1,b from infer_intersect_except2 where a+1<0;
     """
 
-    qt_except_and_intersect """
-    explain shape plan
-    select a,b from infer_intersect_except1 where a>0 except select 1,'abc' from infer_intersect_except2 where b>'ab' intersect select a,b from infer_intersect_except3 where a<10;
-    """
+    explain {
+        sql """
+            shape plan
+            select a,b from infer_intersect_except1 where a > 0
+            except
+            select 1, 'abc' from infer_intersect_except2 where b > 'ab'
+            intersect
+            select a, b from infer_intersect_except3 where a < 10;
+            """
+        notContains("a < 10")
+        contains("(infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc')")
+// PhysicalResultSink
+// --PhysicalExcept
+// ----filter((infer_intersect_except1.a > 0))
+// ------PhysicalOlapScan[infer_intersect_except1]
+// ----PhysicalIntersect
+// ------filter((infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc'))
+// --------PhysicalOlapScan[infer_intersect_except3]
+// ------filter((infer_intersect_except2.b > 'ab'))
+// --------PhysicalOlapScan[infer_intersect_except2]
+    }
+
 
     qt_except_and_intersect_except_predicate_to_right """
     explain shape plan

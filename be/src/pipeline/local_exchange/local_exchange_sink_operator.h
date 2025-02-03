@@ -45,6 +45,7 @@ public:
     Status open(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
     std::vector<Dependency*> dependencies() const override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -64,7 +65,6 @@ private:
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
-    std::vector<uint32_t> _partition_rows_histogram;
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
@@ -90,6 +90,7 @@ public:
             : Base(sink_id, dest_id, dest_id),
               _num_partitions(num_partitions),
               _texprs(texprs),
+              _partitioned_exprs_num(texprs.size()),
               _bucket_seq_to_instance_idx(bucket_seq_to_instance_idx) {}
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
@@ -100,7 +101,7 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, const int num_buckets, const bool should_disable_bucket_shuffle,
+    Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
     Status open(RuntimeState* state) override;
@@ -113,6 +114,7 @@ private:
     ExchangeType _type;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
+    const size_t _partitioned_exprs_num;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     const std::map<int, int> _bucket_seq_to_instance_idx;
     std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;

@@ -73,7 +73,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     // 1. change user
     // ${user1} admin role
     logAndExecuteSql """create user ${user1} identified by 'Cloud12345' default role 'admin'"""
-    result = sql_return_maparray """show grants for '${user1}'"""
+    def result = sql_return_maparray """show grants for '${user1}'"""
     commonAuth result, "'${user1}'@'%'" as String, "Yes", "admin", "Admin_priv"
     assertNull(result.ComputeGroupPrivs[0])
 
@@ -104,14 +104,14 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     logAndExecuteSql """create user ${user3} identified by 'Cloud12345'"""
     logAndExecuteSql """GRANT SELECT_PRIV ON *.*.* TO '${user3}'@'%'"""
-    result = connect(user = "${user3}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    result = connect("${user3}", 'Cloud12345', context.config.jdbcUrl) {
             sql """SHOW COMPUTE GROUPS"""
     }
     // not grant any group to user3
     assertTrue(result.isEmpty())
     def db = context.dbName
 
-    connect(user = "${user3}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user3}", 'Cloud12345', context.config.jdbcUrl) {
         test {
             sql """select * from ${db}.${tbl}"""
             exception "the user is not granted permission to the compute group"
@@ -120,12 +120,11 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     // 2. grant group
     def group1 = "groupA"
-    def result
 
     logAndExecuteSql "sync"
 
     // admin role user can grant group to use
-    result = connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    result = connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
             sql """GRANT USAGE_PRIV ON COMPUTE GROUP '${group1}' TO '${user1}'"""
     }
 
@@ -139,7 +138,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     commonAuth result, "'${user1}'@'%'" as String, "Yes", "admin", "Admin_priv"
     assertTrue((result.ComputeGroupPrivs as String).contains("${group1}: Cluster_usage_priv"))
 
-    connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
         test {
             sql """use @${group1}"""
             exception "${group1} not exist"
@@ -152,7 +151,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     logAndExecuteSql """GRANT USAGE_PRIV ON COMPUTE GROUP '${group1}' TO '${user2}'"""
     try {
-        result = connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+        result = connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
              sql """GRANT USAGE_PRIV ON COMPUTE GROUP '${group1}' TO '${user1}'"""
         }
     } catch (Exception e) {
@@ -170,7 +169,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     result = getProperty("default_compute_group", "${user1}")
     assertEquals(result.Value as String, "${validCluster}" as String)
 
-    connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
         result = sql """use @${validCluster}"""
         assertEquals(result[0][0], 0)
         result = getProperty("default_compute_group", "")
@@ -178,7 +177,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     }
         // set default_compute_group to ''
     logAndExecuteSql """SET PROPERTY FOR '${user2}' 'default_compute_group' = ''"""
-    connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
         result = getProperty("default_compute_group", "")
         assertEquals(result.Value as String, "" as String) 
     } 
@@ -186,14 +185,14 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     logAndExecuteSql """SET PROPERTY FOR '${user2}' 'default_compute_group' = '${validCluster}'"""
     result = logAndExecuteSql """REVOKE USAGE_PRIV ON COMPUTE GROUP '${validCluster}' FROM '${user2}'"""
     assertEquals(result[0][0], 0)
-    connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
         test {
             sql """use @${group1}"""
             exception "USAGE denied to user"
         }
     }
 
-    connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
         test {
             sql """use @${validCluster}"""
             exception "USAGE denied to user"
@@ -202,20 +201,20 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     logAndExecuteSql """GRANT USAGE_PRIV ON COMPUTE GROUP '${group1}' TO '${user2}'"""
     logAndExecuteSql """GRANT USAGE_PRIV ON COMPUTE GROUP '${validCluster}' TO '${user2}'"""
-    show_group_2 = connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    def show_group_2 = connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
             getCluster(validCluster)
     }
 
     assertTrue(show_group_2[2].equals(user2), "Expect just only have user ${user2}")
 
-    result = connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    result = connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
             sql """USE @${validCluster}"""
     }
     assertEquals(result[0][0], 0)
 
     logAndExecuteSql """REVOKE USAGE_PRIV ON COMPUTE GROUP '${validCluster}' FROM '${user2}'"""
 
-    connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
         test {
             sql """use @${validCluster}"""
             exception "USAGE denied to user"
@@ -238,7 +237,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     logAndExecuteSql "sync"
     // 3. revoke group
     // admin role user can revoke group
-    result = connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    result = connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
             sql """REVOKE USAGE_PRIV ON COMPUTE GROUP '${group1}' FROM '${user1}'"""
     }
 
@@ -249,7 +248,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
     
     // general user can't revoke group
     try {
-        result = connect(user = "${user2}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+        result = connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
              sql """REVOKE USAGE_PRIV ON COMPUTE GROUP '${group1}' FROM '${user2}'"""
         }
     } catch (Exception e) {
@@ -274,7 +273,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     // user1 no admin auth, so failed to set other default compute group
     try {
-        result = connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+        result = connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
             sql """SET PROPERTY FOR '${user2}' 'default_compute_group' = '${validCluster}'""" 
         }
     } catch (Exception e) {

@@ -44,11 +44,6 @@ public class LogicalProperties {
     protected final Supplier<DataTrait> dataTraitSupplier;
     private Integer hashCode = null;
 
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<DataTrait> dataTraitSupplier) {
-        this(outputSupplier, dataTraitSupplier, ImmutableList::of);
-    }
-
     /**
      * constructor of LogicalProperties.
      *
@@ -56,8 +51,7 @@ public class LogicalProperties {
      *                       throw exception for which children have UnboundRelation
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<DataTrait> dataTraitSupplier,
-            Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
+            Supplier<DataTrait> dataTraitSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );

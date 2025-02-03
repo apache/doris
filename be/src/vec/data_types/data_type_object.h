@@ -65,10 +65,7 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
     }
     MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
-    bool is_object() const override { return true; }
     bool equals(const IDataType& rhs) const override;
-    bool hasNullableSubcolumns() const { return is_nullable; }
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; };
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -81,10 +78,10 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         if (node.__isset.string_literal) {
-            return node.string_literal.value;
+            return Field(node.string_literal.value);
         }
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Field();
+            return {};
         }
         std::stringstream error_string;
         node.printTo(error_string);

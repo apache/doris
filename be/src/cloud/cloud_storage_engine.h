@@ -57,7 +57,7 @@ public:
 
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     Status set_cluster_id(int32_t cluster_id) override {
         _effective_cluster_id = cluster_id;
@@ -72,10 +72,9 @@ public:
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
-    void _check_file_cache_ttl_block_valid();
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
-        LOG(INFO) << "Getting storage resource for vault_id: " << vault_id;
+        VLOG_DEBUG << "Getting storage resource for vault_id: " << vault_id;
 
         bool synced = false;
         do {

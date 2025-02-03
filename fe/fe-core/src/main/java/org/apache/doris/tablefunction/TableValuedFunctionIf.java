@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ public abstract class TableValuedFunctionIf {
 
     // All table functions should be registered here
     public static TableValuedFunctionIf getTableFunction(String funcName, Map<String, String> params)
-                                                        throws AnalysisException {
+            throws AnalysisException {
         switch (funcName.toLowerCase()) {
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);
@@ -57,6 +58,8 @@ public abstract class TableValuedFunctionIf {
                 return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
                 return new IcebergTableValuedFunction(params);
+            case HudiTableValuedFunction.NAME:
+                return new HudiTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
                 return new BackendsTableValuedFunction(params);
             case FrontendsTableValuedFunction.NAME:
@@ -88,7 +91,7 @@ public abstract class TableValuedFunctionIf {
 
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
-    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
+    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
 
     public void checkAuth(ConnectContext ctx) {
 

@@ -296,4 +296,15 @@ public class AnalyticEvalNode extends PlanNode {
 
         return output.toString();
     }
+
+    /**
+     * If `partitionExprs` is empty, the result must be output by single instance.
+     *
+     * For example, for `window (colA order by colB)`,
+     * all data should be input in this node to ensure the global ordering by colB.
+     */
+    @Override
+    public boolean isSerialOperator() {
+        return partitionExprs.isEmpty();
+    }
 }

@@ -48,7 +48,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
      * @param name alias name
      */
     public Alias(Expression child, String name) {
-        this(StatementScopeIdGenerator.newExprId(), child, name, false);
+        this(child, name, false);
+    }
+
+    public Alias(Expression child, String name, boolean nameFromChild) {
+        this(StatementScopeIdGenerator.newExprId(), child, name, nameFromChild);
     }
 
     public Alias(Expression child) {
@@ -124,7 +128,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return child().toSql() + " AS `" + name.get() + "`";
     }
 
@@ -144,7 +148,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(exprId, qualifier);
     }
 

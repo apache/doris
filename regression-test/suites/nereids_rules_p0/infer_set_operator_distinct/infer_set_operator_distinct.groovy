@@ -21,6 +21,7 @@ suite("infer_set_operator_distinct") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set enable_parallel_result_sink=false;"
+    sql "set enable_nereids_distribute_planner=false;"
 
     sql """
         DROP TABLE IF EXISTS t1;

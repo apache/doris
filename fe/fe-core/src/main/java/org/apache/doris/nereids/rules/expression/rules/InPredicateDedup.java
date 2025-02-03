@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 
@@ -35,28 +36,29 @@ import java.util.Set;
 public class InPredicateDedup implements ExpressionPatternRuleFactory {
     public static final InPredicateDedup INSTANCE = new InPredicateDedup();
 
+    // In many BI scenarios, the sql is auto-generated, and hence there may be thousands of options.
+    // It takes a long time to apply this rule. So set a threshold for the max number.
+    public static final int REWRITE_OPTIONS_MAX_SIZE = 200;
+
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-            matchesType(InPredicate.class).then(InPredicateDedup::dedup)
+            matchesType(InPredicate.class)
+                    .when(inPredicate -> inPredicate.getOptions().size() <= REWRITE_OPTIONS_MAX_SIZE)
+                    .then(InPredicateDedup::dedup)
+                    .toRule(ExpressionRuleType.IN_PREDICATE_DEDUP)
         );
     }
 
     /** dedup */
     public static Expression dedup(InPredicate inPredicate) {
-        // In many BI scenarios, the sql is auto-generated, and hence there may be thousands of options.
-        // It takes a long time to apply this rule. So set a threshold for the max number.
-        int optionSize = inPredicate.getOptions().size();
-        if (optionSize > 200) {
-            return inPredicate;
-        }
         ImmutableSet.Builder<Expression> newOptionsBuilder = ImmutableSet.builderWithExpectedSize(inPredicate.arity());
         for (Expression option : inPredicate.getOptions()) {
             newOptionsBuilder.add(option);
         }
 
         Set<Expression> newOptions = newOptionsBuilder.build();
-        if (newOptions.size() == optionSize) {
+        if (newOptions.size() == inPredicate.getOptions().size()) {
             return inPredicate;
         }
         return new InPredicate(inPredicate.getCompareExpr(), newOptions);

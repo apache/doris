@@ -81,9 +81,6 @@ public:
 
     bool is_source() const override { return true; }
 
-    // If input data distribution is ignored by this fragment, this first local exchange source in this fragment will re-assign all data.
-    bool ignore_data_distribution() const override { return false; }
-
 private:
     friend class LocalExchangeSourceLocalState;
 

@@ -45,9 +45,9 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     a1.push_back(Null());
     a1.push_back(UInt64(12345678));
     a1.push_back(UInt64(0));
-    a2.push_back(String("hello amory"));
-    a2.push_back("NULL");
-    a2.push_back(String("cute amory"));
+    a2.push_back(Field(String("hello amory")));
+    a2.push_back(Field("NULL"));
+    a2.push_back(Field(String("cute amory")));
     a2.push_back(Null());
     Map m;
     m.push_back(a1);
@@ -55,11 +55,11 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
 
     Tuple t;
     t.push_back(Int128(12345454342));
-    t.push_back(String("amory cute"));
+    t.push_back(Field(String("amory cute")));
     t.push_back(UInt64(0));
 
     cases.field_values = {UInt64(12),
-                          String(" hello amory , cute amory "),
+                          Field(String(" hello amory , cute amory ")),
                           DecimalField<Decimal32>(-12345678, 0),
                           a1,
                           a2,

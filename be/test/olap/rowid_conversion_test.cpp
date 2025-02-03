@@ -382,8 +382,9 @@ protected:
         } while (s.ok());
         EXPECT_TRUE(s.is<END_OF_FILE>()) << s;
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
+        auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(out_rowset);
         std::vector<uint32_t> segment_num_rows;
-        EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
+        EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
         if (has_delete_handler) {
             // All keys less than 1000 are deleted by delete handler
             for (auto& item : output_data) {
@@ -447,7 +448,12 @@ protected:
                     int64_t c1 = j * rows_per_segment + n;
                     // There are 500 rows of data overlap between rowsets
                     if (i > 0) {
-                        c1 += i * num_segments * rows_per_segment - 500;
+                        if (is_overlap) {
+                            // There are 500 rows of data overlap between rowsets
+                            c1 -= 500;
+                        } else {
+                            ++c1;
+                        }
                     }
                     if (is_overlap && j > 0) {
                         // There are 10 rows of data overlap between segments
@@ -485,10 +491,12 @@ TEST_F(TestRowIdConversion, Basic) {
     RowIdConversion rowid_conversion;
     src_rowset.init(0);
     std::vector<uint32_t> rs0_segment_num_rows = {4, 3};
-    rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
+    auto st = rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
+    EXPECT_EQ(st.ok(), true);
     src_rowset.init(1);
     std::vector<uint32_t> rs1_segment_num_rows = {4};
-    rowid_conversion.init_segment_map(src_rowset, rs1_segment_num_rows);
+    st = rowid_conversion.init_segment_map(src_rowset, rs1_segment_num_rows);
+    EXPECT_EQ(st.ok(), true);
     rowid_conversion.set_dst_rowset_id(dst_rowset);
 
     std::vector<uint32_t> dst_segment_num_rows = {4, 3, 4};

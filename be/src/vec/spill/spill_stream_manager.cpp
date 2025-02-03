@@ -41,6 +41,7 @@
 #include "vec/spill/spill_stream.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 SpillStreamManager::SpillStreamManager(
         std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
@@ -350,8 +351,8 @@ Status SpillDataDir::update_capacity() {
                                                                   &_available_bytes));
     spill_disk_capacity->set_value(_disk_capacity_bytes);
     spill_disk_avail_capacity->set_value(_available_bytes);
-    auto disk_use_max_bytes = (int64_t)(_disk_capacity_bytes *
-                                        config::storage_flood_stage_usage_percent / (double)100);
+    auto disk_use_max_bytes =
+            (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
     bool is_percent = true;
     _spill_data_limit_bytes = ParseUtil::parse_mem_spec(config::spill_storage_limit, -1,
                                                         _disk_capacity_bytes, &is_percent);
@@ -363,9 +364,8 @@ Status SpillDataDir::update_capacity() {
         return Status::InvalidArgument(err_msg);
     }
     if (is_percent) {
-        _spill_data_limit_bytes =
-                (int64_t)(_spill_data_limit_bytes * config::storage_flood_stage_usage_percent /
-                          (double)100);
+        _spill_data_limit_bytes = (int64_t)(_spill_data_limit_bytes *
+                                            config::storage_flood_stage_usage_percent / 100);
     }
     if (_spill_data_limit_bytes > disk_use_max_bytes) {
         _spill_data_limit_bytes = disk_use_max_bytes;

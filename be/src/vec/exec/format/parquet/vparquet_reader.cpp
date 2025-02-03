@@ -253,10 +253,8 @@ Status ParquetReader::_open_file() {
     return Status::OK();
 }
 
-// Get iceberg col id to col name map stored in parquet metadata key values.
-// This is for iceberg schema evolution.
-std::vector<tparquet::KeyValue> ParquetReader::get_metadata_key_values() {
-    return _t_metadata->key_value_metadata;
+const FieldDescriptor ParquetReader::get_file_metadata_schema() {
+    return _file_metadata->schema();
 }
 
 Status ParquetReader::open() {
@@ -412,7 +410,7 @@ Status ParquetReader::set_fill_columns(
                     visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (in_predicate->children().size() > 0) {
+                if (in_predicate->get_num_children() > 0) {
                     visit_slot(in_predicate->children()[0].get());
                 }
             } else {
@@ -479,8 +477,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
-        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -746,7 +743,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                     const tparquet::ColumnChunk& chunk =
                             row_group.columns[field->physical_column_index];
                     auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                    int64_t chunk_start = has_dict_page(chunk_meta)
                                                   ? chunk_meta.dictionary_page_offset
                                                   : chunk_meta.data_page_offset;
                     int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
@@ -1009,11 +1006,7 @@ Status ParquetReader::_process_bloom_filter(bool* filter_group) {
 }
 
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
-    if (column.__isset.dictionary_page_offset) {
-        DCHECK_LT(column.dictionary_page_offset, column.data_page_offset);
-        return column.dictionary_page_offset;
-    }
-    return column.data_page_offset;
+    return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
 
 void ParquetReader::_collect_profile() {

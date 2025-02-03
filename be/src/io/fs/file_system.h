@@ -163,7 +163,7 @@ protected:
 
     // FIMXE(plat1ko): The implementation and semantics of this function are not completely
     // consistent, which is confused.
-    virtual Path absolute_path(const Path& path) const = 0;
+    virtual Status absolute_path(const Path& path, Path& abs_path) const = 0;
 
     FileSystem(std::string id, FileSystemType type) : _id(std::move(id)), _type(type) {}
 

@@ -89,5 +89,12 @@ public class CancelAlterStmtTest {
         Assert.assertEquals("CANCEL ALTER ROLLUP FROM `testDb`.`testTbl`", stmt.toString());
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals(AlterType.ROLLUP, stmt.getAlterType());
+
+        stmt = new CancelAlterTableStmt(AlterType.INDEX,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "testTbl"));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("CANCEL ALTER INDEX FROM `testDb`.`testTbl`", stmt.toString());
+        Assert.assertEquals("testDb", stmt.getDbName());
+        Assert.assertEquals(AlterType.INDEX, stmt.getAlterType());
     }
 }

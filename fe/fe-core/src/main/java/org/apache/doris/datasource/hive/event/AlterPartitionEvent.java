@@ -65,7 +65,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ALTER_PARTITION));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
         try {
             AlterPartitionMessage alterPartitionMessage =
                     MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
@@ -109,7 +109,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNameBefore:[{}],partitionNameAfter:[{}]",
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNameBefore:[{}],partitionNameAfter:[{}]",
                     catalogName, dbName, tblName, partitionNameBefore, partitionNameAfter);
             if (isRename) {
                 Env.getCurrentEnv().getCatalogMgr()
@@ -125,7 +125,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
             }
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 

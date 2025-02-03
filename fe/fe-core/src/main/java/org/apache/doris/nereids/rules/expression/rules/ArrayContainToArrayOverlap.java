@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
@@ -57,6 +58,7 @@ public class ArrayContainToArrayOverlap implements ExpressionPatternRuleFactory 
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(Or.class).then(ArrayContainToArrayOverlap::rewrite)
+                        .toRule(ExpressionRuleType.ARRAY_CONTAIN_TO_ARRAY_OVERLAP)
         );
     }
 

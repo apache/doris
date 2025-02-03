@@ -61,10 +61,10 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
     }
 
     if (_exchanger) {
-        _exchanger->close(*this);
+        _exchanger->close({_channel_id, this});
     }
     if (_shared_state) {
-        _shared_state->sub_running_source_operators(*this);
+        _shared_state->sub_running_source_operators();
     }
 
     std::vector<DependencySPtr> {}.swap(_local_merge_deps);
@@ -116,7 +116,9 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
                                                bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    RETURN_IF_ERROR(local_state._exchanger->get_block(state, block, eos, local_state));
+    RETURN_IF_ERROR(local_state._exchanger->get_block(
+            state, block, eos, {nullptr, nullptr, local_state._copy_data_timer},
+            {local_state._channel_id, &local_state}));
     local_state.reached_limit(block, eos);
     return Status::OK();
 }

@@ -99,7 +99,7 @@ ColumnPtr ColumnTypeConverter::get_column(const TypeDescriptor& src_type, Column
         return dst_column;
     }
 
-    if (_cached_src_column == nullptr) {
+    if (!_cached_src_column) {
         _cached_src_type =
                 DataTypeFactory::instance().create_data_type(src_type, dst_type->is_nullable());
         _cached_src_column =

@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "util/cgroup_util.h"
+#include "util/error_util.h"
 
 namespace doris {
 
@@ -84,14 +85,23 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
             : _mount_file_dir(std::move(mount_file_dir)) {}
 
     Status read_memory_limit(int64_t* value) override {
-        RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file((_mount_file_dir / "memory.max"),
-                                                                   value));
+        std::filesystem::path file_path = _mount_file_dir / "memory.max";
+        std::string line;
+        std::ifstream file_stream(file_path, std::ios::in);
+        getline(file_stream, line);
+        if (file_stream.fail() || file_stream.bad()) {
+            return Status::CgroupError("Error reading {}: {}", file_path.string(),
+                                       get_str_err_msg());
+        }
+        if (line == "max") {
+            *value = std::numeric_limits<int64_t>::max();
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(file_path, value));
         return Status::OK();
     }
 
     Status read_memory_usage(int64_t* value) override {
-        // memory.current contains a single number
-        // the reason why we subtract it described here: https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
         RETURN_IF_ERROR(CGroupUtil::read_int_line_from_cgroup_file(
                 (_mount_file_dir / "memory.current"), value));
         std::unordered_map<std::string, int64_t> metrics_map;
@@ -100,7 +110,12 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         if (*value < metrics_map["inactive_file"]) {
             return Status::CgroupError("CgroupsV2Reader read_memory_usage negative memory usage");
         }
+        // the reason why we subtract inactive_file described here:
+        // https://github.com/ClickHouse/ClickHouse/issues/64652#issuecomment-2149630667
         *value -= metrics_map["inactive_file"];
+        // Part of "slab" that might be reclaimed, such as dentries and inodes.
+        // https://arthurchiao.art/blog/cgroupv2-zh/
+        *value -= metrics_map["slab_reclaimable"];
         return Status::OK();
     }
 

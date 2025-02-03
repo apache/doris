@@ -55,9 +55,7 @@ public class MetaService extends RestBaseController {
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
-    private boolean isFromValidFe(HttpServletRequest request) {
-        String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
-        String clientPortStr = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
+    private boolean isFromValidFe(String clientHost, String clientPortStr) {
         Integer clientPort;
         try {
             clientPort = Integer.valueOf(clientPortStr);
@@ -74,11 +72,13 @@ public class MetaService extends RestBaseController {
         return true;
     }
 
-
     private void checkFromValidFe(HttpServletRequest request)
             throws InvalidClientException {
-        if (!isFromValidFe(request)) {
-            throw new InvalidClientException("invalid client host: " + request.getRemoteHost());
+        String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
+        String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
+        if (!isFromValidFe(clientHost, clientPort)) {
+            throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort
+                + ", request from " + request.getRemoteHost());
         }
     }
 

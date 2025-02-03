@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -32,14 +33,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -66,10 +63,9 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
             .put(Add.class, Subtract.class)
             .put(Subtract.class, Add.class)
             .put(Divide.class, Multiply.class)
-            .put(YearsSub.class, YearsAdd.class)
-            .put(YearsAdd.class, YearsSub.class)
-            .put(MonthsSub.class, MonthsAdd.class)
-            .put(MonthsAdd.class, MonthsSub.class)
+            // ATTN: YearsAdd, MonthsAdd can not reverse
+            //       for example, months_add(date '2024-01-31', 1) = date '2024-02-29' can not reverse to
+            //       date '2024-01-31' = months_sub(date '2024-02-29', 1)
             .put(WeeksSub.class, WeeksAdd.class)
             .put(WeeksAdd.class, WeeksSub.class)
             .put(DaysSub.class, DaysAdd.class)
@@ -87,6 +83,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class)
                         .thenApply(ctx -> simplify(ctx.expr, new ExpressionRewriteContext(ctx.cascadesContext)))
+                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC_COMPARISON)
         );
     }
 

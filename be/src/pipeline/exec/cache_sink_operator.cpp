@@ -27,7 +27,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status CacheSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -46,8 +46,8 @@ Status CacheSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id)
-        : Base(sink_id, child_id, child_id) {
+CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id, int dest_id)
+        : Base(sink_id, child_id, dest_id) {
     _name = "CACHE_SINK_OPERATOR";
 }
 

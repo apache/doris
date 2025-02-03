@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
@@ -80,9 +79,7 @@ public class JdbcSapHanaClient extends JdbcClient {
                 return Type.BOOLEAN;
             case "CHAR":
             case "NCHAR":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize().orElse(0));
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "TIME":
             case "VARCHAR":
             case "NVARCHAR":

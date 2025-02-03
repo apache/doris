@@ -27,7 +27,6 @@ class JvmMetrics;
 
 class JvmStats {
 private:
-    JNIEnv* env = nullptr;
     jclass _managementFactoryClass = nullptr;
     jmethodID _getMemoryMXBeanMethod = nullptr;
     jclass _memoryUsageClass = nullptr;
@@ -96,11 +95,10 @@ private:
     bool _init_complete = false;
 
 public:
-    //    JvmStats(JNIEnv* ENV);
-    void init(JNIEnv* ENV);
+    Status init(JNIEnv* env);
     bool init_complete() const { return _init_complete; }
     void set_complete(bool val) { _init_complete = val; }
-    void refresh(JvmMetrics* jvm_metrics);
+    Status refresh(JvmMetrics* jvm_metrics) const;
     ~JvmStats();
 };
 

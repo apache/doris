@@ -67,7 +67,6 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     std::mutex _rf_locks;
-    phmap::flat_hash_set<vectorized::VExprSPtr> _rf_vexpr_set;
     RuntimeState* _state = nullptr;
 
 private:
@@ -78,7 +77,7 @@ private:
 
     const RowDescriptor& _row_descriptor_ref;
 
-    VExprContextSPtrs& _conjuncts_ref;
+    vectorized::VExprContextSPtrs& _conjuncts_ref;
 
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;

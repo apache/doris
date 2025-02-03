@@ -505,3 +505,10 @@ CREATE TABLE doris_test.`t_char` (
   `char_col` char(255) COLLATE utf8_bin DEFAULT NULL
 );
 
+CREATE TABLE doris_test.`test_cast` (
+  `id` int(11) DEFAULT NULL,
+  `int_c` varchar(100),
+  `date_c` varchar(100),
+  `datetime_c` varchar(100)
+);
+

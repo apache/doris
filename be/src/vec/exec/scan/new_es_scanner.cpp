@@ -132,7 +132,7 @@ Status NewEsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
+                columns[i] = block->get_by_position(i).column->assume_mutable();
             } else {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
@@ -169,8 +169,7 @@ Status NewEsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 }
 
 Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& columns) {
-    auto read_timer = _local_state->cast<pipeline::EsScanLocalState>()._read_timer;
-    SCOPED_TIMER(read_timer);
+    SCOPED_TIMER(_local_state->cast<pipeline::EsScanLocalState>()._read_timer);
     if (_line_eof && _batch_eof) {
         _es_eof = true;
         return Status::OK();
@@ -185,12 +184,8 @@ Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& column
             }
         }
 
-        auto rows_read_counter =
-                _local_state->cast<pipeline::EsScanLocalState>()._rows_read_counter;
-        auto materialize_timer =
-                _local_state->cast<pipeline::EsScanLocalState>()._materialize_timer;
-        COUNTER_UPDATE(rows_read_counter, 1);
-        SCOPED_TIMER(materialize_timer);
+        COUNTER_UPDATE(_local_state->cast<pipeline::EsScanLocalState>()._blocks_read_counter, 1);
+        SCOPED_TIMER(_local_state->cast<pipeline::EsScanLocalState>()._materialize_timer);
         RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, &_line_eof,
                                                         _docvalue_context, _state->timezone_obj()));
         if (!_line_eof) {

@@ -19,7 +19,7 @@ suite("test_insert_overwrite_recover") {
     def table = "test_insert_overwrite_recover"
 
     // create table and insert data
-    sql """ drop table if exists ${table} force"""
+    sql """ drop table if exists ${table}"""
     sql """
     create table ${table} (
         `id` int(11),

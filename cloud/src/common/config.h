@@ -22,7 +22,8 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
-CONF_Int32(brpc_num_threads, "-1");
+CONF_Int32(brpc_num_threads, "64");
+// connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
 CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
@@ -53,24 +54,35 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
+// Custom conf path is default the same as conf path, and configs will be append to it.
+// Otherwise, will a new custom conf file will be created.
+CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
-CONF_Int32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
+CONF_mInt32(recycle_job_lease_expired_ms, "60000");
+CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "8");
+// IO worker thread pool concurrency: object list, delete
+CONF_mInt32(instance_recycler_worker_pool_size, "32");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
-CONF_Int32(recycle_pool_parallelism, "10");
+// s3_producer_pool recycle_tablet_pool, delete single object in this pool
+CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
+// Currently only used for recycler test
+CONF_Bool(enable_delete_bitmap_inverted_check, "false");
+// checks if https://github.com/apache/doris/pull/40204 works as expected
+CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
@@ -80,6 +92,10 @@ CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+
+// force recycler to recycle all useless object.
+// **just for TEST**
+CONF_Bool(force_immediate_recycle, "false");
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -94,7 +110,7 @@ CONF_String(test_hdfs_fs_name, "");
 // CONF_Bool(b, "true");
 
 // txn config
-CONF_Int32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
@@ -117,7 +133,7 @@ CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
 
-CONF_Int32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
@@ -135,8 +151,10 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
-// Limit kv size of Schema SchemaDictKeyList, default 10MB
-CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+// Limit kv size of Schema SchemaDictKeyList, default 5MB
+CONF_mInt32(schema_dict_kv_size_limit, "5242880");
+// Limit the count of columns in schema dict value, default 4K
+CONF_mInt32(schema_dict_key_count_limit, "4096");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -208,6 +226,18 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
+// Max byte getting delete bitmap can return, default is 1GB
+CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+
+// Max byte txn commit when updating delete bitmap, default is 7MB.
+// Because the size of one fdb transaction can't exceed 10MB, and
+// fdb does not have an accurate way to estimate the size of txn.
+// In my test, when txn->approximate_bytes() bigger than 8MB,
+// it may meet Transaction exceeds byte limit error. We'd better
+// reserve 1MB of buffer, so setting the default value to 7MB is
+// more reasonable.
+CONF_mInt64(max_txn_commit_byte, "7340032");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
@@ -218,4 +248,8 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
 
+CONF_Bool(enable_check_instance_id, "true");
+
+// Check if ip eq 127.0.0.1, ms/recycler exit
+CONF_Bool(enable_loopback_address_for_ms, "false");
 } // namespace doris::cloud::config

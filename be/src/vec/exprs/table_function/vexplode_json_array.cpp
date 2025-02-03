@@ -18,16 +18,12 @@
 #include "vec/exprs/table_function/vexplode_json_array.h"
 
 #include <glog/logging.h>
-#include <inttypes.h>
 #include <rapidjson/rapidjson.h>
-#include <stdio.h>
 
 #include <algorithm>
-#include <limits>
+#include <cstdio>
 
 #include "common/status.h"
-#include "util/jsonb_parser.h"
-#include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -38,6 +34,8 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 template <typename DataImpl>
 VExplodeJsonArrayTableFunction<DataImpl>::VExplodeJsonArrayTableFunction() : TableFunction() {
     _fn_name = "vexplode_json_array";
@@ -155,4 +153,5 @@ template class VExplodeJsonArrayTableFunction<ParsedDataDouble>;
 template class VExplodeJsonArrayTableFunction<ParsedDataString>;
 template class VExplodeJsonArrayTableFunction<ParsedDataJSON>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

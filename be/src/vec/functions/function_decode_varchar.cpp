@@ -74,7 +74,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnVector<IntegerType>* col_source = assert_cast<const ColumnVector<IntegerType>*>(
                 block.get_by_position(arguments[0]).column.get());
 

@@ -87,18 +87,24 @@ suite("test_agg_foreach") {
    select histogram_foreach(a) from foreach_table;
    """
    
-   qt_sql """
-      select PERCENTILE_foreach(a,a)  from foreach_table;
-   """
+   try {
+        sql "select PERCENTILE_foreach(a,a)  from foreach_table;"
+   } catch (Exception ex) {
+        assert("${ex}".contains("Unsupport the func"))
+   }
   
-   qt_sql """
-      select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;
-   """
 
-   qt_sql """
+   try {
+        sql "select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;"
+   } catch (Exception ex) {
+        assert("${ex}".contains("Unsupport the func"))
+   }
 
-   select PERCENTILE_APPROX_foreach(a,a) from foreach_table;
-   """
+   try {
+	sql "select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"
+   } catch (Exception ex) {
+        assert("${ex}".contains("Unsupport the func"))
+   }
 
    qt_sql """
    select GROUP_BIT_AND_foreach(a), GROUP_BIT_OR_foreach(a), GROUP_BIT_XOR_foreach(a)  from foreach_table;

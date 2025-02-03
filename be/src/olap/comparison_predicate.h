@@ -204,12 +204,23 @@ public:
                 return bf->test_bytes(_value.data, _value.size);
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
-                // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
                     decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
                     return bf->test_bytes(
                             const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
                             sizeof(decimal12_t));
+                    // Datev1 using uint24_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                    uint24_t date_value(_value.to_olap_date());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                            sizeof(uint24_t));
+                    // DatetimeV1 using int64_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                    int64_t datetime_value(_value.to_olap_datetime());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                            sizeof(int64_t));
                 } else {
                     return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
                                           sizeof(T));
@@ -263,7 +274,7 @@ public:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
@@ -368,7 +379,7 @@ private:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
@@ -454,7 +465,7 @@ private:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 

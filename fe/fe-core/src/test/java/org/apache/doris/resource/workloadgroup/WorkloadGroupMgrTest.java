@@ -235,4 +235,226 @@ public class WorkloadGroupMgrTest {
         }
         Assert.assertTrue(tWorkloadGroup1.getWorkloadGroupInfo().getCpuShare() == 5);
     }
+
+    @Test
+    public void testMultiTagCreateWorkloadGroup() throws UserException {
+        Config.enable_workload_group = true;
+        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+
+            {
+                String name = "empty_g1";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "50%");
+                properties.put(WorkloadGroup.TAG, "");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "empty_g2";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "10%");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g1";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn1,cn2");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g2";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn3,cn2");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+
+            {
+                String name = "not_empty_g3";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "70%");
+                properties.put(WorkloadGroup.TAG, "cn2,cn100");
+                try {
+                    CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                    workloadGroupMgr.createWorkloadGroup(createStmt);
+                } catch (DdlException e) {
+                    Assert.assertTrue(e.getMessage().contains("The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT));
+                }
+            }
+
+            {
+                String name = "not_empty_g3";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "70%");
+                properties.put(WorkloadGroup.TAG, "cn3,cn100");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g5";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "70%");
+                properties.put(WorkloadGroup.TAG, "cn5");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g6";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn5");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g7";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "70%");
+                properties.put(WorkloadGroup.TAG, "cn5");
+                try {
+                    CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                    workloadGroupMgr.createWorkloadGroup(createStmt);
+                } catch (DdlException e) {
+                    Assert.assertTrue(e.getMessage().contains("The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT));
+                }
+            }
+
+    }
+
+
+    @Test
+    public void testMultiTagAlterWorkloadGroup() throws UserException {
+        Config.enable_workload_group = true;
+        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+            {
+                String name = "empty_g1";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "50%");
+                properties.put(WorkloadGroup.TAG, "");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "empty_g2";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "10%");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g1";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn1,cn2");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g2";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn3,cn2");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g3";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn2,cn100");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g3";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "70%");
+                properties.put(WorkloadGroup.TAG, "cn2,cn100");
+                AlterWorkloadGroupStmt alterStmt = new AlterWorkloadGroupStmt(name, properties);
+                try {
+                    workloadGroupMgr.alterWorkloadGroup(alterStmt);
+                } catch (DdlException e) {
+                    Assert.assertTrue(e.getMessage().contains("The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT));
+                }
+            }
+    }
+
+
+    @Test
+    public void testMultiTagCreateWorkloadGroupWithNoTag() throws UserException {
+        Config.enable_workload_group = true;
+        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+
+            {
+                String name = "not_empty_g1";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn1,cn2");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "not_empty_g2";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                properties.put(WorkloadGroup.TAG, "cn3,cn2");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            // create not tag workload group
+            {
+                String name = "no_tag_g1";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "10%");
+                properties.put(WorkloadGroup.TAG, "");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "no_tag_g2";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+
+            {
+                String name = "no_tag_g3";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "70%");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                try {
+                    workloadGroupMgr.createWorkloadGroup(createStmt);
+                } catch (DdlException e) {
+                    Assert.assertTrue(e.getMessage().contains("The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT));
+                }
+            }
+
+            {
+                String name = "no_tag_g3";
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+                CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
+                workloadGroupMgr.createWorkloadGroup(createStmt);
+            }
+    }
 }

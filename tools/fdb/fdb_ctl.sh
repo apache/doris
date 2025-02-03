@@ -81,17 +81,35 @@ function download_fdb() {
         return
     fi
 
-    local URL="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/"
-    local TMP="${FDB_PKG_DIR}-tmp"
+    arch=$(uname -m)
+    if [[ "${arch}" == "x86_64" ]]; then
+        local URL="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/"
+        local TMP="${FDB_PKG_DIR}-tmp"
 
-    rm -rf "${TMP}"
-    mkdir -p "${TMP}"
+        rm -rf "${TMP}"
+        mkdir -p "${TMP}"
 
-    wget "${URL}/fdbbackup.x86_64" -O "${TMP}/fdbbackup"
-    wget "${URL}/fdbserver.x86_64" -O "${TMP}/fdbserver"
-    wget "${URL}/fdbcli.x86_64" -O "${TMP}/fdbcli"
-    wget "${URL}/fdbmonitor.x86_64" -O "${TMP}/fdbmonitor"
-    wget "${URL}/libfdb_c.x86_64.so" -O "${TMP}/libfdb_c.x86_64.so"
+        wget "${URL}/fdbbackup.x86_64" -O "${TMP}/fdbbackup"
+        wget "${URL}/fdbserver.x86_64" -O "${TMP}/fdbserver"
+        wget "${URL}/fdbcli.x86_64" -O "${TMP}/fdbcli"
+        wget "${URL}/fdbmonitor.x86_64" -O "${TMP}/fdbmonitor"
+        wget "${URL}/libfdb_c.x86_64.so" -O "${TMP}/libfdb_c.x86_64.so"
+    elif [[ "${arch}" == "aarch64" ]]; then
+        local URL="https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/aarch64"
+        local TMP="${FDB_PKG_DIR}-tmp"
+
+        rm -rf "${TMP}"
+        mkdir -p "${TMP}"
+
+        wget "${URL}/fdbbackup" -O "${TMP}/fdbbackup"
+        wget "${URL}/fdbserver" -O "${TMP}/fdbserver"
+        wget "${URL}/fdbcli" -O "${TMP}/fdbcli"
+        wget "${URL}/fdbmonitor" -O "${TMP}/fdbmonitor"
+        wget "${URL}/libfdb_c.aarch64.so" -O "${TMP}/libfdb_c.aarch64.so"
+    else
+        echo "Unsupported architecture: ""${arch}"
+    fi
+
     chmod +x "${TMP}"/fdb*
 
     mv "${TMP}" "${FDB_PKG_DIR}"
@@ -335,12 +353,14 @@ function start_fdb() {
 }
 
 function stop_fdb() {
-    if [[ -f "${FDB_HOME}/fdbmonitor.pid" ]]; then
+    fdb_pid_file="${FDB_HOME}/fdbmonitor.pid"
+    if [[ -f "${fdb_pid_file}" ]]; then
         local fdb_pid
-        fdb_pid=$(cat "${FDB_HOME}/fdbmonitor.pid")
+        fdb_pid=$(cat "${fdb_pid_file}")
         if ps -p "${fdb_pid}" >/dev/null; then
             echo "Stop fdbmonitor with pid ${fdb_pid}"
             kill -9 "${fdb_pid}"
+            rm -f "${fdb_pid_file}"
         fi
     fi
 }
@@ -449,7 +469,7 @@ function usage() {
     echo -e "\t clean  \t clean fdb data"
     echo -e "\t start  \t start fdb"
     echo -e "\t stop   \t stop fdb"
-    echo -e "\t fdbcli \t stop fdb"
+    echo -e "\t fdbcli \t execute fdbcli"
     echo -e ""
     exit 1
 }

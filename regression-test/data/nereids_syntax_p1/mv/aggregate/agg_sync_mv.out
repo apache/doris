@@ -90,34 +90,34 @@
 11	[12]
 
 -- !select_collect_list --
-\N	[1, 1, 1, 1, 1]
-0	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-1	[2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-2	[3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
-3	[4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
-4	[5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
-5	[6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
-6	[7, 7, 7, 7, 7, 7, 7, 7, 7, 7]
-7	[8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
-8	[9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
-9	[10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
-10	[11, 11, 11, 11, 11, 11, 11, 11, 11, 11]
-11	[12, 12, 12, 12, 12, 12, 12, 12, 12, 12]
+\N	[1]
+0	[1, 1]
+1	[2, 2]
+2	[3, 3]
+3	[4, 4]
+4	[5, 5]
+5	[6, 6]
+6	[7, 7]
+7	[8, 8]
+8	[9, 9]
+9	[10, 10]
+10	[11, 11]
+11	[12, 12]
 
 -- !select_collect_list_mv --
-\N	[1, 1, 1, 1, 1]
-0	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-1	[2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-2	[3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
-3	[4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
-4	[5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
-5	[6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
-6	[7, 7, 7, 7, 7, 7, 7, 7, 7, 7]
-7	[8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
-8	[9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
-9	[10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
-10	[11, 11, 11, 11, 11, 11, 11, 11, 11, 11]
-11	[12, 12, 12, 12, 12, 12, 12, 12, 12, 12]
+\N	[1]
+0	[1, 1]
+1	[2, 2]
+2	[3, 3]
+3	[4, 4]
+4	[5, 5]
+5	[6, 6]
+6	[7, 7]
+7	[8, 8]
+8	[9, 9]
+9	[10, 10]
+10	[11, 11]
+11	[12, 12]
 
 -- !select_corr --
 \N	0.0
@@ -210,34 +210,34 @@
 11	\N
 
 -- !select_count_by_enum --
-\N	[{"cbe":{"string1":5,"null":10},"notnull":15,"null":0,"all":15}]
-0	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-1	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-2	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
-3	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-4	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-5	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
-6	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-7	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-8	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
-9	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-10	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-11	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
+\N	[{"cbe":{"string1":1,"null":2},"notnull":3,"null":0,"all":3}]
+0	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+1	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+2	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
+3	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+4	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+5	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
+6	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+7	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+8	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
+9	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+10	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+11	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
 
 -- !select_count_by_enum_mv --
-\N	[{"cbe":{"string1":5,"null":10},"notnull":15,"null":0,"all":15}]
-0	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-1	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-2	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
-3	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-4	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-5	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
-6	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-7	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-8	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
-9	[{"cbe":{"string1":10},"notnull":10,"null":0,"all":10}]
-10	[{"cbe":{"string2":10},"notnull":10,"null":0,"all":10}]
-11	[{"cbe":{"string3":10},"notnull":10,"null":0,"all":10}]
+\N	[{"cbe":{"string1":1,"null":2},"notnull":3,"null":0,"all":3}]
+0	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+1	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+2	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
+3	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+4	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+5	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
+6	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+7	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+8	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
+9	[{"cbe":{"string1":2},"notnull":2,"null":0,"all":2}]
+10	[{"cbe":{"string2":2},"notnull":2,"null":0,"all":2}]
+11	[{"cbe":{"string3":2},"notnull":2,"null":0,"all":2}]
 
 -- !select_avg_weighted --
 \N	1.0
@@ -247,11 +247,11 @@
 3	4.0
 4	5.0
 5	6.0
-6	6.999999999999999
+6	7.0
 7	8.0
 8	9.0
 9	10.0
-10	11.000000000000002
+10	11.0
 11	12.0
 
 -- !select_avg_weighted_mv --
@@ -262,11 +262,11 @@
 3	4.0
 4	5.0
 5	6.0
-6	6.999999999999999
+6	7.0
 7	8.0
 8	9.0
 9	10.0
-10	11.000000000000002
+10	11.0
 11	12.0
 
 -- !select_bitmap_intersect --
@@ -660,34 +660,34 @@
 11	0
 
 -- !select_group_concat --
-\N	1,1,1,1,1
-0	1,1,1,1,1,1,1,1,1,1
-1	2,2,2,2,2,2,2,2,2,2
-2	3,3,3,3,3,3,3,3,3,3
-3	4,4,4,4,4,4,4,4,4,4
-4	5,5,5,5,5,5,5,5,5,5
-5	6,6,6,6,6,6,6,6,6,6
-6	7,7,7,7,7,7,7,7,7,7
-7	8,8,8,8,8,8,8,8,8,8
-8	9,9,9,9,9,9,9,9,9,9
-9	10,10,10,10,10,10,10,10,10,10
-10	11,11,11,11,11,11,11,11,11,11
-11	12,12,12,12,12,12,12,12,12,12
+\N	1
+0	1,1
+1	2,2
+2	3,3
+3	4,4
+4	5,5
+5	6,6
+6	7,7
+7	8,8
+8	9,9
+9	10,10
+10	11,11
+11	12,12
 
 -- !select_group_concat_mv --
-\N	1,1,1,1,1
-0	1,1,1,1,1,1,1,1,1,1
-1	2,2,2,2,2,2,2,2,2,2
-2	3,3,3,3,3,3,3,3,3,3
-3	4,4,4,4,4,4,4,4,4,4
-4	5,5,5,5,5,5,5,5,5,5
-5	6,6,6,6,6,6,6,6,6,6
-6	7,7,7,7,7,7,7,7,7,7
-7	8,8,8,8,8,8,8,8,8,8
-8	9,9,9,9,9,9,9,9,9,9
-9	10,10,10,10,10,10,10,10,10,10
-10	11,11,11,11,11,11,11,11,11,11
-11	12,12,12,12,12,12,12,12,12,12
+\N	1
+0	1,1
+1	2,2
+2	3,3
+3	4,4
+4	5,5
+5	6,6
+6	7,7
+7	8,8
+8	9,9
+9	10,10
+10	11,11
+11	12,12
 
 -- !select_multi_distinct_group_concat --
 \N	1
@@ -780,34 +780,34 @@
 11	12
 
 -- !select_histogram --
-\N	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":5,"pre_sum":0}]}
-0	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":10,"pre_sum":0}]}
-1	{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":10,"pre_sum":0}]}
-2	{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":10,"pre_sum":0}]}
-3	{"num_buckets":1,"buckets":[{"lower":"4","upper":"4","ndv":1,"count":10,"pre_sum":0}]}
-4	{"num_buckets":1,"buckets":[{"lower":"5","upper":"5","ndv":1,"count":10,"pre_sum":0}]}
-5	{"num_buckets":1,"buckets":[{"lower":"6","upper":"6","ndv":1,"count":10,"pre_sum":0}]}
-6	{"num_buckets":1,"buckets":[{"lower":"7","upper":"7","ndv":1,"count":10,"pre_sum":0}]}
-7	{"num_buckets":1,"buckets":[{"lower":"8","upper":"8","ndv":1,"count":10,"pre_sum":0}]}
-8	{"num_buckets":1,"buckets":[{"lower":"9","upper":"9","ndv":1,"count":10,"pre_sum":0}]}
-9	{"num_buckets":1,"buckets":[{"lower":"10","upper":"10","ndv":1,"count":10,"pre_sum":0}]}
-10	{"num_buckets":1,"buckets":[{"lower":"11","upper":"11","ndv":1,"count":10,"pre_sum":0}]}
-11	{"num_buckets":1,"buckets":[{"lower":"12","upper":"12","ndv":1,"count":10,"pre_sum":0}]}
+\N	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":1,"pre_sum":0}]}
+0	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":2,"pre_sum":0}]}
+1	{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":2,"pre_sum":0}]}
+2	{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":2,"pre_sum":0}]}
+3	{"num_buckets":1,"buckets":[{"lower":"4","upper":"4","ndv":1,"count":2,"pre_sum":0}]}
+4	{"num_buckets":1,"buckets":[{"lower":"5","upper":"5","ndv":1,"count":2,"pre_sum":0}]}
+5	{"num_buckets":1,"buckets":[{"lower":"6","upper":"6","ndv":1,"count":2,"pre_sum":0}]}
+6	{"num_buckets":1,"buckets":[{"lower":"7","upper":"7","ndv":1,"count":2,"pre_sum":0}]}
+7	{"num_buckets":1,"buckets":[{"lower":"8","upper":"8","ndv":1,"count":2,"pre_sum":0}]}
+8	{"num_buckets":1,"buckets":[{"lower":"9","upper":"9","ndv":1,"count":2,"pre_sum":0}]}
+9	{"num_buckets":1,"buckets":[{"lower":"10","upper":"10","ndv":1,"count":2,"pre_sum":0}]}
+10	{"num_buckets":1,"buckets":[{"lower":"11","upper":"11","ndv":1,"count":2,"pre_sum":0}]}
+11	{"num_buckets":1,"buckets":[{"lower":"12","upper":"12","ndv":1,"count":2,"pre_sum":0}]}
 
 -- !select_histogram_mv --
-\N	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":5,"pre_sum":0}]}
-0	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":10,"pre_sum":0}]}
-1	{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":10,"pre_sum":0}]}
-2	{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":10,"pre_sum":0}]}
-3	{"num_buckets":1,"buckets":[{"lower":"4","upper":"4","ndv":1,"count":10,"pre_sum":0}]}
-4	{"num_buckets":1,"buckets":[{"lower":"5","upper":"5","ndv":1,"count":10,"pre_sum":0}]}
-5	{"num_buckets":1,"buckets":[{"lower":"6","upper":"6","ndv":1,"count":10,"pre_sum":0}]}
-6	{"num_buckets":1,"buckets":[{"lower":"7","upper":"7","ndv":1,"count":10,"pre_sum":0}]}
-7	{"num_buckets":1,"buckets":[{"lower":"8","upper":"8","ndv":1,"count":10,"pre_sum":0}]}
-8	{"num_buckets":1,"buckets":[{"lower":"9","upper":"9","ndv":1,"count":10,"pre_sum":0}]}
-9	{"num_buckets":1,"buckets":[{"lower":"10","upper":"10","ndv":1,"count":10,"pre_sum":0}]}
-10	{"num_buckets":1,"buckets":[{"lower":"11","upper":"11","ndv":1,"count":10,"pre_sum":0}]}
-11	{"num_buckets":1,"buckets":[{"lower":"12","upper":"12","ndv":1,"count":10,"pre_sum":0}]}
+\N	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":1,"pre_sum":0}]}
+0	{"num_buckets":1,"buckets":[{"lower":"1","upper":"1","ndv":1,"count":2,"pre_sum":0}]}
+1	{"num_buckets":1,"buckets":[{"lower":"2","upper":"2","ndv":1,"count":2,"pre_sum":0}]}
+2	{"num_buckets":1,"buckets":[{"lower":"3","upper":"3","ndv":1,"count":2,"pre_sum":0}]}
+3	{"num_buckets":1,"buckets":[{"lower":"4","upper":"4","ndv":1,"count":2,"pre_sum":0}]}
+4	{"num_buckets":1,"buckets":[{"lower":"5","upper":"5","ndv":1,"count":2,"pre_sum":0}]}
+5	{"num_buckets":1,"buckets":[{"lower":"6","upper":"6","ndv":1,"count":2,"pre_sum":0}]}
+6	{"num_buckets":1,"buckets":[{"lower":"7","upper":"7","ndv":1,"count":2,"pre_sum":0}]}
+7	{"num_buckets":1,"buckets":[{"lower":"8","upper":"8","ndv":1,"count":2,"pre_sum":0}]}
+8	{"num_buckets":1,"buckets":[{"lower":"9","upper":"9","ndv":1,"count":2,"pre_sum":0}]}
+9	{"num_buckets":1,"buckets":[{"lower":"10","upper":"10","ndv":1,"count":2,"pre_sum":0}]}
+10	{"num_buckets":1,"buckets":[{"lower":"11","upper":"11","ndv":1,"count":2,"pre_sum":0}]}
+11	{"num_buckets":1,"buckets":[{"lower":"12","upper":"12","ndv":1,"count":2,"pre_sum":0}]}
 
 -- !select_max_by --
 \N	1
@@ -1200,64 +1200,64 @@
 11	0.0
 
 -- !select_sum0 --
-\N	5
-0	10
-1	20
-2	30
-3	40
-4	50
-5	60
-6	70
-7	80
-8	90
-9	100
-10	110
-11	120
+\N	1
+0	2
+1	4
+2	6
+3	8
+4	10
+5	12
+6	14
+7	16
+8	18
+9	20
+10	22
+11	24
 
 -- !select_sum0_mv --
-\N	5
-0	10
-1	20
-2	30
-3	40
-4	50
-5	60
-6	70
-7	80
-8	90
-9	100
-10	110
-11	120
+\N	1
+0	2
+1	4
+2	6
+3	8
+4	10
+5	12
+6	14
+7	16
+8	18
+9	20
+10	22
+11	24
 
 -- !select_topn --
-\N	{"null":10,"varchar11":5}
-0	{"varchar11":10}
-1	{"varchar12":10}
-2	{"varchar13":10}
-3	{"varchar11":10}
-4	{"varchar12":10}
-5	{"varchar13":10}
-6	{"varchar11":10}
-7	{"varchar12":10}
-8	{"varchar13":10}
-9	{"varchar11":10}
-10	{"varchar12":10}
-11	{"varchar13":10}
+\N	{"null":2,"varchar11":1}
+0	{"varchar11":2}
+1	{"varchar12":2}
+2	{"varchar13":2}
+3	{"varchar11":2}
+4	{"varchar12":2}
+5	{"varchar13":2}
+6	{"varchar11":2}
+7	{"varchar12":2}
+8	{"varchar13":2}
+9	{"varchar11":2}
+10	{"varchar12":2}
+11	{"varchar13":2}
 
 -- !select_topn_mv --
-\N	{"null":10,"varchar11":5}
-0	{"varchar11":10}
-1	{"varchar12":10}
-2	{"varchar13":10}
-3	{"varchar11":10}
-4	{"varchar12":10}
-5	{"varchar13":10}
-6	{"varchar11":10}
-7	{"varchar12":10}
-8	{"varchar13":10}
-9	{"varchar11":10}
-10	{"varchar12":10}
-11	{"varchar13":10}
+\N	{"null":2,"varchar11":1}
+0	{"varchar11":2}
+1	{"varchar12":2}
+2	{"varchar13":2}
+3	{"varchar11":2}
+4	{"varchar12":2}
+5	{"varchar13":2}
+6	{"varchar11":2}
+7	{"varchar12":2}
+8	{"varchar13":2}
+9	{"varchar11":2}
+10	{"varchar12":2}
+11	{"varchar13":2}
 
 -- !select_topn_array --
 \N	["null", "varchar11"]
