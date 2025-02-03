@@ -30,7 +30,7 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-TPCH_DATA_DIR="${CURDIR}/tpch-data"
+TPCH_DATA_DIR="/mnt/disk1/tpch-data"
 
 usage() {
     echo "
