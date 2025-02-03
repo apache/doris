@@ -110,6 +110,11 @@ private:
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
+enum class RowsetRecyclingState {
+    FORMAL_ROWSET,
+    TMP_ROWSET,
+};
+
 class InstanceRecycler {
 public:
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
@@ -222,7 +227,8 @@ private:
                            const std::string& rowset_id);
 
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
+    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
+                           RowsetRecyclingState type);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
