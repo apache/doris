@@ -62,7 +62,7 @@ public class WorkloadGroupTest {
             WorkloadGroup.create(name1, properties1);
             Assert.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("requires a positive integer."));
+            Assert.assertTrue(e.getMessage().contains("value is -1 or a positive integer"));
         }
 
         properties1.put(WorkloadGroup.CPU_SHARE, "cpu");
@@ -70,7 +70,7 @@ public class WorkloadGroupTest {
             WorkloadGroup.create(name1, properties1);
             Assert.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("requires a positive integer."));
+            Assert.assertTrue(e.getMessage().contains("value is -1 or a positive integer"));
         }
     }
 

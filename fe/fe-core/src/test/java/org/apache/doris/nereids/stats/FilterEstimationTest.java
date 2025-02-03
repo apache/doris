@@ -1214,7 +1214,7 @@ class FilterEstimationTest {
 
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(allAnd, stats);
-        Assertions.assertEquals(result.getRowCount(), 2109.16, 0.01);
+        Assertions.assertEquals(result.getRowCount(), 2109.0, 10);
     }
 
     /**

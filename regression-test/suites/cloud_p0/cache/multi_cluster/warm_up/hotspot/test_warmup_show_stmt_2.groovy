@@ -38,7 +38,7 @@ suite("test_warmup_show_stmt_2") {
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
 
-    def load_customer_once =  { 
+    def load_customer_once =  {
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         def loadLabel = table + "_" + uniqueID
         // load data from cos
@@ -84,15 +84,17 @@ suite("test_warmup_show_stmt_2") {
     log.info(result.toString())
     org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
     def hotTableName = "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer"
+    def found = false
     for (int i = 0; i < result.size(); ++i) {
         if (!result[i].get("TableName").equals(hotTableName)) {
-            org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
             continue
         }
+        found = true
         assertEquals(result[i].get("ComputeGroupId"), "regression_cluster_id0")
         assertEquals(result[i].get("ComputeGroupName"), "regression_cluster_name0")
         assertEquals(result[i].get("TableName"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
     }
+    org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", found)
 
     result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0" """
     log.info(result.toString())
@@ -111,14 +113,16 @@ suite("test_warmup_show_stmt_2") {
     result = sql_return_maparray """ show cache hotspot "/" """
     log.info(result.toString())
     org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
+    found = false
     for (int i = 0; i < result.size(); ++i) {
         if (!result[i].get("TableName").equals(hotTableName)) {
-            org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
             continue
         }
+        found = true
         assertEquals(result[i].get("ComputeGroupId"), "regression_cluster_id0")
         assertEquals(result[i].get("ComputeGroupName"), "regression_cluster_name0")
         assertEquals(result[i].get("TableName"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
         break
     }
+    org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}", found)
 }

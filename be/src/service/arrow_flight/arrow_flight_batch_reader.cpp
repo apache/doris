@@ -56,7 +56,7 @@ arrow::Status ArrowFlightBatchReaderBase::_return_invalid_status(const std::stri
 }
 
 ArrowFlightBatchReaderBase::~ArrowFlightBatchReaderBase() {
-    VLOG_NOTICE << fmt::format(
+    LOG(INFO) << fmt::format(
             "ArrowFlightBatchReader finished, packet_seq={}, result_addr={}:{}, finistId={}, "
             "convert_arrow_batch_timer={}, deserialize_block_timer={}, peak_memory_usage={}",
             _packet_seq, _statement->result_addr.hostname, _statement->result_addr.port,

@@ -33,8 +33,8 @@ import java.util.List;
 /**
  * ScalarFunction 'EncodeAsInt'.
  */
-public class EncodeAsInt extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable, EncodeStrToInteger {
+public class EncodeAsInt extends EncodeString
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)

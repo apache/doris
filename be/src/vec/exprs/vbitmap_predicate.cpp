@@ -97,9 +97,9 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
     auto* ptr = res_data_column->get_data().data();
 
     if (argument_column->is_nullable()) {
-        auto column_nested = reinterpret_cast<const ColumnNullable*>(argument_column.get())
-                                     ->get_nested_column_ptr();
-        auto column_nullmap = reinterpret_cast<const ColumnNullable*>(argument_column.get())
+        auto column_nested =
+                assert_cast<const ColumnNullable*>(argument_column.get())->get_nested_column_ptr();
+        auto column_nullmap = assert_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
         _filter->find_batch(column_nested->get_raw_data().data,
                             (uint8*)column_nullmap->get_raw_data().data, sz, ptr);

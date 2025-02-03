@@ -25,11 +25,12 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
 Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,
-                                                 int row_idx, bool col_const,
+                                                 int64_t row_idx, bool col_const,
                                                  const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnVector<IPv4>&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
@@ -53,20 +54,20 @@ Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeIPv4SerDe::write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                 bool col_const,
                                                 const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeIPv4SerDe::write_column_to_mysql(const IColumn& column,
-                                                MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
                                                 bool col_const,
                                                 const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -92,13 +93,13 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     return Status::OK();
 }
 
-Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                             int end) const {
+Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                             int64_t end) const {
     const auto& column_data = assert_cast<const ColumnIPv4&>(column).get_data();
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::IPV4);
     auto* values = result.mutable_uint32_value();
-    values->Reserve(end - start);
+    values->Reserve(cast_set<int>(end - start));
     values->Add(column_data.begin() + start, column_data.begin() + end);
     return Status::OK();
 }
@@ -114,8 +115,8 @@ Status DataTypeIPv4SerDe::read_column_from_pb(IColumn& column, const PValues& ar
 }
 
 void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                              arrow::ArrayBuilder* array_builder, int start,
-                                              int end, const cctz::time_zone& ctz) const {
+                                              arrow::ArrayBuilder* array_builder, int64_t start,
+                                              int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv4&>(column).get_data();
     auto& int32_builder = assert_cast<arrow::Int32Builder&>(*array_builder);
     auto arrow_null_map = revert_null_map(null_map, start, end);

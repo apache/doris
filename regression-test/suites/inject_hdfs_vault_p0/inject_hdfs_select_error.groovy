@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("inject_hdfs_load_error", "nonConcurrent") {
+    if (!isCloudMode()) {
+        logger.info("skip create storgage vault case")
+        return
+    }
     if (!enableStoragevault()) {
         logger.info("skip create storgage vault case")
         return

@@ -58,6 +58,7 @@ suite("test_build_index_with_clone_fault_injection", "nonConcurrent"){
         while (attempt < maxRetries) {
             def show_build_index = sql_return_maparray("show build index where TableName = \"${tbl}\" ORDER BY JobId DESC LIMIT 1")
             if (show_build_index && show_build_index.size() > 0) {
+                logger.info("show build index result: ${show_build_index}")
                 def currentState = show_build_index[0].State
                 def currentMsg = show_build_index[0].Msg
                 if ((currentState == expectedState && currentMsg == expectedMsg) || currentState == "FINISHED") {

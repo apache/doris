@@ -148,8 +148,13 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
-    if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
-        GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+    bool injection = false;
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { injection = true; });
+    if (injection) {
+        // do not return if injection
+    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
     //trigger compaction
@@ -216,8 +221,8 @@ Status RowsetBuilder::init() {
         };
     })
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -281,8 +286,8 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
-        RETURN_IF_ERROR(
-                _tablet->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
+        RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
+                                                                     _delete_bitmap));
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -341,21 +346,22 @@ Status RowsetBuilder::commit_txn() {
     SCOPED_TIMER(_commit_txn_timer);
 
     const RowsetWriterContext& rw_ctx = _rowset_writer->context();
-    if (rw_ctx.tablet_schema->num_variant_columns() > 0) {
+    if (rw_ctx.tablet_schema->num_variant_columns() > 0 && _rowset->num_rows() > 0) {
         // Need to merge schema with `rw_ctx.merged_tablet_schema` in prior,
         // merged schema keeps the newest merged schema for the rowset, which is updated and merged
         // during flushing segments.
         if (rw_ctx.merged_tablet_schema != nullptr) {
             RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.merged_tablet_schema));
+        } else {
+            // We should merge rowset schema further, in case that the merged_tablet_schema maybe null
+            // when enable_memtable_on_sink_node is true, the merged_tablet_schema will not be passed to
+            // the destination backend.
+            // update tablet schema when meet variant columns, before commit_txn
+            // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
+            // _tabelt->tablet_schema:  A(bigint), B(double)
+            //  => update_schema:       A(bigint), B(double), C(int), D(int)
+            RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.tablet_schema));
         }
-        // We should merge rowset schema further, in case that the merged_tablet_schema maybe null
-        // when enable_memtable_on_sink_node is true, the merged_tablet_schema will not be passed to
-        // the destination backend.
-        // update tablet schema when meet variant columns, before commit_txn
-        // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
-        // _tabelt->tablet_schema:  A(bigint), B(double)
-        //  => update_schema:       A(bigint), B(double), C(int), D(int)
-        RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.tablet_schema));
     }
 
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
@@ -390,10 +396,9 @@ Status BaseRowsetBuilder::cancel() {
     return Status::OK();
 }
 
-void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
-                                                     const OlapTableSchemaParam* table_schema_param,
-                                                     const TabletSchema& ori_tablet_schema) {
-    _tablet_schema->copy_from(ori_tablet_schema);
+Status BaseRowsetBuilder::_build_current_tablet_schema(
+        int64_t index_id, const OlapTableSchemaParam* table_schema_param,
+        const TabletSchema& ori_tablet_schema) {
     // find the right index id
     int i = 0;
     auto indexes = table_schema_param->indexes();
@@ -402,11 +407,13 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
             break;
         }
     }
-
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
+        _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
         _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
                                                     indexes[i], ori_tablet_schema);
+    } else {
+        _tablet_schema->copy_from(ori_tablet_schema);
     }
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         // After schema change, should include extracted column
@@ -431,13 +438,15 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(
-            *_tablet_schema, table_schema_param->unique_key_update_mode(),
+    RETURN_IF_ERROR(_partial_update_info->init(
+            tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
+            table_schema_param->unique_key_update_mode(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
             table_schema_param->auto_increment_coulumn(),
-            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase);
+            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
+    return Status::OK();
 }
 
 } // namespace doris

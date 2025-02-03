@@ -148,7 +148,7 @@ private:
 
     void _calc_tablets_to_commit();
 
-    void _close_wait(bool incremental);
+    Status _close_wait(bool incremental);
 
     void _cancel(Status status);
 
@@ -217,8 +217,7 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
 
-    RuntimeState* _state = nullptr;     // not owned, set when open
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeState* _state = nullptr; // not owned, set when open
 
     std::unordered_set<int64_t> _opened_partitions;
 

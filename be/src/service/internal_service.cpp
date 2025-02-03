@@ -272,21 +272,6 @@ PInternalService::~PInternalService() {
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
-void PInternalService::transmit_data(google::protobuf::RpcController* controller,
-                                     const PTransmitDataParams* request,
-                                     PTransmitDataResult* response,
-                                     google::protobuf::Closure* done) {}
-
-void PInternalService::transmit_data_by_http(google::protobuf::RpcController* controller,
-                                             const PEmptyRequest* request,
-                                             PTransmitDataResult* response,
-                                             google::protobuf::Closure* done) {}
-
-void PInternalService::_transmit_data(google::protobuf::RpcController* controller,
-                                      const PTransmitDataParams* request,
-                                      PTransmitDataResult* response,
-                                      google::protobuf::Closure* done, const Status& extract_st) {}
-
 void PInternalService::tablet_writer_open(google::protobuf::RpcController* controller,
                                           const PTabletWriterOpenRequest* request,
                                           PTabletWriterOpenResult* response,
@@ -631,7 +616,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         // Convert PPlanFragmentCancelReason to Status
         if (has_cancel_status) {
             // If fe set cancel status, then it is new FE now, should use cancel status.
-            actual_cancel_status = Status::create(request->cancel_status());
+            actual_cancel_status = Status::create<false>(request->cancel_status());
         } else if (has_cancel_reason) {
             // If fe not set cancel status, but set cancel reason, should convert cancel reason
             // to cancel status here.
@@ -665,15 +650,11 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
 void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   const PFetchDataRequest* request, PFetchDataResult* result,
                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, result, done]() {
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
-        _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
-    });
-    if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
-        return;
-    }
+    // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
+    // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
+    auto* cntl = static_cast<brpc::Controller*>(controller);
+    auto* ctx = new GetResultBatchCtx(cntl, result, done);
+    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
 void PInternalService::fetch_arrow_data(google::protobuf::RpcController* controller,
@@ -903,6 +884,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
         auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
                 UniqueId(request->finst_id()).to_thrift(), &schema);
         if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -911,9 +893,11 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
         st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
-            if (!config::public_access_ip.empty() && config::public_access_port != -1) {
-                result->set_be_arrow_flight_ip(config::public_access_ip);
-                result->set_be_arrow_flight_port(config::public_access_port);
+            if (!config::public_host.empty()) {
+                result->set_be_arrow_flight_ip(config::public_host);
+            }
+            if (config::arrow_flight_sql_proxy_port != -1) {
+                result->set_be_arrow_flight_port(config::arrow_flight_sql_proxy_port);
             }
         }
         st.to_protobuf(result->mutable_status());
@@ -1237,7 +1221,10 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
 void PInternalService::get_info(google::protobuf::RpcController* controller,
                                 const PProxyRequest* request, PProxyResult* response,
                                 google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->routine_load_task_executor()->get_thread_pool().submit_func([this,
+                                                                                       request,
+                                                                                       response,
+                                                                                       done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:

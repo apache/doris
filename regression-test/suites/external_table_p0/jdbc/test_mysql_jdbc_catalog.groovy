@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_docker_mysql") {
-    qt_sql """select current_catalog()"""
-
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -140,9 +138,9 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                 PROPERTIES("replication_num" = "1");
         """
 
-        qt_sql """select current_catalog()"""
+        qt_sql_current_catalog """select current_catalog()"""
         sql """switch ${catalog_name}"""
-        qt_sql """select current_catalog()"""
+        qt_sql_current_catalog_after_switch """select current_catalog()"""
         sql """ use ${ex_db_name}"""
 
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
@@ -194,7 +192,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
-        connect(user=user, password="${pwd}", url=url) {
+        connect(user, "${pwd}", url) {
             try {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
                 fail()
@@ -205,7 +203,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
 
-        connect(user=user, password="${pwd}", url=url) {
+        connect(user, "${pwd}", url) {
             try {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
             } catch (Exception e) {
@@ -413,13 +411,13 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 YEAR) = '2023-01-01')"
         }
         order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 MONTH) = '2022-02-01')"
         }
         order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
         explain {
@@ -456,13 +454,13 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 YEAR) = '2021-01-01')"
         }
         order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 MONTH) = '2021-12-01')"
         }
         order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
         explain {
@@ -544,11 +542,19 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             );
         """
 
-        qt_sql "show databases from mysql_lower_case_catalog;"
-        qt_sql "show tables from mysql_lower_case_catalog.doris_2;"
-        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
-        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"
-        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_3 order by id;"
+        test {
+            sql """ show databases from mysql_lower_case_catalog; """
+            check { result, ex, startTime, endTime ->
+                def expectedDatabases = ["doris_1", "doris_2", "doris_3"]
+                expectedDatabases.each { dbName ->
+                    assertTrue(result.collect { it[0] }.contains(dbName), "Expected database '${dbName}' not found in result")
+                }
+            }
+        }
+        qt_sql_show_tbl_from_lower_case "show tables from mysql_lower_case_catalog.doris_2;"
+        qt_sql1_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
+        qt_sql2_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"
+        qt_sql3_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_3 order by id;"
 
         sql """ drop catalog if exists mysql_lower_case_catalog; """
         sql """ drop catalog if exists mysql_lower_case_catalog2; """
@@ -604,11 +610,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "driver_class" = "${driver_class}"
         );"""
 
-        qt_sql """select count(*) from mysql_rename1.doris_test.ex_tb1;"""
+        qt_sql_count_from_rename1 """select count(*) from mysql_rename1.doris_test.ex_tb1;"""
 
         sql """alter catalog mysql_rename1 rename mysql_rename2"""
 
-        qt_sql """select count(*) from mysql_rename2.doris_test.ex_tb1;"""
+        qt_sql_count_from_rename2 """select count(*) from mysql_rename2.doris_test.ex_tb1;"""
 
         sql """drop catalog if exists mysql_rename2;"""
 
@@ -623,9 +629,9 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "driver_class" = "${driver_class}"
         );"""
 
-        order_qt_sql """SELECT * FROM mysql_conjuncts.doris_test.compoundpredicate_test WHERE (pk > 4) OR ((pk < 6 OR pk > 7) AND col_int_undef_signed < 1);"""
+        order_qt_sql1_conjuncts """SELECT * FROM mysql_conjuncts.doris_test.compoundpredicate_test WHERE (pk > 4) OR ((pk < 6 OR pk > 7) AND col_int_undef_signed < 1);"""
 
-        order_qt_sql """select * from mysql_conjuncts.doris_test.text_push where pk <=7;"""
+        order_qt_sql2_conjuncts """select * from mysql_conjuncts.doris_test.text_push where pk <=7;"""
 
         // test create table as select
         sql """use internal.${internal_db_name}"""
@@ -636,10 +642,10 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         sql """set enable_nereids_planner=true"""
         // 1. test text type column as distribution col
         sql """create table ctas_partition_text_1 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
-        qt_sql """desc ctas_partition_text_1"""
+        qt_sql_ctas_partition_text_1 """desc ctas_partition_text_1"""
         // 2. test varchar type column as first col
         sql """create table ctas_partition_text_2 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
-        qt_sql """desc ctas_partition_text_2"""
+        qt_sql_ctas_partition_text_2 """desc ctas_partition_text_2"""
         // ctas logic is different between new and old planner.
         // so need to test both.
         sql """drop catalog if exists mysql_conjuncts;"""

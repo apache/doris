@@ -58,4 +58,5 @@ suite ("testQueryOnStar") {
     sql """insert into tpch_tiny_region values(1,'a','a');"""
 
     qt_select_mv "select ref_1.`empid` as c0 from tpch_tiny_region as ref_0 left join emps as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;"    
+
 }

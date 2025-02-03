@@ -45,6 +45,6 @@ suite("test_conv", "arrow_flight_sql") {
         ("100", 1)
     """
 
-    qt_sql_conv1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/conv(k1, cast(null as bigint), cast(null as bigint)) from test_conv; """
+    qt_sql_conv1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/conv(k1, cast(null as bigint), cast(null as bigint)) from test_conv; """
 }
 

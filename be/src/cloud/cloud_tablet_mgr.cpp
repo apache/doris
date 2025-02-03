@@ -238,7 +238,9 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
 
         num_vacuumed += t->delete_expired_stale_rowsets();
     }
-    LOG_INFO("finish vacuum stale rowsets").tag("num_vacuumed", num_vacuumed);
+    LOG_INFO("finish vacuum stale rowsets")
+            .tag("num_vacuumed", num_vacuumed)
+            .tag("num_tablets", tablets_to_vacuum.size());
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
@@ -261,9 +263,6 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
 
     for (auto& weak_tablet : weak_tablets) {
         if (auto tablet = weak_tablet.lock()) {
-            if (tablet->tablet_state() != TABLET_RUNNING) {
-                continue;
-            }
             int64_t last_sync_time = tablet->last_sync_time_s;
             if (last_sync_time <= last_sync_time_bound) {
                 sync_time_tablet_set.emplace(last_sync_time, weak_tablet);

@@ -68,14 +68,10 @@ public:
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
-    bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return false; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool is_comparable() const override { return false; }
-    bool is_value_represented_by_number() const override { return false; }
-    bool is_value_represented_by_integer() const override { return false; }
-    bool is_value_represented_by_unsigned_integer() const override { return false; }
     // TODO:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;

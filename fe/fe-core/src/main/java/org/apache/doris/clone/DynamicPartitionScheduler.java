@@ -460,12 +460,21 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, realStart, partitionFormat);
+        String limitBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
+                now, 0, partitionFormat);
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
+        PartitionValue limitPartitionValue = new PartitionValue(limitBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
         try {
             PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerPartitionValue),
                     Collections.singletonList(partitionColumn));
+            PartitionKey limitBound = PartitionKey.createPartitionKey(Collections.singletonList(limitPartitionValue),
+                    Collections.singletonList(partitionColumn));
+            // if start offset very small, then lowerBound may be very large, such as '6031-07-01 00:00:00'
+            if (lowerBound.compareTo(limitBound) >= 0) {
+                return dropPartitionClauses;
+            }
             reservePartitionKeyRange = Range.atLeast(lowerBound);
             reservedHistoryPartitionKeyRangeList.add(reservePartitionKeyRange);
         } catch (Exception e) {

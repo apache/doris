@@ -60,6 +60,7 @@ bool WorkloadSchedPolicy::is_match(WorkloadQueryInfo* query_info_ptr) {
     }
 
     auto& metric_val_map = query_info_ptr->metric_map;
+    std::string cond_eval_msg = "";
     for (auto& cond : _condition_list) {
         if (metric_val_map.find(cond->get_workload_metric_type()) == metric_val_map.end()) {
             return false;
@@ -69,7 +70,11 @@ bool WorkloadSchedPolicy::is_match(WorkloadQueryInfo* query_info_ptr) {
         if (!cond->eval(val)) {
             return false;
         }
+        cond_eval_msg += cond->get_metric_string() + ":" + val + "(" +
+                         cond->get_metric_value_string() + "), ";
     }
+    cond_eval_msg = cond_eval_msg.substr(0, cond_eval_msg.size() - 2);
+    query_info_ptr->cond_eval_msg = cond_eval_msg;
     return true;
 }
 

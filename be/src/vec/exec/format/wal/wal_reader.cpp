@@ -42,16 +42,6 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;
     auto st = _wal_reader->read_block(pblock);
-    // Due to historical reasons, be_exec_version=3 will use the new way to serialize block
-    // in doris 2.1.0, now it has been corrected to use the old way to do serialize and deserialize
-    // in the latest version. So if a wal is created by 2.1.0 (wal version=0 && be_exec_version=3),
-    // it should upgrade the be_exec_version to 4 to use the new way to deserialize pblock to solve
-    // compatibility issues.see https://github.com/apache/doris/pull/32299
-    if (_version == 0 && pblock.has_be_exec_version() &&
-        pblock.be_exec_version() == OLD_WAL_SERDE) {
-        VLOG_DEBUG << "need to set be_exec_version to 4 to solve compatibility issues";
-        pblock.set_be_exec_version(USE_NEW_SERDE);
-    }
     if (st.is<ErrorCode::END_OF_FILE>()) {
         LOG(INFO) << "read eof on wal:" << _wal_path;
         *read_rows = 0;
@@ -92,7 +82,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                                          pos, src_block.columns());
         }
         vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
-        if (column_ptr != nullptr && slot_desc->is_nullable()) {
+        if (!column_ptr && slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
         dst_block.insert(index, vectorized::ColumnWithTypeAndName(

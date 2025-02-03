@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Rewrite rule of NOT expression.
@@ -54,6 +56,7 @@ public class SimplifyNotExprRule implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(Not.class).then(SimplifyNotExprRule::simplify)
+                        .toRule(ExpressionRuleType.SIMPLIFY_NOT_EXPR)
         );
     }
 
@@ -76,9 +79,7 @@ public class SimplifyNotExprRule implements ExpressionPatternRuleFactory {
             }
         } else if (child instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) child;
-            Not left = new Not(cp.left());
-            Not right = new Not(cp.right());
-            return cp.flip(left, right);
+            return cp.flip(cp.children().stream().map(c -> new Not(c)).collect(Collectors.toList()));
         } else if (child instanceof Not) {
             return child.child(0);
         }

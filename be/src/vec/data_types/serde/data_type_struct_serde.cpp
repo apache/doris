@@ -29,6 +29,7 @@ namespace doris {
 
 namespace vectorized {
 class Arena;
+#include "common/compile_check_begin.h"
 
 std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
     size_t size = elem_serdes_ptrs.size();
@@ -40,13 +41,13 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
     return std::nullopt;
 }
 
-Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                     int end_idx, BufferWritable& bw,
+Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                     int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -227,8 +228,8 @@ Status DataTypeStructSerDe::deserialize_column_from_json_vector(
 
 void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                   Arena* mem_pool, int32_t col_id,
-                                                  int row_num) const {
-    result.writeKey(col_id);
+                                                  int64_t row_num) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
     StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
@@ -277,7 +278,7 @@ Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(
 }
 
 Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
-        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -305,19 +306,19 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 }
 
 void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end, const cctz::time_zone& ctz) const {
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     auto& struct_column = assert_cast<const ColumnStruct&>(column);
-    for (int r = start; r < end; ++r) {
+    for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
             checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
                              builder.type()->name());
             continue;
         }
         checkArrowStatus(builder.Append(), struct_column.get_name(), builder.type()->name());
-        for (size_t ei = 0; ei < struct_column.tuple_size(); ++ei) {
-            auto elem_builder = builder.field_builder(ei);
+        for (auto ei = 0; ei < struct_column.tuple_size(); ++ei) {
+            auto* elem_builder = builder.field_builder(ei);
             elem_serdes_ptrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
                                                         elem_builder, r, r + 1, ctz);
         }
@@ -330,7 +331,7 @@ void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::A
     auto& struct_column = static_cast<ColumnStruct&>(column);
     auto concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
-    for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+    for (auto i = 0; i < struct_column.tuple_size(); ++i) {
         elem_serdes_ptrs[i]->read_column_from_arrow(
                 struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz);
     }
@@ -339,7 +340,7 @@ void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::A
 template <bool is_binary_format>
 Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
-                                                   int row_idx, bool col_const,
+                                                   int64_t row_idx, bool col_const,
                                                    const FormatOptions& options) const {
     auto& col = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
     const auto col_index = index_check_const(row_idx, col_const);
@@ -399,27 +400,27 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                   bool col_const,
                                                   const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const,
+                                                  MysqlRowBuffer<false>& row_buffer,
+                                                  int64_t row_idx, bool col_const,
                                                   const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                 const NullMap* null_map,
-                                                orc::ColumnVectorBatch* orc_col_batch, int start,
-                                                int end,
+                                                orc::ColumnVectorBatch* orc_col_batch,
+                                                int64_t start, int64_t end,
                                                 std::vector<StringRef>& buffer_list) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
-    for (size_t row_id = start; row_id < end; row_id++) {
+    for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
@@ -431,8 +432,8 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                               int end) const {
+Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& result,
+                                               int64_t start, int64_t end) const {
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::STRUCT);
@@ -451,7 +452,7 @@ Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& r
 Status DataTypeStructSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& struct_column = assert_cast<ColumnStruct&>(column);
     DCHECK_EQ(struct_column.tuple_size(), arg.child_element_size());
-    for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+    for (auto i = 0; i < struct_column.tuple_size(); ++i) {
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_pb(struct_column.get_column(i),
                                                                  arg.child_element(i)));
     }

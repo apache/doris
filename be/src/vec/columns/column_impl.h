@@ -43,6 +43,7 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
                                selector.size(), num_rows);
     }
     DCHECK_GE(end, begin);
+    DCHECK_LE(end, selector.size());
     // here wants insert some value from this column, and the nums is (end - begin)
     // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
     // so can't call res->reserve(num_rows), it's will be too mush waste memory
@@ -55,6 +56,15 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
 template <typename Derived>
 void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
     append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
+}
+
+template <typename Derived>
+void IColumn::insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                            const std::vector<size_t>& positions) {
+    reserve(size() + srcs.size());
+    for (size_t i = 0; i < srcs.size(); ++i) {
+        static_cast<Derived&>(*this).insert_from(*srcs[i], positions[i]);
+    }
 }
 
 } // namespace doris::vectorized

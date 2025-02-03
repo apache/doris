@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -336,7 +337,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
               << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
               << ", cur max_version: " << _context.mow_context->max_version
-              << ", transaction_id: " << _context.mow_context->txn_id
+              << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
+              << _context.tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count()
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
 }
@@ -475,15 +477,15 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
     return Status::OK();
 }
 
-void BetaRowsetWriter::_clear_statistics_for_deleting_segments_unsafe(uint64_t begin,
-                                                                      uint64_t end) {
+void BetaRowsetWriter::_clear_statistics_for_deleting_segments_unsafe(uint32_t begin,
+                                                                      uint32_t end) {
     VLOG_DEBUG << "_segid_statistics_map clear record segid range from:" << begin << " to:" << end;
-    for (int i = begin; i <= end; ++i) {
+    for (uint32_t i = begin; i <= end; ++i) {
         _segid_statistics_map.erase(i);
     }
 }
 
-Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
+Status BetaRowsetWriter::_rename_compacted_segment_plain(uint32_t seg_id) {
     if (seg_id == _num_segcompacted) {
         ++_num_segcompacted;
         return Status::OK();
@@ -581,7 +583,6 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
     // if not doing segcompaction, just check segment number
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
-        !_context.tablet_schema->cluster_key_idxes().empty() ||
         _context.tablet_schema->num_variant_columns() > 0) {
         return _check_segment_number_limit(_num_segment);
     }
@@ -651,9 +652,28 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
-    _total_data_size += rowset->rowset_meta()->data_disk_size();
-    _total_index_size += rowset->rowset_meta()->index_disk_size();
-    _num_segment += rowset->num_segments();
+    const auto& rowset_meta = rowset->rowset_meta();
+    auto index_size = rowset_meta->index_disk_size();
+    auto total_size = rowset_meta->total_disk_size();
+    auto data_size = rowset_meta->data_disk_size();
+    // corrupted index size caused by bug before 2.1.5 or 3.0.0 version
+    // try to get real index size from disk.
+    if (index_size < 0 || index_size > total_size * 2) {
+        LOG(ERROR) << "invalid index size:" << index_size << " total size:" << total_size
+                   << " data size:" << data_size << " tablet:" << rowset_meta->tablet_id()
+                   << " rowset:" << rowset_meta->rowset_id();
+        index_size = 0;
+        auto st = rowset->get_inverted_index_size(&index_size);
+        if (!st.ok()) {
+            if (!st.is<NOT_FOUND>()) {
+                LOG(ERROR) << "failed to get inverted index size. res=" << st;
+                return st;
+            }
+        }
+    }
+    _total_data_size += data_size;
+    _total_index_size += index_size;
+    _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
 
@@ -867,8 +887,11 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
+    // for mow table with cluster keys, the overlap is used for cluster keys,
+    // the key_bounds is primary keys
     if (!segments_encoded_key_bounds.empty() &&
-        !is_segment_overlapping(segments_encoded_key_bounds)) {
+        !is_segment_overlapping(segments_encoded_key_bounds) &&
+        _context.tablet_schema->cluster_key_uids().empty()) {
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 
@@ -967,15 +990,14 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     InvertedIndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
         io::FileWriterPtr idx_file_writer;
+        std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
             InvertedIndexStorageFormatPB::V1) {
-            std::string prefix =
-                    std::string {InvertedIndexDescriptor::get_index_file_path_prefix(path)};
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
             RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
         }
         index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _context.fs(), path, _context.rowset_id.to_string(), _num_segcompacted,
+                _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));
     }
@@ -1043,7 +1065,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         if (segment_id >= _segment_num_rows.size()) {
             _segment_num_rows.resize(segment_id + 1);
         }
-        _segment_num_rows[segid_offset] = segstat.row_num;
+        _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
@@ -1111,4 +1133,5 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

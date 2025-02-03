@@ -193,8 +193,8 @@ struct ParsedDataStringBase : public ParsedData<std::string> {
     void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                                  int length) override {
         assert_cast<ColumnString*>(column.get())
-                ->insert_many_data(_data_string_ref[cur_offset].data,
-                                   _data_string_ref[cur_offset].size, length);
+                ->insert_data_repeatedly(_data_string_ref[cur_offset].data,
+                                         _data_string_ref[cur_offset].size, length);
     }
 
     void reset() override {

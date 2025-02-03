@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -393,7 +394,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     }
 
     public List<Column> getFullSchema() {
-        return fullSchema;
+        return ImmutableList.copyOf(fullSchema);
     }
 
     // should override in subclass if necessary
@@ -403,7 +404,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
-            return fullSchema;
+            return ImmutableList.copyOf(fullSchema);
         } else {
             return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
@@ -445,6 +446,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public long getIndexLength() {
+        return 0;
+    }
 
     public TTableDescriptor toThrift() {
         return null;

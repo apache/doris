@@ -127,7 +127,6 @@ class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() = default;
     ~MemTableFlushExecutor() {
-        _deregister_metrics();
         _flush_pool->shutdown();
         _high_prio_flush_pool->shutdown();
     }
@@ -141,9 +140,6 @@ public:
                               std::shared_ptr<WorkloadGroup> wg_sptr);
 
 private:
-    void _register_metrics();
-    static void _deregister_metrics();
-
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;
 };

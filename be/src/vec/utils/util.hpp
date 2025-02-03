@@ -197,7 +197,7 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
             data[i] |= null_map[i];
         }
         memset(null_map, 0, rows);
-    } else if (argument != nullptr && argument->has_null()) {
+    } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
         auto* __restrict data =

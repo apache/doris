@@ -19,9 +19,11 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 
@@ -36,9 +38,12 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Coalesce.class).then(SimplifyConditionalFunction::rewriteCoalesce),
-                matchesType(Nvl.class).then(SimplifyConditionalFunction::rewriteNvl),
+                matchesType(Coalesce.class).then(SimplifyConditionalFunction::rewriteCoalesce)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION),
+                matchesType(Nvl.class).then(SimplifyConditionalFunction::rewriteNvl)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION),
                 matchesType(NullIf.class).then(SimplifyConditionalFunction::rewriteNullIf)
+                        .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION)
         );
     }
 
@@ -98,7 +103,7 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
      */
     private static Expression rewriteNullIf(NullIf nullIf) {
         if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
-            return nullIf.child(0);
+            return new Nullable(nullIf.child(0));
         } else {
             return nullIf;
         }

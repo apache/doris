@@ -25,10 +25,10 @@
 namespace doris::segment_v2 {
 
 RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                         const TQueryOptions& query_options)
+                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher),
           _max_expansions(query_options.inverted_index_max_expansions),
-          _query(searcher, query_options) {}
+          _query(searcher, query_options, io_ctx) {}
 
 void RegexpQuery::add(const std::wstring& field_name, const std::vector<std::string>& patterns) {
     if (patterns.size() != 1) {

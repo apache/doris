@@ -262,7 +262,7 @@ void VScanner::update_scan_cpu_timer() {
     _scan_cpu_timer += cpu_time;
     _query_statistics->add_cpu_nanos(cpu_time);
     if (_state && _state->get_query_ctx()) {
-        _state->get_query_ctx()->update_wg_cpu_adder(cpu_time);
+        _state->get_query_ctx()->update_cpu_time(cpu_time);
     }
 }
 

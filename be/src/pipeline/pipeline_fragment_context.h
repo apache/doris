@@ -84,7 +84,7 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
-    [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
+    [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
     Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
 
@@ -228,8 +228,6 @@ private:
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
-    bool _need_local_merge = false;
-
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
 #ifdef __clang__
@@ -277,8 +275,7 @@ private:
             _op_id_to_le_state;
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
-    // UniqueId -> runtime mgr
-    std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
+    std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 
     //Here are two types of runtime states:
     //    - _runtime state is at the Fragment level.
@@ -301,7 +298,7 @@ private:
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
-    std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
+    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;

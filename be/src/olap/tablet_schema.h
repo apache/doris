@@ -41,6 +41,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -330,12 +331,12 @@ public:
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
+    // lightweight copy, take care of lifecycle of TabletColumn
+    void shawdow_copy_without_columns(const TabletSchema& tablet_schema);
     void update_index_info_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
-    // Don't use.
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // In some places, temporarily use num_columns() as TabletSchema size.
-    int64_t mem_size() const { return _mem_size; }
+    // get_metadata_size is only the memory of the TabletSchema itself, not include child objects.
+    int64_t mem_size() const { return get_metadata_size(); }
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
     int32_t field_index(const vectorized::PathInData& path) const;
@@ -351,7 +352,7 @@ public:
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
-    const std::vector<uint32_t>& cluster_key_idxes() const { return _cluster_key_idxes; }
+    const std::vector<uint32_t>& cluster_key_uids() const { return _cluster_key_uids; }
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
@@ -408,8 +409,17 @@ public:
     }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
+            DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
+                if (index.col_unique_ids().empty()) {
+                    throw Exception(Status::InternalError("col unique ids cannot be empty"));
+                }
+            });
+
             if (index.index_type() == IndexType::INVERTED) {
-                return true;
+                //if index_id == -1, ignore it.
+                if (!index.col_unique_ids().empty() && index.col_unique_ids()[0] >= 0) {
+                    return true;
+                }
             }
         }
         return false;
@@ -533,6 +543,7 @@ public:
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
+    TabletSchema(const TabletSchema&) = default;
 
     void clear_column_cache_handlers();
 
@@ -550,7 +561,7 @@ private:
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
-    std::vector<uint32_t> _cluster_key_idxes;
+    std::vector<uint32_t> _cluster_key_uids;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;
@@ -573,7 +584,6 @@ private:
     int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _enable_single_replica_compaction = false;
-    int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;

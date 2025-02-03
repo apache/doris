@@ -18,10 +18,12 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -47,6 +49,7 @@ VDataStreamMgr::~VDataStreamMgr() {
         // Could not call close directly, because during close method, it will remove itself
         // from the map, and modify the map, it will core.
         receivers.push_back(receiver_iterator->second);
+        receiver_iterator++;
     }
     for (auto iter = receivers.begin(); iter != receivers.end(); ++iter) {
         (*iter)->close();
@@ -62,15 +65,16 @@ inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instanc
 }
 
 std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
-        RuntimeState* state, pipeline::ExchangeLocalState* parent, const RowDescriptor& row_desc,
-        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-        RuntimeProfile* profile, bool is_merging) {
+        RuntimeState* state, RuntimeProfile::HighWaterMarkCounter* memory_used_counter,
+        const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
+        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging,
+        size_t data_queue_capacity) {
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << print_id(fragment_instance_id)
               << ", node=" << dest_node_id;
-    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(this, parent, state, row_desc,
-                                                                 fragment_instance_id, dest_node_id,
-                                                                 num_senders, is_merging, profile));
+    std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(
+            this, memory_used_counter, state, row_desc, fragment_instance_id, dest_node_id,
+            num_senders, is_merging, profile, data_queue_capacity));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     std::unique_lock l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
@@ -141,9 +145,12 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
     bool eos = request->eos();
     if (request->has_block()) {
-        RETURN_IF_ERROR(recvr->add_block(
-                request->block(), request->sender_id(), request->be_number(), request->packet_seq(),
-                eos ? nullptr : done, wait_for_worker, cpu_time_stop_watch.elapsed_time()));
+        std::unique_ptr<PBlock> pblock_ptr {
+                const_cast<PTransmitDataParams*>(request)->release_block()};
+        RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
+                                         request->be_number(), request->packet_seq(),
+                                         eos ? nullptr : done, wait_for_worker,
+                                         cpu_time_stop_watch.elapsed_time()));
     }
 
     if (eos) {

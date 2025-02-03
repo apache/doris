@@ -15,7 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_frontend", "nonconcurrent") {
+suite("test_frontend", "nonConcurrent") {
+    def res = sql """SHOW FRONTENDS DISKS"""
+    assertTrue(res.size() != 0)
+
+    def res2 = sql """SHOW FRONTENDS Disks"""
+    assertTrue(res2.size() != 0)
+
+    if (isCloudMode()) {
+        // In the test_sql_mode_node_mgr regression case, there is already a similar and more complex case. This case is redundant. Additionally, there is a 5-minute limit for dropping FE on the cloud.
+        // so ignore it in cloud
+        return;
+    }
     def address = "127.0.0.1"
     def notExistPort = 12345
 
@@ -43,10 +54,4 @@ suite("test_frontend", "nonconcurrent") {
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
     }
-
-    def res = sql """SHOW FRONTENDS DISKS"""
-    assertTrue(res.size() != 0)
-
-    def res2 = sql """SHOW FRONTENDS Disks"""
-    assertTrue(res2.size() != 0)
 }

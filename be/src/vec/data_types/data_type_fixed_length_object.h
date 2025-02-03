@@ -78,7 +78,6 @@ public:
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
-    bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
 
     bool can_be_inside_low_cardinality() const override { return false; }

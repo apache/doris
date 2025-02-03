@@ -159,9 +159,9 @@ public class CacheHotspotManager extends MasterDaemon {
                         }
                     });
                 }
-                triggerBatchInsert();
             });
         });
+        triggerBatchInsert();
         idToTable.clear();
     }
 

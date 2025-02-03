@@ -125,6 +125,7 @@ Status CloudBaseCompaction::prepare_compact() {
         _input_row_num += rs->num_rows();
         _input_segments += rs->num_segments();
         _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
         _input_rowsets_total_size += rs->total_disk_size();
     }
     LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
@@ -267,8 +268,9 @@ Status CloudBaseCompaction::execute_compact() {
                      << ", output_version=" << _output_version;
         return res;
     }
-    LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
-             duration_cast<milliseconds>(steady_clock::now() - start).count())
+    LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms range=[{}-{}]",
+             _tablet->tablet_id(), duration_cast<milliseconds>(steady_clock::now() - start).count(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
             .tag("job_id", _uuid)
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
@@ -320,6 +322,10 @@ Status CloudBaseCompaction::modify_rowsets() {
     compaction_job->add_output_versions(_output_rowset->end_version());
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
+    compaction_job->set_index_size_input_rowsets(_input_rowsets_index_size);
+    compaction_job->set_segment_size_input_rowsets(_input_rowsets_data_size);
+    compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
+    compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -338,7 +344,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                 .tag("input_rowsets", _input_rowsets.size())
                 .tag("input_rows", _input_row_num)
                 .tag("input_segments", _input_segments)
-                .tag("update_bitmap_size", output_rowset_delete_bitmap->delete_bitmap.size());
+                .tag("num_output_delete_bitmap", output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 

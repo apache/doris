@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -45,6 +46,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.View;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
@@ -113,6 +115,7 @@ import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -138,8 +141,6 @@ import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
-import org.apache.doris.thrift.TDescribeTableParams;
-import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
@@ -193,6 +194,8 @@ import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnCommitResult;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackResult;
+import org.apache.doris.thrift.TLockBinlogRequest;
+import org.apache.doris.thrift.TLockBinlogResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
@@ -659,6 +662,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             status.setRows(table.getCachedRowCount());
                             status.setDataLength(table.getDataLength());
                             status.setAvgRowLength(table.getAvgRowLength());
+                            status.setIndexLength(table.getIndexLength());
+                            if (table instanceof View) {
+                                status.setDdlSql(((View) table).getInlineViewDef());
+                            }
                             tablesResult.add(status);
                         } finally {
                             table.readUnlock();
@@ -819,74 +826,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TDescribeTableResult describeTable(TDescribeTableParams params) throws TException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get desc table request: {}", params);
-        }
-        TDescribeTableResult result = new TDescribeTableResult();
-        List<TColumnDef> columns = Lists.newArrayList();
-        result.setColumns(columns);
-
-        // database privs should be checked in analysis phrase
-        UserIdentity currentUser = null;
-        if (params.isSetCurrentUserIdent()) {
-            currentUser = UserIdentity.fromThrift(params.current_user_ident);
-        } else {
-            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
-        }
-        String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(currentUser, params.catalog, dbName, params.getTableName(), PrivPredicate.SHOW)) {
-            return result;
-        }
-
-        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
-                : params.catalog;
-        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
-                .getDbNullable(dbName);
-        if (db != null) {
-            TableIf table = db.getTableNullableIfException(params.getTableName());
-            if (table != null) {
-                table.readLock();
-                try {
-                    List<Column> baseSchema = table.getBaseSchemaOrEmpty();
-                    for (Column column : baseSchema) {
-                        final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-                        final Integer precision = column.getOriginType().getPrecision();
-                        if (precision != null) {
-                            desc.setColumnPrecision(precision);
-                        }
-                        final Integer columnLength = column.getOriginType().getColumnSize();
-                        if (columnLength != null) {
-                            desc.setColumnLength(columnLength);
-                        }
-                        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                        if (decimalDigits != null) {
-                            desc.setColumnScale(decimalDigits);
-                        }
-                        desc.setIsAllowNull(column.isAllowNull());
-                        final TColumnDef colDef = new TColumnDef(desc);
-                        final String comment = column.getComment();
-                        if (comment != null) {
-                            colDef.setComment(comment);
-                        }
-                        if (column.isKey()) {
-                            if (table instanceof OlapTable) {
-                                desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
-                            }
-                        }
-                        columns.add(colDef);
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        }
-        return result;
-    }
-
-    @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get desc tables request: {}", params);
@@ -970,6 +909,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 children.add(getColumnDesc(child));
             }
             desc.setChildren(children);
+        }
+        String defaultValue = column.getDefaultValue();
+        if (defaultValue != null) {
+            desc.setDefaultValue(defaultValue);
         }
         return desc;
     }
@@ -2952,9 +2895,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             byte[] meta = snapshot.getMeta();
             byte[] jobInfo = snapshot.getJobInfo();
             long expiredAt = snapshot.getExpiredAt();
+            long commitSeq = snapshot.getCommitSeq();
 
-            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, expired at: {}",
-                    label, meta.length, jobInfo.length, expiredAt);
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
+                    + "expired at: {}, commit seq: {}", label, meta.length, jobInfo.length, expiredAt, commitSeq);
             if (request.isEnableCompress()) {
                 meta = GZIPUtils.compress(meta);
                 jobInfo = GZIPUtils.compress(jobInfo);
@@ -2967,6 +2911,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setMeta(meta);
             result.setJobInfo(jobInfo);
             result.setExpiredAt(expiredAt);
+            result.setCommitSeq(commitSeq);
         }
 
         return result;
@@ -3264,7 +3209,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog request: {}", request);
+            LOG.debug("receive get binlog lag request: {}", request);
         }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
@@ -3275,14 +3220,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog lag: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
         try {
             result = getBinlogLagImpl(request, clientAddr);
         } catch (UserException e) {
-            LOG.warn("failed to get binlog: {}", e.getMessage());
+            LOG.warn("failed to get binlog lag: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -3349,16 +3294,115 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(new TStatus(TStatusCode.OK));
         long prevCommitSeq = request.getPrevCommitSeq();
 
-        Pair<TStatus, Long> statusLagPair = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
-        TStatus status = statusLagPair.first;
+        Pair<TStatus, BinlogLagInfo> binlogLagInfo = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
+        TStatus status = binlogLagInfo.first;
         if (status != null && status.getStatusCode() != TStatusCode.OK) {
             result.setStatus(status);
         }
-        Long binlogLag = statusLagPair.second;
-        if (binlogLag != null) {
-            result.setLag(binlogLag);
+        BinlogLagInfo lagInfo = binlogLagInfo.second;
+        if (lagInfo != null) {
+            result.setLag(lagInfo.getLag());
+            result.setFirstCommitSeq(lagInfo.getFirstCommitSeq());
+            result.setLastCommitSeq(lagInfo.getLastCommitSeq());
+            result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
+            result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
+        }
+        return result;
+    }
+
+    public TLockBinlogResult lockBinlog(TLockBinlogRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive lock binlog request: {}", request);
         }
 
+        TLockBinlogResult result = new TLockBinlogResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to lock binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        try {
+            result = lockBinlogImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to lock binlog: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    private TLockBinlogResult lockBinlogImpl(TLockBinlogRequest request, String clientIp) throws UserException {
+        /// Check all required arg: user, passwd, db, prev_commit_seq
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetJobUniqueId()) {
+            throw new UserException("job_unique_id is not set");
+        }
+
+        // step 1: check auth
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientIp, PrivPredicate.SELECT);
+        }
+
+        // step 3: check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = request.getDb();
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // step 4: fetch all tableIds
+        // lookup tables && convert into tableIdList
+        long tableId = -1;
+        if (request.isSetTableId()) {
+            tableId = request.getTableId();
+        } else if (request.isSetTable()) {
+            String tableName = request.getTable();
+            Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
+            if (table == null) {
+                throw new UserException("unknown table, table=" + tableName);
+            }
+            tableId = table.getId();
+        }
+
+        // step 6: lock binlog
+        long dbId = db.getId();
+        String jobUniqueId = request.getJobUniqueId();
+        long lockCommitSeq = -1L;
+        if (request.isSetLockCommitSeq()) {
+            lockCommitSeq = request.getLockCommitSeq();
+        }
+        Pair<TStatus, Long> statusSeqPair = env.getBinlogManager().lockBinlog(
+                dbId, tableId, jobUniqueId, lockCommitSeq);
+        TLockBinlogResult result = new TLockBinlogResult();
+        result.setStatus(statusSeqPair.first);
+        result.setLockedCommitSeq(statusSeqPair.second);
         return result;
     }
 
@@ -3388,8 +3432,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
-            analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
-                    target.tableId, tableStats, partitionNames);
+            TableIf table = StatisticsUtil.findTable(target.catalogId, target.dbId, target.tableId);
+            analysisManager.submitAsyncDropStatsTask(table, target.catalogId, target.dbId,
+                    target.tableId, tableStats, partitionNames, false);
         } else {
             analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
                     target.columns, tableStats, partitionNames);

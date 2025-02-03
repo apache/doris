@@ -34,7 +34,7 @@ import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.Maps;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -53,7 +53,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             LogicalOlapScan olapScan = filter.child();
             OlapTable table = olapScan.getTable();
             Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
-            if (olapScan.getSelectedTabletIds().isEmpty()) {
+            if (olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
                 for (Long id : olapScan.getSelectedPartitionIds()) {
                     Partition partition = table.getPartition(id);
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
@@ -64,10 +64,10 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                                     partition.getDistributionInfo()));
                 }
             } else {
-                selectedTabletIdsBuilder.addAll(olapScan.getSelectedTabletIds());
+                selectedTabletIdsBuilder.addAll(olapScan.getManuallySpecifiedTabletIds());
             }
             List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
-            if (new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getSelectedTabletIds()))) {
+            if (new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getManuallySpecifiedTabletIds()))) {
                 return null;
             }
             return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));
@@ -80,7 +80,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             return index.getTabletIdsInOrder();
         }
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
-        Map<String, PartitionColumnFilter> filterMap = Maps.newHashMap();
+        Map<String, PartitionColumnFilter> filterMap = new CaseInsensitiveMap();
         expressions.stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
                 .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
         return new HashDistributionPruner(index.getTabletIdsInOrder(),

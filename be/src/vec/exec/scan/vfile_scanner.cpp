@@ -23,18 +23,15 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
-#include <ostream>
 #include <tuple>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/object_pool.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -47,7 +44,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -122,19 +118,24 @@ VFileScanner::VFileScanner(
 
 Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
-    _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
-    _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
-    _cast_to_input_block_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
-    _fill_missing_columns_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
-    _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
-    _convert_to_output_block_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
-    _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
-    _not_found_file_counter =
-            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
-    _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
+    _get_block_timer =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
+    _open_reader_timer =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerOpenReaderTime", 1);
+    _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                      "FileScannerCastInputBlockTime", 1);
+    _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                       "FileScannerFillMissingColumnTime", 1);
+    _pre_filter_timer =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerPreFilterTimer", 1);
+    _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                          "FileScannerConvertOuputBlockTime", 1);
+    _empty_file_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
+    _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                     "NotFoundFileNum", TUnit::UNIT, 1);
+    _file_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -491,8 +492,8 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
     for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                    (*std::move(_src_block_ptr->get_by_name(kv.first).column)).mutate().get());
+            auto mutable_column = _src_block_ptr->get_by_name(kv.first).column->assume_mutable();
+            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -506,10 +507,9 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                std::move(*_src_block_ptr->get_by_position(result_column_id).column)
-                        .mutate()
-                        ->resize(rows);
                 auto result_column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
+                auto mutable_column = result_column_ptr->assume_mutable();
+                mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = _src_block_ptr->get_by_name(kv.first).type;
@@ -600,7 +600,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         column_ptr = _src_block_ptr->get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-        DCHECK(column_ptr != nullptr);
+        DCHECK(column_ptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
@@ -754,17 +754,16 @@ Status VFileScanner::_get_next_reader() {
 
         // create reader for specific format
         Status init_status;
-        TFileFormatType::type format_type = _params->format_type;
+        // for compatibility, if format_type is not set in range, use the format type of params
+        TFileFormatType::type format_type =
+                range.__isset.format_type ? range.format_type : _params->format_type;
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
+        // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
-            if (range.table_format_params.table_format_type == "hudi" &&
-                range.table_format_params.hudi_params.delta_logs.empty()) {
-                // fall back to native reader if there is no log file
-                format_type = TFileFormatType::FORMAT_PARQUET;
-            } else if (range.table_format_params.table_format_type == "paimon" &&
-                       !range.table_format_params.paimon_params.__isset.paimon_split) {
+            if (range.table_format_params.table_format_type == "paimon" &&
+                !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
                 auto format = range.table_format_params.paimon_params.file_format;
                 if (format == "orc") {
@@ -793,8 +792,8 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                _cur_reader =
-                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                             range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
@@ -827,6 +826,9 @@ Status VFileScanner::_get_next_reader() {
                     _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
+            // ATTN: the push down agg type may be set back to NONE,
+            // see IcebergTableReader::init_row_filters for example.
+            parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
             {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
@@ -881,17 +883,10 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<orc::TypeKind>* unsupported_pushdown_types = nullptr;
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
-                static std::vector<orc::TypeKind> paimon_unsupport_type =
-                        std::vector<orc::TypeKind> {orc::TypeKind::CHAR};
-                unsupported_pushdown_types = &paimon_unsupport_type;
-            }
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
-                    unsupported_pushdown_types);
+                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
+            orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -965,8 +960,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
-            init_status =
-                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            init_status = ((NewJsonReader*)(_cur_reader.get()))
+                                  ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {

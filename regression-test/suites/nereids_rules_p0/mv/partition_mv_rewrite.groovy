@@ -480,6 +480,10 @@ suite("partition_mv_rewrite") {
         analyze table orders with sync;
         """
 
+    sql """alter table orders modify column o_comment set stats ('row_count'='3');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='6');"""
+    sql """alter table lineitem_static modify column l_comment set stats ('row_count'='4');"""
+
     // should rewrite successful when union rewrite enalbe if base table add new partition
     mv_rewrite_success(roll_up_all_partition_sql, "mv_10086", true,
             is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))

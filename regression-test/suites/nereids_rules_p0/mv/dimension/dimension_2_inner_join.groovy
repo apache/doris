@@ -19,7 +19,7 @@
 This suite is a two dimensional test case file.
 It mainly tests the inner join and filter positions.
  */
-suite("partition_mv_rewrite_dimension_2_2") {
+suite("dimension_2_inner_join") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 
@@ -101,6 +101,9 @@ suite("partition_mv_rewrite_dimension_2_2") {
 
     sql """analyze table orders_2_2 with sync;"""
     sql """analyze table lineitem_2_2 with sync;"""
+
+    sql """alter table orders_2_2 modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_2_2 modify column l_comment set stats ('row_count'='7');"""
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"

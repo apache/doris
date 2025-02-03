@@ -46,6 +46,7 @@
 #include "vec/io/var_int.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 } // namespace vectorized
@@ -98,7 +99,7 @@ struct AggregateFunctionCollectSetData {
     }
 
     void read(BufferReadable& buf) {
-        size_t new_size = 0;
+        uint64_t new_size = 0;
         read_var_uint(new_size, buf);
         ElementNativeType x;
         for (size_t i = 0; i < new_size; ++i) {
@@ -262,10 +263,10 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
             }
             max_size = rhs.max_size;
 
-            data->insert_range_from(
-                    *rhs.data, 0,
-                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(max_size - size()),
-                             rhs.size()));
+            data->insert_range_from(*rhs.data, 0,
+                                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(
+                                                     static_cast<size_t>(max_size - size())),
+                                             rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
@@ -836,3 +837,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

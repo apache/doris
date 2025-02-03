@@ -702,6 +702,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2, 3}; }
+
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1235,7 +1237,8 @@ public:
                         null_map = ColumnUInt8::create(input_rows_count, is_null);
                         res->insert_many_defaults(input_rows_count);
                     } else {
-                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                        res->insert_data_repeatedly(target_data.data, target_data.size,
+                                                    input_rows_count);
                     }
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
@@ -1387,7 +1390,7 @@ public:
                         fmt::format("unsupported nested array of type {} for function {}",
                                     is_column_nullable(array_column.get_data())
                                             ? array_column.get_data().get_name()
-                                            : array_column.get_data().get_family_name(),
+                                            : array_column.get_data().get_name(),
                                     get_name()));
             }
             // Concat string in array
@@ -1524,6 +1527,9 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringRepeat>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
+    // should set NULL value of nested data to default,
+    // as iff it's not inited and invalid, the repeat result of length is so large cause overflow
+    bool need_replace_null_data_to_default() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -2136,7 +2142,7 @@ public:
 
         NullMapType* dest_nested_null_map = nullptr;
         auto* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
-        dest_nested_column = dest_nullable_col->get_nested_column_ptr();
+        dest_nested_column = dest_nullable_col->get_nested_column_ptr().get();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
         const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
@@ -3764,9 +3770,10 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
-        ColumnString::check_chars_length(str_chars.size() * 2 + input_rows_count, 0);
-        res_chars.resize(str_chars.size() * 2 + input_rows_count);
+        // max pinyin size is 6 + 1 (first '~') for utf8 chinese word 3
+        size_t pinyin_size = (str_chars.size() + 2) / 3 * 7;
+        ColumnString::check_chars_length(pinyin_size, 0);
+        res_chars.resize(pinyin_size);
 
         size_t in_len = 0, out_len = 0;
         for (int i = 0; i < input_rows_count; ++i) {
@@ -3807,7 +3814,11 @@ public:
                     }
 
                     auto end = strchr(buf, ' ');
-                    auto len = end != nullptr ? end - buf : MAX_PINYIN_LEN;
+                    // max len for pinyin is 6
+                    int len = MAX_PINYIN_LEN;
+                    if (end != nullptr && end - buf < MAX_PINYIN_LEN) {
+                        len = end - buf;
+                    }
                     // set first char '~' just make sure all english word lower than chinese word
                     *dest = 126;
                     memcpy(dest + 1, buf, len);
@@ -4430,7 +4441,7 @@ public:
         } else if (is_ascii) {
             impl_vectors = impl_vectors_ascii<false>;
         }
-        impl_vectors(col_source, col_from, col_to, col_res);
+        impl_vectors(col_source, col_from, col_to, col_res.get());
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }

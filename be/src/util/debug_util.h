@@ -27,7 +27,6 @@
 namespace doris {
 
 std::string print_plan_node_type(const TPlanNodeType::type& type);
-std::string print_tstmt_type(const TStmtType::type& type);
 std::string print_query_state(const QueryState::type& type);
 std::string PrintTUnit(const TUnit::type& type);
 std::string PrintTMetricKind(const TMetricKind::type& type);

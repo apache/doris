@@ -24,6 +24,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
@@ -74,6 +75,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
+    public static LongCounterMetric COUNTER_QUERY_SLOW;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
@@ -98,6 +100,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_CACHE_ADDED_PARTITION;
     public static LongCounterMetric COUNTER_CACHE_HIT_SQL;
     public static LongCounterMetric COUNTER_CACHE_HIT_PARTITION;
+
+    public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
 
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
@@ -142,7 +146,10 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_REQUEST_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
+    public static GaugeMetricImpl<Double> GAUGE_QUERY_SLOW_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
+
+    public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -155,6 +162,25 @@ public final class MetricRepo {
         if (isInit) {
             return;
         }
+
+        // version
+        GaugeMetric<Long> feVersion = new GaugeMetric<Long>("version", MetricUnit.NOUNIT, "") {
+            @Override
+            public Long getValue() {
+                try {
+                    return Long.parseLong("" + Version.DORIS_BUILD_VERSION_MAJOR + "0"
+                                            + Version.DORIS_BUILD_VERSION_MINOR + "0"
+                                            + Version.DORIS_BUILD_VERSION_PATCH
+                                            + (Version.DORIS_BUILD_VERSION_HOTFIX > 0
+                                                ? ("0" + Version.DORIS_BUILD_VERSION_HOTFIX)
+                                                : ""));
+                } catch (Throwable t) {
+                    LOG.warn("failed to init version metrics", t);
+                    return 0L;
+                }
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(feVersion);
 
         // load jobs
         for (EtlJobType jobType : EtlJobType.values()) {
@@ -292,6 +318,8 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_REQUEST_PER_SECOND);
         GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_QUERY_ERR_RATE);
+        GAUGE_QUERY_SLOW_RATE = new GaugeMetricImpl<>("query_slow_rate", MetricUnit.NOUNIT, "query slow rate", 0.0);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_QUERY_SLOW_RATE);
         GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score", MetricUnit.NOUNIT,
                 "max tablet compaction score of all backends", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
@@ -303,6 +331,8 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ALL);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ERR);
+        COUNTER_QUERY_SLOW = new LongCounterMetric("query_slow", MetricUnit.REQUESTS, "total slow query");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_SLOW);
         COUNTER_QUERY_TABLE = new LongCounterMetric("query_table", MetricUnit.REQUESTS, "total query from table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_TABLE);
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
@@ -467,6 +497,10 @@ public final class MetricRepo {
                 "counter of failed transactions");
         COUNTER_TXN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_FAILED);
+        COUNTER_UPDATE_TABLET_STAT_FAILED = new LongCounterMetric("update_tablet_stat_failed", MetricUnit.REQUESTS,
+            "counter of failed to update tablet stat");
+        COUNTER_UPDATE_TABLET_STAT_FAILED.addLabel(new MetricLabel("type", "failed"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_UPDATE_TABLET_STAT_FAILED);
         HISTO_TXN_EXEC_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("txn", "exec", "latency", "ms"));
         HISTO_TXN_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
@@ -528,6 +562,9 @@ public final class MetricRepo {
             MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
         HISTO_HTTP_COPY_INTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("http_copy_into_query", "latency", "ms"));
+
+        HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
 
         // init system metrics
         initSystemMetrics();

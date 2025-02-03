@@ -34,6 +34,7 @@
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/core/block.h"
@@ -107,7 +108,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    void set_ready();
+    virtual void set_ready();
     void set_ready_to_read() {
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
@@ -548,43 +549,15 @@ public:
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 
-struct BlockRowPos {
-    int64_t block_num {}; //the pos at which block
-    int64_t row_num {};   //the pos at which row
-    int64_t pos {};       //pos = all blocks size + row_num
-    std::string debug_string() const {
-        std::string res = "\t block_num: ";
-        res += std::to_string(block_num);
-        res += "\t row_num: ";
-        res += std::to_string(row_num);
-        res += "\t pos: ";
-        res += std::to_string(pos);
-        return res;
-    }
-};
-
 struct AnalyticSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AnalyticSharedState)
 
 public:
     AnalyticSharedState() = default;
-
-    int64_t current_row_position = 0;
-    BlockRowPos partition_by_end;
-    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
-    int64_t input_total_rows = 0;
-    BlockRowPos all_block_end;
-    std::vector<vectorized::Block> input_blocks;
-    bool input_eos = false;
-    BlockRowPos found_partition_end;
-    std::vector<int64_t> origin_cols;
-    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
-    std::vector<int64_t> input_block_first_row_positions;
-    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
-
-    // TODO: maybe global?
-    std::vector<int64_t> partition_by_column_idxs;
-    std::vector<int64_t> ordey_by_column_idxs;
+    std::queue<vectorized::Block> blocks_buffer;
+    std::mutex buffer_mutex;
+    bool sink_eos = false;
+    std::mutex sink_eos_lock;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -613,7 +586,6 @@ struct HashJoinSharedState : public JoinSharedState {
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    bool probe_ignore_null = false;
 };
 
 struct PartitionedHashJoinSharedState
@@ -662,7 +634,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetDataVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetDataVariants> hash_table_variants =
+            std::make_unique<SetDataVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     // The SET operator's child might have different nullable attributes.
@@ -724,8 +697,7 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
     case ExchangeType::LOCAL_MERGE_SORT:
         return "LOCAL_MERGE_SORT";
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
@@ -759,7 +731,7 @@ public:
         }
     }
     void sub_running_sink_operators();
-    void sub_running_source_operators(LocalExchangeSourceLocalState& local_state);
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
             DCHECK(dep);

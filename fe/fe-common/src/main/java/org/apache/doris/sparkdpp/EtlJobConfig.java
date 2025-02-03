@@ -371,14 +371,17 @@ public class EtlJobConfig implements Serializable {
         public String indexType;
         @SerializedName(value = "isBaseIndex")
         public boolean isBaseIndex;
+        @SerializedName(value = "schemaVersion")
+        public int schemaVersion;
 
         public EtlIndex(long indexId, List<EtlColumn> etlColumns, int schemaHash,
-                        String indexType, boolean isBaseIndex) {
+                        String indexType, boolean isBaseIndex, int schemaVersion) {
             this.indexId = indexId;
             this.columns =  etlColumns;
             this.schemaHash = schemaHash;
             this.indexType = indexType;
             this.isBaseIndex = isBaseIndex;
+            this.schemaVersion = schemaVersion;
         }
 
         public EtlColumn getColumn(String name) {
@@ -398,6 +401,7 @@ public class EtlJobConfig implements Serializable {
                     + ", schemaHash=" + schemaHash
                     + ", indexType='" + indexType + '\''
                     + ", isBaseIndex=" + isBaseIndex
+                    + ", schemaVersion=" + schemaVersion
                     + '}';
         }
     }

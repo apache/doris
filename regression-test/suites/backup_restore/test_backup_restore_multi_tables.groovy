@@ -84,7 +84,7 @@ suite("test_backup_restore_multi_tables", "backup_restore") {
     syncer.waitAllRestoreFinish(dbName)
 
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

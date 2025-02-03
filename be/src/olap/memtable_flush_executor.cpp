@@ -37,9 +37,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_thread_num, MetricUnit::NOUNIT);
-
 bvar::Adder<int64_t> g_flush_task_num("memtable_flush_task_num");
 
 class MemtableFlushTask final : public Runnable {
@@ -147,7 +144,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     memtable->update_mem_type(MemType::FLUSH);
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
-    SCOPED_ATTACH_TASK(memtable->query_thread_context());
+    SCOPED_ATTACH_TASK(memtable->resource_ctx());
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
     {
@@ -239,7 +236,6 @@ void MemTableFlushExecutor::init(int num_disk) {
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_high_prio_flush_pool));
-    _register_metrics();
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
@@ -261,18 +257,6 @@ Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& fl
     default:
         return Status::InternalError<false>("unknown rowset type.");
     }
-}
-
-void MemTableFlushExecutor::_register_metrics() {
-    REGISTER_HOOK_METRIC(flush_thread_pool_queue_size,
-                         [this]() { return _flush_pool->get_queue_size(); });
-    REGISTER_HOOK_METRIC(flush_thread_pool_thread_num,
-                         [this]() { return _flush_pool->num_threads(); })
-}
-
-void MemTableFlushExecutor::_deregister_metrics() {
-    DEREGISTER_HOOK_METRIC(flush_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(flush_thread_pool_thread_num);
 }
 
 } // namespace doris

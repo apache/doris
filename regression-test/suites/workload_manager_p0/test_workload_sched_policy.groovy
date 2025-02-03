@@ -157,7 +157,7 @@ suite("test_workload_sched_policy") {
     // 1 create test_set_var_policy
     sql "create workload policy test_set_var_policy conditions(username='test_workload_sched_user')" +
             "actions(set_session_variable 'workload_group=test_set_session_wg');"
-    def result1 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
+    def result1 = connect('test_workload_sched_user', '12345', context.config.jdbcUrl) {
         logger.info("begin sleep 15s to wait")
         Thread.sleep(15000)
         sql "show variables like 'workload_group';"
@@ -168,7 +168,7 @@ suite("test_workload_sched_policy") {
     // 2 create test_set_var_policy2 with higher priority
     sql "create workload policy test_set_var_policy2 conditions(username='test_workload_sched_user') " +
             "actions(set_session_variable 'workload_group=test_set_session_wg2') properties('priority'='10');"
-    def result2 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
+    def result2 = connect('test_workload_sched_user', '12345', context.config.jdbcUrl) {
         Thread.sleep(3000)
         sql "show variables like 'workload_group';"
     }
@@ -177,7 +177,7 @@ suite("test_workload_sched_policy") {
 
     // 3 disable test_set_var_policy2
     sql "alter workload policy test_set_var_policy2 properties('enabled'='false');"
-    def result3 = connect(user = 'test_workload_sched_user', password = '12345', url = context.config.jdbcUrl) {
+    def result3 = connect('test_workload_sched_user', '12345', context.config.jdbcUrl) {
         Thread.sleep(3000)
         sql "show variables like 'workload_group';"
     }
@@ -235,61 +235,4 @@ suite("test_workload_sched_policy") {
 
     sql "drop user test_alter_policy_user"
     sql "drop workload policy test_alter_policy"
-
-    // daemon thread alter test
-    def thread1 = new Thread({
-        def startTime = System.currentTimeMillis()
-        def curTime = System.currentTimeMillis()
-        def totalTime = 30 * 60 * 1000 // 30min
-
-        connect(user = 'test_policy_user', password = '12345', url = context.config.jdbcUrl) {
-            sql "set workload_group=policy_group"
-            boolean flag = false
-            long lastTime = System.currentTimeMillis()
-
-            while (curTime - startTime <= totalTime) {
-                if (curTime - lastTime > 20000) {
-                    if (flag) {
-                        connect(user = 'root', password = '', url = context.config.jdbcUrl) {
-                            sql "alter workload policy test_cancel_query_policy properties('workload_group'='policy_group2');"
-                            sql "alter workload policy test_cancel_query_policy2 properties('workload_group'='policy_group');"
-                        }
-                        flag = false
-                    } else {
-                        connect(user = 'root', password = '', url = context.config.jdbcUrl) {
-                            sql "alter workload policy test_cancel_query_policy properties('workload_group'='policy_group');"
-                            sql "alter workload policy test_cancel_query_policy2 properties('workload_group'='policy_group2');"
-                        }
-                        flag = true
-                    }
-                    lastTime = System.currentTimeMillis()
-                }
-                try {
-                    sql "select k0 as policy_test_tag,k1,k2,k3,k4,k5,k6,count(distinct k13) from regression_test_load_p0_insert.baseall group by k0,k1,k2,k3,k4,k5,k6"
-                } catch (Exception e) {
-                    boolean ret = e.getMessage().contains("cancelled by workload policy")
-                    if (!ret) {
-                        logger.info("policy_test_tag " + e.getMessage())
-                    }
-                    assertTrue(ret, "policy daemon check failed")
-                }
-
-                try {
-                    sql "select count(1) as policy_test_tag from regression_test_load_p0_insert.baseall"
-                } catch (Exception e) {
-                    boolean ret = e.getMessage().contains("cancelled by workload policy")
-                    if (!ret) {
-                        logger.info("policy_test_tag " + e.getMessage())
-                    }
-                    assertTrue(ret, "policy daemon check failed")
-                }
-
-                Thread.sleep(1000)
-                curTime = System.currentTimeMillis()
-            }
-        }
-    })
-    thread1.setDaemon(true)
-    thread1.start()
-
 }

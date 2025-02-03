@@ -151,7 +151,7 @@ suite("test_insert_random_distribution_table", "p0") {
         res = sql "show tablets from ${tableName} partition ${partitions[p]}"
         partitionTablets[p] = getTablets.call(res)
         partitionRowCounts[p] = []
-        numTablets = partitionTablets[p].size()
+        def numTablets = partitionTablets[p].size()
         for (int i = numTablets - 1; i >= 0; i--) {
             def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[p][i]})"
             partitionRowCounts[p][i] = countResult[0][0]
@@ -191,7 +191,7 @@ suite("test_insert_random_distribution_table", "p0") {
 
 
     for (int p = 0; p < 3; p++) {
-        numTablets = partitionTablets[p].size()
+        def numTablets = partitionTablets[p].size()
         for (int i = numTablets - 1; i >= 0; i--) {
             def countResult = sql "select count() from ${tableName} tablet(${partitionTablets[p][i]})"
             partitionRowCounts[p][i] = countResult[0][0]

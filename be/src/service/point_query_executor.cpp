@@ -396,17 +396,6 @@ Status PointQueryExecutor::_lookup_row_key() {
         specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
-    // init segment_cache
-    {
-        SCOPED_TIMER(&_profile_metrics.load_segment_key_stage_ns);
-        for (size_t i = 0; i < specified_rowsets.size(); i++) {
-            auto& rs = specified_rowsets[i];
-            segment_caches[i] = std::make_unique<SegmentCacheHandle>();
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true,
-                    &_profile_metrics.read_stats));
-        }
-    }
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
         if (!config::disable_storage_row_cache) {
@@ -528,14 +517,23 @@ Status PointQueryExecutor::_lookup_row_data() {
     }
     // filter rows by delete sign
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
-        vectorized::ColumnPtr delete_filter_columns =
-                _result_block->get_columns()[_reusable->delete_sign_idx()];
-        const auto& filter =
-                assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())->get_data();
-        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-        if (count == filter.size()) {
-            _result_block->clear();
-        } else if (count > 0) {
+        size_t filtered = 0;
+        size_t total = 0;
+        {
+            // clear_column_data will check reference of ColumnPtr, so we need to release
+            // reference before clear_column_data
+            vectorized::ColumnPtr delete_filter_columns =
+                    _result_block->get_columns()[_reusable->delete_sign_idx()];
+            const auto& filter =
+                    assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())
+                            ->get_data();
+            filtered = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+            total = filter.size();
+        }
+
+        if (filtered == total) {
+            _result_block->clear_column_data();
+        } else if (filtered > 0) {
             return Status::NotSupported("Not implemented since only single row at present");
         }
     }

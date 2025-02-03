@@ -17,6 +17,10 @@
 // under the License.
 
 suite("test_primary_key_partial_update_with_row_column", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
+
     def tableName = "test_primary_key_partial_update_with_row_column"
 
     // create table

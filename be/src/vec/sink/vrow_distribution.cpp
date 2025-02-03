@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
@@ -225,7 +226,10 @@ void VRowDistribution::_filter_block_by_skip(vectorized::Block* block,
     auto& partition_ids = row_part_tablet_id.partition_ids;
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
 
-    for (size_t i = 0; i < block->rows(); i++) {
+    auto rows = block->rows();
+    // row count of a block should not exceed UINT32_MAX
+    auto rows_uint32 = cast_set<uint32_t>(rows);
+    for (uint32_t i = 0; i < rows_uint32; i++) {
         if (!_skip[i]) {
             row_ids.emplace_back(i);
             partition_ids.emplace_back(_partitions[i]->id);
@@ -250,7 +254,10 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
     if (const auto* nullable_column =
                 vectorized::check_and_get_column<vectorized::ColumnNullable>(*filter_column)) {
-        for (size_t i = 0; i < block->rows(); i++) {
+        auto rows = block->rows();
+        // row count of a block should not exceed UINT32_MAX
+        auto rows_uint32 = cast_set<uint32_t>(rows);
+        for (uint32_t i = 0; i < rows_uint32; i++) {
             if (nullable_column->get_bool_inline(i) && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
@@ -267,7 +274,10 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         _filter_block_by_skip(block, row_part_tablet_id);
     } else {
         const auto& filter = assert_cast<const vectorized::ColumnUInt8&>(*filter_column).get_data();
-        for (size_t i = 0; i < block->rows(); i++) {
+        auto rows = block->rows();
+        // row count of a block should not exceed UINT32_MAX
+        auto rows_uint32 = cast_set<uint32_t>(rows);
+        for (uint32_t i = 0; i < rows_uint32; i++) {
             if (filter[i] != 0 && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);

@@ -21,8 +21,6 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -205,13 +203,6 @@ public class TransactionEntry {
             // FIXME: support mix usage of `insert into values` and `insert into select`
             throw new AnalysisException(
                     "Transaction insert can not insert into values and insert into select at the same time");
-        }
-        if (Config.isCloudMode()) {
-            OlapTable olapTable = (OlapTable) table;
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new UserException(
-                        "Transaction load is not supported for merge on write unique keys table in cloud mode");
-            }
         }
         DatabaseIf database = table.getDatabase();
         if (!isTransactionBegan) {

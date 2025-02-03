@@ -79,9 +79,11 @@ suite('test_execute_by_frontend') {
     assertTrue(isRecorded)
 
     String profileContent1 = getProfile(queryId1)
+    logger.info("Profile of ${queryId1}: ${profileContent1}")
     def executionProfileIdx1 = profileContent1.indexOf("Executed By Frontend: true")
     assertTrue(executionProfileIdx1 > 0)
     String profileContent2 = getProfile(queryId2)
+    logger.info("Profile of ${queryId2}: ${profileContent2}")
     def executionProfileIdx2 = profileContent2.indexOf("Executed By Frontend: true")
     assertTrue(executionProfileIdx2 > 0)
 

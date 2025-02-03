@@ -179,12 +179,11 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
     }
 }
 
-void LocalExchangeSharedState::sub_running_source_operators(
-        LocalExchangeSourceLocalState& local_state) {
+void LocalExchangeSharedState::sub_running_source_operators() {
     std::unique_lock<std::mutex> lc(le_lock);
     if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
         _set_always_ready();
-        exchanger->finalize(local_state);
+        exchanger->finalize();
     }
 }
 

@@ -17,18 +17,22 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -104,8 +108,12 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
             children.add(newChild);
         }
         if (expression instanceof UnboundSlot) {
+            ExprId exprId = StatementScopeIdGenerator.newExprId();
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, SlotReference.of(name, getType(name.charAt(0))));
+            List<String> qualifier = ImmutableList.of();
+            DataType dataType = getType(name.charAt(0));
+            Column column = new Column(name, dataType.toCatalogDataType());
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
@@ -131,6 +139,8 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
                 return BooleanType.INSTANCE;
             case 'C':
                 return DateV2Type.INSTANCE;
+            case 'A':
+                return DateTimeV2Type.SYSTEM_DEFAULT;
             case 'M':
                 return DecimalV3Type.SYSTEM_DEFAULT;
             default:

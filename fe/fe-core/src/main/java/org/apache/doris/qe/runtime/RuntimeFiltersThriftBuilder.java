@@ -27,11 +27,8 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRuntimeFilterParams;
-import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
-import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -82,22 +79,18 @@ public class RuntimeFiltersThriftBuilder {
                             target.address, address -> {
                                 TRuntimeFilterTargetParamsV2 params = new TRuntimeFilterTargetParamsV2();
                                 params.target_fragment_instance_addr = address;
+                                params.target_fragment_ids = new ArrayList<>();
+                                // required field
                                 params.target_fragment_instance_ids = new ArrayList<>();
                                 return params;
                             });
 
-                    targetParams.target_fragment_instance_ids.add(target.instanceId);
+                    targetParams.target_fragment_ids.add(target.fragmentId);
                 }
 
                 runtimeFilterParams.putToRidToTargetParamv2(
                         rf.getFilterId().asInt(), new ArrayList<>(targetToParams.values())
                 );
-            } else {
-                List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
-                for (RuntimeFilterTarget target : targets) {
-                    targetParams.add(new TRuntimeFilterTargetParams(target.instanceId, target.address));
-                }
-                runtimeFilterParams.putToRidToTargetParam(rf.getFilterId().asInt(), targetParams);
             }
         }
         for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
@@ -135,7 +128,7 @@ public class RuntimeFiltersThriftBuilder {
                     BackendWorker backendWorker = (BackendWorker) instanceJob.getAssignedWorker();
                     Backend backend = backendWorker.getBackend();
                     targetFragments.add(new RuntimeFilterTarget(
-                            instanceJob.instanceId(),
+                            fragment.getFragmentId().asInt(),
                             new TNetworkAddress(backend.getHost(), backend.getBrpcPort())
                     ));
                 }
@@ -158,11 +151,11 @@ public class RuntimeFiltersThriftBuilder {
     }
 
     public static class RuntimeFilterTarget {
-        public final TUniqueId instanceId;
+        public final int fragmentId;
         public final TNetworkAddress address;
 
-        public RuntimeFilterTarget(TUniqueId instanceId, TNetworkAddress address) {
-            this.instanceId = instanceId;
+        public RuntimeFilterTarget(int fragmentId, TNetworkAddress address) {
+            this.fragmentId = fragmentId;
             this.address = address;
         }
     }

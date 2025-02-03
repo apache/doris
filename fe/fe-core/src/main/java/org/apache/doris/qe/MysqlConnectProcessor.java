@@ -264,6 +264,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             case COM_SET_OPTION:
                 handleSetOption();
                 break;
+            case COM_RESET_CONNECTION:
+                handleResetConnection();
+                break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");

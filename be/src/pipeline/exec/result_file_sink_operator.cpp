@@ -28,6 +28,7 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
@@ -35,13 +36,15 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
+        : DataSinkOperatorX(operator_id, 0, 0),
+          _row_desc(row_desc),
+          _t_output_expr(t_output_expr) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
-        : DataSinkOperatorX(operator_id, 0),
+        : DataSinkOperatorX(operator_id, 0, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
@@ -143,4 +146,5 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_
     return local_state.sink(state, in_block, eos);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

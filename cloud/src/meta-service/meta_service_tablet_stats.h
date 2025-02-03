@@ -31,6 +31,8 @@ struct TabletStats {
     int64_t num_rows = 0;
     int64_t num_rowsets = 0;
     int64_t num_segs = 0;
+    int64_t index_size = 0;
+    int64_t segment_size = 0;
 };
 
 // Get tablet stats and detached tablet stats via `txn`. If an error occurs, `code` will be set to non OK.

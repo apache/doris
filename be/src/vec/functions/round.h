@@ -731,6 +731,7 @@ public:
         const auto* col_general = is_col_general_const
                                           ? assert_cast<const ColumnConst&>(*column_general.column)
                                                     .get_data_column_ptr()
+                                                    .get()
                                           : column_general.column.get();
         ColumnPtr res;
 

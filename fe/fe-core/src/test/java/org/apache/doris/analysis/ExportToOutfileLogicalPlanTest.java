@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJob;
@@ -47,6 +48,12 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
     private String dbName = "testDb";
     private String tblName = "table1";
 
+    private final boolean defaultEnableAdvanceNextId = Config.enable_advance_next_id; // backup
+
+    {
+        enableAdvanceNextId = false;
+    }
+
     /**
      * create a database and a table
      *
@@ -65,6 +72,7 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
                 + "PARTITION p4 VALUES LESS THAN (\"50\")\n" + ")\n"
                 + " distributed by hash(k1) buckets 10\n"
                 + "properties(\"replication_num\" = \"1\");");
+        Config.enable_advance_next_id = defaultEnableAdvanceNextId; // restore
     }
 
     /**

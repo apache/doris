@@ -46,6 +46,11 @@ public class BarrierLog implements Writable {
     public BarrierLog() {
     }
 
+    public BarrierLog(long dbId, String dbName) {
+        this.dbId = dbId;
+        this.dbName = dbName;
+    }
+
     public BarrierLog(long dbId, String dbName, long tableId, String tableName) {
         this.dbId = dbId;
         this.dbName = dbName;
@@ -102,6 +107,10 @@ public class BarrierLog implements Writable {
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public static BarrierLog fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, BarrierLog.class);
     }
 
     @Override

@@ -23,6 +23,7 @@
 #include "vec/core/field.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -52,7 +53,7 @@ private:
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
-    SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                       const DescriptorTbl& descs, const bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -109,4 +110,5 @@ private:
     const bool _reuse_mem;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

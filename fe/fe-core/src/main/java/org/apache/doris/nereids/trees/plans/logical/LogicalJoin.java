@@ -535,11 +535,35 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return;
         }
-        if (!joinType.isLeftSemiOrAntiJoin()) {
-            builder.addUniformSlot(right().getLogicalProperties().getTrait());
-        }
-        if (!joinType.isRightSemiOrAntiJoin()) {
-            builder.addUniformSlot(left().getLogicalProperties().getTrait());
+        switch (joinType) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+                builder.addUniformSlot(left().getLogicalProperties().getTrait());
+                builder.addUniformSlot(right().getLogicalProperties().getTrait());
+                break;
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                builder.addUniformSlot(left().getLogicalProperties().getTrait());
+                break;
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                builder.addUniformSlot(right().getLogicalProperties().getTrait());
+                break;
+            case LEFT_OUTER_JOIN:
+                builder.addUniformSlot(left().getLogicalProperties().getTrait());
+                builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
+                break;
+            case RIGHT_OUTER_JOIN:
+                builder.addUniformSlot(right().getLogicalProperties().getTrait());
+                builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
+                break;
+            case FULL_OUTER_JOIN:
+                builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
+                builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
+                break;
+            default:
+                break;
         }
     }
 

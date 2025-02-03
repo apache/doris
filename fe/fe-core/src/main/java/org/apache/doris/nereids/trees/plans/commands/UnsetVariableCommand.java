@@ -42,7 +42,7 @@ import org.apache.logging.log4j.Logger;
  * UnSetVarOp
  */
 public class UnsetVariableCommand extends Command implements Forward {
-    private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    private static final Logger LOG = LogManager.getLogger(UnsetVariableCommand.class);
 
     private SetType setType;
 

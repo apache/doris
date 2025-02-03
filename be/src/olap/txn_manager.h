@@ -87,6 +87,12 @@ struct TabletTxnInfo {
     std::shared_ptr<PublishStatus> publish_status;
     TxnPublishInfo publish_info;
 
+    // for cloud only, used to calculate delete bitmap for txn load
+    bool is_txn_load = false;
+    std::vector<RowsetSharedPtr> invisible_rowsets;
+    int64_t lock_id;
+    int64_t next_visible_version;
+
     TxnState state {TxnState::PREPARED};
     TabletTxnInfo() = default;
 

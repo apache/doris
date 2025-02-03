@@ -96,7 +96,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
             if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
+                columns[i] = block->get_by_position(i).column->assume_mutable();
             } else {
                 columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
             }
@@ -148,7 +148,7 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
                 if (slot_desc->is_nullable()) {
                     auto& null_col = reinterpret_cast<ColumnNullable&>(*col_ptr);
                     null_col.get_null_map_data().push_back(0);
-                    col_ptr = null_col.get_nested_column_ptr();
+                    col_ptr = null_col.get_nested_column_ptr().get();
                 }
                 switch (slot_desc->type().type) {
                 case TYPE_BOOLEAN: {
@@ -234,6 +234,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::ICEBERG:
         RETURN_IF_ERROR(_build_iceberg_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::HUDI:
+        RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
+        break;
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
@@ -311,6 +314,26 @@ Status VMetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::ICEBERG);
     metadata_table_params.__set_iceberg_metadata_params(meta_scan_range.iceberg_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                  TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_hudi_metadata_request";
+    if (!meta_scan_range.__isset.hudi_params) {
+        return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::HUDI);
+    metadata_table_params.__set_hudi_metadata_params(meta_scan_range.hudi_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

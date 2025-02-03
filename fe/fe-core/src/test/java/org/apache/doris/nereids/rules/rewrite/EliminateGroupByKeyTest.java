@@ -111,7 +111,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .rewrite()
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 2));
+                        agg.getGroupByExpressions().size() == 1));
         PlanChecker.from(connectContext)
                 .analyze("select id as c, name as n from t1 group by name, id")
                 .rewrite()
@@ -123,7 +123,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .rewrite()
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 2));
+                        agg.getGroupByExpressions().size() == 1));
     }
 
     @Test

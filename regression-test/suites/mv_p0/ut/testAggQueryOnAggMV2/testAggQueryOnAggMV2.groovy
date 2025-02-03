@@ -43,6 +43,7 @@ suite ("testAggQueryOnAggMV2") {
     createMV("create materialized view emps_mv as select deptno, sum(salary) from emps group by deptno ;")
 
     sql "analyze table emps with sync;"
+    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")

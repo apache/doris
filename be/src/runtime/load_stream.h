@@ -65,7 +65,7 @@ private:
 
     int64_t _id;
     LoadStreamWriterSharedPtr _load_stream_writer;
-    std::vector<std::unique_ptr<ThreadPoolToken>> _flush_tokens;
+    std::unique_ptr<ThreadPoolToken> _flush_token;
     std::unordered_map<int64_t, std::unique_ptr<SegIdMapping>> _segids_mapping;
     std::atomic<uint32_t> _next_segid;
     int64_t _num_segments = 0;
@@ -176,7 +176,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
     bool _is_incremental = false;
 };
 

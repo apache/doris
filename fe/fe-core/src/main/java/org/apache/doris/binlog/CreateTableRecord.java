@@ -20,6 +20,7 @@ package org.apache.doris.binlog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -43,6 +44,8 @@ public class CreateTableRecord {
     private long tableId;
     @SerializedName(value = "tableName")
     private String tableName;
+    @SerializedName(value = "tableType")
+    protected TableType type;
     @SerializedName(value = "sql")
     private String sql;
 
@@ -55,6 +58,8 @@ public class CreateTableRecord {
         this.tableId = table.getId();
         String dbName = info.getDbName();
         this.dbName = dbName;
+
+        this.type = table.getType();
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db == null) {

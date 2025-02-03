@@ -27,7 +27,8 @@ suite("test_alter_vault_type", "nonConcurrent") {
         return
     }
 
-    def hdfsVaultName = suiteName + "_HDFS"
+    def randomStr = UUID.randomUUID().toString().replace("-", "")
+    def hdfsVaultName = "hdfs_" + randomStr
 
     sql """
         CREATE STORAGE VAULT IF NOT EXISTS ${hdfsVaultName}
@@ -35,7 +36,7 @@ suite("test_alter_vault_type", "nonConcurrent") {
             "type"="HDFS",
             "fs.defaultFS"="${getHmsHdfsFs()}",
             "path_prefix" = "${hdfsVaultName}",
-            "hadoop.username" = "hadoop"
+            "hadoop.username" = "${getHmsUser()}"
         );
     """
 
@@ -44,13 +45,13 @@ suite("test_alter_vault_type", "nonConcurrent") {
             ALTER STORAGE VAULT ${hdfsVaultName}
             PROPERTIES (
                 "type"="s3",
-                "s3.access_key" = "new_ak"
+                "s3.access_key" = "new_ak",
+                "s3.secret_key" = "new_sk"
             );
         """
     }, "is not s3 storage vault")
 
-
-    def s3VaultName = suiteName + "_S3"
+    def s3VaultName = "s3_" + randomStr
     sql """
         CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
         PROPERTIES (
@@ -62,6 +63,7 @@ suite("test_alter_vault_type", "nonConcurrent") {
             "s3.root.path" = "${s3VaultName}",
             "s3.bucket" = "${getS3BucketName()}",
             "s3.external_endpoint" = "",
+            "use_path_style" = "false",
             "provider" = "${getS3Provider()}"
         );
     """

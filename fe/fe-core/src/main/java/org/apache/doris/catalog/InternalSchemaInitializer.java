@@ -244,10 +244,11 @@ public class InternalSchemaInitializer extends Thread {
         // statistics
         Env.getCurrentEnv().getInternalCatalog().createTable(
                 buildStatisticsTblStmt(StatisticConstants.TABLE_STATISTIC_TBL_NAME,
-                    Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
+                        Lists.newArrayList("id", "catalog_id", "db_id", "tbl_id", "idx_id", "col_id", "part_id")));
         Env.getCurrentEnv().getInternalCatalog().createTable(
                 buildStatisticsTblStmt(StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
-                    Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id", "col_id")));
+                        Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id",
+                                "col_id")));
         // audit table
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
     }
@@ -275,7 +276,6 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
-                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false");
             }
         };
 

@@ -28,11 +28,15 @@ suite("check_meta", "data_reliability,p3") {
         List<List<Object>> tableRes = sql """ show tables from ${db} """
         for (tableRow : tableRes) {
             def table = tableRow[0]
+            def createTableSql = sql """ show create table ${db}.`${table}` """
+            if (createTableSql[0][1].contains("CREATE VIEW")) {
+                continue
+            }
             logger.info("select count database: {}, table {}", db, table)
 
             def repeatedTimes = 6;  // replica num * 2
             for (int i = 0; i < repeatedTimes; i++) {
-                sql """ select count(*) from ${db}.`${table}` """
+                sql """ select /*+ SET_VAR(enable_push_down_no_group_agg=false) */ count(*) from ${db}.`${table}` """
             }
         }
     }

@@ -257,6 +257,17 @@ public class TimeUtils {
         return d.getTime();
     }
 
+    /**
+     * Converts a millisecond timestamp to a second-level timestamp.
+     *
+     * @param timestamp The millisecond timestamp to be converted.
+     * @return The timestamp rounded to the nearest second (in milliseconds).
+     */
+    public static long convertToSecondTimestamp(long timestamp) {
+        // Divide by 1000 to convert to seconds, then multiply by 1000 to return to milliseconds with no fractional part
+        return (timestamp / 1000) * 1000;
+    }
+
     public static long timeStringToLong(String timeStr, TimeZone timeZone) {
         DateTimeFormatter dateFormatTimeZone = getDatetimeFormatWithTimeZone();
         dateFormatTimeZone.withZone(timeZone.toZoneId());

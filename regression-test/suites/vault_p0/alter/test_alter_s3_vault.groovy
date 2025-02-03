@@ -27,80 +27,263 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         return
     }
 
+    def randomStr = UUID.randomUUID().toString().replace("-", "")
+    def s3VaultName = "s3_" + randomStr
+
     sql """
-        CREATE STORAGE VAULT IF NOT EXISTS ${suiteName}
+        CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
         PROPERTIES (
             "type"="S3",
             "s3.endpoint"="${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
             "s3.access_key" = "${getS3AK()}",
             "s3.secret_key" = "${getS3SK()}",
-            "s3.root.path" = "${suiteName}",
+            "s3.root.path" = "${s3VaultName}",
             "s3.bucket" = "${getS3BucketName()}",
             "s3.external_endpoint" = "",
-            "provider" = "${getS3Provider()}"
+            "provider" = "${getS3Provider()}",
+            "use_path_style" = "false"
         );
     """
 
+    // case1
     expectExceptionLike({
         sql """
-            ALTER STORAGE VAULT ${suiteName}
+            ALTER STORAGE VAULT ${s3VaultName}
             PROPERTIES (
-            "type"="S3",
-            "s3.bucket" = "error_bucket"
+                "type"="S3",
+                "fs.defaultFS"="error_fs"
             );
         """
     }, "Alter property")
 
+    // case2
     expectExceptionLike({
         sql """
-            ALTER STORAGE VAULT ${suiteName}
+            ALTER STORAGE VAULT ${s3VaultName}
             PROPERTIES (
-            "type"="S3",
-            "provider" = "${getS3Provider()}"
+                "type"="S3",
+                "path_prefix"="error_path"
             );
         """
     }, "Alter property")
 
+    // case3
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "hadoop.username"="error_user"
+            );
+        """
+    }, "Alter property")
 
-    def vaultName = suiteName
-    String properties;
+    // case4
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.bucket" = "error_bucket"
+            );
+        """
+    }, "Alter property")
 
-    def vaultInfos = try_sql """show storage vault"""
+    // case5
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.region" = "error_region"
+            );
+        """
+    }, "Alter property")
+
+    // case6
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.endpoint" = "error_endpoint"
+            );
+        """
+    }, "Alter property")
+
+    // case7
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "provider" = "error_privider"
+            );
+        """
+    }, "Alter property")
+
+    // case8
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "provider" = "error_privider"
+            );
+        """
+    }, "Alter property")
+
+    // case9
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.root.path" = "error_root_path"
+            );
+        """
+    }, "Alter property")
+
+    // case10
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.external_endpoint" = "error_external_endpoint"
+            );
+        """
+    }, "Alter property")
+
+    // case11
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.access_key" = "new_ak"
+            );
+        """
+    }, "Accesskey and secretkey must be alter together")
+
+    // case12
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.access_key" = "new_ak"
+            );
+        """
+    }, "Accesskey and secretkey must be alter together")
+
+    // case13
+    def String properties;
+    def vaultInfos = try_sql """SHOW STORAGE VAULTS"""
 
     for (int i = 0; i < vaultInfos.size(); i++) {
-        def name = vaultInfos[i][0]
-        if (name.equals(vaultName)) {
+        logger.info("vault info: ${vaultInfos[i]}")
+        if (vaultInfos[i][0].equals(s3VaultName)) {
             properties = vaultInfos[i][2]
         }
     }
 
-    def newVaultName = suiteName + "_new";
-
     sql """
-        ALTER STORAGE VAULT ${vaultName}
+        ALTER STORAGE VAULT ${s3VaultName}
         PROPERTIES (
             "type"="S3",
-            "VAULT_NAME" = "${newVaultName}",
-            "s3.access_key" = "new_ak"
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
         );
     """
 
-    vaultInfos = sql """SHOW STORAGE VAULT;"""
-    boolean exist = false
+    vaultInfos = sql """SHOW STORAGE VAULTS;"""
 
     for (int i = 0; i < vaultInfos.size(); i++) {
-        def name = vaultInfos[i][0]
-        logger.info("name is ${name}, info ${vaultInfos[i]}")
-        if (name.equals(vaultName)) {
-            assertTrue(false);
-        }
-        if (name.equals(newVaultName)) {
-            assertTrue(vaultInfos[i][2].contains("new_ak"))
-            exist = true
+        logger.info("vault info: ${vaultInfos[i]}")
+        if (vaultInfos[i][0].equals(s3VaultName)) {
+            def newProperties = vaultInfos[i][2]
+            assertTrue(properties.equals(newProperties), "Properties are not the same")
         }
     }
-    assertTrue(exist)
-    // failed to insert due to the wrong ak
-    expectExceptionLike({ sql """insert into alter_s3_vault_tbl values("2", "2");""" }, "")
+
+
+    // case14 rename + aksk
+    sql """
+        CREATE TABLE ${s3VaultName} (
+            C_CUSTKEY     INTEGER NOT NULL,
+            C_NAME        INTEGER NOT NULL
+        )
+        DUPLICATE KEY(C_CUSTKEY, C_NAME)
+        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "storage_vault_name" = ${s3VaultName}
+        )
+    """
+    sql """ insert into ${s3VaultName} values(1, 1); """
+    sql """ sync;"""
+    def result = sql """ select * from ${s3VaultName}; """
+    assertEquals(result.size(), 1);
+
+    def newS3VaultName = s3VaultName + "_new";
+    sql """
+        ALTER STORAGE VAULT ${s3VaultName}
+        PROPERTIES (
+            "type"="S3",
+            "VAULT_NAME" = "${newS3VaultName}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        );
+        """
+
+    sql """ insert into ${s3VaultName} values(2, 2); """
+    sql """ sync;"""
+    result = sql """ select * from ${s3VaultName}; """
+    assertEquals(result.size(), 2);
+
+    expectExceptionLike({
+        sql """
+            CREATE TABLE ${newS3VaultName} (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+            )
+            DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = ${s3VaultName}
+            )
+        """
+    }, "does not exis")
+
+    sql """
+        CREATE TABLE ${newS3VaultName} (
+            C_CUSTKEY     INTEGER NOT NULL,
+            C_NAME        INTEGER NOT NULL
+        )
+        DUPLICATE KEY(C_CUSTKEY, C_NAME)
+        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "storage_vault_name" = ${newS3VaultName}
+        )
+    """
+
+    sql """ insert into ${newS3VaultName} values(1, 1); """
+    sql """ sync;"""
+    result = sql """ select * from ${newS3VaultName}; """
+    assertEquals(result.size(), 1);
+
+    // case15
+    sql """
+        ALTER STORAGE VAULT ${newS3VaultName}
+        PROPERTIES (
+            "type"="S3",
+            "s3.access_key" = "error_ak",
+            "s3.secret_key" = "error_sk"
+        );
+    """
+    expectExceptionLike({ sql """insert into ${newS3VaultName} values("2", "2");""" }, "failed to put object")
 }

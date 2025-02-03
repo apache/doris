@@ -64,16 +64,6 @@ public:
     PInternalService(ExecEnv* exec_env);
     ~PInternalService() override;
 
-    void transmit_data(::google::protobuf::RpcController* controller,
-                       const ::doris::PTransmitDataParams* request,
-                       ::doris::PTransmitDataResult* response,
-                       ::google::protobuf::Closure* done) override;
-
-    void transmit_data_by_http(::google::protobuf::RpcController* controller,
-                               const ::doris::PEmptyRequest* request,
-                               ::doris::PTransmitDataResult* response,
-                               ::google::protobuf::Closure* done) override;
-
     void exec_plan_fragment(google::protobuf::RpcController* controller,
                             const PExecPlanFragmentRequest* request,
                             PExecPlanFragmentResult* result,
@@ -252,11 +242,6 @@ private:
                                             std::function<void(RuntimeState*, Status*)>());
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
-
-    void _transmit_data(::google::protobuf::RpcController* controller,
-                        const ::doris::PTransmitDataParams* request,
-                        ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
-                        const Status& extract_st);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

@@ -735,8 +735,6 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         for (int column_id : column_ids) {
             index_context->set_true_for_inverted_index_status(this, column_id);
         }
-        // set fast_execute when expr evaluated by inverted index correctly
-        _can_fast_execute = true;
     }
     return Status::OK();
 }

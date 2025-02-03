@@ -58,6 +58,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -147,14 +148,16 @@ private:
             size_t end = offsets[i];
             for (size_t j = begin; j < end; j++) {
                 if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
-                    matched_indices->insert_value(j - begin + 1);
+                    matched_indices->insert_value(
+                            cast_set<MapIndiceDataType::FieldType, size_t, false>(j - begin + 1));
                     matched = true;
                     break;
                 }
             }
 
             if (!matched) {
-                matched_indices->insert_value(end - begin + 1); // make indices for null
+                matched_indices->insert_value(cast_set<MapIndiceDataType::FieldType, size_t, false>(
+                        end - begin + 1)); // make indices for null
             }
         }
 
@@ -415,4 +418,5 @@ private:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

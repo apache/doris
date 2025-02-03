@@ -100,3 +100,6 @@ Insert into dbo.all_type values
 (2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 insert into dbo.test_timestamp(id_col) values(1);
+
+Insert into dbo.TEST_LOWER values (1, 'doris');
+UPDATE STATISTICS dbo.TEST_LOWER;

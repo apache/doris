@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -97,10 +99,10 @@ public:
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
         default:
-            LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
+            throw Exception(Status::FatalError("not match type of cache policy :{}",
+                                               static_cast<int>(type)));
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
     inline static std::unordered_map<std::string, CacheType> StringToType = {
@@ -123,6 +125,7 @@ public:
             {"CloudTabletCache", CacheType::CLOUD_TABLET_CACHE},
             {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE},
             {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER},
+            {"QueryCache", CacheType::QUERY_CACHE},
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL}};
 
     static CacheType string_to_type(std::string type) {
@@ -132,6 +135,9 @@ public:
             return CacheType::NONE;
         }
     }
+
+    inline static std::vector<CacheType> MetadataCache {
+            CacheType::SEGMENT_CACHE, CacheType::SCHEMA_CACHE, CacheType::TABLET_SCHEMA_CACHE};
 
     CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();

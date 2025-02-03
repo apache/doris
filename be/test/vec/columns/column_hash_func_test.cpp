@@ -71,11 +71,11 @@ TEST(HashFuncTest, ArrayTypeTest) {
         DataTypePtr a = std::make_shared<DataTypeArray>(d);
         ColumnPtr col_a = a->create_column_const_with_default_value(1);
         // xxHash
-        EXPECT_NO_FATAL_FAILURE(col_a->update_hashes_with_value(xx_hashes));
+        EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_hashes_with_value(xx_hashes));
         std::cout << xx_hashes[0] << std::endl;
         // crcHash
-        EXPECT_NO_FATAL_FAILURE(
-                col_a->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_ARRAY, 1));
+        EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_crcs_with_value(
+                crc_hashes, PrimitiveType::TYPE_ARRAY, 1));
         std::cout << crc_hashes[0] << std::endl;
     }
 }

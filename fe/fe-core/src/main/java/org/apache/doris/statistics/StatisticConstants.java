@@ -93,13 +93,13 @@ public class StatisticConstants {
 
     public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
 
-    public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 90;
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
     public static final int TASK_QUEUE_CAP = 1;
 
-    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 300;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
 

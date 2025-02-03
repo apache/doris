@@ -38,7 +38,7 @@
 
 namespace doris {
 class JsonbOutStream;
-
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 
@@ -59,9 +59,9 @@ public:
 
     DataTypeNumberSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
@@ -76,55 +76,66 @@ public:
 
     void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int row_num) const override;
+                                 int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
+                               int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int row_num) const override;
+                                  int64_t row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const;
 };
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto old_column_size = column.size();
-    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
-                  std::is_same_v<T, UInt32>) {
+    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16>) {
+        column.resize(old_column_size + arg.uint32_value_size());
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint32_value_size(); ++i) {
+            data[old_column_size + i] = cast_set<T, uint32_t, false>(arg.uint32_value(i));
+        }
+    } else if constexpr (std::is_same_v<T, UInt32>) {
         column.resize(old_column_size + arg.uint32_value_size());
         auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] = arg.uint32_value(i);
         }
-    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
-                         std::is_same_v<T, Int32>) {
+    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16>) {
+        column.resize(old_column_size + arg.int32_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int32_value_size(); ++i) {
+            data[old_column_size + i] = cast_set<T, int32_t, false>(arg.int32_value(i));
+        }
+    } else if constexpr (std::is_same_v<T, Int32>) {
         column.resize(old_column_size + arg.int32_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
@@ -167,9 +178,9 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                                  int end) const {
-    int row_count = end - start;
+Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
+                                                  int64_t start, int64_t end) const {
+    auto row_count = cast_set<int>(end - start);
     auto* ptype = result.mutable_type();
     const auto* col = check_and_get_column<ColumnVector<T>>(column);
     if constexpr (std::is_same_v<T, Int128>) {
@@ -265,8 +276,8 @@ template <typename T>
 void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
                                                      JsonbWriterT<JsonbOutStream>& result,
                                                      Arena* mem_pool, int32_t col_id,
-                                                     int row_num) const {
-    result.writeKey(col_id);
+                                                     int64_t row_num) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     StringRef data_ref = column.get_data_at(row_num);
     // TODO: Casting unsigned integers to signed integers may result in loss of data precision.
     // However, as Doris currently does not support unsigned integers, only the boolean type uses
@@ -303,7 +314,7 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
                                                       rapidjson::Value& result,
                                                       rapidjson::Document::AllocatorType& allocator,
-                                                      Arena& mem_pool, int row_num) const {
+                                                      Arena& mem_pool, int64_t row_num) const {
     const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
     if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> || std::is_same_v<T, Int32>) {
         result.SetInt(data[row_num]);
@@ -358,6 +369,6 @@ Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
     }
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

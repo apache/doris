@@ -93,7 +93,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     private final Map<Long, Table> idToTable;
     private ConcurrentMap<String, Table> nameToTable;
     // table name lower case -> table name
-    private final Map<String, String> lowerCaseToTableName;
+    private final ConcurrentMap<String, String> lowerCaseToTableName;
 
     // user define function
     @SerializedName(value = "name2Function")
@@ -549,6 +549,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         } finally {
             readUnlock();
         }
+    }
+
+    public Set<String> getTableNames() {
+        return new HashSet<>(this.nameToTable.keySet());
     }
 
     /**

@@ -71,7 +71,6 @@ public class LoadingTaskPlanner {
     private final long timeoutS;    // timeout of load job, in second
     private final int loadParallelism;
     private final int sendBatchParallelism;
-    private final boolean useNewLoadScanNode;
     private final boolean singleTabletLoadPerSink;
     private final boolean enableMemtableOnSinkNode;
     private UserIdentity userInfo;
@@ -89,7 +88,7 @@ public class LoadingTaskPlanner {
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
             boolean strictMode, boolean isPartialUpdate, String timezone, long timeoutS, int loadParallelism,
-            int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo,
+            int sendBatchParallelism, UserIdentity userInfo,
             boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
@@ -103,7 +102,6 @@ public class LoadingTaskPlanner {
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
-        this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.BooleanType;
@@ -99,13 +100,14 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
         SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false);
         // nullif(null, slot) -> null
-        assertRewrite(new NullIf(NullLiteral.INSTANCE, slot), new NullLiteral(VarcharType.SYSTEM_DEFAULT));
+        assertRewrite(new NullIf(NullLiteral.INSTANCE, slot),
+                new Nullable(new NullLiteral(VarcharType.SYSTEM_DEFAULT)));
 
         // nullif(nullable_slot, null) -> slot
-        assertRewrite(new NullIf(slot, NullLiteral.INSTANCE), slot);
+        assertRewrite(new NullIf(slot, NullLiteral.INSTANCE), new Nullable(slot));
 
         // nullif(non-nullable_slot, null) -> non-nullable_slot
-        assertRewrite(new NullIf(nonNullableSlot, NullLiteral.INSTANCE), nonNullableSlot);
+        assertRewrite(new NullIf(nonNullableSlot, NullLiteral.INSTANCE), new Nullable(nonNullableSlot));
     }
 
 }

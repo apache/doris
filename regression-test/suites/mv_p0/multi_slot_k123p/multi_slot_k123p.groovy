@@ -52,6 +52,7 @@ suite ("multi_slot_k123p") {
     }
     sql """sync"""
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     sql """set enable_stats=false;"""
     qt_select_star "select * from d_table order by k1,k4;"
 

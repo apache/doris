@@ -224,8 +224,8 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        if (params.containsKey("paimon_table")) {
-            table = PaimonUtils.deserialize(params.get("paimon_table"));
+        if (params.containsKey("serialized_table")) {
+            table = PaimonUtils.deserialize(params.get("serialized_table"));
         } else {
             PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
                     paimonOptionParams, hadoopOptionParams, dbName, tblName);

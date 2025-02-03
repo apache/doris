@@ -210,6 +210,8 @@ TEST(DetachSchemaKVTest, TabletTest) {
         EXPECT_EQ(get_rowset_res.stats().num_rowsets(), 1);
         EXPECT_EQ(get_rowset_res.stats().num_segments(), 0);
         EXPECT_EQ(get_rowset_res.stats().data_size(), 0);
+        EXPECT_EQ(get_rowset_res.stats().index_size(), 0);
+        EXPECT_EQ(get_rowset_res.stats().segment_size(), 0);
     }
 
     // new MS batch create tablets with write_schema_kv=true
@@ -481,6 +483,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res.stats().num_rowsets(), 2);
         EXPECT_EQ(get_rowset_res.stats().num_segments(), 1);
         EXPECT_EQ(get_rowset_res.stats().data_size(), 11000);
+        EXPECT_EQ(get_rowset_res.stats().index_size(), 1000);
+        EXPECT_EQ(get_rowset_res.stats().segment_size(), 10000);
     }
 
     // new MS read rowsets committed by both old and new MS
@@ -530,6 +534,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res->stats().num_rowsets(), 26);
         EXPECT_EQ(get_rowset_res->stats().num_segments(), 25);
         EXPECT_EQ(get_rowset_res->stats().data_size(), 275000);
+        EXPECT_EQ(get_rowset_res->stats().index_size(), 25000);
+        EXPECT_EQ(get_rowset_res->stats().segment_size(), 250000);
         if (schema != nullptr) {
             auto schema_version = get_rowset_res->rowset_meta(10).schema_version();
             get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(3);

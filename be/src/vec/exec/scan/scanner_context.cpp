@@ -47,7 +47,7 @@ ScannerContext::ScannerContext(
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
         std::shared_ptr<pipeline::Dependency> dependency, bool ignore_data_distribution,
-        bool is_file_scan_operator)
+        bool is_file_scan_operator, int num_parallel_instances)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -60,18 +60,21 @@ ScannerContext::ScannerContext(
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _ignore_data_distribution(ignore_data_distribution),
-          _is_file_scan_operator(is_file_scan_operator) {
+          _is_file_scan_operator(is_file_scan_operator),
+          _num_parallel_instances(num_parallel_instances) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
-    _scanners.enqueue_bulk(scanners.begin(), scanners.size());
+    if (!_scanners.enqueue_bulk(scanners.begin(), scanners.size())) [[unlikely]] {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Exception occurs during scanners initialization.");
+    };
     if (limit < 0) {
         limit = -1;
     }
     MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
-    _query_thread_context = {_query_id, _state->query_mem_tracker(),
-                             _state->get_query_ctx()->workload_group()};
+    _resource_ctx = _state->get_query_ctx()->resource_ctx;
     _dependency = dependency;
 
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
@@ -101,8 +104,6 @@ Status ScannerContext::init() {
 #endif
     _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
                                                     thread_token == nullptr ? "False" : "True");
-
-    const int num_parallel_instances = _state->query_parallel_instance_num();
 
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
@@ -173,7 +174,7 @@ Status ScannerContext::init() {
         } else {
             const size_t factor = _is_file_scan_operator ? 1 : 4;
             _max_thread_num = factor * (config::doris_scanner_thread_pool_thread_num /
-                                        num_parallel_instances);
+                                        _num_parallel_instances);
             // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
             // in parallel. We need to make sure the _max_thread_num is smaller than previous value.
             _max_thread_num =
@@ -236,7 +237,6 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         _scanner_memory_used_counter->set(_block_memory_usage);
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
-        update_peak_memory_usage(-block->allocated_bytes());
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
@@ -251,9 +251,9 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
         _block_memory_usage += block_size_to_reuse;
         _scanner_memory_used_counter->set(_block_memory_usage);
         block->clear_column_data();
-        if (_free_blocks.enqueue(std::move(block))) {
-            update_peak_memory_usage(block_size_to_reuse);
-        }
+        // Free blocks is used to improve memory efficiency. Failure during pushing back
+        // free block will not incur any bad result so just ignore the return value.
+        _free_blocks.enqueue(std::move(block));
     }
 }
 
@@ -324,7 +324,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 _estimated_block_size = block_size;
             }
             _block_memory_usage -= block_size;
-            update_peak_memory_usage(-current_block->allocated_bytes());
             // consume current block
             block->swap(*current_block);
             return_free_block(std::move(current_block));
@@ -538,10 +537,6 @@ void ScannerContext::_set_scanner_done() {
 
 void ScannerContext::update_peak_running_scanner(int num) {
     _local_state->_peak_running_scanner->add(num);
-}
-
-void ScannerContext::update_peak_memory_usage(int64_t usage) {
-    _local_state->_scanner_peak_memory_usage->add(usage);
 }
 
 } // namespace doris::vectorized

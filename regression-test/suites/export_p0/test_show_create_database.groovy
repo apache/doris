@@ -18,7 +18,7 @@
 suite("test_show_create_database", "p0,external,hive,external_docker,external_docker_hive") {
 
     sql """create database if not exists db_test"""
-    result = sql """show create database db_test"""
+    def result = sql """show create database db_test"""
     assertEquals(result.size(), 1)
     assertEquals(result[0][1], "CREATE DATABASE `db_test`")
 

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -69,7 +70,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     String.format("timeUnit not support: %s, only support: %s", this.timeUnit, timeUnits));
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType();
+        PartitionType partitionType = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
         if (partitionType == PartitionType.RANGE) {
             Type partitionColumnType = MTMVPartitionUtil
                     .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());

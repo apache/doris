@@ -30,6 +30,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -148,7 +149,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
         vectorized::Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
-        int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
+        int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
         if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
             return Status::InternalError(
                     "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
@@ -183,4 +184,5 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
 }
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

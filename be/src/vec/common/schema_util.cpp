@@ -133,7 +133,7 @@ size_t get_size_of_interger(TypeIndex type) {
     case TypeIndex::UInt128:
         return sizeof(uint128_t);
     default:
-        LOG(FATAL) << "Unknown integer type: " << getTypeName(type);
+        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
         return 0;
     }
 }
@@ -149,20 +149,17 @@ bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeInd
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
     ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
-    auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
-    if (!function) {
-        return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
-                                     type->get_name());
-    }
-    Block tmp_block {arguments};
-    size_t result_column = tmp_block.columns();
-    auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
     // To prevent from null info lost, we should not call function since the function framework will wrap
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
     if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+        // If source column is variant, so the nullable info is different from dst column
+        if (WhichDataType(remove_nullable(arg.type)).is_variant_type()) {
+            *result = type->is_nullable() ? make_nullable(arg.column) : remove_nullable(arg.column);
+            return Status::OK();
+        }
         // set variant root column/type to from column/type
         auto variant = ColumnObject::create(true /*always nullable*/);
         CHECK(arg.column->is_nullable());
@@ -173,6 +170,15 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         *result = type->is_nullable() ? nullable : variant->get_ptr();
         return Status::OK();
     }
+
+    auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
+    if (!function) {
+        return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
+                                     type->get_name());
+    }
+    Block tmp_block {arguments};
+    size_t result_column = tmp_block.columns();
+    auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
     if (WhichDataType(arg.type).is_nothing()) {
         // cast from nothing to any type should result in nulls
@@ -231,8 +237,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -416,9 +421,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // duplicated paths following the update_least_common_schema process.
     auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
         output_schema = std::make_shared<TabletSchema>();
-        output_schema->copy_from(*base_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
+        // not copy columns but only shadow copy other attributes
+        output_schema->shawdow_copy_without_columns(*base_schema);
         // Get all columns without extracted columns and collect variant col unique id
         for (const TabletColumnPtr& col : base_schema->columns()) {
             if (col->is_variant_type()) {

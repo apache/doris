@@ -485,8 +485,8 @@ Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
     jvm_metrics->jvm_thread_count->set_value(threadCount < 0 ? 0 : threadCount);
 
     for (int i = 0; i < threadCount; i++) {
-        JNI_CALL_METHOD_CHECK_EXCEPTION(jobject, threadInfo, env,
-                                        GetObjectArrayElement((jobjectArray)threadInfos, i));
+        JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
+                jobject, threadInfo, env, GetObjectArrayElement((jobjectArray)threadInfos, i));
 
         if (threadInfo == nullptr) {
             continue;
