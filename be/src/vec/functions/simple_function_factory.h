@@ -111,7 +111,7 @@ void register_function_multi_match(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
-
+void register_function_dict_get(SimpleFunctionFactory& factory);
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
@@ -301,6 +301,7 @@ public:
             register_function_split_by_regexp(instance);
             register_function_assert_true(instance);
             register_function_bit_test(instance);
+            register_function_dict_get(instance);
         });
         return instance;
     }

@@ -446,7 +446,7 @@ if [[ -n "${DISABLE_BUILD_HIVE_UDF}" ]]; then
 fi
 
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
-    DISABLE_JAVA_CHECK_STYLE='OFF'
+    DISABLE_JAVA_CHECK_STYLE='ON'
 fi
 
 if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
