@@ -119,6 +119,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -449,6 +450,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
@@ -974,7 +976,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearsSub.class, "years_sub"),
             scalar(MultiMatch.class, "multi_match"),
             scalar(SessionUser.class, "session_user"),
-            scalar(LastQueryId.class, "last_query_id"));
+            scalar(LastQueryId.class, "last_query_id"),
+            scalar(Compress.class, "compress"),
+            scalar(Uncompress.class, "uncompress"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
