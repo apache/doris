@@ -100,6 +100,12 @@ public class QueryBuildersTest {
     }
 
     @Test
+    public void testStringLiteralToSql() {
+        Expr escape = new StringLiteral("\\");
+        Assertions.assertEquals("'\\\\'", escape.toSql());
+    }
+
+    @Test
     public void testCompoundPredicateConvertEsDsl() {
         SlotRef k1 = new SlotRef(null, "k1");
         IntLiteral intLiteral1 = new IntLiteral(3);
