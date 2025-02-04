@@ -143,7 +143,8 @@ public class DataGenScanNode extends ExternalScanNode {
         StringBuilder output = new StringBuilder();
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates:\n")
+                    .append(getExplainString(conjuncts, prefix)).append("\n");
         }
         output.append(prefix).append("table value function: ").append(tvf.getDataGenFunctionName()).append("\n");
         if (useTopnFilter()) {

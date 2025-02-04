@@ -1378,8 +1378,8 @@ public class OlapScanNode extends ScanNode {
                 output.append("\n").append(prefix).append(String.format("afterFilter=%,d", cardinalityAfterFilter));
             }
             if (!runtimeFilters.isEmpty()) {
-                output.append("\n").append(prefix).append("Apply RFs: ");
-                output.append(getRuntimeFilterExplainString(false, true));
+                output.append("\n").append(prefix).append("Apply RFs:\n");
+                output.append(getRuntimeFilterExplainString(false, true, prefix));
             }
             if (!conjuncts.isEmpty()) {
                 output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
@@ -1417,8 +1417,8 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
-            output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(prefix).append("runtime filters:\n");
+            output.append(getRuntimeFilterExplainString(false, prefix));
         }
 
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
@@ -1447,8 +1447,8 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
-            output.append(prefix).append("rewrittenProjectList: ").append(
-                    getExplainString(rewrittenProjectList)).append("\n");
+            output.append(prefix).append("rewrittenProjectList:\n").append(
+                    getExplainString(rewrittenProjectList, prefix)).append("\n");
         }
 
         return output.toString();
