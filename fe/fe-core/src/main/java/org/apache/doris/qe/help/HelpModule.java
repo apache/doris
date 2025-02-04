@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Enumeration;
@@ -77,7 +78,7 @@ public class HelpModule {
 
     static {
         try {
-            CHARSET_UTF_8 = Charset.forName("UTF-8");
+            CHARSET_UTF_8 = StandardCharsets.UTF_8;
         } catch (Exception e) {
             CHARSET_UTF_8 = Charset.defaultCharset();
             LOG.error("charset named UTF-8 in not found. use: {}", CHARSET_UTF_8.displayName());
@@ -318,20 +319,20 @@ public class HelpModule {
             // If one thread is reloading zip-file, the other thread use old instance.
             if (instance.needReloadZipFile(zipFilePath)) {
                 if (lock.tryLock()) {
-                    LOG.info("reload help zip file: " + zipFilePath);
+                    LOG.info("reload help zip file: {}", zipFilePath);
                     try {
                         HelpModule newInstance = new HelpModule();
                         newInstance.setUpByZip(zipFilePath);
                         instance = newInstance;
                     } catch (UserException | IOException e) {
-                        LOG.warn("Failed to reload help zip file: " + zipFilePath, e);
+                        LOG.warn("Failed to reload help zip file: {}", zipFilePath, e);
                     } finally {
                         lock.unlock();
                     }
                 }
             }
         } catch (UserException e) {
-            LOG.warn("Failed to reload help zip file: " + zipFilePath, e);
+            LOG.warn("Failed to reload help zip file: {}", zipFilePath, e);
         }
 
         return instance;
