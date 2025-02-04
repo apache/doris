@@ -100,15 +100,13 @@ public:
 
             size_t idx = col_data.size();
             if (!length) { // data is ''
-                col_data.resize(col_data.size() + 2);
-                col_data[idx] = '0', col_data[idx + 1] = 'x';
-                col_offset[row] = col_offset[row - 1] + 2;
+                col_offset[row] = col_offset[row - 1];
                 continue;
             }
 
             // Z_MEM_ERROR and Z_BUF_ERROR are already handled in compress, making sure st is always Z_OK
             auto st = compression_codec->compress(data, &compressed_str);
-            col_data.resize(col_data.size() + compressed_str.size());
+            col_data.resize(col_data.size() + 10 + compressed_str.size());
 
             // first ten digits represent the length of the uncompressed string
             col_data[idx] = '0', col_data[idx + 1] = 'x';
