@@ -644,13 +644,20 @@ struct FunctionJsonArrayImpl {
                              const ColumnString* data_column, const ColumnUInt8* nullmap) {
         StringParser::ParseResult result;
         rapidjson::Value value;
+        rapidjson::Document doc;
 
         for (int i = 0; i < objects.size(); i++) {
             if (nullmap != nullptr && nullmap->get_data()[i]) {
                 JsonParser<'0'>::update_value(result, value, data_column->get_data_at(i),
                                               allocator);
             } else {
-                TypeImpl::update_value(result, value, data_column->get_data_at(i), allocator);
+                const auto& data = data_column->get_data_at(i);
+                doc.Parse(data.data, data.size);
+                if (!doc.HasParseError()) {
+                    value.CopyFrom(doc, allocator);
+                } else {
+                    TypeImpl::update_value(result, value, data, allocator);
+                }
             }
             objects[i].PushBack(value, allocator);
         }
@@ -687,6 +694,8 @@ struct FunctionJsonObjectImpl {
         StringParser::ParseResult result;
         rapidjson::Value key;
         rapidjson::Value value;
+        rapidjson::Document doc;
+
         for (int i = 0; i < objects.size(); i++) {
             JsonParser<'6'>::update_value(result, key, key_column->get_data_at(i),
                                           allocator); // key always is string
@@ -694,7 +703,13 @@ struct FunctionJsonObjectImpl {
                 JsonParser<'0'>::update_value(result, value, value_column->get_data_at(i),
                                               allocator);
             } else {
-                TypeImpl::update_value(result, value, value_column->get_data_at(i), allocator);
+                const auto& data = value_column->get_data_at(i);
+                doc.Parse(data.data, data.size);
+                if (!doc.HasParseError()) {
+                    value.CopyFrom(doc, allocator);
+                } else {
+                    TypeImpl::update_value(result, value, data, allocator);
+                }
             }
             objects[i].AddMember(key, value, allocator);
         }
