@@ -575,6 +575,13 @@ public class SchemaTable extends Table {
                                     .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
+            .put("audit_error_hub",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "audit_error_hub", TableType.SCHEMA,
+                            builder().column("FE_HOST", ScalarType.createStringType())
+                                    .column("EVENT_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ERROR_MESSAGE", ScalarType.createStringType())
+                                    .build(), true)
+            )
             .build();
 
     private boolean fetchAllFe = false;
