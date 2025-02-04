@@ -1726,6 +1726,8 @@ public class Env {
             if (analysisManager != null) {
                 analysisManager.getStatisticsCache().preHeat();
             }
+
+            feType = FrontendNodeType.MASTER;
         } catch (Throwable e) {
             // When failed to transfer to master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
@@ -1958,6 +1960,8 @@ public class Env {
                 followerColumnSender = new FollowerColumnSender();
                 followerColumnSender.start();
             }
+
+            feType = newType;
         } catch (Throwable e) {
             // When failed to transfer to non-master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
@@ -2954,8 +2958,7 @@ public class Env {
                             break;
                     } // end switch formerFeType
 
-                    feType = newType;
-                    LOG.info("finished to transfer FE type to {}", feType);
+                    LOG.info("finished to transfer FE type to {}, current FE type {}", newType, feType);
                 }
             } // end runOneCycle
         };
