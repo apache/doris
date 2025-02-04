@@ -215,6 +215,7 @@ public class MaterializedViewHandlerTest {
         }
         mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
+        mvColumnItem.getBaseColumnNames().add(columnName1);
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         new Expectations() {
             {
