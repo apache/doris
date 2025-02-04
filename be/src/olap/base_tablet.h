@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 
@@ -340,6 +341,13 @@ protected:
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
+
+    void reset_metric_entity() {
+        std::unique_lock lock(_meta_lock);
+        if (_metric_entity) {
+            _metric_entity.reset();
+        }
+    }
 
 protected:
     std::mutex _schema_change_lock;

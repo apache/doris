@@ -134,7 +134,10 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
 }
 
 BaseTablet::~BaseTablet() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+    if (_metric_entity) {
+        DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
+        reset_metric_entity();
+    }
     g_total_tablet_num << -1;
 }
 
