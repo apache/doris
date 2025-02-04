@@ -2192,11 +2192,24 @@ public class Coordinator implements CoordInterface {
         }
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
+        Map<Integer, List<TScanRangeLocation>> preferBucketLocationMap = new HashMap<>();
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable()
+                .isEnableColocateQueryBalanceV2()) {
+            ScanRangeAssignmentColocate assignment = new ScanRangeAssignmentColocateV2();
+            for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
+                TScanRangeLocations locations = scanNode.bucketSeq2locations.get(bucketSeq).get(0);
+                preferBucketLocationMap.put(bucketSeq, locations.getLocations());
+            }
+            preferBucketLocationMap = assignment.computeScanRangeAssignmentByColocate(preferBucketLocationMap,
+                    bucketSeqToAddress);
+        }
         for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
             //fill scanRangeParamsList
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
             if (!bucketSeqToAddress.containsKey(bucketSeq)) {
-                getExecHostPortForFragmentIDAndBucketSeq(locations.get(0),
+                List<TScanRangeLocation> preferLocations = preferBucketLocationMap.getOrDefault(bucketSeq,
+                        locations.get(0).getLocations());
+                getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), preferLocations,
                         scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost,
                         replicaNumPerHost, isEnableOrderedLocations);
             }
@@ -2219,11 +2232,12 @@ public class Coordinator implements CoordInterface {
 
     //ensure bucket sequence distribued to every host evenly
     private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
+            List<TScanRangeLocation> preferLocations,
             PlanFragmentId fragmentId, Integer bucketSeq, Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost, boolean isEnableOrderedLocations)
             throws Exception {
         Reference<Long> backendIdRef = new Reference<Long>();
-        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost,
+        selectBackendsByRoundRobin(seqLocation, preferLocations, assignedBytesPerHost, replicaNumPerHost,
                 backendIdRef, isEnableOrderedLocations);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
         TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
@@ -2252,6 +2266,7 @@ public class Coordinator implements CoordInterface {
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
+                                                         List<TScanRangeLocation> preferLocations,
                                                          Map<TNetworkAddress, Long> assignedBytesPerHost,
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
                                                          Reference<Long> backendIdRef,
@@ -2261,8 +2276,8 @@ public class Coordinator implements CoordInterface {
             Collections.sort(locations);
         }
         if (!Config.enable_local_replica_selection) {
-            return selectBackendsByRoundRobin(locations, assignedBytesPerHost, replicaNumPerHost,
-                    backendIdRef);
+            return selectBackendsByRoundRobin(seqLocation.getLocations(), preferLocations, assignedBytesPerHost,
+                    replicaNumPerHost, backendIdRef);
         }
 
         List<TScanRangeLocation> localLocations = new ArrayList<>();
@@ -2277,24 +2292,30 @@ public class Coordinator implements CoordInterface {
         }
 
         try {
-            return selectBackendsByRoundRobin(localLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+            return selectBackendsByRoundRobin(localLocations, localLocations, assignedBytesPerHost, replicaNumPerHost,
+                    backendIdRef);
         } catch (UserException ue) {
             if (!Config.enable_local_replica_selection_fallback) {
                 throw ue;
             }
-            return selectBackendsByRoundRobin(nonlocalLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+            return selectBackendsByRoundRobin(nonlocalLocations, nonlocalLocations, assignedBytesPerHost,
+                    replicaNumPerHost, backendIdRef);
         }
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> sortedLocations,
+            List<TScanRangeLocation> preferLocations,
             Map<TNetworkAddress, Long> assignedBytesPerHost, Map<TNetworkAddress, Long> replicaNumPerHost,
             Reference<Long> backendIdRef) throws UserException {
+        if (preferLocations.isEmpty()) {
+            preferLocations = sortedLocations;
+        }
         Long minAssignedBytes = Long.MAX_VALUE;
         Long minReplicaNum = Long.MAX_VALUE;
         TScanRangeLocation minLocation = null;
         Long step = 1L;
 
-        for (final TScanRangeLocation location : sortedLocations) {
+        for (final TScanRangeLocation location : preferLocations) {
             Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
             if (assignedBytes < minAssignedBytes || (assignedBytes.equals(minAssignedBytes)
                     && replicaNumPerHost.get(location.server) < minReplicaNum)) {
@@ -2328,6 +2349,7 @@ public class Coordinator implements CoordInterface {
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
+                    scanRangeLocations.getLocations(),
                     assignedBytesPerHost, replicaNumPerHost, backendIdRef, isEnableOrderedLocations);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
