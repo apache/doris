@@ -94,4 +94,5 @@ header:
     - "pytest/deploy/*.conf"
     - "tools/jeprof"
     - "tools/FlameGraph/*"
+    - "pytest/extension/data/*"
   comment: on-failure
