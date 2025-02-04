@@ -155,7 +155,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec) const;
+                     BlockCompressionCodec* codec);
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -207,6 +207,22 @@ public:
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
     FieldType get_meta_type() { return _meta_type; }
+
+    int64_t get_compaction_io_time_ns() const {
+        return _compaction_io_time_ns;
+    }
+
+    int64_t get_compaction_cache_bytes() const {
+        return _compaction_cache_bytes;
+    }
+
+    int64_t get_compaction_local_bytes() const {
+        return _compaction_local_bytes;
+    }
+
+    int64_t get_compaction_s3_bytes() const {
+        return _compaction_s3_bytes;
+    }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
@@ -260,6 +276,11 @@ private:
     bool _meta_is_nullable;
     bool _use_index_page_cache;
     int _be_exec_version = -1;
+
+    int64_t _compaction_io_time_ns;
+    int64_t _compaction_cache_bytes;
+    int64_t _compaction_local_bytes;
+    int64_t _compaction_s3_bytes;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -349,6 +370,11 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
+    virtual int64_t get_compaction_io_time_ns() const { return 0; }
+    virtual int64_t get_compaction_cache_bytes() const { return 0; }
+    virtual int64_t get_compaction_local_bytes() const { return 0; }
+    virtual int64_t get_compaction_s3_bytes() const { return 0; }
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -396,12 +422,20 @@ public:
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
+    int64_t get_compaction_io_time_ns() const override { return _compaction_io_time_ns; }
+    int64_t get_compaction_cache_bytes() const override { return _compaction_cache_bytes; }
+    int64_t get_compaction_local_bytes() const override { return _compaction_local_bytes; }
+    int64_t get_compaction_s3_bytes() const override { return _compaction_s3_bytes; }
+
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
-
+    int64_t _compaction_io_time_ns = 0;
+    int64_t _compaction_cache_bytes = 0;
+    int64_t _compaction_local_bytes = 0;
+    int64_t _compaction_s3_bytes = 0;
     ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()

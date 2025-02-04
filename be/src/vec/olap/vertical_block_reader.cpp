@@ -32,6 +32,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/tablet_schema.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
@@ -83,6 +84,12 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         bool use_cache = !rs_split.rs_reader->rowset()->is_local();
         RETURN_IF_ERROR(rs_split.rs_reader->get_segment_iterators(&_reader_context, segment_iters,
                                                                   use_cache));
+        for (auto& iter : *segment_iters) {
+            auto* seg_iter = dynamic_cast<SegmentIterator*>(iter.get());
+            if (seg_iter != nullptr) {
+                seg_iter->set_is_compaction(_is_compaction);
+            }
+        }
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
