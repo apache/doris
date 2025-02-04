@@ -202,10 +202,16 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _disk_limit_mode_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_disk_limit_mode", 0);
 
-    _storage_sync_remove_latency = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_ns");
-    _storage_async_remove_latency = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_storage_async_remove_latency_ns");
+    _cache_lock_wait_time_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
+    _get_or_set_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_get_or_set_latency_us");
+    _storage_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_us");
+    _storage_retry_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_storage_retry_sync_remove_latency_us");
+    _storage_async_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_storage_async_remove_latency_us");
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -259,7 +265,7 @@ FileCacheType BlockFileCache::string_to_cache_type(const std::string& str) {
 
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
         const TUniqueId& query_id) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     if (!config::enable_file_cache_query_limit) {
         return {};
     }
@@ -277,7 +283,7 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_query_context(
 }
 
 void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     const auto& query_iter = _query_map.find(query_id);
 
     if (query_iter != _query_map.end() && query_iter->second.use_count() <= 1) {
@@ -322,7 +328,7 @@ void BlockFileCache::QueryFileCacheContext::reserve(const UInt128Wrapper& hash, 
 }
 
 Status BlockFileCache::initialize() {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     return initialize_unlocked(cache_lock);
 }
 
@@ -541,7 +547,7 @@ std::string BlockFileCache::clear_file_cache_async() {
     int64_t num_files_all = 0;
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::clear_file_cache_async");
     {
-        SCOPED_CACHE_LOCK(_mutex);
+        SCOPED_CACHE_LOCK(_mutex, this);
 
         std::vector<FileBlockCell*> deleting_cells;
         for (auto& [_, offset_to_cell] : _files) {
@@ -699,35 +705,39 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     sw.start();
     std::lock_guard cache_lock(_mutex);
     stats->lock_wait_timer += sw.elapsed_time();
-
-    if (auto iter = _key_to_time.find(hash);
-        context.cache_type == FileCacheType::INDEX && iter != _key_to_time.end()) {
-        context.cache_type = FileCacheType::TTL;
-        context.expiration_time = iter->second;
-    }
-
-    /// Get all blocks which intersect with the given range.
     FileBlocks file_blocks;
+    int64_t duration;
     {
-        SCOPED_RAW_TIMER(&stats->get_timer);
-        file_blocks = get_impl(hash, context, range, cache_lock);
-    }
+        SCOPED_RAW_TIMER(&duration);
+        if (auto iter = _key_to_time.find(hash);
+            context.cache_type == FileCacheType::INDEX && iter != _key_to_time.end()) {
+            context.cache_type = FileCacheType::TTL;
+            context.expiration_time = iter->second;
+        }
 
-    if (file_blocks.empty()) {
-        SCOPED_RAW_TIMER(&stats->set_timer);
-        file_blocks = split_range_into_cells(hash, context, offset, size, FileBlock::State::EMPTY,
-                                             cache_lock);
-    } else {
-        SCOPED_RAW_TIMER(&stats->set_timer);
-        fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
-    }
-    DCHECK(!file_blocks.empty());
-    *_num_read_blocks << file_blocks.size();
-    for (auto& block : file_blocks) {
-        if (block->state() == FileBlock::State::DOWNLOADED) {
-            *_num_hit_blocks << 1;
+        /// Get all blocks which intersect with the given range.
+        {
+            SCOPED_RAW_TIMER(&stats->get_timer);
+            file_blocks = get_impl(hash, context, range, cache_lock);
+        }
+
+        if (file_blocks.empty()) {
+            SCOPED_RAW_TIMER(&stats->set_timer);
+            file_blocks = split_range_into_cells(hash, context, offset, size,
+                                                 FileBlock::State::EMPTY, cache_lock);
+        } else {
+            SCOPED_RAW_TIMER(&stats->set_timer);
+            fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
+        }
+        DCHECK(!file_blocks.empty());
+        *_num_read_blocks << file_blocks.size();
+        for (auto& block : file_blocks) {
+            if (block->state_unsafe() == FileBlock::State::DOWNLOADED) {
+                *_num_hit_blocks << 1;
+            }
         }
     }
+    *_get_or_set_latency_us << (duration / 1000);
     return FileBlocksHolder(std::move(file_blocks));
 }
 
@@ -781,7 +791,7 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
 }
 
 size_t BlockFileCache::try_release() {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     std::vector<FileBlockCell*> trash;
     for (auto& [hash, blocks] : _files) {
         for (auto& [offset, cell] : blocks) {
@@ -1075,7 +1085,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
 // remove specific cache synchronously, for critical operations
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     bool is_ttl_file = remove_if_ttl_file_blocks(file_key, true, cache_lock, true);
     if (!is_ttl_file) {
         auto iter = _files.find(file_key);
@@ -1097,7 +1107,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // cache meta is deleted synchronously if not in use, and the block file is deleted asynchronously
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     bool is_ttl_file = remove_if_ttl_file_blocks(file_key, true, cache_lock, /*sync*/ false);
     if (!is_ttl_file) {
         auto iter = _files.find(file_key);
@@ -1321,9 +1331,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.meta.expiration_time = expiration_time;
         if (sync) {
             int64_t duration_ns = 0;
-            SCOPED_RAW_TIMER(&duration_ns);
-            Status st = _storage->remove(key);
-            *_storage_sync_remove_latency << duration_ns;
+            Status st;
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                st = _storage->remove(key);
+            }
+            *_storage_sync_remove_latency_us << (duration_ns / 1000);
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
             }
@@ -1335,9 +1348,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             if (!ret) {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
                 int64_t duration_ns = 0;
-                SCOPED_RAW_TIMER(&duration_ns);
-                Status st = _storage->remove(key);
-                *_storage_sync_remove_latency << duration_ns;
+                Status st;
+                {
+                    SCOPED_RAW_TIMER(&duration_ns);
+                    st = _storage->remove(key);
+                }
+                *_storage_retry_sync_remove_latency_us << (duration_ns / 1000);
                 if (!st.ok()) {
                     LOG_WARNING("").error(st);
                 }
@@ -1360,7 +1376,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
 }
 
 size_t BlockFileCache::get_used_cache_size(FileCacheType cache_type) const {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     return get_used_cache_size_unlocked(cache_type, cache_lock);
 }
 
@@ -1370,7 +1386,7 @@ size_t BlockFileCache::get_used_cache_size_unlocked(FileCacheType cache_type,
 }
 
 size_t BlockFileCache::get_available_cache_size(FileCacheType cache_type) const {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     return get_available_cache_size_unlocked(cache_type, cache_lock);
 }
 
@@ -1381,7 +1397,7 @@ size_t BlockFileCache::get_available_cache_size_unlocked(
 }
 
 size_t BlockFileCache::get_file_blocks_num(FileCacheType cache_type) const {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     return get_file_blocks_num_unlocked(cache_type, cache_lock);
 }
 
@@ -1465,7 +1481,7 @@ std::string BlockFileCache::LRUQueue::to_string(
 }
 
 std::string BlockFileCache::dump_structure(const UInt128Wrapper& hash) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     return dump_structure_unlocked(hash, cache_lock);
 }
 
@@ -1483,7 +1499,7 @@ std::string BlockFileCache::dump_structure_unlocked(const UInt128Wrapper& hash,
 }
 
 std::string BlockFileCache::dump_single_cache_type(const UInt128Wrapper& hash, size_t offset) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     return dump_single_cache_type_unlocked(hash, offset, cache_lock);
 }
 
@@ -1546,7 +1562,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
     ss << "finish reset_capacity, path=" << _cache_base_path;
     auto start_time = steady_clock::time_point();
     {
-        SCOPED_CACHE_LOCK(_mutex);
+        SCOPED_CACHE_LOCK(_mutex, this);
         if (new_capacity < _capacity && new_capacity < _cur_cache_size) {
             int64_t need_remove_size = _cur_cache_size - new_capacity;
             auto remove_blocks = [&](LRUQueue& queue) -> int64_t {
@@ -1662,7 +1678,7 @@ void BlockFileCache::run_background_monitor() {
         }
         // report
         {
-            SCOPED_CACHE_LOCK(_mutex);
+            SCOPED_CACHE_LOCK(_mutex, this);
             _cur_cache_size_metrics->set_value(_cur_cache_size);
             _cur_ttl_cache_size_metrics->set_value(_cur_cache_size -
                                                    _index_queue.get_capacity(cache_lock) -
@@ -1712,7 +1728,7 @@ void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
         }
         {
             int64_t cur_time = UnixSeconds();
-            SCOPED_CACHE_LOCK(_mutex);
+            SCOPED_CACHE_LOCK(_mutex, this);
             while (!_time_to_key.empty()) {
                 auto begin = _time_to_key.begin();
                 if (cur_time < begin->first) {
@@ -1743,9 +1759,12 @@ void BlockFileCache::run_background_gc() {
             }
 
             int64_t duration_ns = 0;
-            SCOPED_RAW_TIMER(&duration_ns);
-            Status st = _storage->remove(key);
-            *_storage_async_remove_latency << duration_ns;
+            Status st;
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                st = _storage->remove(key);
+            }
+            *_storage_async_remove_latency_us << (duration_ns / 1000);
 
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
@@ -1758,7 +1777,7 @@ void BlockFileCache::run_background_gc() {
 
 void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
                                             uint64_t new_expiration_time) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     // 1. If new_expiration_time is equal to zero
     if (new_expiration_time == 0) {
         remove_if_ttl_file_blocks(hash, false, cache_lock, false);
@@ -1818,7 +1837,7 @@ BlockFileCache::get_hot_blocks_meta(const UInt128Wrapper& hash) const {
     int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>> blocks_meta;
     if (auto iter = _files.find(hash); iter != _files.end()) {
         for (auto& pair : _files.find(hash)->second) {
@@ -1887,7 +1906,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
     using namespace std::chrono;
     std::stringstream ss;
     auto start = steady_clock::now();
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     LOG_INFO("start clear_file_cache_directly").tag("path", _cache_base_path);
 
     std::string clear_msg;
@@ -1925,7 +1944,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
 
 std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128Wrapper& hash) {
     std::map<size_t, FileBlockSPtr> offset_to_block;
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     if (_files.contains(hash)) {
         for (auto& [offset, cell] : _files[hash]) {
             if (cell.file_block->state() == FileBlock::State::DOWNLOADED) {
@@ -1940,7 +1959,7 @@ std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128W
 }
 
 void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {
-    SCOPED_CACHE_LOCK(_mutex);
+    SCOPED_CACHE_LOCK(_mutex, this);
     if (auto iter = _files.find(hash); iter != _files.end()) {
         for (auto& [_, cell] : iter->second) {
             cell.update_atime();
