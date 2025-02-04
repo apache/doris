@@ -22,12 +22,15 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.fs.HdfsUtil;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +52,8 @@ public class CatalogProperty implements Writable {
     private String resource;
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    private volatile Map<String, String> fileCatalogConfigProperties = null;
 
     private volatile Resource catalogResource = null;
 
@@ -98,25 +103,65 @@ public class CatalogProperty implements Writable {
 
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
+        fileCatalogConfigProperties = null;
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
         properties.clear();
         properties = new HashMap<>(props);
+        fileCatalogConfigProperties = null;
     }
 
     public Map<String, String> getHadoopProperties() {
-        Map<String, String> hadoopProperties = getProperties();
+        Map<String, String> hadoopProperties = getFileCatalogProperties();
+        hadoopProperties.putAll(getProperties());
         hadoopProperties.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
         return hadoopProperties;
     }
 
+    /**
+     * Retrieves the file catalog properties. If the properties have not been loaded yet,
+     * it loads them from the Hadoop configuration. This method ensures thread safety
+     * using double-checked locking to minimize synchronization overhead.
+     *
+     * @return a map containing the file catalog properties, or an empty map if the
+     * configuration resources are not available.
+     */
+    private Map<String, String> getFileCatalogProperties() {
+        // First check without synchronization to avoid unnecessary locking
+        if (fileCatalogConfigProperties == null) {
+            synchronized (this) {
+                // Double-check inside the synchronized block to ensure safe initialization
+                if (fileCatalogConfigProperties == null) {
+                    // If the configuration resource is available, load properties from Hadoop configuration
+                    if (properties.containsKey(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+                        Configuration configuration = HdfsUtil.loadConfigurationFromHadoopConfDir(
+                                this.properties.get(DFSFileSystem.HADOOP_CONFIG_RESOURCES));
+                        // Load all properties matching the regex and store in fileCatalogConfigProperties
+                        fileCatalogConfigProperties = configuration.getValByRegex(".*");
+                    } else {
+                        // If no configuration resource is available, initialize an empty HashMap
+                        fileCatalogConfigProperties = new HashMap<>();
+                    }
+                }
+            }
+        }
+        // Return the file catalog properties (either loaded or an empty map)
+        return fileCatalogConfigProperties;
+    }
+
     public void addProperty(String key, String val) {
         this.properties.put(key, val);
+        if (key.equals(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+            this.fileCatalogConfigProperties = null;
+        }
     }
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
+        if (key.equals(DFSFileSystem.HADOOP_CONFIG_RESOURCES)) {
+            this.fileCatalogConfigProperties = new HashMap<>();
+        }
     }
 
     @Override
