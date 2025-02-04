@@ -239,6 +239,11 @@ private:
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
                 });
 
+        if (!is_meta_service_endpoint_list &&
+            config::meta_service_endpoint.find(',') != std::string::npos) {
+            is_meta_service_endpoint_list = true;
+        }
+
         for (size_t i = 0; i + 1 < num_proxies; ++i) {
             size_t next_index = index.fetch_add(1, std::memory_order_relaxed) % num_proxies;
             Status s = proxies[next_index].get(stub);
