@@ -21,7 +21,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.JsonType;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -31,6 +33,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class JsonLiteral extends Literal {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    static {
+        // 启用严格的 JSON 验证配置
+        MAPPER.enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        MAPPER.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        MAPPER.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    }
 
     private final String value;
 
