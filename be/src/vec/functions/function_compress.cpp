@@ -205,7 +205,7 @@ public:
 
             unsigned int length = 0;
             for (size_t i = 2; i <= 9; i += 2) {
-                unsigned char byte;
+                unsigned char byte = 0;
                 std::from_chars(data.data + i, data.data + i + 2, byte, 16);
                 length += (byte << (8 * (i / 2 - 1))); //Little Endian : 0x01000000 -> 1
             }
