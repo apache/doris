@@ -62,7 +62,7 @@ public class BatchModifyPartitionsInfoTest {
         for (long partitionId : partitionIds) {
             modifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
                     new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM), ReplicaAllocation.DEFAULT_ALLOCATION,
-                    true, "", Maps.newHashMap()));
+                    true, Maps.newHashMap()));
         }
 
         BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(modifyInfos);
