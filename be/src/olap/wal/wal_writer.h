@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -28,6 +29,8 @@ extern const char* k_wal_magic;
 extern const uint32_t k_wal_magic_length;
 
 class WalWriter {
+    ENABLE_FACTORY_CREATOR(WalWriter);
+
 public:
     explicit WalWriter(const std::string& file_name);
     ~WalWriter();
