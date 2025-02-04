@@ -26,6 +26,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
@@ -233,6 +234,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
+
+        if (DebugPointUtil.isEnable("FE.CatalogRecycleBin.isExpire")) {
+            LOG.info("DebugPoint set FE.CatalogRecycleBin.isExpire");
+            return true;
+        }
         return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
                 && latency > Config.catalog_trash_expire_second * 1000L;
     }
