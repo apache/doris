@@ -22,6 +22,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stddef.h>
+
+#include "runtime/thread_context.h"
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -502,6 +504,7 @@ void test_file_cache(io::FileCacheType cache_type) {
             std::condition_variable cv;
 
             std::thread other_1([&] {
+                SCOPED_INIT_THREAD_CONTEXT();
                 auto holder_2 =
                         mgr.get_or_set(key, 25, 5, other_context); /// Get [25, 29] once again.
                 auto blocks_2 = fromHolder(holder_2);
@@ -566,6 +569,7 @@ void test_file_cache(io::FileCacheType cache_type) {
             std::condition_variable cv;
 
             std::thread other_1([&] {
+                SCOPED_INIT_THREAD_CONTEXT();
                 auto holder_2 =
                         mgr.get_or_set(key, 3, 23, other_context); /// Get [3, 25] once again
                 auto blocks_2 = fromHolder(*holder);
@@ -936,6 +940,7 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
             std::condition_variable cv;
 
             std::thread other_1([&] {
+                SCOPED_INIT_THREAD_CONTEXT();
                 auto holder_2 =
                         mgr.get_or_set(key, 25, 5, other_context); /// Get [25, 29] once again.
                 auto blocks_2 = fromHolder(holder_2);
@@ -1000,6 +1005,7 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
             std::condition_variable cv;
 
             std::thread other_1([&] {
+                SCOPED_INIT_THREAD_CONTEXT();
                 auto holder_2 =
                         mgr.get_or_set(key, 3, 23, other_context); /// Get [3, 25] once again
                 auto blocks_2 = fromHolder(*holder);
@@ -4099,6 +4105,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
         }
     });
     std::thread thread([&]() {
+        SCOPED_INIT_THREAD_CONTEXT();
         std::string buffer;
         buffer.resize(64_kb);
         IOContext io_ctx;
@@ -4172,6 +4179,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
     sp->set_call_back("CachedRemoteFileReader::max_wait_time",
                       [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 2; });
     std::thread thread([&]() {
+        SCOPED_INIT_THREAD_CONTEXT();
         std::string buffer;
         buffer.resize(64_kb);
         IOContext io_ctx;

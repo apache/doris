@@ -72,13 +72,11 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
-option(USE_MEM_TRACKER, "Use memory tracker" ON)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
-    set(USE_MEM_TRACKER OFF)
     set(USE_UNWIND OFF)
 endif()
 
@@ -94,7 +92,6 @@ endif()
 
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
-message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
@@ -371,14 +368,6 @@ endif()
 
 if (ENABLE_CACHE_LOCK_DEBUG)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
-endif()
-
-# Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
-# and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
-# Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
-# which will bring about a 2% performance improvement, which may be useful in performance POC.
-if (USE_MEM_TRACKER)
-    add_definitions(-DUSE_MEM_TRACKER)
 endif()
 
 # Compile with jemalloc.
