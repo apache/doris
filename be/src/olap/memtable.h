@@ -196,7 +196,7 @@ public:
 
     const MemTableStat& stat() { return _stat; }
 
-    QueryThreadContext query_thread_context() { return _query_thread_context; }
+    std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
 
@@ -226,7 +226,7 @@ private:
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::shared_ptr<MemTracker> _mem_tracker;
     // Only the rows will be inserted into block can allocate memory from _arena.

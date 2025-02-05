@@ -33,7 +33,6 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
@@ -151,6 +150,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -447,7 +447,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 try {
                     unprotectCreateDb(db);
-                    Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                    CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(dbInfo);
                 } finally {
                     db.writeUnlock();
                 }
@@ -486,10 +487,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
-    }
-
+    @Override
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         LOG.info("begin drop database[{}], is force : {}", dbName, force);
 

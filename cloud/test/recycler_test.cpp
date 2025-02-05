@@ -1129,6 +1129,7 @@ TEST(RecyclerTest, recycle_indexes) {
                                   j & 1);
             auto tmp_rowset = create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5,
                                             schemas[j % 5], txn_id_base + j);
+            tmp_rowset.set_resource_id("recycle_indexes");
             create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1);
         }
         for (int j = 0; j < 10; ++j) {
@@ -3132,7 +3133,7 @@ TEST(RecyclerTest, delete_rowset_data) {
 
             rowset_pbs.emplace_back(std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3237,7 +3238,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 
             rowset_pbs.emplace_back(std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3351,6 +3352,11 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         rs->set_resource_id("failed_s3_2");
         rs = resp->add_rowset_meta();
         rs->set_resource_id("success_vault");
+    });
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
     });
     sp->enable_processing();
 

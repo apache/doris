@@ -74,8 +74,7 @@ ScannerContext::ScannerContext(
         limit = -1;
     }
     MAX_SCALE_UP_RATIO = _state->scanner_scale_up_ratio();
-    _query_thread_context = {_query_id, _state->query_mem_tracker(),
-                             _state->get_query_ctx()->workload_group()};
+    _resource_ctx = _state->get_query_ctx()->resource_ctx;
     _dependency = dependency;
 
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);

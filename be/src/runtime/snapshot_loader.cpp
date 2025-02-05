@@ -28,13 +28,13 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
-#include <condition_variable>
 #include <cstring>
 #include <filesystem>
 #include <istream>
 #include <unordered_map>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
@@ -58,7 +58,17 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-namespace {
+
+static std::string get_loaded_tag_path(const std::string& snapshot_path) {
+    return snapshot_path + "/LOADED";
+}
+
+static Status write_loaded_tag(const std::string& snapshot_path, int64_t tablet_id) {
+    std::unique_ptr<io::FileWriter> writer;
+    std::string file = get_loaded_tag_path(snapshot_path);
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file, &writer));
+    return writer->close();
+}
 
 Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_path,
                             std::string_view remote_path, std::string_view checksum) {
@@ -84,8 +94,6 @@ bool _end_with(std::string_view str, std::string_view match) {
     return str.size() >= match.size() &&
            str.compare(str.size() - match.size(), match.size(), match) == 0;
 }
-
-} // namespace
 
 SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
                                const TNetworkAddress& broker_addr,
@@ -404,9 +412,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 Status SnapshotLoader::remote_http_download(
         const std::vector<TRemoteTabletSnapshot>& remote_tablet_snapshots,
         std::vector<int64_t>* downloaded_tablet_ids) {
-    constexpr uint32_t kListRemoteFileTimeout = 15;
     constexpr uint32_t kDownloadFileMaxRetry = 3;
-    constexpr uint32_t kGetLengthTimeout = 10;
 
     // check if job has already been cancelled
     int tmp_counter = 1;
@@ -489,7 +495,7 @@ Status SnapshotLoader::remote_http_download(
         string file_list_str;
         auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_url_prefix));
-            client->set_timeout_ms(kListRemoteFileTimeout * 1000);
+            client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
             return client->execute(&file_list_str);
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, list_files_cb));
@@ -505,12 +511,20 @@ Status SnapshotLoader::remote_http_download(
             uint64_t file_size = 0;
             std::string file_md5;
             auto get_file_stat_cb = [&remote_file_url, &file_size, &file_md5](HttpClient* client) {
-                std::string url = fmt::format("{}&acquire_md5=true", remote_file_url);
+                int64_t timeout_ms = config::download_binlog_meta_timeout_ms;
+                std::string url = remote_file_url;
+                if (config::enable_download_md5sum_check) {
+                    // compute md5sum is time-consuming, so we set a longer timeout
+                    timeout_ms = config::download_binlog_meta_timeout_ms * 3;
+                    url = fmt::format("{}&acquire_md5=true", remote_file_url);
+                }
                 RETURN_IF_ERROR(client->init(url));
-                client->set_timeout_ms(kGetLengthTimeout * 1000);
+                client->set_timeout_ms(timeout_ms);
                 RETURN_IF_ERROR(client->head());
                 RETURN_IF_ERROR(client->get_content_length(&file_size));
-                RETURN_IF_ERROR(client->get_content_md5(&file_md5));
+                if (config::enable_download_md5sum_check) {
+                    RETURN_IF_ERROR(client->get_content_md5(&file_md5));
+                }
                 return Status::OK();
             };
             RETURN_IF_ERROR(
@@ -751,6 +765,14 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(ss.str());
     }
 
+    std::string loaded_tag_path = get_loaded_tag_path(snapshot_path);
+    bool already_loaded = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(loaded_tag_path, &already_loaded));
+    if (already_loaded) {
+        LOG(INFO) << "snapshot path already moved: " << snapshot_path;
+        return Status::OK();
+    }
+
     // rename the rowset ids and tabletid info in rowset meta
     auto res = _engine.snapshot_mgr()->convert_rowset_ids(snapshot_path, tablet_id,
                                                           tablet->replica_id(), tablet->table_id(),
@@ -838,6 +860,10 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
+
+    // mark the snapshot path as loaded
+    RETURN_IF_ERROR(write_loaded_tag(snapshot_path, tablet_id));
+
     LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
 
     return status;

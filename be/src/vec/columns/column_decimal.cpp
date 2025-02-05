@@ -451,7 +451,7 @@ template <typename T>
 void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                    IColumn::Permutation& perms, EqualRange& range,
                                    bool last_column) const {
-    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <typename T>
