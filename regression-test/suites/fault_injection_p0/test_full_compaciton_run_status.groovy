@@ -57,6 +57,8 @@ suite("test_full_compaction_run_status","nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllBEs()
 
+    def code,out,err
+
     def exception = false;
     try {
         GetDebugPoint().enableDebugPointForAllBEs("FullCompaction.modify_rowsets.sleep")

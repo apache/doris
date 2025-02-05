@@ -22,7 +22,6 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-class MemTracker;
 
 namespace vectorized {
 

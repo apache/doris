@@ -42,6 +42,8 @@ public class TableAddOrDropColumnsInfo implements Writable {
     private long tableId;
     @SerializedName(value = "indexSchemaMap")
     private Map<Long, LinkedList<Column>> indexSchemaMap;
+    @SerializedName(value = "oldIndexSchemaMap")
+    private Map<Long, List<Column>> oldIndexSchemaMap;  // only used for ccr, not included in equals
     @SerializedName(value = "indexes")
     private List<Index> indexes;
     @SerializedName(value = "jobId")
@@ -50,11 +52,14 @@ public class TableAddOrDropColumnsInfo implements Writable {
     private String rawSql;
 
     public TableAddOrDropColumnsInfo(String rawSql, long dbId, long tableId,
-            Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes, long jobId) {
+            Map<Long, LinkedList<Column>> indexSchemaMap,
+            Map<Long, List<Column>> oldIndexSchemaMap,
+            List<Index> indexes, long jobId) {
         this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexSchemaMap = indexSchemaMap;
+        this.oldIndexSchemaMap = oldIndexSchemaMap;
         this.indexes = indexes;
         this.jobId = jobId;
     }
@@ -111,6 +116,7 @@ public class TableAddOrDropColumnsInfo implements Writable {
         sb.append(" dbId: ").append(dbId);
         sb.append(" tableId: ").append(tableId);
         sb.append(" indexSchemaMap: ").append(indexSchemaMap);
+        sb.append(" oldIndexSchemaMap: ").append(oldIndexSchemaMap);
         sb.append(" indexes: ").append(indexes);
         sb.append(" jobId: ").append(jobId);
         return sb.toString();

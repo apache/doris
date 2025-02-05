@@ -251,9 +251,6 @@ private:
 
     StorageEngine& _engine;
 
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
-    std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
-
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;
     std::vector<tablets_shard> _tablets_shards;

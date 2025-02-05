@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <type_traits>
 
 #include "common/object_pool.h"
 #include "util/container_util.hpp"
@@ -72,8 +73,7 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
             dst_iter = _counter_map.find(src_iter->first);
 
             if (dst_iter == _counter_map.end()) {
-                _counter_map[src_iter->first] = _pool->add(
-                        new Counter(src_iter->second->type(), src_iter->second->value()));
+                _counter_map[src_iter->first] = _pool->add(src_iter->second->clone());
             } else {
                 DCHECK(dst_iter->second->type() == src_iter->second->type());
 

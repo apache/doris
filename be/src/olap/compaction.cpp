@@ -123,6 +123,8 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
     ;
     init_profile(label);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    _rowid_conversion = std::make_unique<RowIdConversion>();
 }
 
 Compaction::~Compaction() {
@@ -132,6 +134,7 @@ Compaction::~Compaction() {
     _input_rowsets.clear();
     _output_rowset.reset();
     _cur_tablet_schema.reset();
+    _rowid_conversion.reset();
 }
 
 void Compaction::init_profile(const std::string& label) {
@@ -179,7 +182,7 @@ Status Compaction::merge_input_rowsets() {
     if (!ctx.columns_to_do_index_compaction.empty() ||
         (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
          _tablet->enable_unique_key_merge_on_write())) {
-        _stats.rowid_conversion = &_rowid_conversion;
+        _stats.rowid_conversion = _rowid_conversion.get();
     }
 
     int64_t way_num = merge_way_num();
@@ -1023,7 +1026,7 @@ Status CompactionMixin::modify_rowsets() {
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
         tablet()->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, missed_rows.get(),
+                _input_rowsets, *_rowid_conversion, 0, version.second + 1, missed_rows.get(),
                 location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
@@ -1121,7 +1124,7 @@ Status CompactionMixin::modify_rowsets() {
                 }
                 DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
                 tablet()->calc_compaction_output_rowset_delete_bitmap(
-                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
+                        _input_rowsets, *_rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
                         location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap);
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
@@ -1141,7 +1144,7 @@ Status CompactionMixin::modify_rowsets() {
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             tablet()->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
+                    _input_rowsets, *_rowid_conversion, version.second, UINT64_MAX,
                     missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
@@ -1354,7 +1357,7 @@ void CloudCompactionMixin::garbage_collection() {
         for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
             auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-            file_cache->remove_if_cached(file_key);
+            file_cache->remove_if_cached_async(file_key);
         }
     }
 }

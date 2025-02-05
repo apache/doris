@@ -77,9 +77,8 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         }
         if (use_cache && !config::disable_segment_cache) {
             // memory of SegmentCache::CacheValue will be handled by SegmentCache
-            auto* cache_value = new SegmentCache::CacheValue();
+            auto* cache_value = new SegmentCache::CacheValue(segment);
             _cache_mem_usage += segment->meta_mem_usage();
-            cache_value->segment = std::move(segment);
             _segment_cache->insert(cache_key, *cache_value, cache_handle);
         } else {
             cache_handle->push_segment(std::move(segment));

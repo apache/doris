@@ -462,6 +462,24 @@ class Suite implements GroovyInterceptable {
             columnNames.add(meta.getColumnLabel(i + 1))
         }
 
+        // Check if there are duplicates column names.
+        // SQL may return multiple columns with the same name.
+        // which cannot be handled by maps and will result in an error directly.
+        Set<String> uniqueSet = new HashSet<>()
+        Set<String> duplicates = new HashSet<>()
+    
+        for (String str : columnNames) {
+            if (uniqueSet.contains(str)) {
+                duplicates.add(str)
+            } else {
+                uniqueSet.add(str)
+            }
+        }
+        if (!duplicates.isEmpty()) {
+            def errorMessage = "${sqlStr} returns duplicates headers: ${duplicates}"   
+            throw new Exception(errorMessage)
+        }
+
         // add result to res map list, each row is a map with key is column name
         List<Map<String, Object>> res = new ArrayList<>()
         for (int i = 0; i < result.size(); i++) {
@@ -730,6 +748,15 @@ class Suite implements GroovyInterceptable {
 
     void profile(String tag, Closure<String> actionSupplier) {
         runAction(new ProfileAction(context, tag), actionSupplier)
+    }
+
+    void checkNereidsExecute(String sqlString) {
+        sql (sqlString)
+    }
+
+    String checkNereidsExecuteWithResult(String sqlString) {
+        String result = sql (sqlString);
+        return result
     }
 
     void createMV(String sql) {
@@ -2355,7 +2382,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def get_cluster = { be_unique_id ->
+    def get_cluster = { be_unique_id , MetaService ms=null->
         def jsonOutput = new JsonOutput()
         def map = [instance_id: "${instance_id}", cloud_unique_id: "${be_unique_id}" ]
         def js = jsonOutput.toJson(map)
@@ -2363,7 +2390,11 @@ class Suite implements GroovyInterceptable {
 
         def add_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/get_cluster?token=${token}"
                 body request_body
                 check check_func
@@ -2536,7 +2567,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def d_node = { be_unique_id, ip, port, cluster_name, cluster_id ->
+    def d_node = { be_unique_id, ip, port, cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def clusterInfo = [
                      type: "COMPUTE",
@@ -2556,7 +2587,11 @@ class Suite implements GroovyInterceptable {
 
         def d_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/decommission_node?token=${token}"
                 body request_body
                 check check_func

@@ -32,6 +32,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -177,5 +178,25 @@ public class AlterTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("DROP INDEX `index1` ON `db`.`table`", dropIndexClause.toSql());
         Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP INDEX `index1`", stmt.toSql());
+    }
+
+    @Test
+    public void testEnableFeatureClause() {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new EnableFeatureClause("BATCH_DELETE"));
+        AlterTableStmt alterTableStmt = new AlterTableStmt(new TableName(internalCtl, "db", "test"), ops);
+        Assert.assertEquals(alterTableStmt.toSql(), "ALTER TABLE `db`.`test` ENABLE FEATURE \"BATCH_DELETE\"");
+        ops.clear();
+        ops.add(new EnableFeatureClause("UPDATE_FLEXIBLE_COLUMNS"));
+        alterTableStmt = new AlterTableStmt(new TableName(internalCtl, "db", "test"), ops);
+        Assert.assertEquals(alterTableStmt.toSql(),
+                "ALTER TABLE `db`.`test` ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\"");
+        ops.clear();
+        Map<String, String> properties = new HashMap<>();
+        properties.put("function_column.sequence_type", "int");
+        ops.add(new EnableFeatureClause("SEQUENCE_LOAD", properties));
+        alterTableStmt = new AlterTableStmt(new TableName(internalCtl, "db", "test"), ops);
+        Assert.assertEquals(alterTableStmt.toSql(),
+                "ALTER TABLE `db`.`test` ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")");
     }
 }

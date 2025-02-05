@@ -85,6 +85,11 @@ BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job("ms", "finish_tablet_job"
 BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
+bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
+bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_get_delete_bitmap_fail_counter_minute("ms", "get_delete_bitmap_fail", &g_bvar_get_delete_bitmap_fail_counter, 60);
+
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md

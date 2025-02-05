@@ -23,6 +23,10 @@
 #include "util/slice.h" // for Slice
 
 namespace doris {
+
+// After disable page cache, sometimes we need to know the percentage of data pages in query memory.
+inline bvar::Adder<int64_t> g_page_no_cache_mem_bytes("doris_page_no_cache_mem_bytes");
+
 namespace segment_v2 {
 
 // When a column page is read into memory, we use this to store it.
@@ -37,8 +41,7 @@ public:
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
     PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {
-        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
-        _page_tracker->consume(_data->capacity());
+        g_page_no_cache_mem_bytes << _data->capacity();
     }
 
     // This class will take the content of cache data, and will make input
@@ -51,20 +54,18 @@ public:
         // we can use std::exchange if we switch c++14 on
         std::swap(_is_data_owner, other._is_data_owner);
         std::swap(_data, other._data);
-        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
     }
 
     PageHandle& operator=(PageHandle&& other) noexcept {
         std::swap(_is_data_owner, other._is_data_owner);
         std::swap(_data, other._data);
         _cache_data = std::move(other._cache_data);
-        _page_tracker = ExecEnv::GetInstance()->page_no_cache_mem_tracker();
         return *this;
     }
 
     ~PageHandle() {
         if (_is_data_owner) {
-            _page_tracker->release(_data->capacity());
+            g_page_no_cache_mem_bytes << -_data->capacity();
             delete _data;
         } else {
             DCHECK(_data == nullptr);
@@ -85,7 +86,6 @@ private:
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
     DataPage* _data = nullptr;
-    std::shared_ptr<MemTracker> _page_tracker;
     PageCacheHandle _cache_data;
 
     // Don't allow copy and assign

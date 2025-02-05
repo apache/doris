@@ -2036,16 +2036,16 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                 } else if (alterClause instanceof AddColumnsClause) {
                     // add columns
-                    boolean clauseCanLigthSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
                             indexSchemaMap, false, colUniqueIdSupplierMap);
-                    if (!clauseCanLigthSchemaChange) {
+                    if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
-                    boolean clauseCanLigthSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
+                    boolean clauseCanLightSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
                             indexSchemaMap, newIndexes);
-                    if (!clauseCanLigthSchemaChange) {
+                    if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
                     }
                 } else if (alterClause instanceof ModifyColumnClause) {
@@ -2894,6 +2894,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -2939,7 +2940,7 @@ public class SchemaChangeHandler extends AlterHandler {
         } else {
             if (!isReplay) {
                 TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(rawSql, db.getId(), olapTable.getId(),
-                        indexSchemaMap, indexes, jobId);
+                        indexSchemaMap, oldIndexSchemaMap, indexes, jobId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }

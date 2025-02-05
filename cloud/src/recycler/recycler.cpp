@@ -1521,25 +1521,33 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             InvertedIndexInfo index_info;
             int get_ret =
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
-            if (get_ret != 0) {
-                if (get_ret == 1) { // Schema kv not found
-                    // Check tablet existence
-                    std::string tablet_idx_key, tablet_idx_val;
-                    meta_tablet_idx_key({instance_id_, tablet_id}, &tablet_idx_key);
-                    if (txn_get(txn_kv_.get(), tablet_idx_key, tablet_idx_val) == 1) {
-                        // Tablet has been recycled, rowset data has already been deleted
-                        std::lock_guard lock(recycled_tablets_mtx_);
-                        recycled_tablets_.insert(tablet_id);
-                        continue;
-                    }
-                }
+            if (get_ret == 0) {
+                index_format = index_info.first;
+                index_ids = index_info.second;
+            } else if (get_ret == 1) {
+                // 1. Schema kv not found means tablet has been recycled
+                // Maybe some tablet recycle failed by some bugs
+                // We need to delete again to double check
+                // 2. Ensure this operation only deletes tablets and does not perform any operations on indexes,
+                // because we are uncertain about the inverted index information.
+                // If there are inverted indexes, some data might not be deleted,
+                // but this is acceptable as we have made our best effort to delete the data.
+                LOG_INFO(
+                        "delete rowset data schema kv not found, need to delete again to double "
+                        "check")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset", rs.ShortDebugString());
+                // Currently index_ids is guaranteed to be empty,
+                // but we clear it again here as a safeguard against future code changes
+                // that might cause index_ids to no longer be empty
+                index_ids.clear();
+            } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
                              << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
                 ret = -1;
                 continue;
             }
-            index_format = index_info.first;
-            index_ids = std::move(index_info.second);
         }
         if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
             // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
@@ -1680,6 +1688,30 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
+        /*
+        * For compatibility, we skip the loop for [0-1] here. 
+        * The purpose of this loop is to delete object files,
+        * and since [0-1] only has meta and doesn't have object files, 
+        * skipping it doesn't affect system correctness. 
+        *
+        * If not skipped, the check "if (!rs_meta.has_resource_id())" below 
+        * would return error -1 directly, causing the recycle operation to fail.
+        *
+        * [0-1] doesn't have resource id is a bug.
+        * In the future, we will fix this problem, after that,
+        * we can remove this if statement.
+        *
+        * TODO(Yukang-Lian): remove this if statement when [0-1] has resource id in the future.
+        */
+
+        if (rs_meta.end_version() == 1) {
+            // Assert that [0-1] has no resource_id to make sure
+            // this if statement will not be forgetted to remove
+            // when the resource id bug is fixed
+            DCHECK(!rs_meta.has_resource_id()) << "rs_meta" << rs_meta.ShortDebugString();
+            recycle_rowsets_number += 1;
+            continue;
+        }
         if (!rs_meta.has_resource_id()) {
             LOG_WARNING("rowset meta does not have a resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString())
@@ -1687,6 +1719,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
                     .tag("tablet_id", tablet_id);
             return -1;
         }
+        DCHECK(rs_meta.has_resource_id()) << "rs_meta" << rs_meta.ShortDebugString();
         auto it = accessor_map_.find(rs_meta.resource_id());
         // possible if the accessor is not initilized correctly
         if (it == accessor_map_.end()) [[unlikely]] {
