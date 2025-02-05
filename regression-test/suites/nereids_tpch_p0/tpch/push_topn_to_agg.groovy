@@ -101,4 +101,10 @@ suite("push_topn_to_agg") {
         sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_partkey, ps_suppkey limit 18;"
         contains("sortByGroupKey:true")
     }
+
+    sql "select o_custkey, o_shippriority from orders group by o_custkey, o_shippriority limit 1"
+    qt_limit_agg_distinct "explain shape plan select o_custkey, o_shippriority from orders group by o_custkey, o_shippriority limit 1"
+
+    sql "select o_custkey from orders group by o_custkey, o_shippriority limit 1"
+    qt_limit_project_agg_distinct "explain shape plan select o_custkey from orders group by o_custkey, o_shippriority limit 1"
 }
