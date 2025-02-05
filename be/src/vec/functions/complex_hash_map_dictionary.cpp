@@ -17,19 +17,96 @@
 
 #include "vec/functions/complex_hash_map_dictionary.h" // for ComplexHashMapDictionary
 
+#include <type_traits>
+
+#include "vec/functions/dictionary.h"
+
 namespace doris::vectorized {
-void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns,
+
+ComplexHashMapDictionary::~ComplexHashMapDictionary() {
+    if (_mem_tracker) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+        _hash_map_method.method_variant.emplace<std::monostate>();
+        ColumnPtrs {}.swap(_key_columns);
+    }
+}
+
+size_t ComplexHashMapDictionary::allocated_bytes() const {
+    size_t bytes = 0;
+    std::visit(vectorized::Overload {[&](const std::monostate& arg) { bytes = 0; },
+                                     [&](const auto& dict_method) {
+                                         bytes = dict_method.hash_table->get_buffer_size_in_bytes();
+                                     }},
+               _hash_map_method.method_variant);
+
+    for (const auto& column : _key_columns) {
+        bytes += column->allocated_bytes();
+    }
+    return bytes + IDictionary::allocated_bytes();
+}
+void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const DataTypes& key_types,
                                          const std::vector<ColumnPtr>& values_column) {
     // load key column
+    THROW_IF_ERROR(init_hash_method<DictionaryHashMapMethod>(&_hash_map_method, key_types, true));
+    _key_columns = key_columns;
 
-    Arena arena;
-    const size_t rows = key_columns[0]->size();
-    for (size_t i = 0; i < rows; i++) {
-        auto key_data = serialize_keys_to_arena(i, key_columns, arena);
-        _key_hash_map[key_data.to_string()] = i;
-    }
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto&& dict_method) {
+                           using HashMethodType = std::decay_t<decltype(dict_method)>;
+                           using State = typename HashMethodType::State;
+
+                           ColumnRawPtrs key_raw_columns;
+                           for (const auto& column : key_columns) {
+                               key_raw_columns.push_back(column.get());
+                           }
+                           State state(key_raw_columns);
+
+                           const size_t rows = key_columns[0]->size();
+                           dict_method.init_serialized_keys(key_raw_columns, rows);
+
+                           for (int i = 0; i < rows; i++) {
+                               auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                   ctor(key, i);
+                               };
+
+                               auto creator_for_null_key = [&](auto& mapped) {
+                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                          "no null key"); // NOLINT
+                               };
+                               dict_method.lazy_emplace(state, i, creator, creator_for_null_key);
+                           }
+                       }},
+               _hash_map_method.method_variant);
+
     // load value column
     load_values(values_column);
+}
+
+void ComplexHashMapDictionary::init_find_hash_map(DictionaryHashMapMethod& find_hash_map_method,
+                                                  const DataTypes& key_types) const {
+    THROW_IF_ERROR(
+            init_hash_method<DictionaryHashMapMethod>(&find_hash_map_method, key_types, true));
+
+    std::visit(vectorized::Overload {
+                       [&](const std::monostate& arg) {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto&& dict_method) {
+                           using HashMethodType =
+                                   std::remove_cvref_t<std::decay_t<decltype(dict_method)>>;
+                           if (!std::holds_alternative<HashMethodType>(
+                                       find_hash_map_method.method_variant)) {
+                               throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                      "key column not match");
+                           }
+                           auto& find_hash_map =
+                                   std::get<HashMethodType>(find_hash_map_method.method_variant);
+                           find_hash_map.hash_table = dict_method.hash_table;
+                       }},
+               _hash_map_method.method_variant);
 }
 
 ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
@@ -38,16 +115,36 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
     const size_t rows = key_columns[0]->size();
     IColumn::Selector selector = IColumn::Selector(rows);
     NullMap null_map = NullMap(rows, false);
-    Arena arena;
-    for (size_t i = 0; i < key_columns[0]->size(); i++) {
-        auto key_data = serialize_keys_to_arena(i, key_columns, arena);
-        auto it = _key_hash_map.find(key_data.to_string());
-        if (it != _key_hash_map.end()) {
-            selector[i] = it->second;
-        } else {
-            null_map[i] = true;
-        }
-    }
+
+    DictionaryHashMapMethod find_hash_map;
+    // In init_find_hash_map, hashtable will be shared, similar to shared_hashtable in join
+    init_find_hash_map(find_hash_map, key_types);
+
+    std::visit(vectorized::Overload {
+
+                       [&](std::monostate& arg) {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto&& dict_method) {
+                           using HashMethodType = std::decay_t<decltype(dict_method)>;
+                           using State = typename HashMethodType::State;
+                           ColumnRawPtrs key_raw_columns;
+                           for (const auto& column : key_columns) {
+                               key_raw_columns.push_back(column.get());
+                           }
+                           State state(key_raw_columns);
+                           dict_method.init_serialized_keys(key_raw_columns, rows);
+                           for (size_t i = 0; i < rows; ++i) {
+                               auto find_result = dict_method.find(state, i);
+                               if (find_result.is_found()) {
+                                   selector[i] = find_result.get_mapped();
+                               } else {
+                                   null_map[i] = true;
+                               }
+                           }
+                       }},
+               find_hash_map.method_variant);
+
     ColumnPtrs columns;
     for (size_t i = 0; i < attribute_names.size(); ++i) {
         columns.push_back(get_single_value_column(selector, null_map, attribute_names[i],

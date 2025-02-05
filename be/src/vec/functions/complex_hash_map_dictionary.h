@@ -17,24 +17,17 @@
 
 #pragma once
 
-#include <cstdint>
 #include <memory>
-#include <type_traits>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "vec/columns/column.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/complex_dict_hash_map.h"
 #include "vec/functions/dictionary.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -46,9 +39,10 @@ public:
     ComplexHashMapDictionary(std::string name, std::vector<DictionaryAttribute> attributes)
             : IDictionary(std::move(name), std::move(attributes)) {}
 
-    ~ComplexHashMapDictionary() override = default;
+    ~ComplexHashMapDictionary() override;
     static DictionaryPtr create_complex_hash_map_dict(const std::string& name,
                                                       const ColumnPtrs& key_columns,
+                                                      const DataTypes& key_types,
                                                       const ColumnsWithTypeAndName& values_data) {
         std::vector<DictionaryAttribute> attributes;
         std::vector<ColumnPtr> values_column;
@@ -58,7 +52,7 @@ public:
             values_column.push_back(att.column);
         }
         auto dict = std::make_shared<ComplexHashMapDictionary>(name, attributes);
-        dict->load_data(key_columns, values_column);
+        dict->load_data(key_columns, key_types, values_column);
         return dict;
     }
 
@@ -71,37 +65,40 @@ public:
                                  const DataTypes& attribute_types, const ColumnPtrs& key_columns,
                                  const DataTypes& key_types) const override;
 
-private:
-    void load_data(const ColumnPtrs& key_columns, const std::vector<ColumnPtr>& values_column);
+    size_t allocated_bytes() const override;
 
-    StringRef serialize_keys_to_arena(size_t i, const ColumnPtrs& key_columns, Arena& pool) const {
-        const char* begin = nullptr;
-        size_t sum_size = 0;
-        for (const auto& column : key_columns) {
-            sum_size += column->serialize_value_into_arena(i, pool, begin).size;
-        }
-        return {begin, sum_size};
-    }
+private:
+    void load_data(const ColumnPtrs& key_columns, const DataTypes& key_types,
+                   const std::vector<ColumnPtr>& values_column);
 
     ColumnPtr get_single_value_column(const IColumn::Selector& selector, const NullMap& null_map,
                                       const std::string& attribute_name,
                                       const DataTypePtr& attribute_type) const;
-    phmap::flat_hash_map<std::string, IColumn::ColumnIndex> _key_hash_map;
+
+    void init_find_hash_map(DictionaryHashMapMethod& find_hash_map_method,
+                            const DataTypes& key_types) const;
+
+    DictionaryHashMapMethod _hash_map_method;
+
+    // Used to save key columns, because some types of hashmaps do not hold key columns, such as MethodStringNoCache
+    ColumnPtrs _key_columns;
 };
 
 inline DictionaryPtr create_complex_hash_map_dict_from_column(
         const std::string& name, const ColumnsWithTypeAndName& key_data,
         const ColumnsWithTypeAndName& values_data) {
     ColumnPtrs key_columns;
+    DataTypes key_types;
     for (const auto& key : key_data) {
         if (key.column->is_nullable()) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "ComplexHashMapDictionary key column should not be nullable");
         }
         key_columns.push_back(key.column);
+        key_types.push_back(key.type);
     }
-    auto dict =
-            ComplexHashMapDictionary::create_complex_hash_map_dict(name, key_columns, values_data);
+    auto dict = ComplexHashMapDictionary::create_complex_hash_map_dict(name, key_columns, key_types,
+                                                                       values_data);
     return dict;
 }
 
