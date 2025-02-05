@@ -127,7 +127,7 @@ const std::string& vectorized::VBitmapPredicate::expr_name() const {
     return _expr_name;
 }
 
-void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase>& filter) {
+void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {
     _filter = filter;
 }
 

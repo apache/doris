@@ -18,7 +18,6 @@
 #pragma once
 
 #include "exprs/bloom_filter_func.h"
-#include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_dictionary.h"
@@ -56,8 +55,6 @@ public:
     double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
 
 private:
-    bool _can_ignore() const override { return _filter->is_runtime_filter(); }
-
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override;
 
@@ -86,19 +83,7 @@ private:
         return new_size;
     }
 
-    std::string _debug_string() const override {
-        std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) +
-                           ", filter_id=" + std::to_string(_filter->get_filter_id()) + ")";
-        return info;
-    }
-
-    int get_filter_id() const override {
-        int filter_id = _filter->get_filter_id();
-        if (filter_id == -1) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "filter_id is -1");
-        }
-        return filter_id;
-    }
+    std::string _debug_string() const override { return "BloomFilter(" + type_to_string(T) + ")"; }
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
