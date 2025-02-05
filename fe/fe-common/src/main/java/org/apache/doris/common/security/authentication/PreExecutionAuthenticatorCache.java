@@ -23,7 +23,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -42,7 +41,7 @@ public class PreExecutionAuthenticatorCache {
     private static final Logger LOG = LogManager.getLogger(PreExecutionAuthenticatorCache.class);
     private static final int MAX_CACHE_SIZE = 100;
 
-    private static final Cache<HadoopConfigWrapper, PreExecutionAuthenticator> preExecutionAuthenticatorCache =
+    private static final Cache<String, PreExecutionAuthenticator> preExecutionAuthenticatorCache =
             CacheBuilder.newBuilder()
                     .maximumSize(MAX_CACHE_SIZE)
                     .expireAfterAccess(60 * 24, TimeUnit.MINUTES)
@@ -57,85 +56,32 @@ public class PreExecutionAuthenticatorCache {
      * @return A PreExecutionAuthenticator instance for the given configuration
      */
     public static PreExecutionAuthenticator getAuthenticator(Map<String, String> hadoopConfig) {
-
-        HadoopConfigWrapper hadoopConfigWrapper = new HadoopConfigWrapper(hadoopConfig);
-
-        PreExecutionAuthenticator authenticator = null;
+        String authenticatorCacheKey = AuthenticationConfig.generalAuthenticationConfigKey(hadoopConfig);
+        PreExecutionAuthenticator authenticator;
         try {
-            authenticator = preExecutionAuthenticatorCache.get(hadoopConfigWrapper, () -> {
-                Configuration conf = new Configuration();
-                hadoopConfig.forEach(conf::set);
-                PreExecutionAuthenticator preExecutionAuthenticator = new PreExecutionAuthenticator();
-                AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(
-                        conf, AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                        AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-                HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator
-                        .getHadoopAuthenticator(authenticationConfig);
-                preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
-                LOG.info("Created new authenticator for configuration: " + hadoopConfigWrapper);
-                return preExecutionAuthenticator;
-            });
+            authenticator = preExecutionAuthenticatorCache.get(authenticatorCacheKey,
+                    () -> createAuthenticator(hadoopConfig, authenticatorCacheKey));
         } catch (ExecutionException exception) {
-            throw new RuntimeException(exception.getCause().getMessage(), exception);
+            throw new RuntimeException("Failed to create PreExecutionAuthenticator for key: " + authenticatorCacheKey,
+                    exception);
         }
         return authenticator;
     }
 
-
-    /**
-     * Hadoop configuration wrapper class that wraps a Map<String, String> configuration.
-     * This class overrides the equals() and hashCode() methods to enable comparison of
-     * the configurations in the cache, ensuring that identical configurations (with the same key-value pairs)
-     * are considered equal and can reuse the same cached PreExecutionAuthenticator instance.
-     * <p>
-     * The purpose of this class is to ensure that in the cache, if two configurations are identical
-     * (i.e., they have the same key-value pairs), only one instance of PreExecutionAuthenticator is created and cached.
-     * By implementing custom equals() and hashCode() methods, we ensure that even if different Map instances
-     * hold the same configuration data, they are considered equal in the cache.
-     */
-    private static class HadoopConfigWrapper {
-        private final Map<String, String> config;
-
-        /**
-         * Constructor that takes a Map<String, String> configuration.
-         *
-         * @param config The Hadoop configuration, typically a Map<String, String> containing configuration key-value
-         *               pairs
-         */
-        public HadoopConfigWrapper(Map<String, String> config) {
-            this.config = new HashMap<>(config);
-        }
-
-        /**
-         * Checks if two HadoopConfigWrapper objects are equal.
-         * Two objects are considered equal if their wrapped Map configurations are identical
-         * (i.e., the key-value pairs are the same).
-         *
-         * @param obj The object to compare with the current object
-         * @return true if the two HadoopConfigWrapper objects have the same wrapped configuration; false otherwise
-         */
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (obj == null || getClass() != obj.getClass()) {
-                return false;
-            }
-            HadoopConfigWrapper that = (HadoopConfigWrapper) obj;
-            return config.equals(that.config);
-        }
-
-        /**
-         * Generates a hash code based on the Hadoop configuration.
-         * Objects with the same configuration will generate the same hash code, ensuring
-         * that they can be correctly matched in a Map.
-         *
-         * @return The hash code of the Hadoop configuration
-         */
-        @Override
-        public int hashCode() {
-            return config.hashCode();
-        }
+    private static PreExecutionAuthenticator createAuthenticator(Map<String, String> hadoopConfig,
+                                                                 String authenticatorCacheKey) {
+        Configuration conf = new Configuration();
+        hadoopConfig.forEach(conf::set);
+        PreExecutionAuthenticator preExecutionAuthenticator = new PreExecutionAuthenticator();
+        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(
+                conf, AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator
+                .getHadoopAuthenticator(authenticationConfig);
+        preExecutionAuthenticator.setHadoopAuthenticator(hadoopAuthenticator);
+        LOG.info("Creating new PreExecutionAuthenticator for configuration, Cache key: {}",
+                authenticatorCacheKey);
+        return preExecutionAuthenticator;
     }
+
 }
