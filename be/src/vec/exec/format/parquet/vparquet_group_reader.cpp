@@ -36,6 +36,7 @@
 #include "gutil/stringprintf.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "schema_desc.h"

@@ -54,6 +54,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"

@@ -17,12 +17,17 @@
 
 #pragma once
 
-#include "exprs/runtime_filter.h"
-#include "exprs/runtime_filter_convertor.h"
+#include <gen_cpp/internal_service.pb.h>
+
+#include "exprs/filter_base.h"
+#include "runtime/type_limit.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 
 namespace doris {
+
 // only used in Runtime Filter
-class MinMaxFuncBase : public RuntimeFilterFuncBase {
+class MinMaxFuncBase : public FilterBase {
 public:
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
     virtual void* get_max() = 0;
@@ -33,14 +38,7 @@ public:
     virtual Status merge(MinMaxFuncBase* minmax_func) = 0;
     virtual ~MinMaxFuncBase() = default;
 
-    bool contain_null() const { return _null_aware && _contain_null; }
-
-    void set_contain_null() { _contain_null = true; }
-
     virtual void to_pb(PMinMaxFilter* filter) = 0;
-
-protected:
-    bool _contain_null = false;
 };
 
 template <class T, bool NeedMax = true, bool NeedMin = true>
@@ -55,80 +53,13 @@ public:
             const auto& col = nullable->get_nested_column_ptr();
             const auto& nullmap = nullable->get_null_map_data();
             if (nullable->has_null()) {
-                update_batch(col, nullmap, start);
+                _update_batch(col, nullmap, start);
                 _contain_null = true;
             } else {
-                update_batch(col, start);
+                _update_batch(col, start);
             }
         } else {
-            update_batch(column, start);
-        }
-    }
-
-    void _update_batch_string(const auto& column_string, const uint8_t* __restrict nullmap,
-                              size_t start, size_t size) {
-        for (size_t i = start; i < size; i++) {
-            if (nullmap == nullptr || !nullmap[i]) {
-                if constexpr (NeedMin) {
-                    if (column_string.get_data_at(i) < StringRef(_min)) {
-                        _min = column_string.get_data_at(i).to_string();
-                    }
-                }
-                if constexpr (NeedMax) {
-                    if (column_string.get_data_at(i) > StringRef(_max)) {
-                        _max = column_string.get_data_at(i).to_string();
-                    }
-                }
-            }
-        }
-    }
-
-    void update_batch(const vectorized::ColumnPtr& column, size_t start) {
-        const auto size = column->size();
-        if constexpr (std::is_same_v<T, std::string>) {
-            if (column->is_column_string64()) {
-                _update_batch_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                     nullptr, start, size);
-            } else {
-                _update_batch_string(assert_cast<const vectorized::ColumnString&>(*column), nullptr,
-                                     start, size);
-            }
-        } else {
-            const T* data = (T*)column->get_raw_data().data;
-            for (size_t i = start; i < size; i++) {
-                if constexpr (NeedMin) {
-                    _min = std::min(_min, *(data + i));
-                }
-                if constexpr (NeedMax) {
-                    _max = std::max(_max, *(data + i));
-                }
-            }
-        }
-    }
-
-    void update_batch(const vectorized::ColumnPtr& column, const vectorized::NullMap& nullmap,
-                      size_t start) {
-        const auto size = column->size();
-        if constexpr (std::is_same_v<T, std::string>) {
-            if (column->is_column_string64()) {
-                _update_batch_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                     nullmap.data(), start, size);
-            } else {
-                _update_batch_string(assert_cast<const vectorized::ColumnString&>(*column),
-                                     nullmap.data(), start, size);
-            }
-        } else {
-            const T* data = (T*)column->get_raw_data().data;
-            for (size_t i = start; i < size; i++) {
-                if (!nullmap[i]) {
-                    if constexpr (NeedMin) {
-                        _min = std::min(_min, *(data + i));
-                    }
-                    if constexpr (NeedMax) {
-                        _max = std::max(_max, *(data + i));
-                    }
-                }
-            }
+            _update_batch(column, start);
         }
     }
 
@@ -159,7 +90,10 @@ public:
         return Status::OK();
     }
 
-    void set_pb(PMinMaxFilter* filter, auto f) {
+    void to_pb(PMinMaxFilter* filter) override { _set_pb(filter, get_convertor<T>()); }
+
+private:
+    void _set_pb(PMinMaxFilter* filter, auto f) {
         if constexpr (NeedMin) {
             f(filter->mutable_min_val(), _min);
         }
@@ -168,9 +102,73 @@ public:
         }
     }
 
-    void to_pb(PMinMaxFilter* filter) override { set_pb(filter, get_convertor<T>()); }
+    void _update_batch_string(const auto& column_string, const uint8_t* __restrict nullmap,
+                              size_t start, size_t size) {
+        for (size_t i = start; i < size; i++) {
+            if (nullmap == nullptr || !nullmap[i]) {
+                if constexpr (NeedMin) {
+                    if (column_string.get_data_at(i) < StringRef(_min)) {
+                        _min = column_string.get_data_at(i).to_string();
+                    }
+                }
+                if constexpr (NeedMax) {
+                    if (column_string.get_data_at(i) > StringRef(_max)) {
+                        _max = column_string.get_data_at(i).to_string();
+                    }
+                }
+            }
+        }
+    }
 
-protected:
+    void _update_batch(const vectorized::ColumnPtr& column, size_t start) {
+        const auto size = column->size();
+        if constexpr (std::is_same_v<T, std::string>) {
+            if (column->is_column_string64()) {
+                _update_batch_string(assert_cast<const vectorized::ColumnString64&>(*column),
+                                     nullptr, start, size);
+            } else {
+                _update_batch_string(assert_cast<const vectorized::ColumnString&>(*column), nullptr,
+                                     start, size);
+            }
+        } else {
+            const T* data = (T*)column->get_raw_data().data;
+            for (size_t i = start; i < size; i++) {
+                if constexpr (NeedMin) {
+                    _min = std::min(_min, *(data + i));
+                }
+                if constexpr (NeedMax) {
+                    _max = std::max(_max, *(data + i));
+                }
+            }
+        }
+    }
+
+    void _update_batch(const vectorized::ColumnPtr& column, const vectorized::NullMap& nullmap,
+                       size_t start) {
+        const auto size = column->size();
+        if constexpr (std::is_same_v<T, std::string>) {
+            if (column->is_column_string64()) {
+                _update_batch_string(assert_cast<const vectorized::ColumnString64&>(*column),
+                                     nullmap.data(), start, size);
+            } else {
+                _update_batch_string(assert_cast<const vectorized::ColumnString&>(*column),
+                                     nullmap.data(), start, size);
+            }
+        } else {
+            const T* data = (T*)column->get_raw_data().data;
+            for (size_t i = start; i < size; i++) {
+                if (!nullmap[i]) {
+                    if constexpr (NeedMin) {
+                        _min = std::min(_min, *(data + i));
+                    }
+                    if constexpr (NeedMax) {
+                        _max = std::max(_max, *(data + i));
+                    }
+                }
+            }
+        }
+    }
+
     T _max = type_limit<T>::min();
     T _min = type_limit<T>::max();
 };

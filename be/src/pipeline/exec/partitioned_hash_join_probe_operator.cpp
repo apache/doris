@@ -90,13 +90,10 @@ void PartitionedHashJoinProbeLocalState::init_counters() {
 
 template <bool spilled>
 void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* child_profile) {
-    UPDATE_COUNTER_FROM_INNER("PublishRuntimeFilterTime");
-    UPDATE_COUNTER_FROM_INNER("BuildRuntimeFilterTime");
     UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
     UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
     UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
     UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
-    UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
     UPDATE_COUNTER_FROM_INNER("MemoryUsage");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
@@ -114,7 +111,6 @@ void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* ch
     UPDATE_COUNTER_FROM_INNER("ProbeWhenProbeSideOutputTime");
     UPDATE_COUNTER_FROM_INNER("NonEqualJoinConjunctEvaluationTime");
     UPDATE_COUNTER_FROM_INNER("InitProbeSideTime");
-    UPDATE_COUNTER_FROM_INNER("MemoryUsage");
 }
 
 #undef UPDATE_PROFILE
@@ -125,7 +121,6 @@ void PartitionedHashJoinProbeLocalState::update_profile_from_inner() {
         auto* sink_local_state = _shared_state->inner_runtime_state->get_sink_local_state();
         auto* probe_local_state = _shared_state->inner_runtime_state->get_local_state(
                 p._inner_probe_operator->operator_id());
-
         if (_shared_state->need_to_spill) {
             update_build_profile<true>(sink_local_state->profile());
             update_probe_profile<true>(probe_local_state->profile());
@@ -196,7 +191,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                 RETURN_IF_ERROR(merged_block->merge(std::move(block)));
                 DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks", {
                     return Status::Error<INTERNAL_ERROR>(
-                            "fault_inject partitioned_hash_join_probe spill_probe_blocks failed");
+                            "fault_inject partitioned_hash_join_probe "
+                            "spill_probe_blocks failed");
                 });
             }
 
@@ -233,7 +229,8 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
     _spill_dependency->block();
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks_submit_func", {
         return Status::Error<INTERNAL_ERROR>(
-                "fault_inject partitioned_hash_join_probe spill_probe_blocks submit_func failed");
+                "fault_inject partitioned_hash_join_probe spill_probe_blocks "
+                "submit_func failed");
     });
 
     auto spill_runnable = std::make_shared<SpillNonSinkRunnable>(
@@ -282,7 +279,8 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
             vectorized::Block block;
             DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recover_build_blocks", {
                 status = Status::Error<INTERNAL_ERROR>(
-                        "fault_inject partitioned_hash_join_probe recover_build_blocks failed");
+                        "fault_inject partitioned_hash_join_probe "
+                        "recover_build_blocks failed");
             });
             if (status.ok()) {
                 status = spilled_stream->read_next_block_sync(&block, &eos);
