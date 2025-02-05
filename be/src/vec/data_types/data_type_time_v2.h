@@ -112,6 +112,13 @@ public:
  */
 class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
 public:
+    static constexpr uint64 YEAR_PART = 0xffffc00000000000;
+    static constexpr uint64 MONTH_PART = 0x3c0000000000;
+    static constexpr uint64 DAY_PART = 0x3e000000000;
+    static constexpr uint64 HOUR_PART = 0x1f00000000;
+    static constexpr uint64 MINUTE_PART = 0xfc000000;
+    static constexpr uint64 SECOND_PART = 0x3f00000;
+    static constexpr uint64 MICROSECOND_PART = 0xfffff;
     static constexpr bool is_parametric = true;
 
     DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
@@ -172,6 +179,14 @@ public:
     static void cast_to_date_v2(const UInt64 from, UInt32& to);
     static void cast_from_date(const Int64 from, UInt64& to);
     static void cast_from_date_time(const Int64 from, UInt64& to);
+
+    static UInt64 get_year(const UInt64 v) { return (v & YEAR_PART) >> 46; }
+    static UInt64 get_month(const UInt64 v) { return (v & MONTH_PART) >> 42; }
+    static UInt64 get_day(const UInt64 v) { return (v & DAY_PART) >> 37; }
+    static UInt64 get_hour(const UInt64 v) { return (v & HOUR_PART) >> 32; }
+    static UInt64 get_minute(const UInt64 v) { return (v & MINUTE_PART) >> 26; }
+    static UInt64 get_second(const UInt64 v) { return (v & SECOND_PART) >> 20; }
+    static UInt64 get_microsecond(const UInt64 v) { return v & MICROSECOND_PART; }
 
 private:
     UInt32 _scale;

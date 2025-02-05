@@ -1011,12 +1011,14 @@ public:
         DCHECK_EQ(arguments.size(), 1);
         ColumnPtr col = block.get_by_position(arguments[0]).column;
         const auto* arg = assert_cast<const ColumnUInt64*>(col.get());
-        auto res = ColumnFloat64::create(input_rows_count);
+        ColumnFloat64::MutablePtr res = ColumnFloat64::create(input_rows_count);
         auto& res_data = res->get_data();
         for (int i = 0; i < arg->size(); i++) {
             auto v = arg->get_element(i);
-            res_data[i] = TimeValue::make_time((v & 0x1f00000000) >> 32, (v & 0xfc000000) >> 26,
-                                               (v & 0x3f00000) >> 20);
+            // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
+            res_data[i] = TimeValue::make_time(DataTypeDateTimeV2::get_hour(v),
+                                               DataTypeDateTimeV2::get_minute(v),
+                                               DataTypeDateTimeV2::get_second(v));
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
