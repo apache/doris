@@ -224,8 +224,6 @@ public:
         return Status::OK();
     }
 
-    int get_filter_id() const override { return _values->get_filter_id(); }
-
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
@@ -363,8 +361,6 @@ public:
     }
 
 private:
-    bool _can_ignore() const override { return _values->is_runtime_filter(); }
-
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
         int64_t new_size = 0;
@@ -551,10 +547,7 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info = "InListPredicateBase(" + type_to_string(Type) + ", " +
-                           type_to_string(PT) +
-                           ", filter_id=" + std::to_string(_values->get_filter_id()) + ")";
-        return info;
+        return "InListPredicate(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
     }
 
     void _update_min_max(const T& value) {

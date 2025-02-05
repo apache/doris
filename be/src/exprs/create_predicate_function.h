@@ -130,8 +130,7 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     default:
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "predicate with type " + type_to_string(type));
+        throw Exception(ErrorCode::INTERNAL_ERROR, "predicate with type " + type_to_string(type));
     }
 
     return nullptr;
@@ -151,7 +150,8 @@ typename Traits::BasePtr create_bitmap_predicate_function(PrimitiveType type) {
     case TYPE_BIGINT:
         return Creator::template create<TYPE_BIGINT>();
     default:
-        DCHECK(false) << "Invalid type: " << type_to_string(type);
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "bitmap predicate with type " + type_to_string(type));
     }
 
     return nullptr;
