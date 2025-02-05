@@ -139,7 +139,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       end
       @logger.info("max retry queue size: #{@max_retry_queue_mb}MB")
 
-         @retry_queue = java.util.concurrent.DelayQueue.new
+      @retry_queue = java.util.concurrent.DelayQueue.new
       # retry queue size in bytes
       @retry_queue_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
       retry_thread = Thread.new do
