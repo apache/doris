@@ -1781,6 +1781,24 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void setBeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
+        Map<String, Map<String, String>> originConf = Maps.newHashMap()
+        tempConfig.each{ k, v ->
+            originConf.put(k, get_be_param(k))
+        }
+        try {
+            tempConfig.each{ k, v -> set_be_param(k, v)}
+            actionSupplier()
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            originConf.each { k, confs ->
+                set_original_be_param(k, confs)
+            }
+        }
+    }
+
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
