@@ -25,7 +25,6 @@ import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
@@ -41,19 +40,17 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Map;
 
 public class UdfExecutor extends BaseExecutor {
     public static final Logger LOG = Logger.getLogger(UdfExecutor.class);
-    public static final String UDF_PREPARE_FUNCTION_NAME = "prepare";
+    private static final String UDF_PREPARE_FUNCTION_NAME = "prepare";
+    private static final String UDF_FUNCTION_NAME = "evaluate";
 
     // setup by init() and cleared by close()
     private Method method;
 
     private int evaluateIndex;
-
-    private VectorTable outputTable = null;
 
     private boolean isStaticLoad = false;
 
@@ -70,31 +67,14 @@ public class UdfExecutor extends BaseExecutor {
      */
     @Override
     public void close() {
-        // inputTable is released by c++, only release outputTable
-        if (outputTable != null) {
-            outputTable.close();
-        }
         // We are now un-usable (because the class loader has been
         // closed), so null out method_ and classLoader_.
         method = null;
         if (!isStaticLoad) {
             super.close();
+        } else if (outputTable != null) {
+            outputTable.close();
         }
-    }
-
-    private Map<Integer, ColumnValueConverter> getInputConverters(int numColumns) {
-        Map<Integer, ColumnValueConverter> converters = new HashMap<>();
-        for (int j = 0; j < numColumns; ++j) {
-            ColumnValueConverter converter = getInputConverter(argTypes[j].getPrimitiveType(), argClass[j]);
-            if (converter != null) {
-                converters.put(j, converter);
-            }
-        }
-        return converters;
-    }
-
-    private ColumnValueConverter getOutputConverter() {
-        return getOutputConverter(retType, method.getReturnType());
     }
 
     public long evaluate(Map<String, String> inputParams, Map<String, String> outputParams) throws UdfRuntimeException {
@@ -112,7 +92,7 @@ public class UdfExecutor extends BaseExecutor {
             Object[] result = outputTable.getColumnType(0).isPrimitive()
                     ? outputTable.getColumn(0).newObjectContainerArray(numRows)
                     : (Object[]) Array.newInstance(method.getReturnType(), numRows);
-            Object[][] inputs = inputTable.getMaterializedData(getInputConverters(numColumns));
+            Object[][] inputs = inputTable.getMaterializedData(getInputConverters(numColumns, false));
             Object[] parameters = new Object[numColumns];
             for (int i = 0; i < numRows; ++i) {
                 for (int j = 0; j < numColumns; ++j) {
@@ -216,16 +196,15 @@ public class UdfExecutor extends BaseExecutor {
             } else {
                 cache.retType = returnType.second;
             }
-            Type keyType = cache.retType.getKeyType();
-            Type valueType = cache.retType.getValueType();
             Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, cache.argClass, false);
             if (!inputType.first) {
                 continue;
             } else {
                 cache.argTypes = inputType.second;
             }
-            cache.retType.setKeyType(keyType);
-            cache.retType.setValueType(valueType);
+            if (cache.method != null) {
+                cache.retClass = cache.method.getReturnType();
+            }
             return;
         }
         StringBuilder sb = new StringBuilder();
@@ -269,6 +248,7 @@ public class UdfExecutor extends BaseExecutor {
             evaluateIndex = cache.evaluateIndex;
             retType = cache.retType;
             argTypes = cache.argTypes;
+            retClass = cache.retClass;
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("Unable to load jar.", e);
         } catch (SecurityException e) {
