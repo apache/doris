@@ -17,41 +17,13 @@
 
 #include "nested_loop_join_build_operator.h"
 
-#include <string>
+#include <memory>
 
 #include "exprs/runtime_filter_slots_cross.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
-struct RuntimeFilterBuild {
-    RuntimeFilterBuild(NestedLoopJoinBuildSinkLocalState* parent) : _parent(parent) {}
-    Status operator()(RuntimeState* state) {
-        if (_parent->runtime_filters().empty()) {
-            return Status::OK();
-        }
-        VRuntimeFilterSlotsCross runtime_filter_slots(_parent->runtime_filters(),
-                                                      _parent->filter_src_expr_ctxs());
-
-        RETURN_IF_ERROR(runtime_filter_slots.init(state));
-
-        if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
-            SCOPED_TIMER(_parent->runtime_filter_compute_timer());
-            for (auto& build_block : _parent->build_blocks()) {
-                RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
-            }
-        }
-        {
-            SCOPED_TIMER(_parent->publish_runtime_filter_timer());
-            RETURN_IF_ERROR(runtime_filter_slots.publish(state));
-        }
-
-        return Status::OK();
-    }
-
-private:
-    NestedLoopJoinBuildSinkLocalState* _parent = nullptr;
-};
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
@@ -136,8 +108,11 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     }
 
     if (eos) {
-        RuntimeFilterBuild rf_ctx(&local_state);
-        RETURN_IF_ERROR(rf_ctx(state));
+        local_state._runtime_filter_slots = std::make_shared<RuntimeFilterSlotsCross>(
+                local_state.filter_src_expr_ctxs(), local_state.profile(),
+                local_state.runtime_filters(), true);
+        RETURN_IF_ERROR(local_state._runtime_filter_slots->process(
+                state, local_state._shared_state->build_blocks));
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
