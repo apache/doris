@@ -64,7 +64,7 @@ DEFINE_mBool(save_load_error_log_to_s3, "false");
 
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
-DEFINE_mBool(enable_new_tablet_do_compaction, "false");
+DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
 DEFINE_Int32(delete_bitmap_lock_expiration_seconds, "10");
 
