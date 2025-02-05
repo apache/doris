@@ -217,6 +217,22 @@ void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
     }
 }
 
+void VFileScanner::_init_runtime_filter_partition_pruning_block() {
+    if (_runtime_filter_partition_pruning_ctxs.empty() || _partition_col_descs.empty()) {
+        return;
+    }
+    for (auto const* slot_desc : _real_tuple_desc->slots()) {
+        if (!slot_desc->need_materialize()) {
+            // should be ignored from reading
+            continue;
+        }
+        // init block with empty column
+        _runtime_filter_partition_pruning_block.insert(
+                ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+                                      slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+    }
+}
+
 Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
     SCOPED_TIMER(_runtime_filter_partition_pruning_timer);
     if (_runtime_filter_partition_pruning_ctxs.empty() || _partition_col_descs.empty()) {
@@ -238,10 +254,9 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
-    // 2. Build a temp block from the partition column, then execute conjuncts and filter block.
-    // 2.1 Build a temp block from the partition column to match the conjuncts executing.
-    Block temp_block;
-    int index = 0;
+    // 2. Fill _runtime_filter_partition_pruning_block from the partition column, then execute conjuncts and filter block.
+    // 2.1 Fill _runtime_filter_partition_pruning_block from the partition column to match the conjuncts executing.
+    size_t index = 0;
     bool first_cloumn_filled = false;
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->need_materialize()) {
@@ -253,20 +268,20 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
             auto data_type = slot_desc->get_data_type_ptr();
             auto partition_value_column = std::move(parititon_slot_id_to_column[slot_desc->id()]);
             if (data_type->is_nullable()) {
-                temp_block.insert({ColumnNullable::create(
-                                           std::move(partition_value_column),
-                                           ColumnUInt8::create(partition_value_column_size, 0)),
-                                   data_type, ""});
+                _runtime_filter_partition_pruning_block.insert(
+                        index, ColumnWithTypeAndName(
+                                       ColumnNullable::create(
+                                               std::move(partition_value_column),
+                                               ColumnUInt8::create(partition_value_column_size, 0)),
+                                       data_type, slot_desc->col_name()));
             } else {
-                temp_block.insert({std::move(partition_value_column), data_type, ""});
+                _runtime_filter_partition_pruning_block.insert(
+                        index, ColumnWithTypeAndName(std::move(partition_value_column), data_type,
+                                                     slot_desc->col_name()));
             }
             if (index == 0) {
                 first_cloumn_filled = true;
             }
-        } else {
-            temp_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
         }
         index++;
     }
@@ -275,11 +290,13 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
     if (!first_cloumn_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        temp_block.get_by_position(0).column->assume_mutable()->resize(partition_value_column_size);
+        _runtime_filter_partition_pruning_block.get_by_position(0).column->assume_mutable()->resize(
+                partition_value_column_size);
     }
-    IColumn::Filter result_filter(temp_block.rows(), 1);
+    IColumn::Filter result_filter(_runtime_filter_partition_pruning_block.rows(), 1);
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_pruning_ctxs, nullptr,
-                                                    &temp_block, &result_filter, &can_filter_all));
+                                                    &_runtime_filter_partition_pruning_block,
+                                                    &result_filter, &can_filter_all));
     return Status::OK();
 }
 
@@ -347,6 +364,7 @@ Status VFileScanner::open(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         _init_runtime_filter_partition_pruning_ctxs();
+        _init_runtime_filter_partition_pruning_block();
     } else {
         // there's no scan range in split source. stop scanner directly.
         _scanner_eof = true;
