@@ -112,6 +112,7 @@ void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
+void register_function_dict_get_many(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -303,6 +304,7 @@ public:
             register_function_assert_true(instance);
             register_function_bit_test(instance);
             register_function_dict_get(instance);
+            register_function_dict_get_many(instance);
         });
         return instance;
     }

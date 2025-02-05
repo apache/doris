@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/functions/complex_hash_map_dictionary.h"
 #include "vec/functions/dictionary_factory.h"
 #include "vec/functions/hash_map_dictionary.h"
 #include "vec/functions/ip_address_dictionary.h"
@@ -44,17 +45,16 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
 
     input_block.replace_if_overflow();
 
-    vectorized::ColumnWithTypeAndName key_data;
+    vectorized::ColumnsWithTypeAndName key_data;
 
     vectorized::ColumnsWithTypeAndName attribute_data;
 
-    {
-        // Currently only supports a single key, will support multiple keys in the future
-        auto key_expr_id = p._key_output_expr_slots[0];
+    for (size_t i = 0; i < p._key_output_expr_slots.size(); i++) {
+        auto key_expr_id = p._key_output_expr_slots[i];
         auto key_expr_ctx = _output_vexpr_ctxs[key_expr_id];
         int key_column_id = -1;
         RETURN_IF_ERROR(key_expr_ctx->execute(&input_block, &key_column_id));
-        key_data = input_block.get_by_position(key_column_id);
+        key_data.push_back(input_block.get_by_position(key_column_id));
     }
 
     for (size_t i = 0; i < p._value_output_expr_slots.size(); i++) {
@@ -73,11 +73,18 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
 
     switch (p._layout_type) {
     case TDictLayoutType::type::IP_TRIE: {
-        dict = create_ip_trie_dict_from_column(dict_name, key_data, attribute_data);
+        if (key_data.size() != 1) {
+            return Status::InternalError("IP_TRIE dict key size must be 1");
+        }
+        dict = create_ip_trie_dict_from_column(dict_name, key_data[0], attribute_data);
         break;
     }
     case TDictLayoutType::type::HASH_MAP: {
-        dict = create_hash_map_dict_from_column(dict_name, key_data, attribute_data);
+        if (key_data.size() == 1) {
+            dict = create_hash_map_dict_from_column(dict_name, key_data[0], attribute_data);
+        } else {
+            dict = create_complex_hash_map_dict_from_column(dict_name, key_data, attribute_data);
+        }
         break;
     }
     default:

@@ -72,6 +72,34 @@ public:
                                  const DataTypePtr& attribute_type, const ColumnPtr& key_column,
                                  const DataTypePtr& key_type) const = 0;
 
+    // Returns multiple result columns, throws an exception if there is an issue
+    // The default implementation calls get_column. If a more performant implementation is needed, this method can be overridden
+    virtual ColumnPtrs get_columns(const std::vector<std::string>& attribute_names,
+                                   const DataTypes& attribute_types, const ColumnPtr& key_column,
+                                   const DataTypePtr& key_type) const {
+        ColumnPtrs columns;
+        for (size_t i = 0; i < attribute_names.size(); ++i) {
+            columns.push_back(
+                    get_column(attribute_names[i], attribute_types[i], key_column, key_type));
+        }
+        return columns;
+    }
+
+    // Compared to get_column and get_columns, supports multiple key columns and multiple value columns
+    // The default implementation only supports one key column, such as IPAddressDictionary, HashMapDictionary
+    // If support for multiple key columns is needed, this method can be overridden
+    virtual ColumnPtrs get_tuple_columns(const std::vector<std::string>& attribute_names,
+                                         const DataTypes& attribute_types,
+                                         const ColumnPtrs& key_columns,
+                                         const DataTypes& key_types) const {
+        if (key_types.size() != 1) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dictionary {} does not support multiple key columns",
+                                   dict_name());
+        }
+        return get_columns(attribute_names, attribute_types, key_columns[0], key_types[0]);
+    }
+
     bool has_attribute(const std::string& name) const;
     DataTypePtr get_attribute_type(const std::string& name) const;
     size_t attribute_index(const std::string& name) const;
