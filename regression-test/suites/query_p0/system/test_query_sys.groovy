@@ -54,4 +54,8 @@ suite("test_query_sys", "query,p0") {
         sql "select * from http_stream('format'='csv');"
         exception "No Alive backends"
     }
+
+    // `workload_group_resource_usage` will be refresh 30s after BE startup so sleep 30s to get a stable result
+    sleep(30000)
+    qt_select """ select count(*) from information_schema.workload_group_resource_usage; """
 }
