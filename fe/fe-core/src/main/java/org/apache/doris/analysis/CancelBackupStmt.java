@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -35,6 +36,11 @@ public class CancelBackupStmt extends CancelStmt implements NotFallbackInParser 
 
     public CancelBackupStmt(String dbName, boolean isRestore) {
         this.dbName = dbName;
+        this.isRestore = isRestore;
+    }
+
+    public CancelBackupStmt(boolean isRestore) {
+        this.dbName = FeConstants.INTERNAL_DB_NAME;
         this.isRestore = isRestore;
     }
 

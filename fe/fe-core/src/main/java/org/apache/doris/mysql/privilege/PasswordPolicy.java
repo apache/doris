@@ -21,6 +21,8 @@ import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -141,6 +143,14 @@ public class PasswordPolicy implements Writable {
 
     public ExpirePolicy getExpirePolicy() {
         return expirePolicy;
+    }
+
+    public HistoryPolicy getHistoryPolicy() {
+        return historyPolicy;
+    }
+
+    public FailedLoginPolicy getFailedLoginPolicy() {
+        return failedLoginPolicy;
     }
 
     @Override
@@ -484,4 +494,15 @@ public class PasswordPolicy implements Writable {
             rows.add(row4);
         }
     }
+
+    @Override
+    public PasswordPolicy clone() {
+        PasswordPolicy copied = DeepCopy.copy(this, PasswordPolicy.class, FeConstants.meta_version);
+        if (copied == null) {
+            LOG.warn("failed to clone PasswordPolicy: " + toString());
+            return null;
+        }
+        return copied;
+    }
+
 }

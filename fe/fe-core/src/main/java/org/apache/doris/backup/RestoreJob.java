@@ -194,7 +194,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     // tablet id->(be id -> snapshot info)
     @SerializedName("si")
     private com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
-
     private Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
 
     private List<ColocatePersistInfo> colocatePersistInfos = Lists.newArrayList();
@@ -216,7 +215,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isCleanPartitions = false;
     // Whether to restore the data into a temp table, and then replace the origin one.
     private boolean isAtomicRestore = false;
-
     // restore properties
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
@@ -268,9 +266,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId,
             BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveColocate, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
+                reserveReplica, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
                 isAtomicRestore, env, repoId);
-
         this.backupMeta = backupMeta;
     }
 
@@ -975,6 +972,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // check and restore resources
         checkAndRestoreResources();
+        if (!status.ok()) {
+            return;
+        }
         if (!status.ok()) {
             return;
         }

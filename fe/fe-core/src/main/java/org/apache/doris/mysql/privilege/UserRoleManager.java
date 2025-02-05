@@ -172,6 +172,10 @@ public class UserRoleManager implements Writable, GsonPostProcessable {
         userToRoles = newUserToRoles;
     }
 
+    public  Map<String, Set<UserIdentity>> getRoleToUsers() {
+        return roleToUsers;
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         removeClusterPrefix();
