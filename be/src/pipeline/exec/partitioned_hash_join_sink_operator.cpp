@@ -197,7 +197,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
         block_old_mem = build_block.allocated_bytes();
         // If spilling was triggered, constructing runtime filters is meaningless,
         // therefore, all runtime filters are temporarily disabled.
-        RETURN_IF_ERROR(inner_sink_state->disable_runtime_filters(
+        RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(
                 _shared_state->inner_runtime_state.get()));
     }
 
@@ -565,13 +565,10 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
     if (sink_local_state) {
         auto* inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(sink_local_state);
         auto* inner_profile = inner_sink_state->profile();
-        UPDATE_COUNTER_FROM_INNER("PublishRuntimeFilterTime");
-        UPDATE_COUNTER_FROM_INNER("BuildRuntimeFilterTime");
         UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
         UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
         UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
         UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
-        UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");

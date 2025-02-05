@@ -35,6 +35,7 @@
 #include "gutil/strings/substitute.h"
 #include "io/io_common.h"
 #include "olap/delete_handler.h"
+#include "olap/filter_olap_param.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
@@ -137,10 +138,10 @@ public:
         bool start_key_include = false;
         bool end_key_include = false;
 
-        std::vector<TCondition> conditions;
-        std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
-        std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
-        std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
+        std::vector<FilterOlapParam<TCondition>> conditions;
+        std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+        std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+        std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer

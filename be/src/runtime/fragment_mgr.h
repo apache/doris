@@ -36,7 +36,7 @@
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
-#include "runtime_filter_mgr.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
 #include "util/metrics.h"
@@ -58,7 +58,6 @@ class ThreadPool;
 class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
-class PPublishFilterRequest;
 class RuntimeProfile;
 class RuntimeState;
 class TPipelineFragmentParams;
@@ -220,8 +219,6 @@ private:
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
-
-    RuntimeFilterMergeController _runtimefilter_controller;
 };
 
 uint64_t get_fragment_executing_count();
