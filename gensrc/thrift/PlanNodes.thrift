@@ -1297,7 +1297,7 @@ struct TRuntimeFilterDesc {
 
   16: optional bool sync_filter_size; // Deprecated
   
-  17: optional bool build_bf_exactly;
+  17: optional bool build_bf_by_runtime_size;
 }
 
 

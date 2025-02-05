@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -31,6 +30,7 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
+#include "runtime_filter/runtime_filter_helper.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vcast_expr.h"
@@ -73,21 +73,11 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.is_serial_operator()));
-    // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
-    init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
-                                   p.get_name() + "_FILTER_DEPENDENCY");
-
-    // 1: running at not pipeline mode will init profile.
-    // 2: the scan node should create scanner at pipeline mode will init profile.
-    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
-    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    RETURN_IF_ERROR(_helper.init(state, profile(), p.is_serial_operator()));
+    _helper.init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
+                                           p.get_name() + "_FILTER_DEPENDENCY");
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
-    // if you want to add some profile in scan node, even it have not new VScanner object
-    // could add here, not in the _init_profile() function
-    _prepare_rf_timer(_runtime_profile.get());
 
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
@@ -107,7 +97,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter());
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -1035,7 +1025,7 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 template <typename Derived>
 Status ScanLocalState<Derived>::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) {
     if (!_conjuncts.empty()) {
-        std::unique_lock l(_rf_locks);
+        std::unique_lock l(_conjunct_lock);
         conjuncts.resize(_conjuncts.size());
         for (size_t i = 0; i != _conjuncts.size(); ++i) {
             RETURN_IF_ERROR(_conjuncts[i]->clone(state(), conjuncts[i]));

@@ -18,7 +18,6 @@
 #pragma once
 
 #include "exprs/bloom_filter_func.h"
-#include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_dictionary.h"
