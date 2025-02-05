@@ -88,33 +88,6 @@ DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& d
 // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
 // the time value between '-838:59:59' and '838:59:59'
 /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
-int32_t time_to_buffer_from_double(double time, char* buffer) {
-    char* begin = buffer;
-    if (time < 0) {
-        time = -time;
-        *buffer++ = '-';
-    }
-    if (time > 3020399) {
-        time = 3020399;
-    }
-    int64_t hour = (int64_t)(time / 3600);
-    if (hour >= 100) {
-        buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
-    } else {
-        *buffer++ = (char)('0' + (hour / 10));
-        *buffer++ = (char)('0' + (hour % 10));
-    }
-    *buffer++ = ':';
-    int32_t minute = ((int32_t)(time / 60)) % 60;
-    *buffer++ = (char)('0' + (minute / 10));
-    *buffer++ = (char)('0' + (minute % 10));
-    *buffer++ = ':';
-    int32_t second = ((int32_t)time) % 60;
-    *buffer++ = (char)('0' + (second / 10));
-    *buffer++ = (char)('0' + (second % 10));
-    return buffer - begin;
-}
-
 int64_t check_over_max_time(int64_t time) {
     const static int64_t max_time = (int64_t)3020399 * 1000 * 1000;
     if (time > max_time) {
@@ -166,27 +139,6 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         it--;
     }
     return buffer - begin;
-}
-
-std::string time_to_buffer_from_double(double time) {
-    fmt::memory_buffer buffer;
-    if (time < 0) {
-        time = -time;
-        fmt::format_to(buffer, "-");
-    }
-    if (time > 3020399) {
-        time = 3020399;
-    }
-    int64_t hour = (int64_t)(time / 3600);
-    int32_t minute = ((int32_t)(time / 60)) % 60;
-    int32_t second = ((int32_t)time) % 60;
-    if (hour >= 100) {
-        fmt::format_to(buffer, fmt::format("{}", hour));
-    } else {
-        fmt::format_to(buffer, fmt::format("{:02d}", hour));
-    }
-    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second));
-    return fmt::to_string(buffer);
 }
 
 std::string timev2_to_buffer_from_double(double time, int scale) {
