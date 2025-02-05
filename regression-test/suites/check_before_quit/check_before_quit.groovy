@@ -265,6 +265,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
                         if (e2.getMessage().contains("table not found")) {
                             continue
                         } else {
+                            logger.info(e2.getMessage())
                             throw e2
                         }
                     } 
