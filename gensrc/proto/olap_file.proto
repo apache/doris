@@ -109,7 +109,8 @@ message RowsetMetaPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
-    // only used in unique key data model with primary_key_index support.
+    // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
+    // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaPB tablet_schema = 28;
@@ -118,6 +119,8 @@ message RowsetMetaPB {
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
     optional int64 compaction_level = 52 [default = 0];
+    // indicate that whether the segments key bounds is truncated
+    optional bool segments_key_bounds_truncated = 53;
 
     // For cloud
     // for data recycling
@@ -192,7 +195,8 @@ message RowsetMetaCloudPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
-    // only used in unique key data model with primary_key_index support.
+    // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
+    // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaCloudPB tablet_schema = 28;
@@ -203,6 +207,8 @@ message RowsetMetaCloudPB {
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
     optional int64 compaction_level = 52 [default = 0];
+    // indicate that whether the segments key bounds is truncated
+    optional bool segments_key_bounds_truncated = 53;
 
     // cloud
     // the field is a vector, rename it
