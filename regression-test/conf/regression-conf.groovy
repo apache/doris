@@ -278,7 +278,7 @@ cbsS3Bucket = "test-bucket"
 cbsS3Prefix = "test-cluster-prefix"
 
 // External Env
-enableExternalIcebergTest = true
+enableExternalIcebergTest = false
 // The properties string of iceberg catalog
 icebergS3TablesCatalog = ""
 
