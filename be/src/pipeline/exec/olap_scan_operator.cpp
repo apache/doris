@@ -413,7 +413,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                   state(),
                                   _scanner_profile.get(),
                                   scanner_ranges,
-                                  _tablets[i],
+                                  _tablets[scan_range_idx],
                                   version,
                                   {},
                                   p._limit,
