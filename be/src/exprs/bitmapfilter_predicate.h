@@ -19,10 +19,10 @@
 
 #include <algorithm>
 
-#include "exprs/runtime_filter.h"
 #include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 #include "util/bitmap_value.h"
 
 namespace doris {

@@ -17,8 +17,13 @@
 
 #pragma once
 
-#include "exprs/runtime_filter.h"
-#include "exprs/runtime_filter_convertor.h"
+#include "common/object_pool.h"
+#include "runtime/primitive_type.h"
+#include "runtime_filter/utils.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 
