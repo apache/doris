@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
@@ -43,6 +44,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.plugin.audit.AuditLoader;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -62,6 +65,13 @@ import java.util.Optional;
 public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
+
+    // Init statistics work load group settings. Uses could change the setting using alter workload group command.
+    public static String CPU_SHARE = "1024";
+    public static String MAX_CONCURRENCY = "2147483647";
+    public static String CPU_HARD_LIMIT = "-1";
+    public static String SCAN_THREAD_NUM = "-1";
+    public static String READ_BYTES_PER_SECOND = "100000000";
 
     public InternalSchemaInitializer() {
         super("InternalSchemaInitializer");
@@ -84,6 +94,7 @@ public class InternalSchemaInitializer extends Thread {
                         .join(Config.resource_not_ready_sleep_seconds * 1000L);
                 createDb();
                 createTbl();
+                createWorkloadGroup();
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
                 try {
@@ -254,6 +265,20 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     @VisibleForTesting
+    public static void createWorkloadGroup() throws UserException {
+        HashMap<String, String> properties = new HashMap<>();
+        properties.put(WorkloadGroup.CPU_SHARE, CPU_SHARE);
+        properties.put(WorkloadGroup.CPU_HARD_LIMIT, CPU_HARD_LIMIT);
+        properties.put(WorkloadGroup.MAX_CONCURRENCY, MAX_CONCURRENCY);
+        properties.put(WorkloadGroup.SCAN_THREAD_NUM, SCAN_THREAD_NUM);
+        properties.put(WorkloadGroup.READ_BYTES_PER_SECOND, READ_BYTES_PER_SECOND);
+        WorkloadGroupMgr wgm = Env.getCurrentEnv().getWorkloadGroupMgr();
+        CreateWorkloadGroupStmt stmt = new CreateWorkloadGroupStmt(true,
+                StatisticConstants.STATISTICS_WORKLOAD_GROUP_NAME, properties, true);
+        wgm.createWorkloadGroup(stmt);
+    }
+
+    @VisibleForTesting
     public static void createDb() {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
                 new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
@@ -329,11 +354,13 @@ public class InternalSchemaInitializer extends Thread {
                 Env.getCurrentEnv().getInternalCatalog()
                         .getDb(FeConstants.INTERNAL_DB_NAME);
         if (!optionalDatabase.isPresent()) {
+            LOG.info("Database " + FeConstants.INTERNAL_DB_NAME + "  not exists.");
             return false;
         }
         Database db = optionalDatabase.get();
         Optional<Table> optionalStatsTbl = db.getTable(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         if (!optionalStatsTbl.isPresent()) {
+            LOG.info("Table " + StatisticConstants.TABLE_STATISTIC_TBL_NAME + "  not exists.");
             return false;
         }
 
@@ -353,12 +380,24 @@ public class InternalSchemaInitializer extends Thread {
         }
         optionalStatsTbl = db.getTable(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
         if (!optionalStatsTbl.isPresent()) {
+            LOG.info("Table " + StatisticConstants.PARTITION_STATISTIC_TBL_NAME + "  not exists.");
             return false;
         }
 
         // 3. check audit table
         optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
-        return optionalStatsTbl.isPresent();
+        if (!optionalStatsTbl.isPresent()) {
+            LOG.info("Table " + AuditLoader.AUDIT_LOG_TABLE + "  not exists.");
+            return false;
+        }
+
+        // 4. check statistics work load group
+        boolean isReady = Env.getCurrentEnv().getWorkloadGroupMgr()
+                .isWorkloadGroupExists(StatisticConstants.STATISTICS_WORKLOAD_GROUP_NAME);
+        if (!isReady) {
+            LOG.info("Workload group " + StatisticConstants.STATISTICS_WORKLOAD_GROUP_NAME + "  not exists.");
+        }
+        return isReady;
     }
 
 }
