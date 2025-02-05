@@ -762,6 +762,7 @@ Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
 void CloudStorageEngine::_lease_compaction_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::lease_compaction_interval_seconds))) {
+        std::vector<std::shared_ptr<CloudFullCompaction>> full_compactions;
         std::vector<std::shared_ptr<CloudBaseCompaction>> base_compactions;
         std::vector<std::shared_ptr<CloudCumulativeCompaction>> cumu_compactions;
         {
@@ -776,8 +777,16 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
                     cumu_compactions.push_back(cumu);
                 }
             }
+            for (auto& [_, full] : _submitted_full_compactions) {
+                if (full) {
+                    full_compactions.push_back(full);
+                }
+            }
         }
         // TODO(plat1ko): Support batch lease rpc
+        for (auto& comp : full_compactions) {
+            comp->do_lease();
+        }
         for (auto& comp : cumu_compactions) {
             comp->do_lease();
         }
