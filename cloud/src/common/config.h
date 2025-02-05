@@ -252,10 +252,4 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
-
-// injection random failure in txn->commit()
-// this config is for test usage, be careful when changing it.
-CONF_mDouble(txn_commit_fault_probability, "0.0");
-CONF_Validator(txn_commit_fault_probability, [](double p) -> bool { return p >= 0.0 && p <= 1.0; });
-
 } // namespace doris::cloud::config
