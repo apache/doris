@@ -572,6 +572,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
         // return eof will make task marked as wake_up_early
         if (!_shared_hash_table_context->signaled) {
+            DCHECK(state->get_task()->wake_up_early());
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 
