@@ -197,7 +197,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
         block_old_mem = build_block.allocated_bytes();
         // If spilling was triggered, constructing runtime filters is meaningless,
         // therefore, all runtime filters are temporarily disabled.
-        RETURN_IF_ERROR(inner_sink_state->disable_runtime_filters(
+        RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(
                 _shared_state->inner_runtime_state.get()));
     }
 

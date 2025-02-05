@@ -53,7 +53,7 @@
 #include "vec/columns/columns_number.h"
 
 namespace doris {
-class IRuntimeFilter;
+class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
@@ -73,6 +73,8 @@ class ExecEnv;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
+class RuntimeFilterConsumer;
+class RuntimeFilterProducer;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -359,11 +361,6 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
-    bool runtime_filter_wait_infinitely() const {
-        return _query_options.__isset.runtime_filter_wait_infinitely &&
-               _query_options.runtime_filter_wait_infinitely;
-    }
-
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
@@ -559,11 +556,14 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
+                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
+                                            RuntimeProfile* parent_profile);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
+                                            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
+                                            RuntimeProfile* parent_profile);
+
     bool is_nereids() const;
 
     bool enable_spill() const {
