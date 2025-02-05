@@ -45,8 +45,8 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/query_context.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -490,26 +490,24 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, std::shared_ptr<IRuntimeFilter>* producer_filter) {
+        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter,
+        RuntimeProfile* parent_profile) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, query_options(),
-                                                                         producer_filter));
-    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
-            desc, query_options(), *producer_filter));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
+            desc, query_options(), producer_filter, parent_profile));
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_filter(desc, query_options(),
+                                                                              *producer_filter));
     return Status::OK();
 }
 
 Status RuntimeState::register_consumer_runtime_filter(
         const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
-        std::shared_ptr<IRuntimeFilter>* consumer_filter) {
-    if (desc.has_remote_targets || need_local_merge) {
-        return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                     consumer_filter, true);
-    } else {
-        return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                    consumer_filter, false);
-    }
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, RuntimeProfile* parent_profile) {
+    bool need_merge = desc.has_remote_targets || need_local_merge;
+    RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
+    return mgr->register_consumer_filter(desc, query_options(), node_id, consumer_filter,
+                                         need_merge, parent_profile);
 }
 
 bool RuntimeState::is_nereids() const {
