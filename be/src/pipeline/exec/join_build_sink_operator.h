@@ -40,8 +40,6 @@ protected:
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
-    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
     std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
 };
 
