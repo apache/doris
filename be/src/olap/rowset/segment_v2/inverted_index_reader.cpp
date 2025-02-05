@@ -225,7 +225,10 @@ Status InvertedIndexReader::handle_searcher_cache(
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         static_cast<void>(read_null_bitmap(io_ctx, stats, &null_bitmap_cache_handle, dir.get()));
         size_t reader_size = 0;
-        RETURN_IF_ERROR(create_index_searcher(dir.release(), &searcher, type(), reader_size));
+        auto index_searcher_builder =
+                DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(type()));
+        RETURN_IF_ERROR(create_index_searcher(index_searcher_builder.get(), dir.release(),
+                                              &searcher, reader_size));
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
                                                                        reader_size, UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
@@ -234,13 +237,9 @@ Status InvertedIndexReader::handle_searcher_cache(
     }
 }
 
-Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
-                                                  IndexSearcherPtr* searcher,
-                                                  InvertedIndexReaderType reader_type,
-                                                  size_t& reader_size) {
-    auto index_searcher_builder =
-            DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(reader_type));
-
+Status InvertedIndexReader::create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
+                                                  lucene::store::Directory* dir,
+                                                  IndexSearcherPtr* searcher, size_t& reader_size) {
     auto searcher_result = DORIS_TRY(index_searcher_builder->get_index_searcher(dir));
     *searcher = searcher_result;
 
