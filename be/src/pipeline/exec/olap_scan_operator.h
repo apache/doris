@@ -50,6 +50,7 @@ public:
                            std::to_string(_parent->node_id()),
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
+    Status hold_tablets();
 
 private:
     friend class vectorized::NewOlapScanner;
@@ -214,6 +215,7 @@ private:
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     std::mutex _profile_mtx;
+    std::vector<BaseTabletSPtr> _tablets;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -221,6 +223,7 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
+    Status hold_tablets(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;

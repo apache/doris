@@ -378,17 +378,20 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    for (auto& scan_range : _scan_ranges) {
-        auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
+    RETURN_IF_ERROR(hold_tablets());
+    for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
         int64_t version = 0;
-        std::from_chars(scan_range->version.data(),
-                        scan_range->version.data() + scan_range->version.size(), version);
+        std::from_chars(_scan_ranges[scan_range_idx]->version.data(),
+                        _scan_ranges[scan_range_idx]->version.data() +
+                                _scan_ranges[scan_range_idx]->version.size(),
+                        version);
         std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
         int size_based_scanners_per_tablet = 1;
 
         if (config::doris_scan_range_max_mb > 0) {
-            size_based_scanners_per_tablet = std::max(
-                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
+            size_based_scanners_per_tablet =
+                    std::max(1, (int)(_tablets[scan_range_idx]->tablet_footprint() /
+                                      (config::doris_scan_range_max_mb << 20)));
         }
         int ranges_per_scanner =
                 std::max(1, (int)ranges->size() /
@@ -410,7 +413,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                   state(),
                                   _scanner_profile.get(),
                                   scanner_ranges,
-                                  tablet,
+                                  _tablets[i],
                                   version,
                                   {},
                                   p._limit,
@@ -421,6 +424,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
     }
 
+    return Status::OK();
+}
+
+Status OlapScanLocalState::hold_tablets() {
+    if (!_tablets.empty()) {
+        return Status::OK();
+    }
+    _tablets.resize(_scan_ranges.size());
+    for (size_t i = 0; i < _scan_ranges.size(); i++) {
+        _tablets[i] = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
+    }
     return Status::OK();
 }
 
@@ -631,6 +645,11 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
+}
+
+Status OlapScanOperatorX::hold_tablets(RuntimeState* state) {
+    auto& local_state = ScanOperatorX<OlapScanLocalState>::get_local_state(state);
+    return local_state.hold_tablets();
 }
 
 #include "common/compile_check_end.h"
