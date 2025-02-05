@@ -17,31 +17,38 @@
 
 #pragma once
 
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "exprs/runtime_filter.h"
+#include "exprs/runtime_filter_slots.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 // this class used in cross join node
-class VRuntimeFilterSlotsCross {
+class RuntimeFilterSlotsCross : public RuntimeFilterSlots {
 public:
-    VRuntimeFilterSlotsCross(const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters,
-                             vectorized::VExprContextSPtrs src_expr_ctxs)
-            : _runtime_filters(runtime_filters), filter_src_expr_ctxs(std::move(src_expr_ctxs)) {}
+    RuntimeFilterSlotsCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+                            RuntimeProfile* profile,
+                            const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters,
+                            bool should_build_hash_table)
+            : RuntimeFilterSlots(build_expr_ctxs, profile, runtime_filters,
+                                 should_build_hash_table) {}
 
-    ~VRuntimeFilterSlotsCross() = default;
+    Status process(RuntimeState* state, vectorized::Blocks& blocks) {
+        RETURN_IF_ERROR(_init(state));
+        for (auto& block : blocks) {
+            RETURN_IF_ERROR(_process_block(&block));
+        }
+        return _publish(state);
+    }
 
-    Status init(RuntimeState* state) {
+private:
+    Status _init(RuntimeState* state) {
         for (auto runtime_filter : _runtime_filters) {
             if (runtime_filter == nullptr) {
                 return Status::InternalError("runtime filter is nullptr");
@@ -55,10 +62,10 @@ public:
         return Status::OK();
     }
 
-    Status insert(vectorized::Block* block) {
+    Status _process_block(vectorized::Block* block) {
         for (int i = 0; i < _runtime_filters.size(); ++i) {
             auto filter = _runtime_filters[i];
-            const auto& vexpr_ctx = filter_src_expr_ctxs[i];
+            const auto& vexpr_ctx = _build_expr_context[i];
 
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
@@ -66,24 +73,10 @@ public:
             block->get_by_position(result_column_id).column =
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
-
-            filter->insert_batch(block->get_by_position(result_column_id).column, 0);
         }
+        _insert(block, 0);
         return Status::OK();
     }
-
-    Status publish(RuntimeState* state) {
-        for (auto filter : _runtime_filters) {
-            RETURN_IF_ERROR(filter->publish(state));
-        }
-        return Status::OK();
-    }
-
-    bool empty() const { return _runtime_filters.empty(); }
-
-private:
-    const std::vector<std::shared_ptr<IRuntimeFilter>>& _runtime_filters;
-    const vectorized::VExprContextSPtrs filter_src_expr_ctxs;
 };
 
 } // namespace doris

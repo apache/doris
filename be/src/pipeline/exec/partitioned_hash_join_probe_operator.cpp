@@ -70,10 +70,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     // Build phase
     _build_phase_label = ADD_LABEL_COUNTER(profile(), "BuildPhase");
     _build_rows_counter = ADD_CHILD_COUNTER(profile(), "BuildRows", TUnit::UNIT, "BuildPhase");
-    _publish_runtime_filter_timer =
-            ADD_CHILD_TIMER(profile(), "PublishRuntimeFilterTime", "BuildPhase");
-    _runtime_filter_compute_timer =
-            ADD_CHILD_TIMER(profile(), "RuntimeFilterComputeTime", "BuildPhase");
     _build_table_timer = ADD_CHILD_TIMER(profile(), "BuildTableTime", "BuildPhase");
     _build_side_merge_block_timer =
             ADD_CHILD_TIMER(profile(), "BuildSideMergeBlockTime", "BuildPhase");
@@ -114,8 +110,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
 
 void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* child_profile) {
     UPDATE_PROFILE(_build_rows_counter, "BuildRows");
-    UPDATE_PROFILE(_publish_runtime_filter_timer, "PublishRuntimeFilterTime");
-    UPDATE_PROFILE(_runtime_filter_compute_timer, "RuntimeFilterComputeTime");
     UPDATE_PROFILE(_build_table_timer, "BuildTableTime");
     UPDATE_PROFILE(_build_side_merge_block_timer, "BuildSideMergeBlockTime");
     UPDATE_PROFILE(_build_table_insert_timer, "BuildTableInsertTime");
