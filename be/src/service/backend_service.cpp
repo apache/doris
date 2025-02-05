@@ -75,6 +75,7 @@
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include "vec/functions/dictionary_factory.h"
 
 namespace apache {
 namespace thrift {
@@ -1261,6 +1262,12 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);
+}
+
+void BaseBackendService::get_all_dictionary_status(TAllDictionaryStatus& result) {
+    std::vector<TDictionaryStatus> dictionary_status;
+    ExecEnv::GetInstance()->dict_factory()->get_all_dictionary_status(dictionary_status);
+    result.__set_dictionary_status_list(dictionary_status);
 }
 
 } // namespace doris

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/BackendService_types.h>
 #include <fstream>
 #include <mutex>
 
@@ -85,6 +86,8 @@ public:
     }
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
+
+    void get_all_dictionary_status(std::vector<TDictionaryStatus>& dictionary_status);
 
 private:
     std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map;

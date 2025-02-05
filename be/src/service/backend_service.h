@@ -137,6 +137,8 @@ public:
     void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
                                   const TGetRealtimeExecStatusRequest& request) override;
 
+    void get_all_dictionary_status(TAllDictionaryStatus& result) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////

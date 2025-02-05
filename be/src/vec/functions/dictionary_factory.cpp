@@ -34,4 +34,17 @@ DictionaryFactory::~DictionaryFactory() {
     _dict_id_to_dict_map.clear();
     _dict_id_to_version_id_map.clear();
 }
+
+void DictionaryFactory::get_all_dictionary_status(
+        std::vector<TDictionaryStatus>& dictionary_status) {
+    std::shared_lock lc(_mutex);
+    for (auto& [dict_id, dict] : _dict_id_to_dict_map) {
+        TDictionaryStatus status;
+        status.__set_dictionary_id(dict_id);
+        status.__set_dictionary_id(_dict_id_to_version_id_map[dict_id]);
+        status.__set_dictionary_memory_size(dict->allocated_bytes());
+        dictionary_status.push_back(std::move(status));
+    }
+}
+
 } // namespace doris::vectorized
