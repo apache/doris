@@ -103,7 +103,7 @@ constexpr char S3_TOKEN[] = "AWS_TOKEN";
 constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONN_SIZE";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
-constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "S3_NEED_OVERRIDE_ENDPOINT";
+constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
 auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
     return [&](int64_t ns) {
