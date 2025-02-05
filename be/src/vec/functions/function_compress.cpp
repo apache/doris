@@ -53,9 +53,6 @@ class FunctionContext;
 namespace doris::vectorized {
 
 class FunctionCompress : public IFunction {
-    static constexpr std::array<char, 16> HEX_ITOC = {'0', '1', '2', '3', '4', '5', '6', '7',
-                                                      '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-
 public:
     static constexpr auto name = "compress";
     static FunctionPtr create() { return std::make_shared<FunctionCompress>(); }
@@ -95,7 +92,7 @@ public:
         col_data.reserve(total / 1000);
 
         for (size_t row = 0; row < input_rows_count; row++) {
-            size_t length = arg_offset[row] - arg_offset[row - 1];
+            uint32_t length = arg_offset[row] - arg_offset[row - 1];
             data = Slice(arg_begin + arg_offset[row - 1], length);
 
             size_t idx = col_data.size();
@@ -106,16 +103,10 @@ public:
 
             // Z_MEM_ERROR and Z_BUF_ERROR are already handled in compress, making sure st is always Z_OK
             auto st = compression_codec->compress(data, &compressed_str);
-            col_data.resize(col_data.size() + 10 + compressed_str.size());
+            col_data.resize(col_data.size() + 4 + compressed_str.size());
 
-            // first ten digits represent the length of the uncompressed string
-            col_data[idx] = '0', col_data[idx + 1] = 'x';
-            for (size_t i = 0; i < 4; i++) {
-                unsigned char byte = (length >> (i * 8)) & 0xFF;
-                col_data[idx + 2 + i * 2] = HEX_ITOC[byte >> 4]; // higher four
-                col_data[idx + 3 + i * 2] = HEX_ITOC[byte & 0x0F];
-            }
-            idx += 10;
+            std::memcpy(col_data.data() + idx, &length, sizeof(length));
+            idx += 4;
 
             // The length of compress_str is not known in advance, so it cannot be compressed directly into col_data
             unsigned char* src = compressed_str.data();
@@ -182,48 +173,26 @@ public:
                 continue;
             }
 
-            bool illegal = false;
-            // The first ten digits are "0x" and length, followed by hexadecimal, each two digits is a byte
-            if (data_length < 10) {
-                illegal = true;
-            } else {
-                if (data[0] != '0' || data[1] != 'x') {
-                    illegal = true;
-                }
-                for (size_t i = 2; i <= 9; i++) {
-                    if (!std::isxdigit(data[i])) {
-                        illegal = true;
-                    }
-                }
-            }
-
-            if (illegal) { // The top ten don't fit the rules
-                col_offset[row] = col_offset[row - 1];
-                null_map[row] = true;
-                continue;
-            }
-
-            unsigned int length = 0;
-            for (size_t i = 2; i <= 9; i += 2) {
-                unsigned char byte = 0;
-                std::from_chars(data.data + i, data.data + i + 2, byte, 16);
-                length += (byte << (8 * (i / 2 - 1))); //Little Endian : 0x01000000 -> 1
-            }
+            union {
+                char bytes[4];
+                uint32_t value;
+            } length;
+            std::memcpy(length.bytes, data.data, 4);
 
             size_t idx = col_data.size();
-            col_data.resize(col_data.size() + length);
-            uncompressed_slice = Slice(col_data.data() + idx, length);
+            col_data.resize(col_data.size() + length.value);
+            uncompressed_slice = Slice(col_data.data() + idx, length.value);
 
-            Slice compressed_data(data.data + 10, data.size - 10);
+            Slice compressed_data(data.data + 4, data.size - 4);
             auto st = compression_codec->decompress(compressed_data, &uncompressed_slice);
 
-            if (!st.ok()) {                                // is not a legal compressed string
-                col_data.resize(col_data.size() - length); // remove compressed_data
+            if (!st.ok()) {                                      // is not a legal compressed string
+                col_data.resize(col_data.size() - length.value); // remove compressed_data
                 col_offset[row] = col_offset[row - 1];
                 null_map[row] = true;
                 continue;
             }
-            col_offset[row] = col_offset[row - 1] + length;
+            col_offset[row] = col_offset[row - 1] + length.value;
         }
 
         block.replace_by_position(
