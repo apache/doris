@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.properties.FuncDeps.FuncDepsItem;
@@ -62,6 +64,10 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             Alias alias = (Alias) expr;
             WindowExpression windowExpression = (WindowExpression) alias.child();
             List<OrderExpression> orderExpressions = windowExpression.getOrderKeys();
+            if (orderExpressions.stream().anyMatch((
+                    orderKey -> orderKey.getDataType().isOnlyMetricType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
             List<OrderKey> orderKeys = new ArrayList<>();
             for (OrderExpression orderExpression : orderExpressions) {
                 orderKeys.add(orderExpression.getOrderKey());
