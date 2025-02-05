@@ -24,8 +24,11 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIPv6Literal;
 
+import com.google.common.base.Suppliers;
 import com.google.gson.annotations.SerializedName;
+import com.googlecode.ipv6.IPv6Address;
 
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 public class IPv6Literal extends LiteralExpr {
@@ -39,6 +42,8 @@ public class IPv6Literal extends LiteralExpr {
 
     @SerializedName("v")
     private String value;
+
+    private Supplier<IPv6Address> ipv6Value = Suppliers.memoize(() -> IPv6Address.fromString(value));
 
     /**
      * C'tor forcing type, e.g., due to implicit cast
@@ -95,8 +100,18 @@ public class IPv6Literal extends LiteralExpr {
     }
 
     @Override
-    public int compareLiteral(LiteralExpr expr) {
-        return 0;
+    public int compareLiteral(LiteralExpr other) {
+        if (other instanceof IPv6Literal) {
+            return ipv6Value.get().compareTo(((IPv6Literal) other).ipv6Value.get());
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + getClass() + ") vs " + other + " (" + other.getClass() + ")");
     }
 
     @Override
