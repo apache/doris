@@ -212,7 +212,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     void testWindowMultiDesc() {
         PlanChecker.from(connectContext)
                 .analyze("select sum(a) over (partition by a order by a desc,a+1 asc,abs(a) desc,1-a,b),"
-                        + "max(a) over (partition by a order by b desc,b+1 desc,b asc,abs(b) desc)\n"
+                        + "max(a) over (partition by a order by b desc,b+1 desc,b asc,abs(b) desc) "
                         + "from eliminate_order_by_constant_t")
                 .rewrite()
                 .printlnTree()
@@ -221,5 +221,24 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                                 .getOrderKeys().size() == 2
                                 && ((WindowExpression) window.getWindowExpressions().get(1).child(0))
                                 .getOrderKeys().size() == 1));
+    }
+
+    @Test
+    void testEqualSet() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t where a=id order by a,id")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t where a=id order by id,a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select * from eliminate_order_by_constant_t where a=id and a=b order by id,a,b")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
     }
 }
