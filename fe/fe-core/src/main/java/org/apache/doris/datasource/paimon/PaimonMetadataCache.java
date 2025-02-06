@@ -33,7 +33,6 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.PartitionsTable;
-import org.apache.paimon.table.system.SnapshotsTable;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -94,18 +93,14 @@ public class PaimonMetadataCache {
     }
 
     private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
-        Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(),
-                key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + SnapshotsTable.SNAPSHOTS);
+        Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(), key.getTableName());
         // snapshotId and schemaId
-        List<InternalRow> rows = PaimonUtil.read(table, new int[] {0, 1}, null);
         long latestSnapshotId = 0L;
         long latestSchemaId = 0L;
-        for (InternalRow row : rows) {
-            long snapshotId = row.getLong(0);
-            if (snapshotId > latestSnapshotId) {
-                latestSnapshotId = snapshotId;
-                latestSchemaId = row.getLong(1);
-            }
+        OptionalLong optionalSnapshotId = table.latestSnapshotId();
+        if (optionalSnapshotId.isPresent()) {
+            latestSnapshotId = optionalSnapshotId.getAsLong();
+            latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
         }
         return new PaimonSnapshot(latestSnapshotId, latestSchemaId);
     }

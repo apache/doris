@@ -69,7 +69,9 @@ public class PaimonUtil {
         for (Pair<ConfigOption<?>, String> pair : dynamicOptions) {
             options.put(pair.getKey().key(), pair.getValue());
         }
-        table = table.copy(options);
+        if (!options.isEmpty()) {
+            table = table.copy(options);
+        }
         ReadBuilder readBuilder = table.newReadBuilder();
         if (projection != null) {
             readBuilder.withProjection(projection);
