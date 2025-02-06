@@ -193,7 +193,20 @@ public:
     bool try_reserve(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
 
-    // async evict when water mark is reached, unlike try_reserve, removal is done in background
+    /**
+     * Proactively evict cache blocks to free up space before cache is full.
+     * 
+     * This function attempts to evict blocks from both NORMAL and TTL queues to maintain 
+     * cache size below high watermark. Unlike try_reserve() which blocks until space is freed,
+     * this function initiates asynchronous eviction in background.
+     * 
+     * @param size Number of bytes to try to evict
+     * @param cache_lock Lock that must be held while accessing cache data structures
+     * 
+     * @pre Caller must hold cache_lock
+     * @pre _need_evict_cache_in_advance must be true
+     * @pre _recycle_keys queue must have capacity for evicted blocks
+     */
     void try_evict_in_advance(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
@@ -557,6 +570,7 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _storage_retry_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency;
+    std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
 };
 
 } // namespace doris::io

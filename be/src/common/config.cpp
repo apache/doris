@@ -1053,8 +1053,8 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
-DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "88");
-DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "80");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
 DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
 

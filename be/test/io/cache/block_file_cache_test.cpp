@@ -6866,4 +6866,121 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
     }
 }
 
+TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
+    std::string cache_base_path = "./ut_file_cache_dir";
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.capacity = 100_mb;
+    settings.storage = "disk";
+    settings.query_queue_size = 50_mb;
+    settings.index_queue_size = 20_mb;
+    settings.disposable_queue_size = 20_mb;
+    settings.ttl_queue_size = 10_mb;
+
+    // this one for memory storage
+    {
+        settings.storage = "memory";
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+    }
+
+    // the rest for disk
+    settings.storage = "disk";
+
+    // bad disk path
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+
+        cache._cache_base_path = "/non/existent/path/OOXXOO";
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+    }
+
+    // conditions for enter need evict cache in advance
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+
+        // condition1 space usage rate exceed threshold
+        config::file_cache_enter_need_evict_cache_in_advance_percent = 70;
+        config::file_cache_exit_need_evict_cache_in_advance_percent = 65;
+
+        SyncPoint::get_instance()->set_call_back(
+                "BlockFileCache::disk_used_percentage:1", [](std::vector<std::any>&& values) {
+                    auto* percent = try_any_cast<std::pair<int, int>*>(values.back());
+                    percent->first = 75; // set high
+                    percent->second = 60;
+                });
+
+        SyncPoint::get_instance()->enable_processing();
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+
+        // condition2 inode usage rate exceed threshold
+        cache._need_evict_cache_in_advance = false;
+
+        SyncPoint::get_instance()->set_call_back(
+                "BlockFileCache::disk_used_percentage:1", [](std::vector<std::any>&& values) {
+                    auto* percent = try_any_cast<std::pair<int, int>*>(values.back());
+                    percent->first = 60;
+                    percent->second = 75; // set high
+                });
+
+        SyncPoint::get_instance()->enable_processing();
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+
+        // condition3 cache size usage rate exceed threshold
+        cache._need_evict_cache_in_advance = false;
+        cache._cur_cache_size = 80_mb; // set high
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+    }
+
+    // conditions for exit need evict cache in advance
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        cache._need_evict_cache_in_advance = true;
+        cache._cur_cache_size = 50_mb; // set low
+
+        SyncPoint::get_instance()->set_call_back(
+                "BlockFileCache::disk_used_percentage:1", [](std::vector<std::any>&& values) {
+                    auto* percent = try_any_cast<std::pair<int, int>*>(values.back());
+                    percent->first = 50;  // set low
+                    percent->second = 50; // set low
+                });
+
+        SyncPoint::get_instance()->enable_processing();
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+    }
+
+    // config parameter validation
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+
+        // set wrong config value
+        config::file_cache_enter_need_evict_cache_in_advance_percent = 70;
+        config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
+
+        cache.check_need_evict_cache_in_advance();
+
+        // reset to default value
+        ASSERT_EQ(config::file_cache_enter_need_evict_cache_in_advance_percent, 78);
+        ASSERT_EQ(config::file_cache_exit_need_evict_cache_in_advance_percent, 75);
+    }
+
+    fs::remove_all(cache_base_path);
+}
+
 } // namespace doris::io

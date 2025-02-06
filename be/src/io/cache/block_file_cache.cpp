@@ -217,6 +217,9 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _evict_in_advance_latency = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_evict_in_advance_latency_ns");
 
+    _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_recycle_keys_length");
+
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
     _index_queue = LRUQueue(cache_settings.index_queue_size, cache_settings.index_queue_elements,
@@ -1363,7 +1366,9 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             // so there will be a window that the file is not in the cache but still in the storage
             // but it's ok, because the rowset is stale already
             bool ret = _recycle_keys.enqueue(key);
-            if (!ret) {
+            if (ret) [[likely]] {
+                *_recycle_keys_length_recorder << _recycle_keys.size_approx();
+            } else {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
                 int64_t duration_ns = 0;
                 Status st;
@@ -1569,6 +1574,10 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
     int inode_percentage = int(inode_free * 1.0 / inode_total * 100);
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
+
+    // Add sync point for testing
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::disk_used_percentage:1", percent);
+
     return 0;
 }
 
@@ -1829,11 +1838,8 @@ void BlockFileCache::run_background_gc() {
                 break;
             }
         }
-        while (_recycle_keys.try_dequeue(key)) {
-            if (batch_count >= batch_limit) {
-                break;
-            }
 
+        while (batch_count < batch_limit && _recycle_keys.try_dequeue(key)) {
             int64_t duration_ns = 0;
             Status st;
             {
@@ -1847,11 +1853,13 @@ void BlockFileCache::run_background_gc() {
             }
             batch_count++;
         }
+        *_recycle_keys_length_recorder << _recycle_keys.size_approx();
         batch_count = 0;
     }
 }
 
 void BlockFileCache::run_background_evict_in_advance() {
+    LOG(INFO) << "Starting background evict in advance thread";
     int64_t batch = 0;
     while (!_close) {
         {
@@ -1860,13 +1868,17 @@ void BlockFileCache::run_background_evict_in_advance() {
                     close_lock,
                     std::chrono::milliseconds(config::file_cache_evict_in_advance_interval_ms));
             if (_close) {
+                LOG(INFO) << "Background evict in advance thread exiting due to cache closing";
                 break;
             }
         }
         batch = config::file_cache_evict_in_advance_batch_bytes;
+
+        // Skip if eviction not needed or too many pending recycles
         if (!_need_evict_cache_in_advance || _recycle_keys.size_approx() >= (batch * 10)) {
             continue;
         }
+
         int64_t duration_ns = 0;
         {
             SCOPED_CACHE_LOCK(_mutex);
