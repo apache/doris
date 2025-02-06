@@ -277,3 +277,11 @@ cbsS3Endpoint = "oss-cn-beijing.aliyuncs.com"
 cbsS3Bucket = "test-bucket"
 cbsS3Prefix = "test-cluster-prefix"
 
+// External Env
+enableExternalIcebergTest = false
+// The properties string of iceberg catalog
+icebergS3TablesCatalog = ""
+
+enableExternalHudiTest = false
+// The properties string of hudi catalog
+hudiEmrCatalog = ""
