@@ -57,7 +57,6 @@ class ThreadPool;
 class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
-class PPublishFilterRequest;
 class RuntimeProfile;
 class RuntimeState;
 class TPipelineFragmentParams;

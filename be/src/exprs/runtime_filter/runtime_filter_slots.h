@@ -18,7 +18,7 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/runtime_filter.h"
+#include "exprs/runtime_filter/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h" // IWYU pragma: keep
@@ -31,7 +31,7 @@ class RuntimeFilterSlots {
 public:
     RuntimeFilterSlots(const vectorized::VExprContextSPtrs& build_expr_ctxs,
                        RuntimeProfile* profile,
-                       const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters,
+                       const std::vector<std::shared_ptr<RuntimeFilter>>& runtime_filters,
                        bool should_build_hash_table)
             : _build_expr_context(build_expr_ctxs),
               _runtime_filters(runtime_filters),
@@ -96,7 +96,7 @@ protected:
     }
 
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
-    std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
+    std::vector<std::shared_ptr<RuntimeFilter>> _runtime_filters;
     bool _should_build_hash_table;
 
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
