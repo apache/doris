@@ -176,6 +176,9 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from ${test_all_types}; """
         order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by id; """
 
+        // test number(0,0)
+        qt_sql_number00 """ desc function query('catalog' = '${catalog_name}','query' = 'SELECT DORIS_TEST.number_test() FROM dual'); """
+
         sql """drop catalog if exists ${catalog_name} """
 
         // test only_specified_database argument
