@@ -17,27 +17,17 @@
 
 #pragma once
 
-#include <iterator>
 #include <map>
 #include <memory>
 #include <ostream>
-#include <random>
-#include <sstream>
 #include <string>
 #include <type_traits>
-#include <vector>
 
 #include "function_test_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_ipv4.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/dictionary.h"
-#include "vec/functions/hash_map_dictionary.h"
-#include "vec/functions/ip_address_dictionary.h"
+#include "vec/functions/complex_hash_map_dictionary.h"
 namespace doris::vectorized {
 
 template <typename DataType, bool use_string64>
@@ -45,22 +35,9 @@ auto random_column(size_t size) {
     if constexpr (std::is_same_v<DataType, DataTypeString>) {
         auto column = std::conditional_t<use_string64, ColumnString64,
                                          typename DataType::ColumnType>::create();
-        std::vector<std::string> strings = {"a",
-                                            "b",
-                                            "c",
-                                            "d",
-                                            "e",
-                                            "f",
-                                            "g",
-                                            "h",
-                                            "i",
-                                            "j",
-                                            "213132",
-                                            "879asd798a",
-                                            "120937193272891238917389127389"};
         for (size_t i = 0; i < size; ++i) {
-            auto string = strings[i % strings.size()];
-            string[0] = 'a' + i % 26;
+            std::string string = "0";
+            string[0] = i;
             column->insert_value(string);
         }
         return column;
@@ -69,11 +46,8 @@ auto random_column(size_t size) {
         auto column = ColumnVector<FieldType>::create();
         auto& data = column->get_data();
         data.resize(size);
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<UInt8> dis;
         for (size_t i = 0; i < size; ++i) {
-            data[i] = dis(gen);
+            data[i] = i;
         }
         return column;
     }
@@ -111,8 +85,8 @@ void test_hash_map_dict() {
     std::cout << "key col : " + debug_string(input_key) + "\t" + "val col : "
               << debug_string(attribute_column) << std::endl;
 
-    auto dict =
-            HashMapDictionary<KeyDataType>::create_hash_map_dict("test", input_key, attribute_data);
+    auto dict = ComplexHashMapDictionary::create_complex_hash_map_dict(
+            "test", {input_key}, {std::make_shared<KeyDataType>()}, attribute_data);
 
     {
         auto query_key = random_column<KeyDataType, false>(size);
@@ -120,8 +94,8 @@ void test_hash_map_dict() {
         auto result = dict->get_column("attribute", std::make_shared<AttributeDataType>(),
                                        query_key->clone(), std::make_shared<KeyDataType>());
 
-        const auto* real_result_column =
-                assert_cast<const typename AttributeDataType::ColumnType*>(result.get());
+        const auto* real_result_column = assert_cast<const typename AttributeDataType::ColumnType*>(
+                remove_nullable(result).get());
 
         std::cout << "real_result_column size : " << real_result_column->size() << std::endl;
         for (size_t i = 0; i < size; i++) {
@@ -135,8 +109,8 @@ void test_hash_map_dict() {
         auto result = dict->get_column("attribute", std::make_shared<AttributeDataType>(),
                                        query_key->clone(), std::make_shared<KeyDataType>());
 
-        const auto* real_result_column =
-                assert_cast<const typename AttributeDataType::ColumnType*>(result.get());
+        const auto* real_result_column = assert_cast<const typename AttributeDataType::ColumnType*>(
+                remove_nullable(result).get());
 
         for (size_t i = 0; i < size; i++) {
             auto key = query_key->get_element(i);

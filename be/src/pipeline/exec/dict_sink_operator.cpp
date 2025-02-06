@@ -21,7 +21,6 @@
 #include "vec/core/block.h"
 #include "vec/functions/complex_hash_map_dictionary.h"
 #include "vec/functions/dictionary_factory.h"
-#include "vec/functions/hash_map_dictionary.h"
 #include "vec/functions/ip_address_dictionary.h"
 
 namespace doris::pipeline {
@@ -80,11 +79,7 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         break;
     }
     case TDictLayoutType::type::HASH_MAP: {
-        if (key_data.size() == 1) {
-            dict = create_hash_map_dict_from_column(dict_name, key_data[0], attribute_data);
-        } else {
-            dict = create_complex_hash_map_dict_from_column(dict_name, key_data, attribute_data);
-        }
+        dict = create_complex_hash_map_dict_from_column(dict_name, key_data, attribute_data);
         break;
     }
     default:

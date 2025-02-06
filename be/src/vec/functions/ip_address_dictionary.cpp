@@ -64,50 +64,59 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                 key_type->get_name());
     }
 
+    const auto rows = key_column->size();
     MutableColumnPtr res_column = attribute_type->create_column();
+    ColumnUInt8::MutablePtr res_null = ColumnUInt8::create(rows, false);
+    auto& res_null_map = res_null->get_data();
     const auto& value_data = _values_data[attribute_index(attribute_name)];
 
     if (WhichDataType {key_type}.is_ipv6()) {
         const auto* ipv6_column = assert_cast<const ColumnIPv6*>(key_column.get());
         std::visit(
-                [&](auto&& arg) {
+                [&](auto&& arg, auto value_is_nullable) {
                     using ValueDataType = std::decay_t<decltype(arg)>;
                     using OutputColumnType = ValueDataType::OutputColumnType;
                     auto* res_real_column = assert_cast<OutputColumnType*>(res_column.get());
                     const auto* value_column = arg.get();
-                    for (size_t i = 0; i < ipv6_column->size(); i++) {
+                    const auto* value_null_map = arg.get_null_map();
+                    for (size_t i = 0; i < rows; i++) {
                         auto it = look_up_IP(ipv6_column->get_element(i));
                         if (it == ip_not_found()) {
                             res_real_column->insert_default();
+                            res_null_map[i] = true;
                         } else {
                             const auto idx = *it;
-                            set_value_data(res_real_column, value_column, idx);
+                            set_value_data<value_is_nullable>(res_real_column, res_null_map,
+                                                              value_column, value_null_map, i, idx);
                         }
                     }
                 },
-                value_data);
+                value_data, attribute_nullable_variant(attribute_index(attribute_name)));
     } else {
         const auto* ipv4_column = assert_cast<const ColumnIPv4*>(key_column.get());
         std::visit(
-                [&](auto&& arg) {
+                [&](auto&& arg, auto value_is_nullable) {
                     using ValueDataType = std::decay_t<decltype(arg)>;
                     using OutputColumnType = ValueDataType::OutputColumnType;
                     auto* res_real_column = assert_cast<OutputColumnType*>(res_column.get());
                     const auto* value_column = arg.get();
-                    for (size_t i = 0; i < ipv4_column->size(); i++) {
+                    const auto* value_null_map = arg.get_null_map();
+                    for (size_t i = 0; i < rows; i++) {
                         auto it = look_up_IP(ipv4_to_ipv6(ipv4_column->get_element(i)));
                         if (it == ip_not_found()) {
                             res_real_column->insert_default();
+                            res_null_map[i] = true;
                         } else {
                             const auto idx = *it;
-                            set_value_data(res_real_column, value_column, idx);
+                            set_value_data<value_is_nullable>(res_real_column, res_null_map,
+                                                              value_column, value_null_map, i, idx);
                         }
                     }
                 },
-                value_data);
+                value_data, attribute_nullable_variant(attribute_index(attribute_name)));
     }
 
-    return res_column;
+    return ColumnNullable::create(std::move(res_column), std::move(res_null));
 }
 
 IPv6 IPAddressDictionary::format_ipv6_cidr(const uint8_t* addr, uint8_t prefix) {

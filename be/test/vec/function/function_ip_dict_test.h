@@ -238,7 +238,7 @@ void test_for_ip_type(std::vector<std::string> ips, std::vector<std::string> ip_
         auto result = ip_dict->get_column(attribute_name, attribute_type, key_column, key_type);
 
         const auto* real_mock_result = assert_cast<const ColumnInt64*>(mock_result.get());
-        const auto* real_result = assert_cast<const ColumnInt64*>(result.get());
+        const auto* real_result = assert_cast<const ColumnInt64*>(remove_nullable(result).get());
         for (int i = 0; i < ip_string.size(); i++) {
             if constexpr (output) {
                 std::cout << ip_string[i] << "\t" << ips[real_mock_result->get_element(i)] << "\t"

@@ -24,7 +24,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/complex_hash_map_dictionary.h"
 #include "vec/functions/dictionary.h"
-#include "vec/functions/hash_map_dictionary.h"
 
 namespace doris::vectorized {
 
@@ -89,7 +88,7 @@ void test_complex_hash_map_dict(ColumnsWithTypeAndName key_data, ColumnsWithType
 
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < attribute_types.size(); j++) {
-            std::cout << attribute_types[j]->to_string(*result[j], i) << "\t";
+            std::cout << attribute_types[j]->to_string(*remove_nullable(result[j]), i) << "\t";
         }
         std::cout << std::endl;
     }

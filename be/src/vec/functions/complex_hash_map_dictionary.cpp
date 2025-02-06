@@ -19,6 +19,7 @@
 
 #include <type_traits>
 
+#include "vec/columns/columns_number.h"
 #include "vec/functions/dictionary.h"
 
 namespace doris::vectorized {
@@ -114,7 +115,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
         const ColumnPtrs& key_columns, const DataTypes& key_types) const {
     const size_t rows = key_columns[0]->size();
     IColumn::Selector selector = IColumn::Selector(rows);
-    NullMap null_map = NullMap(rows, false);
+    NullMap key_not_found = NullMap(rows, false);
 
     DictionaryHashMapMethod find_hash_map;
     // In init_find_hash_map, hashtable will be shared, similar to shared_hashtable in join
@@ -139,7 +140,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
                                if (find_result.is_found()) {
                                    selector[i] = find_result.get_mapped();
                                } else {
-                                   null_map[i] = true;
+                                   key_not_found[i] = true;
                                }
                            }
                        }},
@@ -147,35 +148,41 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
 
     ColumnPtrs columns;
     for (size_t i = 0; i < attribute_names.size(); ++i) {
-        columns.push_back(get_single_value_column(selector, null_map, attribute_names[i],
+        columns.push_back(get_single_value_column(selector, key_not_found, attribute_names[i],
                                                   attribute_types[i]));
     }
     return columns;
 }
 
 ColumnPtr ComplexHashMapDictionary::get_single_value_column(
-        const IColumn::Selector& selector, const NullMap& null_map,
+        const IColumn::Selector& selector, const NullMap& key_not_found,
         const std::string& attribute_name, const DataTypePtr& attribute_type) const {
+    const auto rows = selector.size();
     MutableColumnPtr res_column = attribute_type->create_column();
+    ColumnUInt8::MutablePtr res_null = ColumnUInt8::create(rows, false);
+    auto& res_null_map = res_null->get_data();
     const auto& value_data = _values_data[attribute_index(attribute_name)];
     std::visit(
-            [&](auto&& arg) {
+            [&](auto&& arg, auto value_is_nullable) {
                 using ValueDataType = std::decay_t<decltype(arg)>;
                 using OutputColumnType = ValueDataType::OutputColumnType;
                 auto* res_real_column = assert_cast<OutputColumnType*>(res_column.get());
                 const auto* value_column = arg.get();
-                for (size_t i = 0; i < selector.size(); i++) {
-                    if (null_map[i]) {
+                const auto* value_null_map = arg.get_null_map();
+                for (size_t i = 0; i < rows; i++) {
+                    if (key_not_found[i]) {
                         res_real_column->insert_default();
+                        res_null_map[i] = true;
                     } else {
                         const auto idx = selector[i];
-                        set_value_data(res_real_column, value_column, idx);
+                        set_value_data<value_is_nullable>(res_real_column, res_null_map,
+                                                          value_column, value_null_map, i, idx);
                     }
                 }
             },
-            value_data);
+            value_data, attribute_nullable_variant(attribute_index(attribute_name)));
 
-    return res_column;
+    return ColumnNullable::create(std::move(res_column), std::move(res_null));
 }
 
 } // namespace doris::vectorized

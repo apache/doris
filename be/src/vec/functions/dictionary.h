@@ -53,7 +53,7 @@ namespace doris::vectorized {
  */
 struct DictionaryAttribute {
     const std::string name; // value name
-    const DataTypePtr type; // should be a non-nullable type
+    const DataTypePtr type; // value type (if load value is nullable , will be a nullable type)
 };
 
 // Abstract base class IDictionary that only stores values. Keys are maintained by specific derived classes
@@ -104,6 +104,10 @@ public:
     DataTypePtr get_attribute_type(const std::string& name) const;
     size_t attribute_index(const std::string& name) const;
 
+    bool attribute_is_nullable(size_t idx) const;
+
+    std::variant<std::false_type, std::true_type> attribute_nullable_variant(size_t idx) const;
+
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
         // The data types supported by cast_type must be consistent with the AttributeData below.
@@ -130,23 +134,41 @@ protected:
         // OutputColumnType is used as the result column type
         using OutputColumnType = Type::ColumnType;
         ColumnPtr column;
+        ColumnPtr null_map;
         // RealColumnType is the real type of the column, as there may be ColumnString64, but the result column will not be ColumnString64
         using RealColumnType = std::conditional_t<std::is_same_v<DictDataTypeString64, Type>,
                                                   ColumnString64, OutputColumnType>;
         const RealColumnType* get() const {
             return assert_cast<const RealColumnType*, TypeCheckOnRelease::DISABLE>(column.get());
         }
+
+        const ColumnUInt8* get_null_map() const {
+            if (!null_map) {
+                return nullptr;
+            }
+            return assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get());
+        }
     };
 
-    template <typename ResultColumnType>
+    template <bool vlaue_is_nullable, typename ResultColumnType>
     ALWAYS_INLINE static void set_value_data(ResultColumnType* res_real_column,
-                                             const auto* value_column, const size_t& idx) {
+                                             ColumnUInt8::Container& res_null_column,
+                                             const auto* value_column,
+                                             const ColumnUInt8* value_null_column,
+                                             const size_t& res_idx, const size_t& value_idx) {
+        if constexpr (vlaue_is_nullable) {
+            // if the value is null, set the result column to null
+            if (value_null_column->get_element(value_idx)) {
+                res_null_column[res_idx] = true;
+                return;
+            }
+        }
         if constexpr (std::is_same_v<ResultColumnType, ColumnString>) {
             // If it is a string column, use get_data_at to avoid copying
-            StringRef str_ref = value_column->get_data_at(idx);
+            StringRef str_ref = value_column->get_data_at(value_idx);
             res_real_column->insert_data(str_ref.data, str_ref.size);
         } else {
-            res_real_column->insert_value(value_column->get_element(idx));
+            res_real_column->insert_value(value_column->get_element(value_idx));
         }
     }
 
@@ -168,12 +190,9 @@ protected:
                          ColumnWithType<DataTypeDecimal<Decimal128V3>>,
                          ColumnWithType<DataTypeDecimal<Decimal256>>>;
 
-    // load_values will remove nullable value.
-    // Any nullable-related data needs to be handled by the subclass dictionary.
     void load_values(const std::vector<ColumnPtr>& values_column);
 
     // _value_data is used to store the data of value columns.
-    // Nullable columns are not stored here.
     std::vector<ValueData> _values_data;
     std::string _dict_name;
     std::vector<DictionaryAttribute> _attributes;

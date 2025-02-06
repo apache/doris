@@ -21,19 +21,19 @@
 
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/complex_hash_map_dictionary.h"
 #include "vec/functions/dictionary.h"
 #include "vec/functions/dictionary_factory.h"
-#include "vec/functions/hash_map_dictionary.h"
 
 namespace doris::vectorized {
 
 TEST(DictionaryVersionTest, test) {
     auto dict_factory = std::make_shared<DictionaryFactory>();
 
-    auto dict = create_hash_map_dict_from_column(
+    auto dict = create_complex_hash_map_dict_from_column(
             "ip dict",
-            ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
-                                   std::make_shared<DataTypeInt32>(), ""},
+            ColumnsWithTypeAndName {
+                    {DataTypeInt32::ColumnType::create(), std::make_shared<DataTypeInt32>(), ""}},
             ColumnsWithTypeAndName {
                     ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
                                            std::make_shared<DataTypeInt32>(), ""},

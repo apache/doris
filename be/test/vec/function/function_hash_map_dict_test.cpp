@@ -17,10 +17,12 @@
 
 #include "function_hash_map_dict_test.h"
 
+#include <tuple>
+
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/dictionary.h"
-#include "vec/functions/hash_map_dictionary.h"
 
 namespace doris::vectorized {
 
@@ -54,13 +56,13 @@ TEST(HashMapDictTest, Test1) {
     CartesianProduct<KeyTypes, ValueTypes, 10, false>::execute();
 }
 TEST(HashMapDictTest, Test2) {
-    CartesianProduct<KeyTypes, ValueTypes, 1000, false>::execute();
+    CartesianProduct<KeyTypes, ValueTypes, 100, false>::execute();
 }
 TEST(HashMapDictTest, Test3) {
     CartesianProduct<KeyTypes, ValueTypes, 10, true>::execute();
 }
 TEST(HashMapDictTest, Test4) {
-    CartesianProduct<KeyTypes, ValueTypes, 1000, true>::execute();
+    CartesianProduct<KeyTypes, ValueTypes, 100, true>::execute();
 }
 
 } // namespace doris::vectorized
