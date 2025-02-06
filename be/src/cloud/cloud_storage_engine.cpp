@@ -289,6 +289,12 @@ Status CloudStorageEngine::start_bg_threads() {
 
     LOG(INFO) << "lease compaction thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "check_tablet_delete_bitmap_score_thread",
+            [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
+            &_bg_threads.emplace_back()));
+    LOG(INFO) << "check tablet delete bitmap score thread started";
+
     return Status::OK();
 }
 
@@ -779,6 +785,28 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
         }
         for (auto& comp : base_compactions) {
             comp->do_lease();
+        }
+    }
+}
+
+void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
+    LOG(INFO) << "try to start check tablet delete bitmap score!";
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::check_tablet_delete_bitmap_interval_seconds))) {
+        if (!config::enable_check_tablet_delete_bitmap_score) {
+            return;
+        }
+        uint64_t max_delete_bitmap_score = 0;
+        uint64_t max_base_rowset_delete_bitmap_score = 0;
+        std::vector<CloudTabletSPtr> tablets;
+        tablet_mgr().get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
+                                                         &max_base_rowset_delete_bitmap_score);
+        if (max_delete_bitmap_score > 0) {
+            _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
+        }
+        if (max_base_rowset_delete_bitmap_score > 0) {
+            _tablet_max_base_rowset_delete_bitmap_score_metrics->set_value(
+                    max_base_rowset_delete_bitmap_score);
         }
     }
 }
