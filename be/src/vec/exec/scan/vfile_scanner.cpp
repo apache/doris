@@ -215,18 +215,12 @@ void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
             _runtime_filter_partition_pruning_ctxs.emplace_back(conjunct);
         }
     }
-}
-
-void VFileScanner::_init_runtime_filter_partition_pruning_block() {
-    if (_partition_col_descs.empty()) {
-        return;
-    }
+    // init block with empty column
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->need_materialize()) {
             // should be ignored from reading
             continue;
         }
-        // init block with empty column
         _runtime_filter_partition_pruning_block.insert(
                 ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                       slot_desc->get_data_type_ptr(), slot_desc->col_name()));
@@ -364,7 +358,6 @@ Status VFileScanner::open(RuntimeState* state) {
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
         _init_runtime_filter_partition_pruning_ctxs();
-        _init_runtime_filter_partition_pruning_block();
     } else {
         // there's no scan range in split source. stop scanner directly.
         _scanner_eof = true;
