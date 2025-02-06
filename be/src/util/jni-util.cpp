@@ -109,10 +109,11 @@ const std::string GetKerb5ConfPath() {
     // LIBHDFS_OPTS
     const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
     std::string libhdfs_opts =
-            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{}", java_opts,
+            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{} ", java_opts,
                         getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
+    libhdfs_opts += fmt::format("{} ", GetKerb5ConfPath());
 
-    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 0);
+    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
 }
 
 // Only used on non-x86 platform
@@ -140,9 +141,9 @@ const std::string GetKerb5ConfPath() {
             std::istringstream stream(java_opts);
             options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
                                                std::istream_iterator<std::string>());
-            options.push_back(GetKerb5ConfPath());
             options.push_back(GetDorisJNIClasspathOption());
         }
+        options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
