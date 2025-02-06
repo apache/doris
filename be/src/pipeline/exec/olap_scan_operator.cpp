@@ -22,7 +22,9 @@
 #include <memory>
 
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
@@ -415,7 +417,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                   scanner_ranges,
                                   _tablets[scan_range_idx],
                                   version,
-                                  {},
+                                  _read_sources[scan_range_idx],
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                           });
@@ -423,6 +425,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             scanners->push_back(std::move(scanner));
         }
     }
+    _tablets.clear();
+    _read_sources.clear();
 
     return Status::OK();
 }
@@ -432,8 +436,25 @@ Status OlapScanLocalState::hold_tablets() {
         return Status::OK();
     }
     _tablets.resize(_scan_ranges.size());
+    _read_sources.resize(_scan_ranges.size());
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
+        int64_t version = 0;
+        std::from_chars(_scan_ranges[i]->version.data(),
+                        _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(), version);
         _tablets[i] = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
+
+        if (config::is_cloud_mode()) {
+            // FIXME(plat1ko): Avoid pointer cast
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
+                    *_tablets[i]);
+        }
+
+        RETURN_IF_ERROR(_tablets[i]->capture_rs_readers(
+                {0, version}, &_read_sources[i].rs_splits,
+                RuntimeFilterConsumer::_state->skip_missing_version()));
+        if (!RuntimeFilterConsumer::_state->skip_delete_predicate()) {
+            _read_sources[i].fill_delete_predicates();
+        }
     }
     return Status::OK();
 }

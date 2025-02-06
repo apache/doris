@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 
@@ -216,6 +217,7 @@ private:
 
     std::mutex _profile_mtx;
     std::vector<BaseTabletSPtr> _tablets;
+    std::vector<TabletReader::ReadSource> _read_sources;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
