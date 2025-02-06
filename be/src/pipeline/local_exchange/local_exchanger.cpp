@@ -189,11 +189,13 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
             auto block_wrapper = partitioned_block.first;
+            Defer defer {[&]() {
+                block_wrapper->unref(
+                        source_info.local_state ? source_info.local_state->_shared_state : nullptr,
+                        source_info.channel_id);
+            }};
             RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->data_block, offset_start,
                                                    offset_start + partitioned_block.second.length));
-            block_wrapper->unref(
-                    source_info.local_state ? source_info.local_state->_shared_state : nullptr,
-                    source_info.channel_id);
         } while (mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
