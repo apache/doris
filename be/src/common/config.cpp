@@ -1016,7 +1016,7 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 DEFINE_Bool(enable_java_support, "true");
 
 // enable prefetch tablets before opening
-DEFINE_Bool(enable_prefetch_tablet, "true");
+DEFINE_mBool(enable_prefetch_tablet, "true");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");

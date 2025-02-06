@@ -1065,7 +1065,7 @@ DECLARE_mInt32(segcompaction_num_threads);
 DECLARE_Bool(enable_java_support);
 
 // enable prefetch tablets before opening
-DECLARE_Bool(enable_prefetch_tablet);
+DECLARE_mBool(enable_prefetch_tablet);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
