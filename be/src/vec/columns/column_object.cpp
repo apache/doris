@@ -799,9 +799,6 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_, boo
 
 ColumnObject::ColumnObject(int32_t max_subcolumns_count)
         : is_nullable(true), num_rows(0), _max_subcolumns_count(max_subcolumns_count) {
-    if (max_subcolumns_count == -18) {
-        LOG(INFO) << "error: -18";
-    }
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -811,9 +808,6 @@ ColumnObject::ColumnObject(int32_t max_subcolumns_count, DataTypePtr root_type,
         : is_nullable(true),
           num_rows(root_column->size()),
           _max_subcolumns_count(max_subcolumns_count) {
-    if (max_subcolumns_count == -18) {
-        LOG(INFO) << "error: -18";
-    }
     subcolumns.create_root(
             Subcolumn(std::move(root_column), root_type, is_nullable, true /*root*/));
     serialized_sparse_column->insert_many_defaults(num_rows);
@@ -825,18 +819,12 @@ ColumnObject::ColumnObject(int32_t max_subcolumns_count, Subcolumns&& subcolumns
           subcolumns(std::move(subcolumns_)),
           num_rows(subcolumns.empty() ? 0 : (*subcolumns.begin())->data.size()),
           _max_subcolumns_count(max_subcolumns_count) {
-    if (max_subcolumns_count == -18) {
-        LOG(INFO) << "error: -18";
-    }
     serialized_sparse_column->insert_many_defaults(num_rows);
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
 ColumnObject::ColumnObject(int32_t max_subcolumns_count, size_t size)
         : is_nullable(true), num_rows(0), _max_subcolumns_count(max_subcolumns_count) {
-    if (max_subcolumns_count == -18) {
-        LOG(INFO) << "error: -18";
-    }
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     insert_many_defaults(size);
     ENABLE_CHECK_CONSISTENCY(this);
@@ -1324,7 +1312,7 @@ void ColumnObject::set_num_rows_and_align(size_t n) {
 }
 
 bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
-    DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
+    DCHECK(_max_subcolumns_count > 0) << "max subcolumns count is: " << _max_subcolumns_count;
     if (subcolumns.get_root() == nullptr || path.empty()) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
@@ -1980,7 +1968,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         ENABLE_CHECK_CONSISTENCY(this);
         return Status::OK();
     }
-    DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
+    DCHECK(_max_subcolumns_count > 0) << "max subcolumns count is: " << _max_subcolumns_count;
     Subcolumns new_subcolumns;
 
     if (auto root = subcolumns.get_mutable_root(); root == nullptr) {
