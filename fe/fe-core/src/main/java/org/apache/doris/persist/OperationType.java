@@ -27,12 +27,14 @@ public class OperationType {
     // OP_LOCAL_EOF is only for local edit log, to indicate the end of a edit log run.
     public static final short OP_LOCAL_EOF = -1;
     public static final short OP_SAVE_NEXTID = 0;
-    public static final short OP_CREATE_DB = 1;
+    @Deprecated
+    public static final short OP_CREATE_DB = 1; // deprecated, use OP_NEW_CREATE_DB instead
     public static final short OP_DROP_DB = 2;
     public static final short OP_ALTER_DB = 3;
     public static final short OP_ERASE_DB = 4;
     public static final short OP_RECOVER_DB = 5;
     public static final short OP_RENAME_DB = 6;
+    public static final short OP_NEW_CREATE_DB = 7;
 
     // 10~19 110~119 210~219 ...
     public static final short OP_CREATE_TABLE = 10;

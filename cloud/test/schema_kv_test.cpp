@@ -40,6 +40,15 @@ static std::string next_rowset_id() {
     return std::to_string(++cnt);
 }
 
+static void fill_schema(doris::TabletSchemaCloudPB* schema, int32_t schema_version) {
+    schema->set_schema_version(schema_version);
+    for (int i = 0; i < 10; ++i) {
+        auto column = schema->add_column();
+        column->set_unique_id(20000 + i);
+        column->set_type("INT");
+    }
+}
+
 static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
                        int64_t partition_id, int64_t tablet_id, const std::string& rowset_id,
                        int32_t schema_version) {
@@ -49,7 +58,7 @@ static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t inde
     tablet->set_partition_id(partition_id);
     tablet->set_tablet_id(tablet_id);
     auto schema = tablet->mutable_schema();
-    schema->set_schema_version(schema_version);
+    fill_schema(schema, schema_version);
     auto first_rowset = tablet->add_rs_metas();
     first_rowset->set_rowset_id(0); // required
     first_rowset->set_rowset_id_v2(rowset_id);
@@ -148,6 +157,9 @@ TEST(DetachSchemaKVTest, TabletTest) {
         saved_tablet.set_partition_id(partition_id);
         saved_tablet.set_tablet_id(tablet_id);
         saved_tablet.mutable_schema()->set_schema_version(1);
+        auto column = saved_tablet.mutable_schema()->add_column();
+        column->set_unique_id(30001);
+        column->set_type("INT");
         std::string tablet_key, tablet_val;
         meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}, &tablet_key);
         ASSERT_TRUE(saved_tablet.SerializeToString(&tablet_val));
@@ -670,6 +682,123 @@ TEST(SchemaKVTest, InsertExistedRowsetTest) {
     ASSERT_NO_FATAL_FAILURE(
             create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
     check_get_tablet(meta_service.get(), 10005, 2);
+}
+
+static void check_schema(MetaServiceProxy* meta_service, int64_t tablet_id,
+                         int32_t schema_version) {
+    brpc::Controller cntl;
+    GetTabletRequest req;
+    GetTabletResponse res;
+    req.set_tablet_id(tablet_id);
+    meta_service->get_tablet(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+    ASSERT_TRUE(res.has_tablet_meta()) << tablet_id;
+    EXPECT_TRUE(res.tablet_meta().has_schema()) << tablet_id;
+    EXPECT_EQ(res.tablet_meta().schema_version(), schema_version) << tablet_id;
+    EXPECT_EQ(res.tablet_meta().schema().column_size(), 10) << tablet_id;
+};
+
+static void update_tablet(MetaServiceProxy* meta_service, int64_t tablet_id) {
+    brpc::Controller cntl;
+    UpdateTabletRequest req;
+    UpdateTabletResponse res;
+
+    auto meta_info = req.add_tablet_meta_infos();
+    meta_info->set_disable_auto_compaction(true);
+    meta_info->set_tablet_id(tablet_id);
+
+    meta_service->update_tablet(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+}
+
+TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
+    //case 1 config::write_schema_kv = true;
+    {
+        auto meta_service = get_meta_service();
+        config::write_schema_kv = true;
+        //config::meta_schema_value_version = 0;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        check_get_tablet(meta_service.get(), 10004, 0);
+        check_schema(meta_service.get(), 10004, 0);
+
+        //config::meta_schema_value_version = 1;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        check_get_tablet(meta_service.get(), 10005, 2);
+
+        update_tablet(meta_service.get(), 10005);
+        check_schema(meta_service.get(), 10005, 2);
+    }
+
+    //case 2 config::write_schema_kv = false;
+    {
+        auto meta_service = get_meta_service();
+        config::write_schema_kv = false;
+        auto defer1 =
+                std::make_unique<std::function<void()>>([]() { config::write_schema_kv = true; });
+
+        //config::meta_schema_value_version = 0;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        check_get_tablet(meta_service.get(), 10004, 0);
+        check_schema(meta_service.get(), 10004, 0);
+
+        //config::meta_schema_value_version = 1;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        check_get_tablet(meta_service.get(), 10005, 2);
+
+        update_tablet(meta_service.get(), 10005);
+        check_schema(meta_service.get(), 10005, 2);
+    }
+
+    //case 3 config::write_schema_kv = false, create tablet, config::write_schema_kv = true;
+    {
+        auto meta_service = get_meta_service();
+        config::write_schema_kv = false;
+        auto defer1 =
+                std::make_unique<std::function<void()>>([]() { config::write_schema_kv = true; });
+
+        //config::meta_schema_value_version = 0;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        check_get_tablet(meta_service.get(), 10004, 0);
+        check_schema(meta_service.get(), 10004, 0);
+
+        //config::meta_schema_value_version = 1;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        check_get_tablet(meta_service.get(), 10005, 2);
+        config::write_schema_kv = true;
+        update_tablet(meta_service.get(), 10005);
+        check_schema(meta_service.get(), 10005, 2);
+    }
+
+    //case 4 config::write_schema_kv = false, create tablet, config::write_schema_kv = true;
+    //       meta_schema_value_version = 0, meta_schema_value_version = 1
+    {
+        auto meta_service = get_meta_service();
+        config::write_schema_kv = false;
+        auto defer1 = std::make_unique<std::function<void()>>([]() {
+            config::write_schema_kv = true;
+            config::meta_schema_value_version = 1;
+        });
+
+        config::meta_schema_value_version = 0;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        check_get_tablet(meta_service.get(), 10004, 0);
+        check_schema(meta_service.get(), 10004, 0);
+
+        config::meta_schema_value_version = 1;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        check_get_tablet(meta_service.get(), 10005, 2);
+        config::write_schema_kv = true;
+        update_tablet(meta_service.get(), 10005);
+        check_schema(meta_service.get(), 10005, 2);
+    }
 }
 
 } // namespace doris::cloud

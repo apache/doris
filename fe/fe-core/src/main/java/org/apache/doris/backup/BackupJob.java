@@ -675,8 +675,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
             return;
         }
-
-        removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
     }
 
@@ -708,12 +706,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
             copiedResources.add(copiedResource);
         }
-    }
-
-    private void removeUnsupportProperties(OlapTable tbl) {
-        // We cannot support the colocate attribute because the colocate information is not backed up
-        // synchronously when backing up.
-        tbl.setColocateGroup(null);
     }
 
     private void waitingAllSnapshotsFinished() {

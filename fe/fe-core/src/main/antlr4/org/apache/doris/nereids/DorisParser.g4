@@ -202,8 +202,8 @@ supportedCreateStatement
     ;
 
 supportedAlterStatement
-    : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
-        AS query                                                          #alterView
+    : ALTER VIEW name=multipartIdentifier
+        ((MODIFY commentSpec) | ((LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? AS query)) #alterView
     | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
@@ -224,6 +224,8 @@ supportedAlterStatement
         dropRollupClause (COMMA dropRollupClause)*                                          #alterTableDropRollup
     | ALTER TABLE name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterTableProperties
+    | ALTER DATABASE name=identifier SET (DATA | REPLICA | TRANSACTION)
+            QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     ;
 
@@ -594,8 +596,6 @@ privilegeList
 
 unsupportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                #alterSystem
-    | ALTER DATABASE name=identifier SET (DATA |REPLICA | TRANSACTION)
-        QUOTA INTEGER_VALUE identifier?                                             #alterDatabaseSetQuota
     | ALTER DATABASE name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
     | ALTER CATALOG name=identifier SET PROPERTIES

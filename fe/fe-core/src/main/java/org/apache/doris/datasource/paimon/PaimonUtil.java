@@ -62,7 +62,7 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
 
     public static List<InternalRow> read(
-            Table table, @Nullable int[][] projection, @Nullable Predicate predicate,
+            Table table, @Nullable int[] projection, @Nullable Predicate predicate,
             Pair<ConfigOption<?>, String>... dynamicOptions)
             throws IOException {
         Map<String, String> options = new HashMap<>();

@@ -17,4 +17,4 @@
 # under the License.
 
 kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master-2@OTHERREALM.COM
-beeline -u "jdbc:hive2://localhost:10000/default;principal=hive/hadoop-master-2@OTHERREALM.COM" -e "show databases;"
+beeline -u "jdbc:hive2://localhost:16000/default;principal=hive/hadoop-master-2@OTHERREALM.COM" -e "show databases;"

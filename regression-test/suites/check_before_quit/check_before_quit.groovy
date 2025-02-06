@@ -269,11 +269,13 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 sql "drop materialized view if exists ${tbl}"
             } else {
                 sql "drop table if exists ${tbl}"
+                // only re create table, because the table which view depends may be dropped,
+                // so recreate view may fail
+                sql(createTableSql[0][1])
+                def createTableSqlResult = sql "show create table ${tbl}"
+                logger.info("create table/view sql result info: ${createTableSqlResult}")
+                assertEquals(createTableSqlResult, createTableSql)
             }
-            sql(createTableSql[0][1])
-            def createTableSqlResult = sql "show create table ${tbl}"
-            logger.info("create table/view sql result info: ${createTableSqlResult}")
-            assertEquals(createTableSqlResult, createTableSql)
         }
     }
 

@@ -18,7 +18,6 @@
 #pragma once
 
 #include <sys/types.h>
-#include <util/spinlock.h>
 
 #include <memory>
 #include <mutex>
@@ -46,7 +45,7 @@ public:
     RecordBatchQueue(u_int32_t max_elements) : _queue(max_elements) {}
 
     Status status() {
-        std::lock_guard<SpinLock> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         return _status;
     }
 
@@ -66,7 +65,7 @@ public:
 
 private:
     BlockingQueue<std::shared_ptr<arrow::RecordBatch>> _queue;
-    SpinLock _status_lock;
+    std::mutex _status_lock;
     Status _status;
     std::shared_ptr<pipeline::Dependency> _dep = nullptr;
 };

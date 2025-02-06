@@ -111,6 +111,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
     sql """ SET enable_profile = true """
+    sql """ set profile_level = 2; """
     sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
     sql "sync"
     //sql """ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK' """
@@ -158,6 +159,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
         return profileId
     }
 
+    sql "set profile_level=2;"
     def query = """select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'"""
     def profileId = getProfileIdWithRetry(query, 3, 30)
     log.info("profileId:{}", profileId)

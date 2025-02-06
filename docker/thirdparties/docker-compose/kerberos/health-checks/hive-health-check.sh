@@ -17,4 +17,4 @@
 # under the License.
 
 kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master@LABS.TERADATA.COM
-beeline -u "jdbc:hive2://localhost:10000/default;principal=hive/hadoop-master@LABS.TERADATA.COM" -e "show databases;"
+beeline -u "jdbc:hive2://localhost:15000/default;principal=hive/hadoop-master@LABS.TERADATA.COM" -e "show databases;"

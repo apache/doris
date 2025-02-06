@@ -193,4 +193,44 @@ TEST_F(ExchangeSInkTest, test_error_end) {
     }
 }
 
+TEST_F(ExchangeSInkTest, test_queue_size) {
+    {
+        auto state = create_runtime_state();
+        auto buffer = create_buffer(state);
+
+        auto sink1 = create_sink(state, buffer);
+
+        EXPECT_EQ(sink1.add_block(dest_ins_id_1, false), Status::OK());
+        EXPECT_EQ(sink1.add_block(dest_ins_id_1, false), Status::OK());
+        EXPECT_EQ(sink1.add_block(dest_ins_id_1, false), Status::OK());
+
+        EXPECT_EQ(sink1.add_block(dest_ins_id_2, false), Status::OK());
+        EXPECT_EQ(sink1.add_block(dest_ins_id_2, false), Status::OK());
+        EXPECT_EQ(sink1.add_block(dest_ins_id_2, false), Status::OK());
+
+        EXPECT_EQ(sink1.add_block(dest_ins_id_3, false), Status::OK());
+        EXPECT_EQ(sink1.add_block(dest_ins_id_3, false), Status::OK());
+        EXPECT_EQ(sink1.add_block(dest_ins_id_3, false), Status::OK());
+
+        std::cout << "queue size : " << buffer->_total_queue_size << "\n";
+
+        EXPECT_EQ(buffer->_total_queue_size, 6);
+
+        std::cout << "each queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
+
+        pop_block(dest_ins_id_2, PopState::eof);
+
+        std::cout << "queue size : " << buffer->_total_queue_size << "\n";
+
+        EXPECT_EQ(buffer->_total_queue_size, 4);
+
+        std::cout << "each queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
+
+        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_1], false);
+        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_2], true);
+        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_3], false);
+        clear_all_done();
+    }
+}
+
 } // namespace doris::vectorized

@@ -40,6 +40,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     public static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    public static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
     public static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
@@ -50,6 +51,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private String backupTimestamp = null;
     private int metaVersion = -1;
     private boolean reserveReplica = false;
+    private boolean reserveColocate = false;
     private boolean reserveDynamicPartitionEnable = false;
     private boolean isLocal = false;
     private boolean isBeingSynced = false;
@@ -89,6 +91,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean reserveReplica() {
         return reserveReplica;
+    }
+
+    public boolean reserveColocate() {
+        return reserveColocate;
     }
 
     public boolean reserveDynamicPartitionEnable() {
@@ -173,7 +179,8 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
         if (reserveReplica && !Config.force_olap_table_replication_allocation.isEmpty()) {
             reserveReplica = false;
         }
-
+        // reserve colocate
+        reserveColocate = eatBooleanProperty(copiedProperties, PROP_RESERVE_COLOCATE, reserveColocate);
         // reserve dynamic partition enable
         reserveDynamicPartitionEnable = eatBooleanProperty(
                 copiedProperties, PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, reserveDynamicPartitionEnable);

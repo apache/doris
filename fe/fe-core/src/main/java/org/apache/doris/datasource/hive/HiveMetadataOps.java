@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
@@ -107,7 +106,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createDb(CreateDbStmt stmt) throws DdlException {
+    public void createDbImpl(CreateDbStmt stmt) throws DdlException {
         String fullDbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
         long dbId = Env.getCurrentEnv().getNextId();
@@ -130,7 +129,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
-            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -138,12 +136,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    public void afterCreateDb(String dbName) {
+        catalog.onRefreshCache(true);
     }
 
     @Override
-    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         if (!databaseExist(dbName)) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
@@ -154,14 +152,18 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             client.dropDatabase(dbName);
-            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
     }
 
     @Override
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
+    public void afterDropDb(String dbName) {
+        catalog.onRefreshCache(true);
+    }
+
+    @Override
+    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
@@ -269,7 +271,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                         comment);
             }
             client.createTable(hiveTableMeta, stmt.isSetIfNotExists());
-            db.setUnInitialized(true);
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
@@ -277,7 +278,15 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropTable(DropTableStmt stmt) throws DdlException {
+    public void afterCreateTable(String dbName, String tblName) {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db != null) {
+            db.setUnInitialized(true);
+        }
+    }
+
+    @Override
+    public void dropTableImpl(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
@@ -303,14 +312,22 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
         try {
             client.dropTable(dbName, tblName);
-            db.setUnInitialized(true);
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }
     }
 
     @Override
-    public void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+    public void afterDropTable(String dbName, String tblName) {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db != null) {
+            db.setUnInitialized(true);
+        }
+    }
+
+    @Override
+    public void truncateTableImpl(String dbName, String tblName, List<String> partitions)
+            throws DdlException {
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
         if (db == null) {
             throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
@@ -320,9 +337,17 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }
+    }
+
+    @Override
+    public void afterTruncateTable(String dbName, String tblName) {
+        // Invalidate cache.
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tblName);
-        db.setLastUpdateTime(System.currentTimeMillis());
-        db.setUnInitialized(true);
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db != null) {
+            db.setLastUpdateTime(System.currentTimeMillis());
+            db.setUnInitialized(true);
+        }
     }
 
     @Override

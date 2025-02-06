@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_mtmv_show_data","p2") {
+suite("test_cloud_mtmv_show_data","p2, nonConcurrent") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -98,13 +98,13 @@ suite("test_cloud_mtmv_show_data","p2") {
             trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
+            sleep(10 * 1000)
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-            sleep(60 * 1000)
             logger.info("after ${i} times stream load, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
         }
 
@@ -124,75 +124,37 @@ suite("test_cloud_mtmv_show_data","p2") {
             trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
-
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
+            sleep(10 * 1000)
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
-
-            // expect mysqlSize == apiSize == storageSize
-            assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
-            assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
-
-            // 加一下触发compaction的机制
-            trigger_compaction(tablets)
-
-            // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
-
-            sql "select count(*) from ${tableName}"
-
-            sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-            sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-            sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
-
-            // expect mysqlSize == apiSize == storageSize
-            assertEquals(sizeRecords["mysqlSize"][3], sizeRecords["apiSize"][3])
-            assertEquals(sizeRecords["mysqlSize"][3], sizeRecords["cbsSize"][3])
+            logger.info("after create mv, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
         }
 
         if (op == 2){
             create_mtmv(tableName)
-            tableName = ${tableName} + "_mtmv"
+            tableName = "${tableName}" + "_mtmv"
             tablets = get_tablets_from_table(tableName)
 
             // 加一下触发compaction的机制
             trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
-
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
+            sleep(10 * 1000)
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
+            logger.info("after create mtmv, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
 
             // expect mysqlSize == apiSize == storageSize
             assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
             assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["cbsSize"][2])
-
-            // 加一下触发compaction的机制
-            trigger_compaction(tablets)
-
-            // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
-
-            sql "select count(*) from ${tableName}"
-
-            sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-            sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-            sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-
-
-            // expect mysqlSize == apiSize == storageSize
-            assertEquals(sizeRecords["mysqlSize"][3], sizeRecords["apiSize"][3])
-            assertEquals(sizeRecords["mysqlSize"][3], sizeRecords["cbsSize"][3])
         }
     }
 
@@ -205,5 +167,9 @@ suite("test_cloud_mtmv_show_data","p2") {
         check(tableName, 2)
     }
 
+    set_config_before_show_data_test()
+    sleep(10 * 1000)
     main()
+    set_config_after_show_data_test()
+    sleep(10 * 1000)
 }

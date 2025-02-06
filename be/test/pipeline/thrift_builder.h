@@ -58,7 +58,7 @@ public:
         return *this;
     }
     TQueryOptionsBuilder& set_enable_new_shuffle_hash_method(bool enable_new_shuffle_hash_method) {
-        _query_options.enable_new_shuffle_hash_method = enable_new_shuffle_hash_method;
+        _query_options.__set_enable_new_shuffle_hash_method(enable_new_shuffle_hash_method);
         return *this;
     }
     TQueryOptionsBuilder& set_enable_local_shuffle(bool enable_local_shuffle) {
@@ -66,11 +66,23 @@ public:
         return *this;
     }
     TQueryOptionsBuilder& set_runtime_filter_wait_infinitely(bool runtime_filter_wait_infinitely) {
-        _query_options.runtime_filter_wait_infinitely = runtime_filter_wait_infinitely;
+        _query_options.__set_runtime_filter_wait_infinitely(runtime_filter_wait_infinitely);
         return *this;
     }
     TQueryOptionsBuilder& set_enable_local_merge_sort(bool enable_local_merge_sort) {
-        _query_options.enable_local_merge_sort = enable_local_merge_sort;
+        _query_options.__set_enable_local_merge_sort(enable_local_merge_sort);
+        return *this;
+    }
+    TQueryOptionsBuilder& set_runtime_filter_max_in_num(int64_t runtime_filter_max_in_num) {
+        _query_options.__set_runtime_filter_max_in_num(runtime_filter_max_in_num);
+        return *this;
+    }
+    TQueryOptionsBuilder& set_runtime_bloom_filter_min_size(int64_t runtime_bloom_filter_min_size) {
+        _query_options.__set_runtime_bloom_filter_min_size(runtime_bloom_filter_min_size);
+        return *this;
+    }
+    TQueryOptionsBuilder& set_runtime_bloom_filter_max_size(int64_t runtime_bloom_filter_max_size) {
+        _query_options.__set_runtime_bloom_filter_max_size(runtime_bloom_filter_max_size);
         return *this;
     }
 
@@ -117,6 +129,16 @@ public:
         _plan_node.__set_output_tuple_id(output_tuple_id);
         return *this;
     }
+    TPlanNodeBuilder& append_projections(TExpr& projections) {
+        _plan_node.__isset.projections = true;
+        _plan_node.projections.push_back(projections);
+        return *this;
+    }
+    TPlanNodeBuilder& append_runtime_filters(TRuntimeFilterDesc& runtime_filter) {
+        _plan_node.__isset.runtime_filters = true;
+        _plan_node.runtime_filters.push_back(runtime_filter);
+        return *this;
+    }
 
     TPlanNode& build() { return _plan_node; }
 
@@ -125,6 +147,55 @@ public:
 
 private:
     TPlanNode _plan_node;
+};
+
+class TRuntimeFilterDescBuilder {
+public:
+    explicit TRuntimeFilterDescBuilder(
+            int filter_id, TExpr& src_expr, int expr_order,
+            std::map<TPlanNodeId, TExpr> planId_to_target_expr, bool is_broadcast_join = false,
+            bool has_local_targets = true, bool has_remote_targets = false,
+            TRuntimeFilterType::type type = TRuntimeFilterType::IN_OR_BLOOM)
+            : _desc() {
+        _desc.__set_filter_id(filter_id);
+        _desc.__set_src_expr(src_expr);
+        _desc.__set_expr_order(expr_order);
+        _desc.__set_planId_to_target_expr(planId_to_target_expr);
+        _desc.__set_is_broadcast_join(is_broadcast_join);
+        _desc.__set_has_local_targets(has_local_targets);
+        _desc.__set_has_remote_targets(has_remote_targets);
+        _desc.__set_type(type);
+    }
+    explicit TRuntimeFilterDescBuilder(
+            int filter_id, TExpr&& src_expr, int expr_order,
+            std::map<TPlanNodeId, TExpr> planId_to_target_expr, bool is_broadcast_join = false,
+            bool has_local_targets = true, bool has_remote_targets = false,
+            TRuntimeFilterType::type type = TRuntimeFilterType::IN_OR_BLOOM)
+            : _desc() {
+        _desc.__set_filter_id(filter_id);
+        _desc.__set_src_expr(src_expr);
+        _desc.__set_expr_order(expr_order);
+        _desc.__set_planId_to_target_expr(planId_to_target_expr);
+        _desc.__set_is_broadcast_join(is_broadcast_join);
+        _desc.__set_has_local_targets(has_local_targets);
+        _desc.__set_has_remote_targets(has_remote_targets);
+        _desc.__set_type(type);
+    }
+
+    TRuntimeFilterDescBuilder& set_bloom_filter_size_bytes(int64_t bloom_filter_size_bytes) {
+        _desc.__set_bloom_filter_size_bytes(bloom_filter_size_bytes);
+        return *this;
+    }
+    TRuntimeFilterDescBuilder& set_build_bf_exactly(bool build_bf_exactly) {
+        _desc.__set_build_bf_exactly(build_bf_exactly);
+        return *this;
+    }
+    TRuntimeFilterDesc& build() { return _desc; }
+    TRuntimeFilterDescBuilder(const TRuntimeFilterDescBuilder&) = delete;
+    void operator=(const TRuntimeFilterDescBuilder&) = delete;
+
+private:
+    TRuntimeFilterDesc _desc;
 };
 
 class TExchangeNodeBuilder {
@@ -269,7 +340,10 @@ private:
 
 class TTypeDescBuilder {
 public:
-    explicit TTypeDescBuilder() : _desc() {}
+    explicit TTypeDescBuilder() : _desc() {
+        _desc.__set_result_is_nullable(false);
+        _desc.__set_is_nullable(false);
+    }
 
     TTypeDescBuilder& set_types(TTypeNode type_node) {
         _desc.types.push_back(type_node);
@@ -423,6 +497,7 @@ public:
         _expr_node.__set_type(type);
         _expr_node.__set_num_children(num_children);
         _expr_node.__set_opcode(opcode);
+        _expr_node.__set_is_nullable(false);
     }
     explicit TExprNodeBuilder(TExprNodeType::type node_type, TTypeDesc&& type, int num_children,
                               TExprOpcode::type opcode = TExprOpcode::INVALID_OPCODE)
@@ -475,6 +550,29 @@ public:
 
 private:
     TEqJoinCondition _eq_conjuncts;
+};
+
+class TRuntimeFilterParamsBuilder {
+public:
+    explicit TRuntimeFilterParamsBuilder(
+            TNetworkAddress runtime_filter_merge_addr = TNetworkAddress(),
+            std::map<int, std::vector<TRuntimeFilterTargetParams>> rid_to_target_param = {},
+            std::map<int, TRuntimeFilterDesc> rid_to_runtime_filter = {},
+            std::map<int, int> runtime_filter_builder_num = {},
+            std::map<int, std::vector<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2 = {})
+            : _params() {
+        _params.__set_runtime_filter_merge_addr(runtime_filter_merge_addr);
+        _params.__set_rid_to_target_param(rid_to_target_param);
+        _params.__set_rid_to_runtime_filter(rid_to_runtime_filter);
+        _params.__set_runtime_filter_builder_num(runtime_filter_builder_num);
+        _params.__set_rid_to_target_paramv2(rid_to_target_paramv2);
+    }
+    TRuntimeFilterParams& build() { return _params; }
+    TRuntimeFilterParamsBuilder(const TRuntimeFilterParamsBuilder&) = delete;
+    void operator=(const TRuntimeFilterParamsBuilder&) = delete;
+
+private:
+    TRuntimeFilterParams _params;
 };
 
 } // namespace doris::pipeline

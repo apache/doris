@@ -395,7 +395,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict", {
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         int random_value = std::rand() % 100;
-        if (random_value < 50) {
+        if (random_value < 20) {
             return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("test txn conflict");
         }
     });

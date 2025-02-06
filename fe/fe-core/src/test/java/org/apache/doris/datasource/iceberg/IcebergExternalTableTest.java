@@ -104,6 +104,29 @@ public class IcebergExternalTableTest {
         Assertions.assertTrue(table.isValidRelatedTableCached());
         Assertions.assertFalse(table.validRelatedTableCache());
 
+        // Test spec fields are more than 1.
+        specs.put(0, spec);
+        table.setIsValidRelatedTableCached(false);
+        Assertions.assertFalse(table.isValidRelatedTableCached());
+        new Expectations() {{
+                icebergTable.specs();
+                result = specs;
+            }};
+        fields.add(null);
+        fields.add(null);
+        new Expectations() {{
+                spec.fields();
+                result = fields;
+            }};
+        Assertions.assertFalse(table.isValidRelatedTable());
+        new Verifications() {{
+                spec.fields();
+                times = 1;
+            }};
+        Assertions.assertTrue(table.isValidRelatedTableCached());
+        Assertions.assertFalse(table.validRelatedTableCache());
+        fields.clear();
+
         // Test true
         fields.add(field);
         table.setIsValidRelatedTableCached(false);

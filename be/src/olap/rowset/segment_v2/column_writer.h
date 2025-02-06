@@ -30,6 +30,7 @@
 
 #include "common/status.h" // for Status
 #include "olap/field.h"    // for Field
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
@@ -63,6 +64,7 @@ struct ColumnWriterOptions {
     bool need_inverted_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
+    BloomFilterOptions bf_options;
     std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
     InvertedIndexFileWriter* inverted_index_file_writer;

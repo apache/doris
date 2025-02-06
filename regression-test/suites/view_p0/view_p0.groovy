@@ -172,7 +172,28 @@ suite("view_p0") {
     """
 
     sql """select * from test_view_table2_view;"""
+
+    qt_comment0 """show create table test_view_table2_view"""
+    sql """ALTER VIEW `test_view_table2_view` MODIFY COMMENT "comment1";"""
+    qt_comment1 """show create table test_view_table2_view"""
+
+    sql """Alter VIEW `test_view_table2_view`
+            AS
+            SELECT
+                date_format(c_date,'%Y-%m-%d') AS `CREATE_DATE`
+            FROM
+                test_view_table2
+            GROUP BY
+                date_format(c_date, '%Y-%m-%d');
+    """
+    qt_comment2 """show create table test_view_table2_view"""
+
+    sql """Alter VIEW `test_view_table2_view` MODIFY COMMENT "comment4";"""
+    qt_comment4 """show create table test_view_table2_view"""
+
+    sql """Alter VIEW `test_view_table2_view` MODIFY COMMENT "";"""
+    qt_comment_empty """show create table test_view_table2_view"""
+
     sql """ drop view if exists test_view_table2_view;"""
     sql """DROP TABLE IF EXISTS test_view_table2"""
 }
-

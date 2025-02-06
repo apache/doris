@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseRenameContext;
+import org.apache.doris.nereids.DorisParser.AlterDatabaseSetQuotaContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
@@ -625,6 +627,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
@@ -1290,9 +1293,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAlterView(AlterViewContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        String querySql = getOriginSql(ctx.query());
-        AlterViewInfo info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
-                ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
+        String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
+        AlterViewInfo info;
+        if (comment != null) {
+            info = new AlterViewInfo(new TableNameInfo(nameParts), comment);
+        } else {
+            String querySql = getOriginSql(ctx.query());
+            info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
+                    ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
+        }
         return new AlterViewCommand(info);
     }
 
@@ -2128,10 +2137,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.identifierOrText() == null) {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
-                } else if (expression instanceof Literal) {
-                    return new Alias(expression);
                 } else {
-                    return new UnboundAlias(expression);
+                    int start = ctx.expression().start.getStartIndex();
+                    int stop = ctx.expression().stop.getStopIndex();
+                    String alias = ctx.start.getInputStream()
+                            .getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
+                    if (expression instanceof Literal) {
+                        return new Alias(expression, alias, true);
+                    } else {
+                        return new UnboundAlias(expression, alias, true);
+                    }
                 }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
@@ -2379,37 +2394,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCurrentDate(DorisParser.CurrentDateContext ctx) {
-        return new CurrentDate().alias("CURRENT_DATE");
+        return new CurrentDate();
     }
 
     @Override
     public Expression visitCurrentTime(DorisParser.CurrentTimeContext ctx) {
-        return new CurrentTime().alias("CURRENT_TIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitCurrentTimestamp(DorisParser.CurrentTimestampContext ctx) {
-        return new Now().alias("CURRENT_TIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitLocalTime(DorisParser.LocalTimeContext ctx) {
-        return new CurrentTime().alias("LOCALTIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitLocalTimestamp(DorisParser.LocalTimestampContext ctx) {
-        return new Now().alias("LOCALTIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitCurrentUser(DorisParser.CurrentUserContext ctx) {
-        return new CurrentUser().alias("CURRENT_USER");
+        return new CurrentUser();
     }
 
     @Override
     public Expression visitSessionUser(DorisParser.SessionUserContext ctx) {
-        return new SessionUser().alias("SESSION_USER");
+        return new SessionUser();
     }
 
     @Override
@@ -5463,6 +5478,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
+
+    @Override
+    public Object visitAlterDatabaseSetQuota(AlterDatabaseSetQuotaContext ctx) {
+        String databaseName = Optional.ofNullable(ctx.name)
+                .map(ParseTree::getText).filter(s -> !s.isEmpty())
+                .orElseThrow(() -> new ParseException("database name can not be null"));
+        String quota = Optional.ofNullable(ctx.quota)
+                .map(ParseTree::getText)
+                .orElseGet(() -> Optional.ofNullable(ctx.INTEGER_VALUE())
+                        .map(TerminalNode::getText)
+                        .orElse(null));
+        // Determine the quota type
+        QuotaType quotaType;
+        if (ctx.DATA() != null) {
+            quotaType = QuotaType.DATA;
+        } else if (ctx.REPLICA() != null) {
+            quotaType = QuotaType.REPLICA;
+        } else if (ctx.TRANSACTION() != null) {
+            quotaType = QuotaType.TRANSACTION;
+        } else {
+            quotaType = QuotaType.NONE;
+        }
+        return new AlterDatabaseSetQuotaCommand(databaseName, quotaType, quota);
     }
 
     @Override

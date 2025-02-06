@@ -46,13 +46,16 @@ import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -150,6 +153,9 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+            return new NereidsCoordinator(context, analyzer, (NereidsPlanner) planner, statsErrorEstimator);
+        }
         return new CloudCoordinator(context, analyzer, planner, statsErrorEstimator);
     }
 
@@ -157,6 +163,10 @@ public class CloudEnvFactory extends EnvFactory {
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        if (SessionVariable.canUseNereidsDistributePlanner()) {
+            return super.createCoordinator(
+                    jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+        }
         return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
                                 enableProfile);
     }

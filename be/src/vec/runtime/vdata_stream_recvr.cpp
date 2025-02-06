@@ -318,8 +318,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
           _memory_used_counter(memory_used_counter),
-          _query_thread_context(state->query_id(), state->query_mem_tracker(),
-                                state->get_query_ctx()->workload_group()),
+          _resource_ctx(state->get_query_ctx()->resource_ctx),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _row_desc(row_desc),
@@ -392,7 +391,7 @@ Status VDataStreamRecvr::add_block(std::unique_ptr<PBlock> pblock, int sender_id
                                    int64_t packet_seq, ::google::protobuf::Closure** done,
                                    const int64_t wait_for_worker,
                                    const uint64_t time_to_find_recvr) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(std::move(pblock), be_number, packet_seq, done,
                                                     wait_for_worker, time_to_find_recvr);

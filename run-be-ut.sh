@@ -46,7 +46,6 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     --benchmark        build benchmark-tool
      --clean            clean and build ut
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
@@ -78,7 +77,6 @@ eval set -- "${OPTS}"
 
 CLEAN=0
 RUN=0
-BUILD_BENCHMARK_TOOL='OFF'
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
@@ -91,10 +89,6 @@ if [[ "$#" != 1 ]]; then
             ;;
         --run)
             RUN=1
-            shift
-            ;;
-        --benchmark)
-            BUILD_BENCHMARK_TOOL='ON'
             shift
             ;;
         --coverage)
@@ -239,7 +233,6 @@ cd "${CMAKE_BUILD_DIR}"
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
-    -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
     -DWITH_MYSQL=ON \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
