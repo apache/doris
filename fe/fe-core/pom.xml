@@ -32,7 +32,6 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <awssdk.version>2.20.131</awssdk.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
@@ -787,6 +786,22 @@ under the License.
             <groupId>org.gaul</groupId>
             <artifactId>modernizer-maven-annotations</artifactId>
             <version>2.4.0</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3tables</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.s3tables</groupId>
+            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
+            <version>${s3tables.catalog.version}</version>
+        </dependency>
+        <!-- AWS SDK Core -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sdk-core</artifactId>
+            <version>${awssdk.version}</version>
         </dependency>
     </dependencies>
     <repositories>

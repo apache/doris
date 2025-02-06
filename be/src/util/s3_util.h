@@ -66,6 +66,7 @@ const static std::string S3_TOKEN = "AWS_TOKEN";
 const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
 const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
 const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
+const static std::string  S3_NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
 
 struct S3Conf {
     std::string ak;
@@ -79,6 +80,8 @@ struct S3Conf {
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
     bool use_virtual_addressing = true;
+    // For aws s3, no need to override endpoint
+    bool need_override_endpoint = true;
 
     std::string to_string() const {
         return fmt::format(

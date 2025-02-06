@@ -168,7 +168,9 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     }
 
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
-    aws_config.endpointOverride = s3_conf.endpoint;
+    if (s3_conf.need_override_endpoint) {
+        aws_config.endpointOverride = s3_conf.endpoint;
+    }
     aws_config.region = s3_conf.region;
     std::string ca_cert = get_valid_ca_cert_path();
     if ("" != _ca_cert_file_path) {
@@ -254,6 +256,9 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     if (properties.find(S3_CONN_TIMEOUT_MS) != properties.end()) {
         s3_conf->connect_timeout_ms =
                 std::atoi(properties.find(S3_CONN_TIMEOUT_MS)->second.c_str());
+    }
+    if (auto it = properties.find(S3_NEED_OVERRIDE_ENDPOINT); it != properties.end()) {
+        s3_conf->need_override_endpoint = (it->second == "true");
     }
     if (s3_uri.get_bucket() == "") {
         return Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",

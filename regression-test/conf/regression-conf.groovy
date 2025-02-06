@@ -239,3 +239,12 @@ externalEnvIp="127.0.0.1"
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+
+// External Env
+enableExternalIcebergTest = false
+// The properties string of iceberg catalog
+icebergS3TablesCatalog = ""
+
+enableExternalHudiTest = false
+// The properties string of hudi catalog
+hudiEmrCatalog = ""
