@@ -265,7 +265,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new MergeProjects(),
                         new PushDownEncodeSlot(),
                         new DecoupleEncodeDecode()
-                        ),
+                ),
 
                 topic("Window analysis",
                         topDown(

@@ -226,7 +226,7 @@ public class DataTrait {
             fdDgBuilder.addDeps(fd.fdDg);
         }
 
-        /**add function dependency relation for dominate and dependency*/
+        /**add Dependency relation for dominate and dependency*/
         public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
             if (dominate.isEmpty() || dependency.isEmpty()) {
                 return;
