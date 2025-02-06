@@ -50,6 +50,8 @@ suite ("test_upper_alias") {
     """)
 
     sql "analyze table test_0401 with sync;"
+    sql """alter table test_0401 modify column d_b set stats ('row_count'='3');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;", "test_0401_mv");
@@ -62,7 +64,6 @@ suite ("test_upper_alias") {
     qt_select_mv "SELECT d_a AS d_b FROM test_0401 order by 1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table test_0401 modify column d_b set stats ('row_count'='3');"""
     mv_rewrite_any_success("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;",
             ["test_0401_mv", "test_0401_mv2"])
 

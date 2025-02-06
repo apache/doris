@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -72,6 +73,12 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         if (type == null) {
             throw new AnalysisException("Resource type can't be null");
         }
+
+        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            resourceType = ResourceType.AZURE;
+            return;
+        }
+
         resourceType = ResourceType.fromString(type);
         if (resourceType == ResourceType.UNKNOWN) {
             throw new AnalysisException("Unsupported resource type: " + type);

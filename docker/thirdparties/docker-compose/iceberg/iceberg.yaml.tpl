@@ -25,9 +25,10 @@ services:
     hostname: doris--spark-iceberg
     build: spark/
     depends_on:
-      - rest
-      - minio
-      - mc
+      rest:
+        condition: service_started
+      mc:
+        condition: service_completed_successfully
     volumes:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
@@ -40,11 +41,11 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
-    entrypoint: /bin/sh /mnt/scripts/entrypoint.sh 
+    entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
     networks:
       - doris--iceberg
     healthcheck:
-      test: ["CMD", "ls", "/mnt/SUCCESS"]
+      test: ls /mnt/SUCCESS
       interval: 5s
       timeout: 120s
       retries: 120
@@ -56,20 +57,28 @@ services:
       POSTGRES_PASSWORD: 123456
       POSTGRES_USER: root
       POSTGRES_DB: iceberg
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U root" ]
+      interval: 5s
+      timeout: 60s
+      retries: 120
     volumes:
       - ./data/input/pgdata:/var/lib/postgresql/data
     networks:
       - doris--iceberg
 
   rest:
-    image: tabulario/iceberg-rest
+    image: tabulario/iceberg-rest:1.6.0
     container_name: doris--iceberg-rest
     ports:
       - ${REST_CATALOG_PORT}:8181
     volumes:
       - ./data:/mnt/data
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
@@ -85,10 +94,15 @@ services:
     entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh
 
   minio:
-    image: minio/minio
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--minio
     ports:
       - ${MINIO_API_PORT}:9000
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 10s
+      timeout: 60s
+      retries: 120
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
@@ -101,8 +115,9 @@ services:
 
   mc:
     depends_on:
-      - minio
-    image: minio/mc
+      minio:
+        condition: service_healthy
+    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: doris--mc
     environment:
       - AWS_ACCESS_KEY_ID=admin
@@ -120,16 +135,7 @@ services:
       /usr/bin/mc policy set public minio/warehouse;
       echo 'copy data';
       mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
-      tail -f /dev/null
       "
-  
-  iceberg-hello-world:
-    image: hello-world
-    container_name: doris--iceberg-hello-world
-    depends_on:
-      spark-iceberg:
-        condition: service_healthy
-    network_mode: "host"
 
 networks:
   doris--iceberg:

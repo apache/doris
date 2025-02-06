@@ -19,7 +19,6 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -543,8 +542,8 @@ public class SummaryProfile {
         this.nereidsDistributeFinishTime = TimeUtils.getStartTimeMs();
     }
 
-    public void setQueryBeginTime() {
-        this.queryBeginTime = TimeUtils.getStartTimeMs();
+    public void setQueryBeginTime(long queryBeginTime) {
+        this.queryBeginTime = queryBeginTime;
     }
 
     public void setQueryAnalysisFinishTime() {

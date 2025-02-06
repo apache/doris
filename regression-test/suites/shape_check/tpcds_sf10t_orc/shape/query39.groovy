@@ -29,7 +29,6 @@ suite("query39") {
          set enable_fallback_to_original_planner=false;
          set exec_mem_limit=21G;
          set be_number_for_test=3;
-         set parallel_fragment_exec_instance_num=8; ;
          set parallel_pipeline_task_num=8;
          set forbid_unknown_col_stats=true;
          set enable_nereids_timeout = false;

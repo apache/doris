@@ -1181,12 +1181,7 @@ public:
 
     underlying_value to_date_int_val() const { return int_val_; }
 
-    bool from_date(uint32_t value);
-    bool from_datetime(uint64_t value);
-
     bool from_date_int64(int64_t value);
-    uint32_t set_date_uint32(uint32_t int_val);
-    uint64_t set_datetime_uint64(uint64_t int_val);
 
     bool get_date_from_daynr(uint64_t);
 

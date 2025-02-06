@@ -48,7 +48,7 @@ protected:
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
-    JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                            const DescriptorTbl& descs);
     ~JoinBuildSinkOperatorX() override = default;
 

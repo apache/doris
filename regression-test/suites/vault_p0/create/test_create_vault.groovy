@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 suite("test_create_vault", "nonConcurrent") {
     def suiteName = name;
     if (!isCloudMode()) {
@@ -30,6 +33,48 @@ suite("test_create_vault", "nonConcurrent") {
     def randomStr = UUID.randomUUID().toString().replace("-", "")
     def s3VaultName = "s3_" + randomStr
     def hdfsVaultName = "hdfs_" + randomStr
+
+    def length64Str = Stream.generate(() -> String.valueOf('a'))
+                     .limit(32) 
+                     .collect(Collectors.joining()) + randomStr
+
+    def exceed64LengthStr = length64Str + "a"
+
+    // test long length storage vault
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${exceed64LengthStr}
+            PROPERTIES (
+                "type"="S3",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
+                "path_prefix" = "${exceed64LengthStr}",
+                "hadoop.username" = "${getHmsUser()}"
+            );
+           """
+    }, "Incorrect vault name")
+
+    sql """
+        CREATE STORAGE VAULT ${length64Str}
+        PROPERTIES (
+            "type"="HDFS",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "${length64Str}",
+            "hadoop.username" = "${getHmsUser()}"
+        );
+    """
+
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
+                "path_prefix" = "${s3VaultName}",
+                "hadoop.username" = "${getHmsUser()}"
+            );
+           """
+    }, "Missing [s3.endpoint] in properties")
+
 
     expectExceptionLike({
         sql """
@@ -63,6 +108,24 @@ suite("test_create_vault", "nonConcurrent") {
         """
     }, "Storage vault 'not_exist_vault' does not exist")
 
+    // test s3.root.path cannot be empty
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.endpoint"="${getS3Endpoint()}",
+                "s3.region" = "${getS3Region()}",
+                "s3.access_key" = "${getS3AK()}",
+                "s3.secret_key" = "${getS3SK()}",
+                "s3.root.path" = "",
+                "s3.bucket" = "${getS3BucketName()}",
+                "s3.external_endpoint" = "",
+                "provider" = "${getS3Provider()}",
+                "use_path_style" = "false"
+            );
+        """
+    }, "cannot be empty")
 
     // test `if not exist` and dup name s3 vault
     sql """

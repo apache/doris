@@ -87,6 +87,10 @@ suite("test_paimon_olap_rewrite_mtmv", "p0,external,mtmv,external_docker,externa
 
     def explainOnePartition = sql """ explain  ${mvSql} """
     logger.info("explainOnePartition: " + explainOnePartition.toString())
+
+    def explain_memo_plan = sql """ explain memo plan  ${mvSql} """
+    logger.info("explain_memo_plan: " + explain_memo_plan.toString())
+
     assertTrue(explainOnePartition.toString().contains("VUNION"))
     order_qt_refresh_one_partition_rewrite "${mvSql}"
 
@@ -104,6 +108,10 @@ suite("test_paimon_olap_rewrite_mtmv", "p0,external,mtmv,external_docker,externa
 
     def explainAllPartition = sql """ explain  ${mvSql}; """
     logger.info("explainAllPartition: " + explainAllPartition.toString())
+
+    def explainMemoPlan = sql """ explain memo plan  ${mvSql}; """
+    logger.info("explainMemoPlan: " + explainMemoPlan.toString())
+
     assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
     order_qt_refresh_all_partition_rewrite "${mvSql}"
 

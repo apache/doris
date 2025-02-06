@@ -348,7 +348,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wlg_user""";
     }
 
     connect('test_wlg_user', '12345', context.config.jdbcUrl) {
@@ -399,7 +399,7 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
     Thread.sleep(10000)
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from ${table_name};"
 
         exception "query queue timeout"
     }
@@ -446,7 +446,7 @@ suite("test_crud_wlg") {
     sql "set workload_group=normal;"
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
     Thread.sleep(10000)
-    sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+    sql "select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from ${table_name};"
 
     // test workload spill property
     // 1 create group
@@ -739,7 +739,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wg_priv_user2""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wg_priv_user2""";
     }
     connect('test_wg_priv_user2', '', context.config.jdbcUrl) {
         qt_select_wgp_11 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "

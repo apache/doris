@@ -377,6 +377,7 @@ public class Coordinator implements CoordInterface {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
+        this.queryOptions.setProfileLevel(2);
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
@@ -1809,7 +1810,8 @@ public class Coordinator implements CoordInterface {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
                 // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
-                if (leftMostNode.getNumInstances() == 1) {
+                boolean isNereids = context != null && context.getState().isNereids();
+                if (!isNereids && leftMostNode.getNumInstances() == 1) {
                     exchangeInstances = 1;
                 }
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
@@ -2538,6 +2540,11 @@ public class Coordinator implements CoordInterface {
 
     public void setBatchSize(int batchSize) {
         this.queryOptions.setBatchSize(batchSize);
+    }
+
+    // Currently this method is for BrokerLoad.
+    public void setProfileLevel(int profileLevel) {
+        this.queryOptions.setProfileLevel(profileLevel);
     }
 
     // map from a BE host address to the per-node assigned scan ranges;
@@ -3428,6 +3435,11 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentId = id;
             this.targetFragmentInstanceAddr = host;
         }
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
 

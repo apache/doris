@@ -577,7 +577,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
 std::string ResourceManager::update_cluster(
         const std::string& instance_id, const ClusterInfo& cluster,
         std::function<bool(const ClusterPB&)> filter,
-        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action) {
+        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+        bool replace_if_existing_empty_target_cluster) {
     std::stringstream ss;
     std::string msg;
 
@@ -642,6 +643,33 @@ std::string ResourceManager::update_cluster(
     }
 
     auto& clusters = const_cast<std::decay_t<decltype(instance.clusters())>&>(instance.clusters());
+
+    // check cluster_name is empty cluster, if empty and replace_if_existing_empty_target_cluster == true, drop it
+    if (replace_if_existing_empty_target_cluster) {
+        auto it = cluster_names.find(cluster_name);
+        if (it != cluster_names.end()) {
+            // found it, if it's an empty cluster, drop it from instance
+            int idx = -1;
+            for (auto& cluster : instance.clusters()) {
+                idx++;
+                if (cluster.cluster_name() == cluster_name) {
+                    // Check if cluster is empty (has no nodes)
+                    if (cluster.nodes_size() == 0) {
+                        // Remove empty cluster from instance
+                        auto& clusters = const_cast<std::decay_t<decltype(instance.clusters())>&>(
+                                instance.clusters());
+                        clusters.DeleteSubrange(idx, 1);
+                        // Remove cluster name from set
+                        cluster_names.erase(cluster_name);
+                        LOG(INFO) << "remove empty cluster due to it is the target of a "
+                                     "rename_cluster, cluster_name="
+                                  << cluster_name;
+                    }
+                    break;
+                }
+            }
+        }
+    }
 
     // do update
     ClusterPB original = clusters[idx];

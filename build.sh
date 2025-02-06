@@ -286,7 +286,7 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 # build thirdparty libraries if necessary
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
+if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/native/libhdfs.a" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
@@ -458,7 +458,7 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
 fi
 
 if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='OFF'
+    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${BUILD_BENCHMARK}" ]]; then

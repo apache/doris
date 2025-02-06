@@ -109,7 +109,7 @@ private:
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::atomic<time_t> _last_updated_time;
 

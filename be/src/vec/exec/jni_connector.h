@@ -93,20 +93,18 @@ public:
     struct ScanPredicate {
         ScanPredicate() = default;
         ~ScanPredicate() = default;
-        const std::string column_name;
+        std::string column_name;
         SQLFilterOp op;
         std::vector<const CppType*> values;
         int scale;
 
         ScanPredicate(const std::string column_name) : column_name(std::move(column_name)) {}
 
-        ScanPredicate(const ScanPredicate& other) {
-            column_name = other.column_name;
-            op = other.op;
+        ScanPredicate(const ScanPredicate& other)
+                : column_name(other.column_name), op(other.op), scale(other.scale) {
             for (auto v : other.values) {
                 values.emplace_back(v);
             }
-            scale = other.scale;
         }
 
         int length() {

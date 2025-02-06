@@ -205,6 +205,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         ++num_delete_files;
     }
     if (num_delete_rows > 0) {
+        orc_reader->set_push_down_agg_type(TPushAggOp::NONE);
         orc_reader->set_delete_rows(&_delete_rows);
         COUNTER_UPDATE(_transactional_orc_profile.num_delete_files, num_delete_files);
         COUNTER_UPDATE(_transactional_orc_profile.num_delete_rows, num_delete_rows);

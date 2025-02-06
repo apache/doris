@@ -66,6 +66,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
@@ -621,6 +622,11 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().createDb(createDbStmt);
     }
 
+    public void createDatabaseAndUse(String db) throws Exception {
+        createDatabase(db);
+        useDatabase(db);
+    }
+
     public void createDatabaseWithSql(String createDbSql) throws Exception {
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbSql);
         Env.getCurrentEnv().createDb(createDbStmt);
@@ -844,6 +850,19 @@ public abstract class TestWithFeService {
         // waiting table state to normal
         Thread.sleep(100);
     }
+
+    protected void alterMv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterMTMVCommand) {
+            ((AlterMTMVCommand) parsed).run(connectContext, stmtExecutor);
+        }
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(1000);
+    }
+
 
     protected void createMvByNereids(String sql) throws Exception {
         new MockUp<EditLog>() {

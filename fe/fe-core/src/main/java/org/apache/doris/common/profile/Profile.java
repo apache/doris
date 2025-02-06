@@ -20,7 +20,6 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -81,29 +80,25 @@ public class Profile {
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
 
-    // id will be assgined to id of SummaryProfile.
-    // For broker load, its SummaryPRofile id is a string representation of a long integer,
-    // for others, it is queryID
-    private String id = "";
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile = new SummaryProfile();
-    // executionProfiles will be stored to storage as text, when geting profile content, we will read
+    // executionProfiles will be stored to storage as text, when getting profile content, we will read
     // from storage directly.
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
-    // isQueryFinished means the coordinator or stmtexecutor is finished.
+    // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
     private boolean isQueryFinished = false;
     // when coordinator finishes, it will mark finish time.
     // we will wait for about 5 seconds to see if all profiles have been reported.
     // if not, we will store the profile to storage, and release the memory,
-    // futher report will be ignored.
+    // further report will be ignored.
     // why MAX_VALUE? So that we can use PriorityQueue to sort profile by finish time decreasing order.
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
@@ -193,7 +188,6 @@ public class Profile {
             DataInput dataInput = new DataInputStream(profileFileInputStream);
             Profile res = new Profile();
             res.summaryProfile = SummaryProfile.read(dataInput);
-            res.setId(res.summaryProfile.getProfileId());
             res.profileStoragePath = path;
             res.isQueryFinished = true;
             res.profileSize = fileSize;
@@ -262,7 +256,7 @@ public class Profile {
     // For load task, the profile contains many execution profiles
     public void addExecutionProfile(ExecutionProfile executionProfile) {
         if (executionProfile == null) {
-            LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
+            LOG.warn("try to set a null execution profile, it is abnormal", new Exception());
             return;
         }
         executionProfile.setSummaryProfile(summaryProfile);
@@ -274,7 +268,7 @@ public class Profile {
     }
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
-    // isFinished ONLY means the coordinator or stmtexecutor is finished.
+    // isFinished ONLY means the coordinator or stmt executor is finished.
     public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
             Planner planner) {
         try {
@@ -298,18 +292,17 @@ public class Profile {
             }
 
             summaryProfile.update(summaryInfo);
-            this.setId(summaryProfile.getProfileId());
 
             if (isFinished) {
                 this.markQueryFinished(System.currentTimeMillis());
             }
-            // Nerids native insert not set planner, so it is null
+            // Nereids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
             }
             ProfileManager.getInstance().pushProfile(this);
         } catch (Throwable t) {
-            LOG.warn("update profile {} failed", id, t);
+            LOG.warn("update profile {} failed", getId(), t);
             throw t;
         }
     }
@@ -352,7 +345,7 @@ public class Profile {
     }
 
     private RuntimeProfile composeRootProfile() {
-        RuntimeProfile rootProfile = new RuntimeProfile(id);
+        RuntimeProfile rootProfile = new RuntimeProfile(getId());
         rootProfile.addChild(summaryProfile.getSummary());
         rootProfile.addChild(summaryProfile.getExecutionSummary());
         for (ExecutionProfile executionProfile : executionProfiles) {
@@ -378,10 +371,9 @@ public class Profile {
             return;
         }
 
-        // Only generate merged profile for select, insert into select.
-        // Not support broker load now.
+        // For broker load, if it has more than one execution profile, we will not generate merged profile.
         RuntimeProfile mergedProfile = null;
-        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+        if (this.executionProfiles.size() == 1) {
             try {
                 mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
                 this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
@@ -389,7 +381,7 @@ public class Profile {
                     updateActualRowCountOnPhysicalPlan(physicalPlan);
                 }
             } catch (Throwable aggProfileException) {
-                LOG.warn("build merged simple profile {} failed", this.id, aggProfileException);
+                LOG.warn("build merged simple profile {} failed", getId(), aggProfileException);
             }
         }
 
@@ -408,7 +400,7 @@ public class Profile {
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
         }
 
-        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+        if (this.executionProfiles.size() == 1) {
             builder.append("\nMergedProfile \n");
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
@@ -431,10 +423,6 @@ public class Profile {
 
     public long getQueryFinishTimestamp() {
         return this.queryFinishTimestamp;
-    }
-
-    public void setId(String id) {
-        this.id = id;
     }
 
     // For UT
@@ -483,7 +471,7 @@ public class Profile {
                     > (this.executionProfiles.size() * autoProfileDurationMs)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
-                            id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
+                            getId(), durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
                 }
                 return true;
             }
@@ -491,7 +479,7 @@ public class Profile {
         }
 
         if (this.queryFinishTimestamp == Long.MAX_VALUE) {
-            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", id);
+            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", getId());
             return false;
         }
 
@@ -501,7 +489,8 @@ public class Profile {
                         > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, current time {} query finished time: {}",
-                    id, currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
+                    getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis,
+                    this.queryFinishTimestamp);
 
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
@@ -526,7 +515,7 @@ public class Profile {
     public void markQueryFinished(long queryFinishTime) {
         try {
             if (this.profileHasBeenStored()) {
-                LOG.error("Logical error, profile {} has already been stored to storage", this.id);
+                LOG.error("Logical error, profile {} has already been stored to storage", getId());
                 return;
             }
 
@@ -539,13 +528,13 @@ public class Profile {
     }
 
     public void writeToStorage(String systemProfileStorageDir) {
-        if (Strings.isNullOrEmpty(id)) {
+        if (Strings.isNullOrEmpty(getId())) {
             LOG.warn("store profile failed, name is empty");
             return;
         }
 
         if (!Strings.isNullOrEmpty(profileStoragePath)) {
-            LOG.error("Logical error, profile {} has already been stored to storage", id);
+            LOG.error("Logical error, profile {} has already been stored to storage", getId());
             return;
         }
 
@@ -586,7 +575,7 @@ public class Profile {
             dataOutputStream.flush();
             this.profileSize = profileFile.length();
         } catch (Exception e) {
-            LOG.error("write {} summary profile failed", id, e);
+            LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {
             try {
@@ -690,7 +679,7 @@ public class Profile {
             return;
         }
 
-        LOG.info("Profile {} has been stored to storage, reading it from storage", id);
+        LOG.info("Profile {} has been stored to storage, reading it from storage", getId());
 
         FileInputStream fileInputStream = null;
 
@@ -727,5 +716,32 @@ public class Profile {
         }
 
         return;
+    }
+
+    public String debugInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("ProfileId:").append(getId()).append("|");
+        builder.append("StoragePath:").append(profileStoragePath).append("|");
+        builder.append("StartTimeStamp:").append(summaryProfile.getQueryBeginTime()).append("|");
+        builder.append("IsFinished:").append(isQueryFinished).append("|");
+        builder.append("FinishTimestamp:").append(queryFinishTimestamp).append("|");
+        builder.append("AutoProfileDuration: ").append(autoProfileDurationMs).append("|");
+        builder.append("ExecutionProfileCnt: ").append(executionProfiles.size()).append("|");
+        builder.append("ProfileOnStorageSize:").append(profileSize);
+        return builder.toString();
+    }
+
+    public void setQueryFinishTimestamp(long l) {
+        this.queryFinishTimestamp = l;
+    }
+
+    public String getId() {
+        return summaryProfile.getProfileId();
+    }
+
+    public String toString() {
+        StringBuilder stringBuilder = new StringBuilder();
+        getExecutionProfileContent(stringBuilder);
+        return stringBuilder.toString();
     }
 }

@@ -46,6 +46,16 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
     sql """CREATE USER ${userName} identified by '${userPassword}' DEFAULT ROLE '${roleName}'"""
     sql """GRANT create_priv ON *.*.* TO '${userName}'; """
 
+    sql """
+        CREATE STORAGE VAULT ${hdfsVaultName}
+        PROPERTIES (
+            "type"="HDFS",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "${hdfsVaultName}",
+            "hadoop.username" = "${getHmsUser()}"
+        );
+        """
+
     connect(userName, userPassword, context.config.jdbcUrl) {
         expectExceptionLike({
             sql """
@@ -64,16 +74,6 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
     }
 
     sql """ GRANT usage_priv ON STORAGE VAULT '${hdfsVaultName}' TO ROLE '${roleName}';"""
-
-    sql """
-        CREATE STORAGE VAULT ${hdfsVaultName}
-        PROPERTIES (
-            "type"="HDFS",
-            "fs.defaultFS"="${getHmsHdfsFs()}",
-            "path_prefix" = "${hdfsVaultName}",
-            "hadoop.username" = "${getHmsUser()}"
-        );
-        """
 
     connect(userName, userPassword, context.config.jdbcUrl) {
         sql """

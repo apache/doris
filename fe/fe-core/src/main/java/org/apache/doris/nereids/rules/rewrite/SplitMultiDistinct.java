@@ -24,9 +24,9 @@ import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct.DistinctSplitCo
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -273,7 +273,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
             List<Slot> rightSlots = newAggs.get(1).getOutput();
             List<Expression> hashConditions = new ArrayList<>();
             for (int i = 0; i < len; ++i) {
-                hashConditions.add(new EqualTo(leftSlots.get(i), rightSlots.get(i)));
+                hashConditions.add(new NullSafeEqual(leftSlots.get(i), rightSlots.get(i)));
             }
             join = new LogicalJoin<>(JoinType.INNER_JOIN, hashConditions, newAggs.get(0), newAggs.get(1), null);
             for (int j = 2; j < newAggs.size(); ++j) {
@@ -281,7 +281,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
                 List<Slot> belowRightSlots = newAggs.get(j).getOutput();
                 List<Expression> aboveHashConditions = new ArrayList<>();
                 for (int i = 0; i < len; ++i) {
-                    aboveHashConditions.add(new EqualTo(belowJoinSlots.get(i), belowRightSlots.get(i)));
+                    aboveHashConditions.add(new NullSafeEqual(belowJoinSlots.get(i), belowRightSlots.get(i)));
                 }
                 join = new LogicalJoin<>(JoinType.INNER_JOIN, aboveHashConditions, join, newAggs.get(j), null);
             }

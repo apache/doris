@@ -26,6 +26,7 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "vec/exec/format/format_common.h"
+#include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vfile_scanner.h"
 
 namespace doris::pipeline {
@@ -37,9 +38,10 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
-    uint32_t shard_num = std::min(
-            config::doris_scanner_thread_pool_thread_num / state()->query_parallel_instance_num(),
-            _max_scanners);
+    // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
+    uint32_t shard_num =
+            std::min(config::doris_scanner_thread_pool_thread_num / p.query_parallel_instance_num(),
+                     _max_scanners);
     shard_num = std::max(shard_num, 1U);
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
@@ -60,28 +62,43 @@ std::string FileScanLocalState::name_suffix() const {
 
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
-    _max_scanners =
-            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
-    _max_scanners = std::max(std::max(_max_scanners, state->parallel_scan_max_scanners_count()), 1);
-    // For select * from table limit 10; should just use one thread.
-    if (should_run_serial()) {
-        _max_scanners = 1;
-    }
+    auto& p = _parent->cast<FileScanOperatorX>();
+
+    auto calc_max_scanners = [&](int parallel_instance_num) -> int {
+        int max_scanners = config::doris_scanner_thread_pool_thread_num / parallel_instance_num;
+        max_scanners =
+                std::max(std::max(max_scanners, state->parallel_scan_max_scanners_count()), 1);
+        if (should_run_serial()) {
+            max_scanners = 1;
+        }
+        return max_scanners;
+    };
+
     if (scan_ranges.size() == 1) {
         auto scan_range = scan_ranges[0].scan_range.ext_scan_range.file_scan_range;
         if (scan_range.__isset.split_source) {
+            p._batch_split_mode = true;
             auto split_source = scan_range.split_source;
             RuntimeProfile::Counter* get_split_timer = ADD_TIMER(_runtime_profile, "GetSplitTime");
+
+            _max_scanners = calc_max_scanners(p.query_parallel_instance_num());
             _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(
                     state, get_split_timer, split_source.split_source_id, split_source.num_splits,
                     _max_scanners);
         }
     }
-    if (_split_source == nullptr) {
-        _split_source =
-                std::make_shared<vectorized::LocalSplitSourceConnector>(scan_ranges, _max_scanners);
+
+    if (!p._batch_split_mode) {
+        _max_scanners = calc_max_scanners(p.query_parallel_instance_num());
+        if (_split_source == nullptr) {
+            _split_source = std::make_shared<vectorized::LocalSplitSourceConnector>(scan_ranges,
+                                                                                    _max_scanners);
+        }
+        // currently the total number of splits in the bach split mode cannot be accurately obtained,
+        // so we don't do it in the batch split mode.
+        _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
     }
-    _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
+
     if (scan_ranges.size() > 0 &&
         scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
         // for compatibility.

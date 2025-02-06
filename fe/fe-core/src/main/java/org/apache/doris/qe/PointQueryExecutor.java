@@ -379,4 +379,9 @@ public class PointQueryExecutor implements CoordInterface {
     public List<TNetworkAddress> getInvolvedBackends() {
         return Lists.newArrayList();
     }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        // Do nothing
+    }
 }

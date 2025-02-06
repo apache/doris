@@ -165,6 +165,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
+        if (isPartitionInvalid(snapshot)) {
+            return PartitionType.UNPARTITIONED;
+        }
         return getPartitionColumns(snapshot).size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
@@ -176,7 +179,15 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        if (isPartitionInvalid(snapshot)) {
+            return Collections.emptyList();
+        }
         return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
+    }
+
+    private boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
+        PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
+        return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
     }
 
     @Override
@@ -262,7 +273,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         PredicateBuilder builder = new PredicateBuilder(table.rowType());
         Predicate predicate = builder.equal(0, key.getSchemaId());
         // Adding predicates will also return excess data
-        List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}, {1}, {2}}, predicate);
+        List<InternalRow> rows = PaimonUtil.read(table, new int[] {0, 1, 2}, predicate);
         for (InternalRow row : rows) {
             PaimonSchema schema = PaimonUtil.rowToSchema(row);
             if (schema.getSchemaId() == key.getSchemaId()) {

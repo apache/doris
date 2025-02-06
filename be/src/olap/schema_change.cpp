@@ -137,6 +137,12 @@ public:
                             tablet_schema->column(i).get_aggregate_function(
                                     vectorized::AGG_LOAD_SUFFIX,
                                     tablet_schema->column(i).get_be_exec_version());
+                    if (!function) {
+                        return Status::InternalError(
+                                "could not find aggregate function on column {}, aggregation={}",
+                                tablet_schema->column(i).name(),
+                                tablet_schema->column(i).aggregation());
+                    }
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];

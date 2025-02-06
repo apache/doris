@@ -115,6 +115,7 @@ public:
         bool is_value_represented_by_number = false;
         PColumnMeta* pColumnMeta = nullptr;
         DataTypeSerDeSPtr serde = nullptr;
+        bool is_value_unambiguously_represented_in_contiguous_memory_region = false;
         Field default_field;
     };
     void SetUp() override {}
@@ -133,6 +134,8 @@ public:
         ASSERT_EQ(data_type->text_can_contain_only_valid_utf8(),
                   meta_info.text_can_contain_only_valid_utf8);
         ASSERT_EQ(data_type->have_maximum_size_of_value(), meta_info.have_maximum_size_of_value);
+        ASSERT_EQ(data_type->is_value_unambiguously_represented_in_contiguous_memory_region(),
+                  meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
         if (is_decimal(data_type) || data_type->is_nullable() || is_struct(data_type) ||
             is_nothing(data_type) || is_number(data_type) || is_columned_as_number(data_type) ||
             is_ip(data_type)) {
@@ -217,7 +220,9 @@ public:
             VectorBufferWriter buffer_writer(*ser_col.get());
             for (int i = 0; i < mutableColumn->size(); ++i) {
                 data_type->to_string(*mutableColumn, i, buffer_writer);
+                std::string res = data_type->to_string(*mutableColumn, i);
                 buffer_writer.commit();
+                EXPECT_EQ(res, ser_col->get_data_at(i).to_string());
             }
             // check ser_col to assert_column and check same with mutableColumn
             auto assert_column_1 = data_type->create_column();
@@ -226,6 +231,49 @@ public:
                 ReadBuffer rb(s.data(), s.size());
                 ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column_1.get()));
                 ASSERT_EQ(assert_column_1->operator[](i), mutableColumn->operator[](i));
+            }
+        }
+    }
+
+    // datatype serialize | deserialize assert is only used Block::serialize | deserialize which for PBlock
+    //  which happened in multiple BE shuffle data
+    void serialize_deserialize_assert(MutableColumns& columns, DataTypes data_types) {
+        // first make columns has same rows
+        size_t max_row = columns[0]->size();
+        for (int i = 1; i < columns.size(); ++i) {
+            max_row = std::max(max_row, columns[i]->size());
+        }
+        for (int i = 0; i < columns.size(); ++i) {
+            if (columns[i]->size() < max_row) {
+                columns[i]->resize(max_row);
+            }
+        }
+        // wrap columns into block
+        auto block = std::make_shared<Block>();
+        for (int i = 0; i < columns.size(); ++i) {
+            block->insert({columns[i]->get_ptr(), data_types[i], ""});
+        }
+        // nt be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
+        //                     size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
+        size_t be_exec_version = 2;
+        auto pblock = std::make_unique<PBlock>();
+        size_t uncompressed_bytes = 0;
+        size_t compressed_bytes = 0;
+        segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::ZSTD;
+        Status st = block->serialize(be_exec_version, pblock.get(), &uncompressed_bytes,
+                                     &compressed_bytes, compression_type);
+        ASSERT_EQ(st.ok(), true);
+        // deserialize
+        auto block_1 = std::make_shared<Block>();
+        st = block_1->deserialize(*pblock);
+        ASSERT_EQ(st.ok(), true);
+        // check block_1 and block is same
+        for (int i = 0; i < block->rows(); ++i) {
+            auto& col = block->get_by_position(i);
+            auto& col_1 = block_1->get_by_position(i);
+            ASSERT_EQ(col.column->size(), col_1.column->size());
+            for (int j = 0; j < col.column->size(); ++j) {
+                ASSERT_EQ(col.column->operator[](j), col_1.column->operator[](j));
             }
         }
     }

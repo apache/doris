@@ -885,4 +885,27 @@ class ChildOutputPropertyDeriverTest {
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(child, result);
     }
+
+    @Test
+    void testRepeatReturnChild2() {
+        SlotReference c1 = new SlotReference(
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c2 = new SlotReference(
+                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c3 = new SlotReference(
+                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+        PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(c1, c2, c3), ImmutableList.of(c1, c2), ImmutableList.of(c1, c2)),
+                ImmutableList.of(c1, c2, c3),
+                logicalProperties,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(repeat);
+        new Group(null, groupExpression, null);
+        PhysicalProperties child = PhysicalProperties.createHash(
+                ImmutableList.of(new ExprId(1)), ShuffleType.EXECUTION_BUCKETED);
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
+        Assertions.assertEquals(child, result);
+    }
 }

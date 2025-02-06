@@ -101,7 +101,7 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), orderKey);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), orderKey);
     }
 }

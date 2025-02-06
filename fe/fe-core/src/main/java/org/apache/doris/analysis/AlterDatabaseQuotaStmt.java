@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -41,13 +42,6 @@ public class AlterDatabaseQuotaStmt extends DdlStmt implements NotFallbackInPars
 
     @SerializedName("q")
     private long quota;
-
-    public enum QuotaType {
-        NONE,
-        DATA,
-        REPLICA,
-        TRANSACTION
-    }
 
     public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaValue) {
         this.dbName = dbName;

@@ -210,7 +210,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     // only for largeint(int128) type
     if (arrow_array->type_id() == arrow::Type::STRING) {
-        auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
@@ -226,6 +226,9 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                                            std::string(rb.position(), rb.count()).c_str());
                 }
                 col_data.emplace_back(val);
+            } else {
+                // insert default value
+                col_data.emplace_back(Int128());
             }
         }
         return;

@@ -58,7 +58,7 @@ public class InferTest extends SqlTestBase {
                                 f -> ExpressionUtils.and(f.getConjuncts().stream()
                                         .sorted((a, b) -> a.toString().compareTo(b.toString()))
                                         .collect(Collectors.toList()))
-                                        .toString().equals("AND[(id#0 >= 4),OR[(id#0 = 4),(id#0 > 4)]]"))
+                                        .toString().equals("(id#0 >= 4)"))
                     )
 
                 );
@@ -76,7 +76,7 @@ public class InferTest extends SqlTestBase {
                         logicalFilter(
                             leftOuterLogicalJoin(
                                 logicalFilter().when(
-                                        f -> f.getPredicate().toString().equals("AND[(id#0 >= 4),OR[(id#0 = 4),(id#0 > 4)]]")),
+                                        f -> f.getPredicate().toString().equals("(id#0 >= 4)")),
                                 logicalFilter().when(
                                         f -> f.getPredicate().toString().equals("(id#2 >= 4)")
                                 )
