@@ -1885,7 +1885,7 @@ void BlockFileCache::run_background_evict_in_advance() {
             SCOPED_RAW_TIMER(&duration_ns);
             try_evict_in_advance(batch, cache_lock);
         }
-        *_evict_in_advance_latency << (duration_ns / 1000);
+        *_evict_in_advance_latency_us << (duration_ns / 1000);
     }
 }
 
