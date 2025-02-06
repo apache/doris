@@ -89,7 +89,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String NUM_SCANNER_THREADS = "num_scanner_threads";
-    public static final String SCANNER_SCALE_UP_RATIO = "scanner_scale_up_ratio";
+    public static final String MIN_SCANNER_CONCURRENCY = "min_scanner_concurrnency";
+    public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
@@ -253,7 +254,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
-    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
@@ -766,12 +767,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
 
-    @VariableMgr.VarAttr(name = SCANNER_SCALE_UP_RATIO, needForward = true, description = {
-            "ScanNode自适应的增加扫描并发，最大允许增长的并发倍率，默认为0，关闭该功能",
-            "The max multiple of increasing the concurrency of scanners adaptively, "
-                    + "default 0, turn off scaling up"
+    @VariableMgr.VarAttr(name = MIN_SCANNER_CONCURRENCY, needForward = true, description = {
+        "Scanner 的最小并发度，默认为1", "The min concurrency of Scanner, default 1"
     })
-    public double scannerScaleUpRatio = 0;
+    public int minScannerConcurrency = 1;
+
+    @VariableMgr.VarAttr(name = MIN_SCAN_SCHEDULER_CONCURRENCY, needForward = true, description = {
+        "ScanScheduler 的最小并发度，默认值 0 表示使用 Scan 线程池线程数量的两倍", "The min concurrency of ScanScheduler, "
+            + "default 0 means use twice the number of Scan thread pool threads"
+    })
+    public int minScanSchedulerConcurrency = 0;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -1106,7 +1111,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.REMOVED)
     public boolean enableVectorizedEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, needForward = true,
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
             varType = VariableAnnotation.REMOVED)
     private boolean enablePipelineEngine = true;
 
@@ -1219,7 +1224,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
 
-    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, needForward = true)
+    @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
     private boolean runtimeFilterWaitInfinitely = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
@@ -1528,7 +1533,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, flag = VariableMgr.INVISIBLE,
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VariableMgr.INVISIBLE,
             varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
@@ -1763,7 +1768,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"batch方式中BE获取splits的最大等待时间",
                     "The max wait time of getting splits in batch mode."},
             needForward = true)
-    public long fetchSplitsMaxWaitTime = 4000;
+    public long fetchSplitsMaxWaitTime = 1000;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -2220,7 +2225,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用join算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of join operation. "
                             + "The default value is false."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public boolean enableJoinSpill = false;
 
     @VariableMgr.VarAttr(
@@ -2228,7 +2233,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用排序算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of sort operation. "
                             + "The default value is false."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public boolean enableSortSpill = false;
 
     @VariableMgr.VarAttr(
@@ -2245,7 +2250,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否启用聚合算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of aggregation operation. "
                             + "The default value is false."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public boolean enableAggSpill = false;
 
     @VariableMgr.VarAttr(
@@ -2253,7 +2258,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"控制是否开启强制落盘（即使在内存足够的情况），默认为 false。",
                     "Controls whether enable force spill."
             },
-            needForward = true, fuzzy = true
+            needForward = true, fuzzy = false
     )
     public boolean enableForceSpill = false;
 
@@ -2261,14 +2266,14 @@ public class SessionVariable implements Serializable, Writable {
             name = DATA_QUEUE_MAX_BLOCKS,
             description = {"DataQueue 中每个子队列允许最大的 block 个数",
                     "Max blocks in DataQueue."},
-            needForward = true, fuzzy = true)
+            needForward = true, fuzzy = false)
     public long dataQueueMaxBlocks = 1;
 
     @VariableMgr.VarAttr(
             name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
             description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
                     "Disable the runtime filter on the BE for testing purposes."},
-            needForward = true, fuzzy = false)
+            needForward = true, fuzzy = true)
     public boolean fuzzyDisableRuntimeFilterInBE = false;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
@@ -2280,13 +2285,13 @@ public class SessionVariable implements Serializable, Writable {
 
     // The memory limit of streaming agg when spilling is enabled
     // NOTE: streaming agg operator will not spill to disk.
-    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = true)
+    @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     public static final int MIN_EXTERNAL_AGG_PARTITION_BITS = 4;
     public static final int MAX_EXTERNAL_AGG_PARTITION_BITS = 20;
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
-            checker = "checkExternalAggPartitionBits", fuzzy = true)
+            checker = "checkExternalAggPartitionBits", fuzzy = false)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
@@ -2502,7 +2507,7 @@ public class SessionVariable implements Serializable, Writable {
 
         this.runtimeFilterType = 1 << randomInt;
         this.enableParallelScan = random.nextInt(2) == 0;
-        this.enableRuntimeFilterPrune = (randomInt % 2) == 0;
+        this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
 
         switch (randomInt) {
             case 0:
@@ -2533,40 +2538,12 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableFoldConstantByBe = false;
             }
 
-            this.fuzzyDisableRuntimeFilterInBE = true;
         }
+        this.fuzzyDisableRuntimeFilterInBE = random.nextBoolean();
+        this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
-
-        // for spill to disk
-        if (Config.pull_request_id > 10000) {
-            if (Config.pull_request_id % 2 == 0) {
-                this.enableJoinSpill = true;
-                this.enableSortSpill = true;
-                this.enableAggSpill = true;
-
-                randomInt = random.nextInt(4);
-                switch (randomInt) {
-                    case 0:
-                        this.minRevocableMem = 0;
-                        break;
-                    case 1:
-                        this.minRevocableMem = 1;
-                        break;
-                    case 2:
-                        this.minRevocableMem = 1024 * 1024;
-                        break;
-                    default:
-                        this.minRevocableMem = 100L * 1024 * 1024 * 1024;
-                        break;
-                }
-            } else {
-                this.enableJoinSpill = false;
-                this.enableSortSpill = false;
-                this.enableAggSpill = false;
-            }
-        }
     }
 
     public String printFuzzyVariables() {
@@ -2681,10 +2658,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getNumScannerThreads() {
         return numScannerThreads;
-    }
-
-    public double getScannerScaleUpRatio() {
-        return scannerScaleUpRatio;
     }
 
     public int getQueryTimeoutS() {
@@ -2868,10 +2841,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumScannerThreads(int numScannerThreads) {
         this.numScannerThreads = numScannerThreads;
-    }
-
-    public void setScannerScaleUpRatio(double scannerScaleUpRatio) {
-        this.scannerScaleUpRatio = scannerScaleUpRatio;
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -3553,31 +3522,26 @@ public class SessionVariable implements Serializable, Writable {
 
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
-        // TODO: support cloud mode
-        if (Config.isCloudMode()) {
-            return false;
-        }
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
             return true;
         }
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext == null) {
-            return true;
-        }
-        StatementBase parsedStatement = statementContext.getParsedStatement();
-        if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-            return false;
-        }
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        // TODO: support other sink
-        if ((logicalPlan instanceof UnboundResultSink
-                || logicalPlan instanceof LogicalFileSink
-                || logicalPlan instanceof InsertIntoTableCommand) && sessionVariable.enableNereidsDistributePlanner) {
-            return true;
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext != null) {
+            StatementBase parsedStatement = statementContext.getParsedStatement();
+            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
+                return false;
+            }
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
+            // TODO: support other sink
+            if (!(logicalPlan instanceof UnboundResultSink
+                    || logicalPlan instanceof LogicalFileSink
+                    || logicalPlan instanceof InsertIntoTableCommand)) {
+                return false;
+            }
         }
-        return false;
+        return sessionVariable.enableNereidsDistributePlanner;
     }
 
     public boolean isEnableNereidsDistributePlanner() {
@@ -3897,7 +3861,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setNumScannerThreads(numScannerThreads);
-        tResult.setScannerScaleUpRatio(scannerScaleUpRatio);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
 
@@ -4049,6 +4012,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
+        tResult.setProfileLevel(getProfileLevel());
 
         return tResult;
     }
@@ -4241,7 +4205,8 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setScanQueueMemLimit(maxScanQueueMemByte);
         queryOptions.setNumScannerThreads(numScannerThreads);
-        queryOptions.setScannerScaleUpRatio(scannerScaleUpRatio);
+        queryOptions.setMinScannerConcurrency(minScannerConcurrency);
+        queryOptions.setMinScanSchedulerConcurrency(minScanSchedulerConcurrency);
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         queryOptions.setAnalyzeTimeout(analyzeTimeoutS);

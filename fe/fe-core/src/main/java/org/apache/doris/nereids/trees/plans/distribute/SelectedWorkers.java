@@ -28,6 +28,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /** SelectedWorkers */
@@ -37,7 +38,7 @@ public class SelectedWorkers {
     private final Set<DistributedPlanWorker> usedWorkers;
 
     public SelectedWorkers(DistributedPlanWorkerManager workerManager) {
-        this.workerManager = workerManager;
+        this.workerManager = Objects.requireNonNull(workerManager, "workerManager can not be null");
         this.usedWorkersAddressToBackendID = Maps.newLinkedHashMap();
         this.usedWorkers = Sets.newLinkedHashSet();
     }
