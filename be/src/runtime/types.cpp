@@ -64,7 +64,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
                 len = OLAP_STRING_MAX_LENGTH;
             }
         } else if (type == TYPE_VARIANT) {
-            DCHECK(scalar_type.__isset.variant_max_subcolumns_count);
+            DCHECK(scalar_type.variant_max_subcolumns_count > 0);
             variant_max_subcolumns_count = scalar_type.variant_max_subcolumns_count;
         }
         break;
