@@ -1270,4 +1270,8 @@ void BaseBackendService::get_all_dictionary_status(TAllDictionaryStatus& result)
     result.__set_dictionary_status_list(dictionary_status);
 }
 
+void BaseBackendService::get_dictionary_status(TDictionaryStatus& result, int64_t dictionary_id) {
+    ExecEnv::GetInstance()->dict_factory()->get_dictionary_status(result, dictionary_id);
+}
+
 } // namespace doris

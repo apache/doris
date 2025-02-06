@@ -90,6 +90,8 @@ public:
 
     void get_all_dictionary_status(std::vector<TDictionaryStatus>& dictionary_status);
 
+    void get_dictionary_status(TDictionaryStatus& result, int64_t dict_id);
+
 private:
     std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map;
     std::map<int64_t, int64_t> _dict_id_to_version_id_map;

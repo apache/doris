@@ -139,6 +139,8 @@ public:
 
     void get_all_dictionary_status(TAllDictionaryStatus& result) override;
 
+    void get_dictionary_status(TDictionaryStatus& result, int64_t dictionary_id) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
