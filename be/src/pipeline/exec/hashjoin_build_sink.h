@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "exprs/runtime_filter_slots.h"
+#include "exprs/runtime_filter/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
 

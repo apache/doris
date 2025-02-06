@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/runtime_filter/runtime_filter_definitions.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -40,19 +41,6 @@ class BitmapFilterFuncBase;
 namespace pipeline {
 class Dependency;
 }
-
-struct RuntimeFilterContext {
-    std::shared_ptr<MinMaxFuncBase> minmax_func;
-    std::shared_ptr<HybridSetBase> hybrid_set;
-    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
-    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
-    bool ignored = false;
-    bool disabled = false;
-    std::string err_msg;
-};
-
-using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
-
 namespace vectorized {
 
 class Arena;
