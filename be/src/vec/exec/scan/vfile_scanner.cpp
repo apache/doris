@@ -218,7 +218,7 @@ void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
 }
 
 void VFileScanner::_init_runtime_filter_partition_pruning_block() {
-    if (_runtime_filter_partition_pruning_ctxs.empty() || _partition_col_descs.empty()) {
+    if (_partition_col_descs.empty()) {
         return;
     }
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
