@@ -140,12 +140,12 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     for (def profileId : profileShouldHaveOnePeakRunningScanner) {
         def profile = getProfile(profileId).toString()
         logger.info("Profile ${profile}")
-        assertTrue(profile.contains("- MaxScannerThreadNum: 1"))
+        assertTrue(profile.contains("- MaxScanConcurrency: 1"))
     }
 
     for (def profileId : profileShouldHaveMoreThanOnePeakRunningScanner) {
         def profile = getProfile(profileId).toString()
         logger.info("Profile ${profile}")
-        assertTrue(!profile.contains("- MaxScannerThreadNum: 1"))
+        assertTrue(!profile.contains("- MaxScanConcurrency: 1"))
     }
 }
