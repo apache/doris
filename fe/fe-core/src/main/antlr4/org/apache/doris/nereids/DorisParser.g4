@@ -714,6 +714,8 @@ unsupportedDropStatement
 supportedStatsStatement
     : SHOW AUTO? ANALYZE (jobId=INTEGER_VALUE | tableName=multipartIdentifier)?
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showAnalyze
+    | SHOW QUEUED ANALYZE JOBS tableName=multipartIdentifier?
+        (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
     ;
 
 unsupportedStatsStatement
@@ -740,7 +742,6 @@ unsupportedStatsStatement
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
         columnList=identifierList                                               #showColumnHistogramStats
-    | SHOW AUTO JOBS tableName=multipartIdentifier? wildWhere?                  #showAutoAnalyzeJobs
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
@@ -2008,6 +2009,7 @@ nonReserved
     | QUERY
     | QUOTA
     | QUALIFY
+    | QUEUED
     | RANDOM
     | RECENT
     | RECOVER
