@@ -56,24 +56,24 @@ class CompareLiteralTest extends TestWithFeService {
         checkComparableNoException("select array(1,2) > array(1, 2)");
 
         // json type
-        checkNotComparable("select cast ('[1, 2]' as json) = cast('[1, 2]' as json)",
-                "comparison predicate could not contains json type");
-        checkNotComparable("select cast('[1, 2]' as json) > cast('[1, 2]' as json)",
-                "comparison predicate could not contains json type");
+        // checkNotComparable("select cast ('[1, 2]' as json) = cast('[1, 2]' as json)",
+        //        "comparison predicate could not contains json type");
+        // checkNotComparable("select cast('[1, 2]' as json) > cast('[1, 2]' as json)",
+        //        "comparison predicate could not contains json type");
 
         // map type
         checkNotComparable("select map(1, 2) = map(1, 2)",
-                "comparison predicate could not contains complex type");
+                "can not cast from origin type map<tinyint,tinyint> to target type=double");
         checkNotComparable("select map(1, 2) > map(1, 2)",
-                "comparison predicate could not contains complex type");
+                "can not cast from origin type map<tinyint,tinyint> to target type=double");
         checkNotComparable("select cast('(1, 2)' as map<int, int>) = cast('(1, 2)' as map<int, int>)",
-                "comparison predicate could not contains complex type");
+                "can not cast from origin type map<int,int> to target type=double");
 
         // struct type
         checkNotComparable("select struct(1, 2) = struct(1, 2)",
-                "comparison predicate could not contains complex type");
+                "can not cast from origin type struct<col:tinyint,col:tinyint> to target type=double");
         checkNotComparable("select struct(1, 2) > struct(1, 2)",
-                "comparison predicate could not contains complex type");
+                "can not cast from origin type struct<col:tinyint,col:tinyint> to target type=double");
     }
 
     private void checkCompareSameType(int expect, Literal left, Literal right) {

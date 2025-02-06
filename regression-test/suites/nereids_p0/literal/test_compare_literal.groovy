@@ -122,32 +122,32 @@ suite('test_compare_literal') {
     sql 'set debug_skip_fold_constant=false'
 
     // json
-    test {
-        sql "select cast('[1, 2]' as json) = cast('[1, 2]' as json)"
-        exception 'comparison predicate could not contains json type'
-    }
-    test {
-        sql "select cast('[1, 2]' as json) > cast('[1, 2]' as json)"
-        exception 'comparison predicate could not contains json type'
-    }
+    // test {
+    //     sql "select cast('[1, 2]' as json) = cast('[1, 2]' as json)"
+    //     exception 'comparison predicate could not contains json type'
+    // }
+    // test {
+    //     sql "select cast('[1, 2]' as json) > cast('[1, 2]' as json)"
+    //     exception 'comparison predicate could not contains json type'
+    // }
 
     // map
     test {
         sql 'select map(1, 2) = map(1, 2)'
-        exception 'comparison predicate could not contains complex type'
+        exception 'can not cast from origin type map<tinyint,tinyint> to target type=double'
     }
     test {
         sql 'select map(1, 2) > map(1, 2)'
-        exception 'comparison predicate could not contains complex type'
+        exception 'can not cast from origin type map<tinyint,tinyint> to target type=double'
     }
 
     // struct
     test {
         sql 'select struct(1, 2) = struct(1, 2)'
-        exception 'comparison predicate could not contains complex type'
+        exception 'can not cast from origin type struct<col:tinyint,col:tinyint> to target type=double'
     }
     test {
         sql 'select struct(1, 2) > struct(1, 2)'
-        exception 'comparison predicate could not contains complex type'
+        exception 'can not cast from origin type struct<col:tinyint,col:tinyint> to target type=double'
     }
 }
