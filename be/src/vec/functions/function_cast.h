@@ -406,8 +406,26 @@ struct ConvertImpl {
                                              IsDateV2Type<ToDataType>) {
                             DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
-                            UInt32 scale = additions;
-                            vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
+                            DCHECK(IsDateTimeV2Type<FromDataType>);
+                            DCHECK(IsDateTimeV2Type<ToDataType>);
+                            UInt32 to_scale = additions;
+                            auto from_scale = named_from.type->get_scale();
+                            auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(vec_to[i]);
+                            auto from_value = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                    vec_from[i]);
+                            UInt64 microsecond = 0;
+                            if (from_scale < to_scale) {
+                                // scale up no need to do anything
+                                microsecond = from_value.microsecond();
+                            } else {
+                                // scale down should clear the low bits to 0
+                                auto factor = (UInt64)std::pow(10, 6 - to_scale);
+                                microsecond = (from_value.microsecond() / factor) * factor;
+                            }
+                            to_value.unchecked_set_time(from_value.year(), from_value.month(),
+                                                        from_value.day(), from_value.hour(),
+                                                        from_value.minute(), from_value.second(),
+                                                        microsecond);
                         }
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
@@ -453,8 +471,8 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
-                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
+                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -1588,11 +1606,11 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
-                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
+                   (IsTimeType<DataType> || IsTimeV2Type<DataType>) &&
+                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
