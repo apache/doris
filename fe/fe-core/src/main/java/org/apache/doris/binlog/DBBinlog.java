@@ -210,7 +210,7 @@ public class DBBinlog {
         return dbId;
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long tableId, long prevCommitSeq) {
+    public Pair<TStatus, List<TBinlog>> getBinlog(long tableId, long prevCommitSeq, long numAcquired) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -221,10 +221,10 @@ public class DBBinlog {
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
-                return tableBinlog.getBinlog(prevCommitSeq);
+                return tableBinlog.getBinlog(prevCommitSeq, numAcquired);
             }
 
-            return BinlogUtils.getBinlog(allBinlogs, prevCommitSeq);
+            return BinlogUtils.getBinlog(allBinlogs, prevCommitSeq, numAcquired);
         } finally {
             lock.readLock().unlock();
         }
