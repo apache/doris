@@ -25,8 +25,6 @@ suite("limit_push_down") {
     sql "SET disable_join_reorder=true"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
-    def var_result = sql "show variables"
-    logger.info("show variales result: " + var_result )
 
     sql 'set be_number_for_test=3'
     //`limit 1, project`:
