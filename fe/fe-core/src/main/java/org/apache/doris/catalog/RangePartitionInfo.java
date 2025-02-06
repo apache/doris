@@ -86,6 +86,9 @@ public class RangePartitionInfo extends PartitionInfo {
         Range<PartitionKey> newRange = null;
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
         // check range
+        if (partitionKeyDesc.hasInValues()) {
+            throw new DdlException("Range partition expected 'VALUES [LESS THAN or [(\"xxx\" ,...), (\"xxx\", ...))]'");
+        }
         try {
             newRange = createAndCheckNewRange(partitionKeyDesc, isTemp);
         } catch (AnalysisException e) {

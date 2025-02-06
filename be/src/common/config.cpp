@@ -253,6 +253,10 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to check md5sum when download
+DEFINE_mBool(enable_download_md5sum_check, "true");
+// download binlog meta timeout, default 30s
+DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -678,7 +682,7 @@ DEFINE_mBool(sync_file_on_close, "true");
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "180000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
@@ -1056,12 +1060,14 @@ DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 DEFINE_mBool(enbale_dump_error_file, "false");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
-DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
+DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
+DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
@@ -1405,6 +1411,10 @@ DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 DEFINE_mInt32(compaction_num_per_round, "1");
+
+DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
+DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
+DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 
 // clang-format off
 #ifdef BE_TEST

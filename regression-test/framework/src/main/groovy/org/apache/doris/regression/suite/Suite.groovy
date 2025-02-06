@@ -1781,6 +1781,24 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void setBeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
+        Map<String, Map<String, String>> originConf = Maps.newHashMap()
+        tempConfig.each{ k, v ->
+            originConf.put(k, get_be_param(k))
+        }
+        try {
+            tempConfig.each{ k, v -> set_be_param(k, v)}
+            actionSupplier()
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            originConf.each { k, confs ->
+                set_original_be_param(k, confs)
+            }
+        }
+    }
+
     void waitAddFeFinished(String host, int port) {
         logger.info("waiting for ${host}:${port}")
         Awaitility.await().atMost(60, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
@@ -2462,7 +2480,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def get_cluster = { be_unique_id ->
+    def get_cluster = { be_unique_id , MetaService ms=null->
         def jsonOutput = new JsonOutput()
         def map = [instance_id: "${instance_id}", cloud_unique_id: "${be_unique_id}" ]
         def js = jsonOutput.toJson(map)
@@ -2470,7 +2488,11 @@ class Suite implements GroovyInterceptable {
 
         def add_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/get_cluster?token=${token}"
                 body request_body
                 check check_func
@@ -2643,7 +2665,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def d_node = { be_unique_id, ip, port, cluster_name, cluster_id ->
+    def d_node = { be_unique_id, ip, port, cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def clusterInfo = [
                      type: "COMPUTE",
@@ -2663,7 +2685,11 @@ class Suite implements GroovyInterceptable {
 
         def d_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/decommission_node?token=${token}"
                 body request_body
                 check check_func

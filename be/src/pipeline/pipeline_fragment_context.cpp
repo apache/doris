@@ -131,7 +131,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
@@ -375,8 +375,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
-        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-                request.query_id, _runtime_filter_states[i], _query_ctx->query_mem_tracker, false);
+        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr =
+                std::make_unique<RuntimeFilterMgr>(request.query_id, _runtime_filter_states[i],
+                                                   _query_ctx->query_mem_tracker(), false);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
@@ -411,7 +412,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
                     // Initialize runtime state for this task
-                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
+                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
 
                     task_runtime_state->set_task_execution_context(shared_from_this());
                     task_runtime_state->set_be_number(local_params.backend_num);
@@ -1049,7 +1050,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         DCHECK(thrift_sink.__isset.olap_table_sink);
 #ifndef NDEBUG
         DCHECK(state->get_query_ctx() != nullptr);
-        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+        state->get_query_ctx()->query_mem_tracker()->is_group_commit_load = true;
 #endif
         _sink.reset(
                 new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
@@ -1201,7 +1202,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
 #ifndef NDEBUG
         DCHECK(_query_ctx != nullptr);
-        _query_ctx->query_mem_tracker->is_group_commit_load = true;
+        _query_ctx->query_mem_tracker()->is_group_commit_load = true;
 #endif
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(

@@ -351,7 +351,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
-            LOG.info("try to commit transaction, transactionId: {}", transactionId);
+            LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
+                    tableList.stream().map(Table::getId).collect(Collectors.toList()));
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
             if (!mowTableList.isEmpty()) {
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
@@ -941,11 +942,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
-            LOG.info("get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
-                            + "partitionSize: {}. time cost: {} ms.", transactionId, totalRetryTime,
-                    lockContext.getTableToPartitions().size(), stopWatch.getTime());
-        }
+        LOG.info("get delete bitmap lock successfully. txnId: {}. totalRetryTime: {}. "
+                        + "tableSize: {}. cost: {} ms.", transactionId, totalRetryTime,
+                lockContext.getTableToPartitions().size(), stopWatch.getTime());
     }
 
     private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
@@ -1275,15 +1274,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         AbortTxnResponse abortTxnResponse = null;
         try {
-            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null, null);
+            abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null);
         } finally {
             handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId);
         }
     }
 
     private AbortTxnResponse abortTransactionImpl(Long dbId, Long transactionId, String reason,
-            TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
-        LOG.info("try to abort transaction, dbId:{}, transactionId:{}", dbId, transactionId);
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
+        LOG.info("try to abort transaction, dbId:{}, transactionId:{}, reason: {}", dbId, transactionId, reason);
 
         AbortTxnRequest.Builder builder = AbortTxnRequest.newBuilder();
         builder.setDbId(dbId);

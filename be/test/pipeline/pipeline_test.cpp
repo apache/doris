@@ -59,9 +59,9 @@ public:
         auto fe_address = TNetworkAddress();
         fe_address.hostname = LOCALHOST;
         fe_address.port = DUMMY_PORT;
-        _query_ctx = QueryContext::create_shared(_query_id, ExecEnv::GetInstance(), _query_options,
-                                                 fe_address, true, fe_address,
-                                                 QuerySource::INTERNAL_FRONTEND);
+        _query_ctx =
+                QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
+                                     true, fe_address, QuerySource::INTERNAL_FRONTEND);
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 TRuntimeFilterParamsBuilder().build());
         ExecEnv::GetInstance()->set_stream_mgr(_mgr.get());
@@ -106,9 +106,9 @@ private:
         auto fe_address = TNetworkAddress();
         fe_address.hostname = LOCALHOST;
         fe_address.port = DUMMY_PORT;
-        _query_ctx = QueryContext::create_shared(_query_id, ExecEnv::GetInstance(), _query_options,
-                                                 fe_address, true, fe_address,
-                                                 QuerySource::INTERNAL_FRONTEND);
+        _query_ctx =
+                QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
+                                     true, fe_address, QuerySource::INTERNAL_FRONTEND);
         _runtime_state.clear();
         _context.clear();
         _fragment_id = 0;
@@ -933,7 +933,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         for (int j = 0; j < parallelism; j++) {
             auto runtime_filter_state = RuntimeFilterParamsContext::create(_query_ctx.get());
             _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(
-                    _query_id, runtime_filter_state, _query_ctx->query_mem_tracker, false);
+                    _query_id, runtime_filter_state, _query_ctx->query_mem_tracker(), false);
         }
         for (size_t i = 0; i < _pipelines.size(); i++) {
             EXPECT_EQ(_pipelines[i]->id(), i);
