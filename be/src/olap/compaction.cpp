@@ -837,7 +837,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
             continue;
         }
         auto col_unique_id = col_unique_ids[0];
-        if (!_cur_tablet_schema->exist_column_by_uid(col_unique_id)) {
+        if (!_cur_tablet_schema->has_column_unique_id(col_unique_id)) {
             LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                          << col_unique_id << "] not found, will skip index compaction";
             continue;
