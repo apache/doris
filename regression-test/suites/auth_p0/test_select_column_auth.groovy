@@ -84,7 +84,7 @@ suite("test_select_column_auth","p0,auth") {
         (3, "333");
         """
     sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
-    waitingMTMVTaskFinishedByMvName(mtmv_name)
+    waitingMTMVTaskFinishedByMvName(mtmv_name, dbName)
 
     sql """grant select_priv on regression_test to ${user}"""
 
