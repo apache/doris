@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
 
     std::string bucket = "gavin-test-hk-1308700295";
     // prefix, in key
-    std::string key = "/dx_micro_bench/test25/aaaaaa";
+    std::string key = "dx_micro_bench/test25/aaaaaa";
     size_t data_size = std::stoull(argv[3]);  // 数据大小（字节）
 
     // 生成随机数据
@@ -65,6 +65,7 @@ int main(int argc, char* argv[]) {
     // 写入数据到 S3
     {
         doris::io::FileWriterOptions options;
+        options.write_file_cache = true;
         auto writer = std::make_unique<doris::io::S3FileWriter>(client, bucket, key, &options);
 
         doris::Slice slice(data.data(), data.size());
@@ -84,17 +85,20 @@ int main(int argc, char* argv[]) {
         std::cout << "Data written to S3 successfully." << std::endl;
     }
 
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
     // 使用 CachedRemoteFileReader 读取数据进行验证
     {
         // 创建读取选项
         doris::io::FileReaderOptions reader_opts;
         reader_opts.cache_type = doris::io::FileCachePolicy::FILE_BLOCK_CACHE;
-        reader_opts.is_doris_table = false;  // 非 Doris 表数据
-        reader_opts.cache_base_path = "/mnt/disk2/dengxin/file_cache";
+        reader_opts.is_doris_table = true;  // 非 Doris 表数据
+        // reader_opts.cache_base_path = "/mnt/disk2/dengxin/file_cache";
 
         // 创建基础的 S3FileReader
         doris::io::FileDescription fd;
-        fd.path = doris::io::Path("s3://" + bucket + key);
+        std::cout << "read = s3://" + bucket + "/" + key << std::endl;
+        fd.path = doris::io::Path("s3://" + bucket + "/" + key);
         doris::io::FileSystemProperties fs_props;
         fs_props.system_type = doris::TFileType::FILE_S3;
         
@@ -126,9 +130,6 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // 创建 CachedRemoteFileReader
-        auto cached_reader = std::make_shared<doris::io::CachedRemoteFileReader>(s3_reader, reader_opts);
-
         // 准备读取缓冲区
         std::string read_buffer;
         read_buffer.resize(data.size());
@@ -141,7 +142,7 @@ int main(int argc, char* argv[]) {
 
         // 读取数据
         size_t bytes_read = 0;
-        doris::Status read_status = cached_reader->read_at(0, read_slice, &bytes_read, &io_ctx);
+        doris::Status read_status = s3_reader->read_at(0, read_slice, &bytes_read, &io_ctx);
         
         if (!read_status.ok()) {
             std::cerr << "Error reading from S3: " << read_status.to_string() << std::endl;
