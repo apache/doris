@@ -1544,6 +1544,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 // Currently index_ids is guaranteed to be empty,
                 // but we clear it again here as a safeguard against future code changes
                 // that might cause index_ids to no longer be empty
+                index_format = InvertedIndexStorageFormatPB::V2;
                 index_ids.clear();
             } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
@@ -1569,6 +1570,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 // try to recycle inverted index v2 when get_ret == 1
                 // we treat schema not found as if it has a v2 format inverted index
                 // to reduce chance of data leakage
+                if (inverted_index_get_ret == 1) {
+                    LOG_INFO("delete rowset data schema kv not found, try to delete index file")
+                            .tag("instance_id", instance_id_)
+                            .tag("inverted index v2 path",
+                                 inverted_index_path_v2(tablet_id, rowset_id, i));
+                }
                 file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
