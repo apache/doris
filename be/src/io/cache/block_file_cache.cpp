@@ -214,8 +214,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_storage_retry_sync_remove_latency_us");
     _storage_async_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_storage_async_remove_latency_us");
-    _evict_in_advance_latency = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_evict_in_advance_latency_ns");
+    _evict_in_advance_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_evict_in_advance_latency_us");
 
     _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_recycle_keys_length");
@@ -1885,7 +1885,7 @@ void BlockFileCache::run_background_evict_in_advance() {
             SCOPED_RAW_TIMER(&duration_ns);
             try_evict_in_advance(batch, cache_lock);
         }
-        *_evict_in_advance_latency << duration_ns;
+        *_evict_in_advance_latency << (duration_ns / 1000);
     }
 }
 
