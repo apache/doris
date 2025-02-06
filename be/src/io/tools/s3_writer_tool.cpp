@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    doris::ExecEnv::GetInstance()->build_s3_upload_pool();
+    doris::ExecEnv::GetInstance()->init_file_cache_microbench_env();
 
     // 写入数据到 S3
     {
