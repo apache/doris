@@ -1876,4 +1876,38 @@ Status BaseTablet::show_nested_index_file(std::string* json_meta) {
     return Status::OK();
 }
 
+void BaseTablet::get_base_rowset_delete_bitmap_count(
+        uint64_t* max_base_rowset_delete_bitmap_score,
+        int64_t* max_base_rowset_delete_bitmap_score_tablet_id) {
+    std::vector<RowsetSharedPtr> rowsets_;
+    std::string base_rowset_id_str;
+    {
+        std::shared_lock rowset_ldlock(this->get_header_lock());
+        for (const auto& it : _rs_version_map) {
+            rowsets_.emplace_back(it.second);
+        }
+    }
+    std::sort(rowsets_.begin(), rowsets_.end(), Rowset::comparator);
+    if (!rowsets_.empty()) {
+        bool base_found = false;
+        for (auto& rowset : rowsets_) {
+            if (rowset->start_version() > 2) {
+                break;
+            }
+            base_found = true;
+            uint64_t base_rowset_delete_bitmap_count =
+                    this->tablet_meta()->delete_bitmap().get_count_with_range(
+                            {rowset->rowset_id(), 0, 0},
+                            {rowset->rowset_id(), UINT32_MAX, UINT64_MAX});
+            if (base_rowset_delete_bitmap_count > *max_base_rowset_delete_bitmap_score) {
+                *max_base_rowset_delete_bitmap_score = base_rowset_delete_bitmap_count;
+                *max_base_rowset_delete_bitmap_score_tablet_id = this->tablet_id();
+            }
+        }
+        if (!base_found) {
+            LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
+        }
+    }
+}
+
 } // namespace doris
