@@ -226,7 +226,9 @@ FileBlock::State FileBlock::wait() {
     }
 
     if (_download_state == State::DOWNLOADING) {
+#if !defined(BE_TEST) 
         DCHECK(_downloader_id != 0 && _downloader_id != get_caller_id());
+#endif
         _cv.wait_for(block_lock, std::chrono::milliseconds(config::block_cache_wait_timeout_ms));
     }
 

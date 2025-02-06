@@ -682,6 +682,22 @@ void ExecEnv::set_wal_mgr(std::unique_ptr<WalManager>&& wm) {
 void ExecEnv::clear_wal_mgr() {
     this->_wal_manager.reset();
 }
+
+void ExecEnv::build_s3_upload_pool() {
+    static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
+                            .set_min_threads(256)
+                            .set_max_threads(512)
+                            .build(&_s3_file_upload_thread_pool)); 
+    _file_cache_factory = new io::FileCacheFactory();
+    std::vector<doris::CachePath> cache_paths;
+    init_file_cache_factory(cache_paths);
+    LOG(INFO) << "chached path=";
+    for (auto p : cache_paths) {
+        LOG(INFO) << "p=" << p.path;
+    }
+    LOG(INFO) << "end....";
+
+}
 #endif
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
