@@ -45,8 +45,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**EliminateOrderByKey*/
-@DependsRules({NormalizeSort.class})
+/**
+ * 1.eliminate by duplicate
+ * select a from t1 order by a, a;
+ * ->
+ * select a from t1 order by a;
+ * 2.eliminate by function dependency
+ * select a from t1 order by a, a+1;
+ * select a from t1 order by a, abs(a) ;
+ * select a from t1 where a=c order by a,c
+ * ->
+ * select a from t1 order by a;
+ * 3.eliminate by uniform
+ * select a,b,c from test where a=1 order by a;
+ * ->
+ * select a,b,c from test where a=1;
+ * */
+@DependsRules({
+        NormalizeSort.class,
+        ExtractAndNormalizeWindowExpression.class,
+        CheckAndStandardizeWindowFunctionAndFrame.class})
 public class EliminateOrderByKey implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
