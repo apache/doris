@@ -22,9 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
-#include "util/doris_metrics.h"
 #include "util/threadpool.h"
-#include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 class ExecEnv;
@@ -209,12 +207,17 @@ public:
 
     std::vector<int> thread_debug_info() { return _scan_thread_pool->debug_info(); }
 
+    Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
+                              std::shared_ptr<ScanTask> current_scan_task,
+                              std::unique_lock<std::mutex>& transfer_lock);
+
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
     std::string _workload_group;
+    std::shared_mutex _lock;
 };
 
 } // namespace doris::vectorized
