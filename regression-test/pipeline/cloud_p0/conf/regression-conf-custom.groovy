@@ -50,7 +50,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_topn_fault_injection," +
     "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
-    "shuffle_left_join,colocate_union_numbers,prune_bucket_with_bucket_shuffle_join,",
+    "shuffle_left_join,colocate_union_numbers,prune_bucket_with_bucket_shuffle_join,", // this feature is not picked to branch-3.0
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
