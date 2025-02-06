@@ -1424,4 +1424,15 @@ suite("nereids_scalar_fn_Array") {
     // map_contains_value
     qt_sql """ select map_contains_value(map(1,1), 257), map_contains_value(map(1,2), 258);"""
 
+    qt_sql """select array_flatten([[1,2,3],[4,5]]);"""
+    qt_sql """select array_flatten([[],[]]);"""
+    qt_sql """select array_flatten([[1],[]]);"""
+    qt_sql """select array_flatten([[1,2,3],null]);"""
+    qt_sql """select array_flatten([[1,2,3],null,[4,5]]);"""
+    qt_sql """select array_flatten([null,null]);"""
+    qt_sql """select array_flatten([[1,2,3,4,5]]);"""
+    qt_sql """select array_flatten([[[1,2,3,4,5]]]);;"""
+    qt_sql """select array_flatten([ [[1,2,3,4,5]],[[6,7],[8,9]] ]);"""
+    qt_sql """select array_flatten([[[[[[1,2,3,4,5],[6,7],[8,9],[10,11],[12]]]]]]);"""
+
 }
