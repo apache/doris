@@ -233,6 +233,8 @@ public:
                        : false;
     }
 
+    const TQueryOptions& query_options() const { return _query_options; }
+
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
     // the runtime filter should do the local merge work

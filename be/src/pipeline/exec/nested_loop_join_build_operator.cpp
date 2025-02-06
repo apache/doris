@@ -19,7 +19,7 @@
 
 #include <memory>
 
-#include "exprs/runtime_filter_slots_cross.h"
+#include "exprs/runtime_filter/runtime_filter_slots_cross.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {

@@ -17,11 +17,16 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include "exprs/runtime_filter/runtime_filter_definitions.h"
 #include "runtime/large_int_value.h"
-#include "vec/common/string_ref.h"
+#include "runtime/types.h"
+#include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -73,4 +78,25 @@ auto get_convertor() {
     }
 }
 
+std::string to_string(RuntimeFilterState type);
+
+std::string to_string(RuntimeFilterType type);
+
+RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc);
+
+// PrimitiveType-> PColumnType
+PColumnType to_proto(PrimitiveType type);
+
+// PColumnType->PrimitiveType
+PrimitiveType to_primitive_type(PColumnType type);
+
+// PFilterType -> RuntimeFilterType
+RuntimeFilterType get_type(int filter_type);
+// RuntimeFilterType -> PFilterType
+PFilterType get_type(RuntimeFilterType type);
+
+Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr);
+
+Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcode,
+                             vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null);
 } // namespace doris

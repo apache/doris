@@ -19,7 +19,7 @@
 
 #include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
-#include <exprs/runtime_filter.h>
+#include <exprs/runtime_filter/runtime_filter.h>
 #include <fmt/format.h>
 #include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/FrontendService.h>
@@ -1315,18 +1315,16 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
     SCOPED_ATTACH_TASK(pip_context->get_query_ctx());
     // 1. get the target filters
-    std::vector<std::shared_ptr<IRuntimeFilter>> filters;
+    std::vector<std::shared_ptr<RuntimeFilter>> filters;
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
 
     // 2. create the filter wrapper to replace or ignore the target filters
     if (!filters.empty()) {
-        UpdateRuntimeFilterParamsV2 params {request, attach_data, filters[0]->column_type()};
-        std::shared_ptr<RuntimePredicateWrapper> filter_wrapper;
-        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
+        RETURN_IF_ERROR(filters[0]->assign_data_into_wrapper(*request, attach_data));
 
         std::ranges::for_each(filters, [&](auto& filter) {
             filter->update_filter(
-                    filter_wrapper, request->merge_time(), start_apply,
+                    filters[0].get(), request->merge_time(), start_apply,
                     request->has_local_merge_time() ? request->local_merge_time() : 0);
         });
     }

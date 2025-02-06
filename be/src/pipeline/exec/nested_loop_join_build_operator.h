@@ -19,7 +19,7 @@
 
 #include <stdint.h>
 
-#include "exprs/runtime_filter_slots_cross.h"
+#include "exprs/runtime_filter/runtime_filter_slots_cross.h"
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
 

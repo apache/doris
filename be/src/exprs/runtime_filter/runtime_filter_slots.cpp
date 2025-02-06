@@ -15,16 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/runtime_filter_slots.h"
+#include "exprs/runtime_filter/runtime_filter_slots.h"
 
 #include "pipeline/pipeline_task.h"
 
 namespace doris {
-
-// use synced size when this rf has global merged
-static uint64_t get_real_size(IRuntimeFilter* filter, uint64_t hash_table_size) {
-    return filter->need_sync_filter_size() ? filter->get_synced_size() : hash_table_size;
-}
 
 Status RuntimeFilterSlots::send_filter_size(
         RuntimeState* state, uint64_t hash_table_size,
@@ -91,16 +86,7 @@ Status RuntimeFilterSlots::_disable_meaningless_filters(RuntimeState* state) {
 Status RuntimeFilterSlots::_init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
     // process IN_OR_BLOOM_FILTER's real type
     for (auto filter : _runtime_filters) {
-        if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-            get_real_size(filter.get(), local_hash_table_size) >
-                    state->runtime_filter_max_in_num()) {
-            RETURN_IF_ERROR(filter->change_to_bloom_filter());
-        }
-
-        if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-            RETURN_IF_ERROR(
-                    filter->init_bloom_filter(get_real_size(filter.get(), local_hash_table_size)));
-        }
+        RETURN_IF_ERROR(filter->init_with_size(local_hash_table_size));
     }
     return Status::OK();
 }

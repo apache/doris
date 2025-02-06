@@ -19,7 +19,7 @@
 
 #include <utility>
 
-#include "exprs/runtime_filter.h"
+#include "exprs/runtime_filter/runtime_filter.h"
 #include "pipeline/dependency.h"
 
 namespace doris::pipeline {
@@ -57,10 +57,10 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext(std::shared_ptr<IRuntimeFilter> rf) : runtime_filter(std::move(rf)) {}
+        RuntimeFilterContext(std::shared_ptr<RuntimeFilter> rf) : runtime_filter(std::move(rf)) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark = false;
-        std::shared_ptr<IRuntimeFilter> runtime_filter;
+        std::shared_ptr<RuntimeFilter> runtime_filter;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
