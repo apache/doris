@@ -389,8 +389,6 @@ void MemTable::_finalize_one_row(RowInBlock* row,
             }
         }
 
-        _arena->clear();
-
         if constexpr (is_final) {
             row->remove_init_agg();
         } else {
