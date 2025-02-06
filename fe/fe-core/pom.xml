@@ -928,6 +928,11 @@ under the License.
             <artifactId>azure-storage-blob-batch</artifactId>
             <version>${azure.sdk.batch.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->

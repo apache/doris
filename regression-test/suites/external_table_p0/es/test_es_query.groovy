@@ -37,7 +37,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             properties (
                 "type"="es",
                 "elasticsearch.hosts"="http://${externalEnvIp}:$es_5_port",
-                "elasticsearch.nodes_discovery"="false",
+                "elasticsearch.nodes_discovery"="true",
                 "elasticsearch.keyword_sniff"="true"
             );
         """
@@ -46,7 +46,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             properties (
                 "type"="es",
                 "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port",
-                "elasticsearch.nodes_discovery"="false",
+                "elasticsearch.nodes_discovery"="true",
                 "elasticsearch.keyword_sniff"="true"
             );
         """
@@ -55,7 +55,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         sql """create catalog if not exists test_es_query_es7 properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_7_port",
-            "nodes_discovery"="false",
+            "nodes_discovery"="true",
             "enable_keyword_sniff"="true"
         );
         """
@@ -63,7 +63,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         sql """create catalog if not exists test_es_query_es8 properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_8_port",
-            "nodes_discovery"="false",
+            "nodes_discovery"="true",
             "enable_keyword_sniff"="true"
         );
         """
@@ -71,7 +71,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         sql """create catalog if not exists es6_hide properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_6_port",
-            "nodes_discovery"="false",
+            "nodes_discovery"="true",
             "enable_keyword_sniff"="true",
             "include_hidden_index"="true"
         );
@@ -80,7 +80,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         sql """create catalog if not exists es7_hide properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_7_port",
-            "nodes_discovery"="false",
+            "nodes_discovery"="true",
             "enable_keyword_sniff"="true",
             "include_hidden_index"="true"
         );
@@ -121,7 +121,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             PROPERTIES (
                 "hosts" = "http://${externalEnvIp}:$es_8_port",
                 "index" = "test1",
-                "nodes_discovery"="false",
+                "nodes_discovery"="true",
                 "enable_keyword_sniff"="true",
                 "http_ssl_enabled"="false"
             );
@@ -160,7 +160,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             PROPERTIES (
                 "hosts" = "http://${externalEnvIp}:$es_8_port",
                 "index" = "test1",
-                "nodes_discovery"="false",
+                "nodes_discovery"="true",
                 "enable_keyword_sniff"="true",
                 "http_ssl_enabled"="false"
             );
