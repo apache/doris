@@ -303,7 +303,7 @@ public:
     void set_wal_mgr(std::unique_ptr<WalManager>&& wm);
     void clear_wal_mgr();
 
-    void build_s3_upload_pool();
+    void init_file_cache_microbench_env();
 
     void set_write_cooldown_meta_executors();
     static void set_tracking_memory(bool tracking_memory) {

@@ -683,7 +683,7 @@ void ExecEnv::clear_wal_mgr() {
     this->_wal_manager.reset();
 }
 
-void ExecEnv::build_s3_upload_pool() {
+void ExecEnv::init_file_cache_microbench_env() {
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
                             .set_min_threads(256)
                             .set_max_threads(512)
