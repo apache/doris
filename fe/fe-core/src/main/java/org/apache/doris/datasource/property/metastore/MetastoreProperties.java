@@ -58,16 +58,22 @@ public class MetastoreProperties extends ConnectionProperties {
             switch (type) {
                 case "hms":
                     msType = Type.HMS;
+                    break;
                 case "glue":
                     msType = Type.GLUE;
+                    break;
                 case "dlf":
                     msType = Type.DLF;
+                    break;
                 case "rest":
                     msType = Type.ICEBERG_REST;
+                    break;
                 case "dataproc":
                     msType = Type.DATAPROC;
+                    break;
                 case "filesystem":
                     msType = Type.FILE_SYSTEM;
+                    break;
                 default:
                     throw new IllegalArgumentException("Unknown 'metastore.type': " + type);
             }
@@ -76,10 +82,13 @@ public class MetastoreProperties extends ConnectionProperties {
             switch (type) {
                 case "hms":
                     msType = Type.HMS;
+                    break;
                 case "glue":
                     msType = Type.GLUE;
+                    break;
                 case "dlf":
                     msType = Type.DLF;
+                    break;
                 default:
                     throw new IllegalArgumentException("Unknown 'hive.metastore.type': " + type);
             }
@@ -88,12 +97,16 @@ public class MetastoreProperties extends ConnectionProperties {
             switch (type) {
                 case "hms":
                     msType = Type.HMS;
+                    break;
                 case "glue":
                     msType = Type.GLUE;
+                    break;
                 case "rest":
                     msType = Type.ICEBERG_REST;
+                    break;
                 case "hadoop":
                     msType = Type.FILE_SYSTEM;
+                    break;
                 default:
                     throw new IllegalArgumentException("Unknown 'iceberg.catalog.type': " + type);
             }
@@ -102,8 +115,10 @@ public class MetastoreProperties extends ConnectionProperties {
             switch (type) {
                 case "hms":
                     msType = Type.HMS;
+                    break;
                 case "dlf":
                     msType = Type.DLF;
+                    break;
                 default:
                     // default is "filesystem"
                     msType = Type.FILE_SYSTEM;
@@ -113,6 +128,7 @@ public class MetastoreProperties extends ConnectionProperties {
             switch (type) {
                 case "hms":
                     msType = Type.HMS;
+                    break;
                 default:
                     throw new IllegalArgumentException("Unknown metastore 'type': " + type);
             }

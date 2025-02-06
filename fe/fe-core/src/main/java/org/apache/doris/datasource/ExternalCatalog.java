@@ -782,7 +782,8 @@ public abstract class ExternalCatalog
      * @return
      */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
-            long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+                                                                       long dbId, InitCatalogLog.Type logType,
+                                                                       boolean checkExists) {
         // Step 1: Map local database name if not already provided
         if (localDbName == null && remoteDbName != null) {
             localDbName = fromRemoteDatabaseName(remoteDbName);
@@ -1024,7 +1025,11 @@ public abstract class ExternalCatalog
     }
 
     public String bindBrokerName() {
-        return catalogProperty.getOrDefault(HMSExternalCatalog.BIND_BROKER_NAME, "");
+        // Do not set the default value to an empty string ("").
+        // If BIND_BROKER_NAME is an empty string, it will result in using BrokerFileSystem,
+        // @See org.apache.doris.common.util.LocationPath#getFSIdentity
+        // which may lead to unexpected behavior or errors.
+        return catalogProperty.getOrDefault(HMSExternalCatalog.BIND_BROKER_NAME, null);
     }
 
     // ATTN: this method only return all cached databases.

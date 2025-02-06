@@ -24,10 +24,8 @@ import com.google.common.collect.Maps;
 import org.apache.paimon.options.Options;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.net.URL;
 import java.util.Map;
 
 public class AliyunDLFPropertiesTest {
@@ -137,8 +135,8 @@ public class AliyunDLFPropertiesTest {
         } catch (IllegalArgumentException e) {
             // Any of these required properties should be mentioned in the error message
             Assert.assertTrue("Error message should mention the missing property",
-                    e.getMessage().contains("dlf.access_key") || 
-                    e.getMessage().contains("dlf.catalog.accessKeyId"));
+                    e.getMessage().contains("dlf.access_key")
+                          ||  e.getMessage().contains("dlf.catalog.accessKeyId"));
         }
     }
 
@@ -148,14 +146,14 @@ public class AliyunDLFPropertiesTest {
         props.put("dlf.secret_key", "test_secret_key");
         props.put("dlf.region", "cn-hangzhou");
         props.put("dlf.uid", "test_uid");
-        
+
         try {
             MetastoreProperties.create(Type.DLF, props);
             Assert.fail("Should throw IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             Assert.assertTrue("Error message should mention access_key",
-                    e.getMessage().contains("dlf.access_key") || 
-                    e.getMessage().contains("dlf.catalog.accessKeyId"));
+                    e.getMessage().contains("dlf.access_key")
+                            || e.getMessage().contains("dlf.catalog.accessKeyId"));
             Assert.assertTrue("Error message should mention it's required",
                     e.getMessage().contains("is required"));
         }
@@ -168,14 +166,14 @@ public class AliyunDLFPropertiesTest {
         props.put("dlf.secret_key", "test_secret_key");
         props.put("dlf.region", "cn-hangzhou");
         props.put("dlf.uid", "test_uid");
-        
+
         try {
             MetastoreProperties.create(Type.DLF, props);
             Assert.fail("Should throw IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             Assert.assertTrue("Error message should mention access_key",
-                    e.getMessage().contains("dlf.access_key") || 
-                    e.getMessage().contains("dlf.catalog.accessKeyId"));
+                    e.getMessage().contains("dlf.access_key")
+                            || e.getMessage().contains("dlf.catalog.accessKeyId"));
             Assert.assertTrue("Error message should mention it's required",
                     e.getMessage().contains("is required"));
         }
@@ -187,14 +185,14 @@ public class AliyunDLFPropertiesTest {
         props.put("dlf.access_key", "test_access_key");
         props.put("dlf.region", "cn-hangzhou");
         props.put("dlf.uid", "test_uid");
-        
+
         try {
             MetastoreProperties.create(Type.DLF, props);
             Assert.fail("Should throw IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             Assert.assertTrue("Error message should mention secret_key",
-                    e.getMessage().contains("dlf.secret_key") || 
-                    e.getMessage().contains("dlf.catalog.accessKeySecret"));
+                    e.getMessage().contains("dlf.secret_key")
+                            || e.getMessage().contains("dlf.catalog.accessKeySecret"));
             Assert.assertTrue("Error message should mention it's required",
                     e.getMessage().contains("is required"));
         }
@@ -206,7 +204,7 @@ public class AliyunDLFPropertiesTest {
         props.put("dlf.access_key", "test_access_key");
         props.put("dlf.secret_key", "test_secret_key");
         props.put("dlf.uid", "test_uid");
-        
+
         try {
             MetastoreProperties.create(Type.DLF, props);
             Assert.fail("Should throw IllegalArgumentException");
@@ -224,14 +222,14 @@ public class AliyunDLFPropertiesTest {
         props.put("dlf.access_key", "test_access_key");
         props.put("dlf.secret_key", "test_secret_key");
         props.put("dlf.region", "cn-hangzhou");
-        
+
         try {
             MetastoreProperties.create(Type.DLF, props);
             Assert.fail("Should throw IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             Assert.assertTrue("Error message should mention uid",
-                    e.getMessage().contains("dlf.uid") || 
-                    e.getMessage().contains("dlf.catalog.uid"));
+                    e.getMessage().contains("dlf.uid")
+                            || e.getMessage().contains("dlf.catalog.uid"));
             Assert.assertTrue("Error message should mention it's required",
                     e.getMessage().contains("is required"));
         }
@@ -340,4 +338,4 @@ public class AliyunDLFPropertiesTest {
         // Should still work with direct properties
         Assert.assertEquals("test_access_key", options.get("dlf.catalog.accessKeyId"));
     }
-} 
+}

@@ -19,9 +19,9 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
@@ -62,9 +62,9 @@ public class AWSGlueProperties extends MetastoreProperties {
 
     @Override
     protected void checkRequiredProperties() {
-        if (Strings.isNullOrEmpty(glueAccessKey)
-                || Strings.isNullOrEmpty(glueSecretKey)
-                || Strings.isNullOrEmpty(glueEndpoint)) {
+        if (StringUtils.isBlank(glueAccessKey)
+                || StringUtils.isBlank(glueSecretKey)
+                || StringUtils.isBlank(glueEndpoint)) {
             throw new IllegalArgumentException("AWS Glue properties(glue.access_key, glue.secret_key, glue.endpoint) "
                     + "are not set correctly.");
         }

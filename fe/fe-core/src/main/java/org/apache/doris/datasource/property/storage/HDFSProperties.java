@@ -42,10 +42,12 @@ public class HDFSProperties extends StorageProperties {
     private String hdfsKerberosKeytab = "";
 
     @ConnectorProperty(names = {"hadoop.username"},
+            required = false,
             description = "The username of Hadoop. Doris will user this user to access HDFS")
     private String hadoopUsername = "";
 
     @ConnectorProperty(names = {"hadoop.config.resources"},
+            required = false,
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 
