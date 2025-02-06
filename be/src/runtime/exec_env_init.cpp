@@ -696,7 +696,7 @@ void ExecEnv::init_file_cache_microbench_env() {
         LOG(INFO) << "p=" << p.path;
     }
     LOG(INFO) << "end....";
-
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
 }
 #endif
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
