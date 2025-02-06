@@ -118,6 +118,7 @@ struct TGetTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional string type
   7: optional string catalog
+  8: optional string table
 }
 
 struct TTableStatus {
