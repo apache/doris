@@ -20,8 +20,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/runtime_filter.h"
-#include "exprs/runtime_filter_slots.h"
+#include "exprs/runtime_filter/runtime_filter.h"
+#include "exprs/runtime_filter/runtime_filter_slots.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -34,13 +34,12 @@ class RuntimeFilterSlotsCross : public RuntimeFilterSlots {
 public:
     RuntimeFilterSlotsCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
                             RuntimeProfile* profile,
-                            const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters,
+                            const std::vector<std::shared_ptr<RuntimeFilter>>& runtime_filters,
                             bool should_build_hash_table)
             : RuntimeFilterSlots(build_expr_ctxs, profile, runtime_filters,
                                  should_build_hash_table) {}
 
     Status process(RuntimeState* state, vectorized::Blocks& blocks) {
-        RETURN_IF_ERROR(_init(state));
         for (auto& block : blocks) {
             RETURN_IF_ERROR(_process_block(&block));
         }
@@ -48,20 +47,6 @@ public:
     }
 
 private:
-    Status _init(RuntimeState* state) {
-        for (auto runtime_filter : _runtime_filters) {
-            if (runtime_filter == nullptr) {
-                return Status::InternalError("runtime filter is nullptr");
-            }
-            // cross join has not remote filter for bitmap filter(non shuffle join)
-            if (runtime_filter->type() == RuntimeFilterType::BITMAP_FILTER &&
-                runtime_filter->has_remote_target()) {
-                return Status::InternalError("cross join runtime filter has remote target");
-            }
-        }
-        return Status::OK();
-    }
-
     Status _process_block(vectorized::Block* block) {
         for (int i = 0; i < _runtime_filters.size(); ++i) {
             auto filter = _runtime_filters[i];
