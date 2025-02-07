@@ -250,7 +250,8 @@ public:
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
         }
-        dst->insert_many_continuous_binary_data(_data.data, _offsets.data(), max_fetch);
+        RETURN_IF_CATCH_EXCEPTION(
+                dst->insert_many_continuous_binary_data(_data.data, _offsets.data(), max_fetch));
 
         *n = max_fetch;
         return Status::OK();
