@@ -253,7 +253,7 @@ private:
     // Use shared_ptr for reuse and reducing column memory usage
     std::vector<TabletColumnPtr> _sparse_cols;
     size_t _num_sparse_columns = 0;
-    int32_t _variant_max_subcolumns_count = -22;
+    int32_t _variant_max_subcolumns_count = 10000001;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
