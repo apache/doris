@@ -49,6 +49,8 @@ suite("update_test_load", "p0") {
     def table_name = "test_update"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
+    sql "DROP MATERIALIZED VIEW IF EXISTS regression_test_variant_p0_update.table_mv2;"
+    sql "DROP MATERIALIZED VIEW IF EXISTS regression_test_variant_p0_update.table_mv4;"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -64,4 +66,36 @@ suite("update_test_load", "p0") {
     }
 
     qt_sql """ select count() from ${table_name} """
+
+    createMV ("create materialized view table_mv1 as select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name};")
+
+    qt_sql """ select max(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv; """
+    qt_sql """ select min(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv; """
+    qt_sql """ select count(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv; """
+
+    sql """
+        CREATE MATERIALIZED VIEW table_mv2 BUILD IMMEDIATE REFRESH AUTO ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 1 PROPERTIES
+('replication_num' = '1') AS SELECT cast(v['type'] as text), cast(v['public'] as int)  FROM ${table_name};
+    """
+    waitingMTMVTaskFinishedByMvName("table_mv2")
+
+    qt_sql """ SELECT sum(cast(v['public'] as int))  FROM ${table_name} group by cast(v['type'] as text); """
+
+
+    def table_name_sc = "test_update_sc"
+
+    sql "DROP TABLE IF EXISTS ${table_name_sc}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table_name_sc} (
+            k bigint,
+            v variant NOT NULL
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+    """
+
+    for (int i = 0; i < 10; i++) {
+        load_json_data.call(table_name_sc, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
+    }
 }
