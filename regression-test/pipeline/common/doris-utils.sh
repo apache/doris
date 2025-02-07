@@ -538,18 +538,21 @@ _monitor_regression_log() {
     echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
 
     local start_row=1
+    local filepath=""
     # Monitor the log directory for new files and changes, only one file
     # shellcheck disable=SC2034
     inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
-        total_rows=$(wc -l "${directory}${filename}" | awk '{print $1}')
-        if [[ ${start_row} -ge ${total_rows} ]]; then
+        filepath="${directory}${filename}"
+        if [[ ! -f "${filepath}" ]]; then continue; fi
+        total_rows=$(wc -l "${filepath}" | awk '{print $1}')
+        if [[ -n ${total_rows} ]] && [[ ${start_row} -ge ${total_rows} ]]; then
             start_row=${total_rows}
         fi
         # shellcheck disable=SC2250
-        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -a -q "${KEYWORD}"; then
-            matched=$(grep -a -n "${KEYWORD}" "${directory}${filename}")
+        if sed -n "${start_row},\$p" "${filepath}" | grep -a -q "${KEYWORD}"; then
+            matched=$(grep -a -n "${KEYWORD}" "${filepath}")
             start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
-            echo "WARNING: find '${matched}' in ${directory}${filename}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            echo "WARNING: find '${matched}' in ${filepath}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
             mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
         fi
         start_row=$((start_row + 1))
