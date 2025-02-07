@@ -42,8 +42,8 @@ Usage: $0 <options>
   "
     exit 1
 }
-ALL_COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,kerberos,lakesoul"
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul"
 COMPONENTS=$2
 HELP=0
 STOP=0
