@@ -375,6 +375,7 @@ import org.apache.doris.nereids.DorisParser.ShowProcessListContext;
 import org.apache.doris.nereids.DorisParser.ShowQueryProfileContext;
 import org.apache.doris.nereids.DorisParser.ShowQueryStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowQueuedAnalyzeJobsContext;
+import org.apache.doris.nereids.DorisParser.ShowQueryStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowResourcesContext;
@@ -748,6 +749,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
@@ -6586,6 +6588,39 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean force = ctx.FORCE() != null;
         DropDatabaseInfo databaseInfo = new DropDatabaseInfo(ifExists, databaseNameParts, force);
         return new DropDatabaseCommand(databaseInfo);
+    }
+
+    @Override
+    public LogicalPlan visitShowQueryStats(ShowQueryStatsContext ctx) {
+        String database = null;
+        String table = null;
+        boolean isAll = false;
+        boolean isVerbose = false;
+
+        if (ctx.database != null) {
+            database = ctx.database.getText();
+        }
+        if (ctx.tableName != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+            if (nameParts.size() == 1) {
+                table = nameParts.get(0);
+                database = ConnectContext.get().getDatabase();
+            } else if (nameParts.size() == 2) {
+                database = nameParts.get(0);
+                table = nameParts.get(1);
+            } else if (nameParts.size() == 3) {
+                database = nameParts.get(1);
+                table = nameParts.get(2);
+            }
+        }
+        if (ctx.ALL() != null) {
+            isAll = true;
+        }
+        if (ctx.VERBOSE() != null) {
+            isVerbose = true;
+        }
+
+        return new ShowQueryStatsCommand(database, table, isAll, isVerbose);
     }
 
     @Override
