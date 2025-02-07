@@ -978,6 +978,9 @@ public class Alter {
             if (!currentStoragePolicy.equals("")) {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
+                if (olapTable.isBeingSynced()) {
+                    throw new DdlException("Table is being synced, cannot set storage policy");
+                }
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
             } else {
                 // if current partition is already in remote storage
