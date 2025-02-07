@@ -33,12 +33,16 @@ under the License.
     You can remove the `.git` dir in `doris/` to make the dir size smaller.
     So that the following generated docker image can be smaller.
 
-2. Copy Dockerfile
+   2. Copy Dockerfile
 
-    ```console
-    $ cd /to/your/workspace/
-    $ cp doris/docker/Dockerfile ./
-    ```
+   ```console
+   $ cd /to/your/workspace/
+
+   # For x86_64 architecture
+   $ cp doris/docker/compilation/Dockerfile ./
+
+   # For ARM-based machines (e.g., Apple M1/M2 Macs)
+   $ cp doris/docker/compilation/arm/Dockerfile ./
 
 After preparation, your workspace should like this:
 
