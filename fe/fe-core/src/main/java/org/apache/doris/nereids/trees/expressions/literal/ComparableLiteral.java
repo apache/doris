@@ -17,20 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.CharType;
-
 /**
- * char type literal
+ * comparable literal
  */
-public class CharLiteral extends StringLikeLiteral {
-
-    public CharLiteral(String value, int len) {
-        super(len >= 0 ? value.substring(0, Math.min(value.length(), len)) : value, CharType.createCharType(len));
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCharLiteral(this, context);
-    }
+public interface ComparableLiteral extends Comparable<ComparableLiteral> {
 }

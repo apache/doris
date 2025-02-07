@@ -22,7 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 
 /** MaxLiteral */
-public class MaxLiteral extends Literal {
+public class MaxLiteral extends Literal implements ComparableLiteral {
     public MaxLiteral(DataType dataType) {
         super(dataType);
     }
@@ -35,6 +35,14 @@ public class MaxLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return org.apache.doris.analysis.MaxLiteral.MAX_VALUE;
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof MaxLiteral) {
+            return 0;
+        }
+        return 1;
     }
 
     @Override

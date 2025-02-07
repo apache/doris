@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.base.MoreObjects;
@@ -36,7 +37,13 @@ public class ColumnBound implements Comparable<ColumnBound> {
 
     @Override
     public int compareTo(ColumnBound o) {
-        return value.toLegacyLiteral().compareTo(o.value.toLegacyLiteral());
+        if (!(value instanceof ComparableLiteral)) {
+            throw new RuntimeException("'" + value + "' (" + value.getDataType() + ") is not comparable");
+        }
+        if (!(o.value instanceof ComparableLiteral)) {
+            throw new RuntimeException("'" + o.value + "' (" + o.value.getDataType() + ") is not comparable");
+        }
+        return ((ComparableLiteral) value).compareTo((ComparableLiteral) o.value);
     }
 
     public static ColumnBound of(Literal expr) {

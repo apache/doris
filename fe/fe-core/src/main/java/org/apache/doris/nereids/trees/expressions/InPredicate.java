@@ -19,16 +19,16 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
@@ -168,11 +168,22 @@ public class InPredicate extends Expression {
         return true;
     }
 
-    //use for ut
+    /**
+     *  sort options, only use in ut
+     */
+    @VisibleForTesting
     public Expression sortOptions() {
-        if (isLiteralChildren()) {
-            List<Literal> values = options.stream().map(e -> (Literal) e).collect(Collectors.toList());
-            return new InPredicate(compareExpr, Lists.newArrayList(Sets.newTreeSet(values)));
+        if (options.stream().allMatch(x -> x instanceof ComparableLiteral)) {
+            try {
+                List<Expression> values = options.stream().map(e -> (ComparableLiteral) e)
+                        .sorted()
+                        .distinct()
+                        .map(Literal.class::cast)
+                        .collect(Collectors.toList());
+                return new InPredicate(compareExpr, values);
+            } catch (Exception e) {
+                return this;
+            }
         }
         return this;
     }
