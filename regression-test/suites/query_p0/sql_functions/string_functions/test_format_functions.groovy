@@ -143,7 +143,7 @@ suite("test_format_functions") {
     sql """ insert into test_format_functions values (4, '2.234kB', '2.234kB', 1234.5, 1234.5); """
     sql """ insert into test_format_functions values (5, '6917529027641081856EB', '6917529027641081856EB',123,123); """
     sql """ insert into test_format_functions values (6, '0B', '0B',999999,999999); """
-    sql """ insert into test_format_functions values (7, "1B", NULL,0,NULL); """
+    sql """ insert into test_format_functions values (7, "1B", "1B",0,NULL); """
 
     order_qt_nullable1 "select id,s2,parse_data_size(s2) from test_format_functions order by id"
     order_qt_nullable2 "select id,k2,format_number(k2) from test_format_functions order by id"
