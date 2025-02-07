@@ -539,6 +539,7 @@ _monitor_regression_log() {
 
     local start_row=1
     local filepath=""
+    set +x
     # Monitor the log directory for new files and changes, only one file
     # shellcheck disable=SC2034
     inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
