@@ -355,7 +355,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
                         value.range = null;
                     } else if (value.range != null) {
                         if (value.range.isConnected(otherValue.range)) {
-                            Range<Literal> newRange = value.range.intersection(otherValue.range);
+                            Range<ComparableLiteral> newRange = value.range.intersection(otherValue.range);
                             if (!newRange.isEmpty()) {
                                 value.range = newRange;
                                 // If newRange.lowerEndpoint().equals(newRange.upperEndpoint()),

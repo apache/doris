@@ -367,7 +367,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof RangeValue) {
                 RangeValue o = (RangeValue) other;
                 if (range.isConnected(o.range)) {
-                    Range<Literal> newRange = range.intersection(o.range);
+                    Range<ComparableLiteral> newRange = range.intersection(o.range);
                     if (!newRange.isEmpty()) {
                         if (newRange.hasLowerBound() && newRange.hasUpperBound()
                                 && newRange.lowerEndpoint().compareTo(newRange.upperEndpoint()) == 0
