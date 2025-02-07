@@ -216,7 +216,7 @@ private:
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     std::mutex _profile_mtx;
-    std::vector<BaseTabletSPtr> _tablets;
+    std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReader::ReadSource> _read_sources;
 };
 
