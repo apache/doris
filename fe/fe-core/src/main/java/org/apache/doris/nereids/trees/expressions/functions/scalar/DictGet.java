@@ -26,14 +26,13 @@ import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.amazonaws.services.dynamodbv2.xspec.L;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
@@ -42,7 +41,7 @@ import java.util.Optional;
 /**
  * dict_get function.
  */
-public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
+public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNullable {
     /**
      * constructor with 3 arguments. (1. dbName.dictName, 2. queryKeyColumnName, 3. queryKeyValue)
      */

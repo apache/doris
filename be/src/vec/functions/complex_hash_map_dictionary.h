@@ -47,8 +47,7 @@ public:
         std::vector<DictionaryAttribute> attributes;
         std::vector<ColumnPtr> values_column;
         for (const auto& att : values_data) {
-            // attributes do not handle nullable DataType
-            attributes.push_back({att.name, remove_nullable(att.type)});
+            attributes.push_back({att.name, att.type});
             values_column.push_back(att.column);
         }
         auto dict = std::make_shared<ComplexHashMapDictionary>(name, attributes);

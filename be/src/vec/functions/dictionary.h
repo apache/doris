@@ -101,6 +101,8 @@ public:
     }
 
     bool has_attribute(const std::string& name) const;
+
+    // will return a non-nullable type
     DataTypePtr get_attribute_type(const std::string& name) const;
     size_t attribute_index(const std::string& name) const;
 
@@ -151,15 +153,16 @@ protected:
     };
 
     template <bool vlaue_is_nullable, typename ResultColumnType>
-    ALWAYS_INLINE static void set_value_data(ResultColumnType* res_real_column,
-                                             ColumnUInt8::Container& res_null_column,
-                                             const auto* value_column,
-                                             const ColumnUInt8* value_null_column,
-                                             const size_t& res_idx, const size_t& value_idx) {
+    ALWAYS_INLINE static void set_value_data(
+            ResultColumnType* res_real_column,
+            UInt8& res_null /* is value is null , will set res_null to true */,
+            const auto* value_column, const ColumnUInt8* value_null_column,
+            const size_t& value_idx) {
         if constexpr (vlaue_is_nullable) {
             // if the value is null, set the result column to null
             if (value_null_column->get_element(value_idx)) {
-                res_null_column[res_idx] = true;
+                res_null = true;
+                res_real_column->insert_default();
                 return;
             }
         }

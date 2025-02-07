@@ -48,7 +48,7 @@ public:
 
     bool skip_return_type_check() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
@@ -83,35 +83,25 @@ public:
                                         get_name());
         }
 
-        // dict get(name, att_name, key_value) -> att value
+        const auto dict = dict_state->dict;
+    
         const std::string attribute_name =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-        const DataTypePtr attribute_type = block.get_by_position(result).type;
-
-        const ColumnPtr key_column =
-                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        const DataTypePtr key_type = block.get_by_position(arguments[2]).type;
-
-        const auto dict = dict_state->dict;
-
-        // check attribute
         if (!dict->has_attribute(attribute_name)) {
             throw doris::Exception(
                     ErrorCode::INVALID_ARGUMENT,
                     "No corresponding attribute_name. The current attribute_name is: {}",
                     attribute_name);
         }
-        if (!dict->get_attribute_type(attribute_name)->equals(*attribute_type)) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Attribute type mismatch. Attribute name: {}   Expected type: "
-                                   "{}  Input type: {}",
-                                   attribute_name,
-                                   dict->get_attribute_type(attribute_name)->get_name(),
-                                   attribute_type->get_name());
-        }
+        const DataTypePtr attribute_type = dict->get_attribute_type(attribute_name);
+
+        const ColumnPtr key_column =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        const DataTypePtr key_type = block.get_by_position(arguments[2]).type;
 
         // wiil check key_column in dict::getColumn
-        auto res = dict->get_column(attribute_name, attribute_type, key_column, key_type);
+        auto res = dict->get_column(attribute_name, attribute_type, key_column,
+                                    remove_nullable(key_type));
 
         block.replace_by_position(result, std::move(res));
 

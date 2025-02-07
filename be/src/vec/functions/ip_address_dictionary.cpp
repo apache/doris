@@ -31,9 +31,11 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/dictionary.h"
 #include "vec/runtime/ip_address_cidr.h"
 #include "vec/runtime/ipv4_value.h"
+#include "vec/utils/template_helpers.hpp"
 namespace doris::vectorized {
 
 IPAddressDictionary::~IPAddressDictionary() {
@@ -57,6 +59,11 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                                           const DataTypePtr& attribute_type,
                                           const ColumnPtr& key_column,
                                           const DataTypePtr& key_type) const {
+    if (have_nullable({attribute_type}) || have_nullable({key_type})) {
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "IPAddressDictionary get_column attribute_type or key_type must not nullable type");
+    }
     if (!WhichDataType {key_type}.is_ip()) {
         throw doris::Exception(
                 ErrorCode::INVALID_ARGUMENT,
@@ -71,49 +78,71 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
     const auto& value_data = _values_data[attribute_index(attribute_name)];
 
     if (WhichDataType {key_type}.is_ipv6()) {
-        const auto* ipv6_column = assert_cast<const ColumnIPv6*>(key_column.get());
+        const auto* ipv6_column = assert_cast<const ColumnIPv6*>(remove_nullable(key_column).get());
+        const ColumnNullable* null_key =
+                key_column->is_nullable() ? assert_cast<const ColumnNullable*>(key_column.get())
+                                          : nullptr;
         std::visit(
-                [&](auto&& arg, auto value_is_nullable) {
+                [&](auto&& arg, auto key_is_nullable, auto value_is_nullable) {
                     using ValueDataType = std::decay_t<decltype(arg)>;
                     using OutputColumnType = ValueDataType::OutputColumnType;
                     auto* res_real_column = assert_cast<OutputColumnType*>(res_column.get());
                     const auto* value_column = arg.get();
                     const auto* value_null_map = arg.get_null_map();
                     for (size_t i = 0; i < rows; i++) {
+                        if constexpr (key_is_nullable) {
+                            if (null_key->is_null_at(i)) {
+                                res_real_column->insert_default();
+                                res_null_map[i] = true;
+                                continue;
+                            }
+                        }
                         auto it = look_up_IP(ipv6_column->get_element(i));
                         if (it == ip_not_found()) {
                             res_real_column->insert_default();
                             res_null_map[i] = true;
                         } else {
                             const auto idx = *it;
-                            set_value_data<value_is_nullable>(res_real_column, res_null_map,
-                                                              value_column, value_null_map, i, idx);
+                            set_value_data<value_is_nullable>(res_real_column, res_null_map[i],
+                                                              value_column, value_null_map, idx);
                         }
                     }
                 },
-                value_data, attribute_nullable_variant(attribute_index(attribute_name)));
+                value_data, make_bool_variant(null_key),
+                attribute_nullable_variant(attribute_index(attribute_name)));
     } else {
-        const auto* ipv4_column = assert_cast<const ColumnIPv4*>(key_column.get());
+        const auto* ipv4_column = assert_cast<const ColumnIPv4*>(remove_nullable(key_column).get());
+        const ColumnNullable* null_key =
+                key_column->is_nullable() ? assert_cast<const ColumnNullable*>(key_column.get())
+                                          : nullptr;
         std::visit(
-                [&](auto&& arg, auto value_is_nullable) {
+                [&](auto&& arg, auto key_is_nullable, auto value_is_nullable) {
                     using ValueDataType = std::decay_t<decltype(arg)>;
                     using OutputColumnType = ValueDataType::OutputColumnType;
                     auto* res_real_column = assert_cast<OutputColumnType*>(res_column.get());
                     const auto* value_column = arg.get();
                     const auto* value_null_map = arg.get_null_map();
                     for (size_t i = 0; i < rows; i++) {
+                        if constexpr (key_is_nullable) {
+                            if (null_key->is_null_at(i)) {
+                                res_real_column->insert_default();
+                                res_null_map[i] = true;
+                                continue;
+                            }
+                        }
                         auto it = look_up_IP(ipv4_to_ipv6(ipv4_column->get_element(i)));
                         if (it == ip_not_found()) {
                             res_real_column->insert_default();
                             res_null_map[i] = true;
                         } else {
                             const auto idx = *it;
-                            set_value_data<value_is_nullable>(res_real_column, res_null_map,
-                                                              value_column, value_null_map, i, idx);
+                            set_value_data<value_is_nullable>(res_real_column, res_null_map[i],
+                                                              value_column, value_null_map, idx);
                         }
                     }
                 },
-                value_data, attribute_nullable_variant(attribute_index(attribute_name)));
+                value_data, make_bool_variant(null_key),
+                attribute_nullable_variant(attribute_index(attribute_name)));
     }
 
     return ColumnNullable::create(std::move(res_column), std::move(res_null));

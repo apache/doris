@@ -91,15 +91,6 @@ inline DictionaryPtr create_ip_trie_dict_from_column(const std::string& name,
                 key_type->get_name());
     }
 
-    for (auto col_type_name : values_data) {
-        if (col_type_name.type->is_nullable() || col_type_name.column->is_nullable()) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "IPAddressDictionary only support nullable attribute , input attribute is {} ",
-                    col_type_name.type->get_name());
-        }
-    }
-
     DictionaryPtr dict = IPAddressDictionary::create_ip_trie_dict(name, key_column, values_data);
     return dict;
 }

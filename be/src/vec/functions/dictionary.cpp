@@ -76,7 +76,7 @@ DataTypePtr IDictionary::get_attribute_type(const std::string& name) const {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "no this attribute : {}", name);
     }
     size_t idx = it->second;
-    return _attributes[idx].type;
+    return remove_nullable(_attributes[idx].type);
 }
 
 size_t IDictionary::allocated_bytes() const {

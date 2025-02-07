@@ -18,6 +18,7 @@
 #include "vec/functions/complex_hash_map_dictionary.h" // for ComplexHashMapDictionary
 
 #include <type_traits>
+#include <vector>
 
 #include "vec/columns/columns_number.h"
 #include "vec/functions/dictionary.h"
@@ -113,6 +114,13 @@ void ComplexHashMapDictionary::init_find_hash_map(DictionaryHashMapMethod& find_
 ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
         const std::vector<std::string>& attribute_names, const DataTypes& attribute_types,
         const ColumnPtrs& key_columns, const DataTypes& key_types) const {
+    if (have_nullable(attribute_types) || have_nullable(key_types)) {
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "ComplexHashMapDictionary get_column attribute_type or key_type must "
+                "not nullable type");
+    }
+
     const size_t rows = key_columns[0]->size();
     IColumn::Selector selector = IColumn::Selector(rows);
     NullMap key_not_found = NullMap(rows, false);
@@ -121,21 +129,46 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
     // In init_find_hash_map, hashtable will be shared, similar to shared_hashtable in join
     init_find_hash_map(find_hash_map, key_types);
 
+    bool key_hash_nullable = false;
+
+    ColumnRawPtrs key_raw_columns;
+
+    std::vector<const ColumnNullable*> nullable_key_raw_columns;
+    for (const auto& column : key_columns) {
+        key_raw_columns.push_back(remove_nullable(column).get());
+        if (column->is_nullable()) {
+            key_hash_nullable = true;
+            nullable_key_raw_columns.push_back(assert_cast<const ColumnNullable*>(column.get()));
+        }
+    }
+
+    auto has_null_key = [&](size_t i) {
+        for (const auto* nullable_column : nullable_key_raw_columns) {
+            if (nullable_column->is_null_at(i)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     std::visit(vectorized::Overload {
 
-                       [&](std::monostate& arg) {
+                       [&](std::monostate& arg, auto key_hash_nullable) {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                        },
-                       [&](auto&& dict_method) {
+                       [&](auto&& dict_method, auto key_hash_nullable) {
                            using HashMethodType = std::decay_t<decltype(dict_method)>;
                            using State = typename HashMethodType::State;
-                           ColumnRawPtrs key_raw_columns;
-                           for (const auto& column : key_columns) {
-                               key_raw_columns.push_back(column.get());
-                           }
                            State state(key_raw_columns);
                            dict_method.init_serialized_keys(key_raw_columns, rows);
                            for (size_t i = 0; i < rows; ++i) {
+                               if constexpr (key_hash_nullable) {
+                                   // if any key is null, we will not find it in the hash table
+                                   if (has_null_key(i)) {
+                                       key_not_found[i] = true;
+                                       continue;
+                                   }
+                               }
                                auto find_result = dict_method.find(state, i);
                                if (find_result.is_found()) {
                                    selector[i] = find_result.get_mapped();
@@ -144,7 +177,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
                                }
                            }
                        }},
-               find_hash_map.method_variant);
+               find_hash_map.method_variant, make_bool_variant(key_hash_nullable));
 
     ColumnPtrs columns;
     for (size_t i = 0; i < attribute_names.size(); ++i) {
@@ -175,8 +208,8 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
                         res_null_map[i] = true;
                     } else {
                         const auto idx = selector[i];
-                        set_value_data<value_is_nullable>(res_real_column, res_null_map,
-                                                          value_column, value_null_map, i, idx);
+                        set_value_data<value_is_nullable>(res_real_column, res_null_map[i],
+                                                          value_column, value_null_map, idx);
                     }
                 }
             },
