@@ -352,7 +352,10 @@ public:
         minute_ = std::stoi(s.substr(p1 + 1, p2 - p1));
         if (p3 != std::string::npos) {
             second_ = std::stoi(s.substr(p2 + 1, p3 - p2));
-            microsecond_ = std::stoi(s.substr(p3 + 1));
+            // Supplement 0 to save 6 digits while satisfying precision
+            microsecond_ =
+                    std::stoi(s.substr(p3 + 1, scale) +
+                              std::string(std::max(6 - scale, 7 - (int)s.length() + (int)p3), '0'));
         } else {
             second_ = std::stoi(s.substr(p2 + 1));
             microsecond_ = 0;
