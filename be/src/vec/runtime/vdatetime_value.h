@@ -252,12 +252,12 @@ struct DateTimeV2ValueType {
 class TimeV2ValueType {
 public:
     TimeV2ValueType() : neg_(0), microsecond_(0), second_(0), minute_(0), hour_(0) {}
-    TimeV2ValueType(uint16_t hour, uint8_t minute, uint8_t second, uint32_t microsecond)
+    TimeV2ValueType(int16_t hour, uint8_t minute, uint8_t second, uint32_t microsecond)
             : neg_(hour < 0),
               microsecond_(microsecond),
               second_(second),
               minute_(minute),
-              hour_(hour) {}
+              hour_(std::abs(hour)) {}
 
     char* to_string(char* to) const {
         if (neg_) {

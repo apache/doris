@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -294,7 +295,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
         } else if (targetType.isTimeLikeType()) {
-            return new TimeLiteral(desc);
+            return new TimeLiteral((TimeV2Type) targetType, desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
