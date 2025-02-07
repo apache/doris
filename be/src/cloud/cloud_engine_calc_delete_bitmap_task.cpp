@@ -314,11 +314,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     }
 
     _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
-    LOG(INFO) << "calculate delete bitmap successfully on tablet"
-              << ", table_id=" << tablet->table_id() << ", " << txn_str
-              << ", tablet_id=" << tablet->tablet_id() << ", num_rows=" << rowset->num_rows()
-              << ", update_delete_bitmap_time_us=" << update_delete_bitmap_time_us
-              << ", res=" << status;
     if (invisible_rowsets != nullptr) {
         invisible_rowsets->push_back(rowset);
         // see CloudTablet::save_delete_bitmap
