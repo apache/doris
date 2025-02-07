@@ -304,39 +304,45 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * compute rf wait time according to max table row count, if wait time is not default value
-     *     olap:
-     *     row < 1G: 1 sec
-     *     1G <= row < 10G: 5 sec
-     *     10G < row: 20 sec
-     *     external:
-     *     row < 1G: 5 sec
-     *     1G <= row < 10G: 10 sec
-     *     10G < row: 50 sec
+     * config rf wait time if wait time is not default value
+     * 1. local mode, config according to max table row count
+     *     a. olap table:
+     *       row < 1G: 1 sec
+     *       1G <= row < 10G: 5 sec
+     *       10G < row: 20 sec
+     *     b. external table:
+     *       row < 1G: 5 sec
+     *       1G <= row < 10G: 10 sec
+     *       10G < row: 50 sec
+     * 2. cloud mode, config it to 300 sec (TODO: refine this in the future)
      */
-    private void setRuntimeFilterWaitTimeByTableRowCountAndType() {
+    private void configRuntimeFilterWaitTime() {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
                 != VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
-            List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
-                    .collectToList(LogicalCatalogRelation.class::isInstance);
-            double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
-            boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (hasExternalTable) {
-                if (maxRow < 1_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
-                } else if (maxRow < 10_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
-                } else {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
-                }
+            if (Config.isCloudMode()) {
+                sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "300000");
             } else {
-                if (maxRow < 1_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
-                } else if (maxRow < 10_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
+                        .collectToList(LogicalCatalogRelation.class::isInstance);
+                double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
+                boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
+                if (hasExternalTable) {
+                    if (maxRow < 1_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                    } else if (maxRow < 10_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                    } else {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
+                    }
                 } else {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                    if (maxRow < 1_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
+                    } else if (maxRow < 10_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                    } else {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                    }
                 }
             }
         }
@@ -410,7 +416,7 @@ public class NereidsPlanner extends Planner {
                     .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
             disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
         }
-        setRuntimeFilterWaitTimeByTableRowCountAndType();
+        configRuntimeFilterWaitTime();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
