@@ -43,11 +43,27 @@
 
 namespace doris {
 
-enum class FileMappingType { DORIS_FORMAT, ORC, PARQUET };
+enum class FileMappingType {
+    DORIS_FORMAT, // for doris format file {tablet_id}{rowset_id}{segment_id}
+    ORC,
+    PARQUET
+};
 
 struct FileMapping {
     FileMappingType type;
     std::string value;
+
+    FileMapping(int64_t tablet_id, RowsetId rowset_id, uint32_t segment_id)
+            : type(FileMappingType::DORIS_FORMAT) {
+        value.resize(sizeof(tablet_id) + sizeof(rowset_id) + sizeof(segment_id));
+        auto* ptr = value.data();
+
+        memcpy(ptr, &tablet_id, sizeof(tablet_id));
+        ptr += sizeof(tablet_id);
+        memcpy(ptr, &rowset_id, sizeof(rowset_id));
+        ptr += sizeof(rowset_id);
+        memcpy(ptr, &segment_id, sizeof(segment_id));
+    }
 };
 
 class IdFileMap {
@@ -61,20 +77,30 @@ public:
         return it->second;
     }
 
-    uint32 add_file_mapping(const std::shared_ptr<FileMapping>& mapping) {
+    uint32 get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
+        DCHECK(!mapping);
         std::unique_lock lock(_mtx);
+        auto it = _mapping_to_id.find(mapping->value);
+        if (it != _mapping_to_id.end()) {
+            return it->second;
+        }
         _id_map[_init_id++] = mapping;
+        _mapping_to_id[mapping->value] = _init_id - 1;
+
         return _init_id - 1;
     }
 
 private:
     std::shared_mutex _mtx;
     uint32_t _init_id = 0;
+    std::unordered_map<std::string_view, uint32_t> _mapping_to_id;
     std::unordered_map<uint32_t, std::shared_ptr<FileMapping>> _id_map;
 };
 
 class IdManager {
 public:
+    static constexpr uint8_t ID_VERSION = 0;
+
     IdManager() = default;
 
     ~IdManager() {
@@ -98,11 +124,20 @@ public:
         _query_to_id_file_map.erase(query_id);
     }
 
+    std::shared_ptr<IdFileMap> get_id_file_map(const UniqueId& query_id) {
+        std::shared_lock lock(_query_to_id_file_map_mtx);
+        auto it = _query_to_id_file_map.find(query_id);
+        if (it == _query_to_id_file_map.end()) {
+            return nullptr;
+        }
+        return it->second;
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(IdManager);
 
-    phmap::parallel_flat_hash_map<UniqueId, std::shared_ptr<IdFileMap>> _query_to_id_file_map;
-    std::mutex _query_to_id_file_map_mtx;
+    phmap::flat_hash_map<UniqueId, std::shared_ptr<IdFileMap>> _query_to_id_file_map;
+    std::shared_mutex _query_to_id_file_map_mtx;
 };
 
 } // namespace doris

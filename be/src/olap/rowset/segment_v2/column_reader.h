@@ -637,7 +637,7 @@ private:
 // Add new RowIdColumnIteratorV2
 class RowIdColumnIteratorV2 : public ColumnIterator {
 public:
-    RowIdColumnIteratorV2(uint8_t version, uint64_t backend_id, uint32_t file_id)
+    RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)
             : _version(version), _backend_id(backend_id), _file_id(file_id) {}
 
     Status seek_to_first() override {
@@ -665,7 +665,7 @@ public:
 private:
     uint32_t _current_rowid = 0;
     uint8_t _version;
-    uint64_t _backend_id;
+    int64_t _backend_id;
     uint32_t _file_id;
 };
 

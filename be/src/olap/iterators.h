@@ -112,7 +112,6 @@ public:
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
-    // Remove the rowset_id after we support the global lazy materialize
     RowsetId rowset_id;
     Version version;
     int64_t tablet_id = 0;

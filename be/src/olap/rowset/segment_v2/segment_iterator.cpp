@@ -43,6 +43,7 @@
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
+#include "olap/id_manager.h"
 #include "olap/iterators.h"
 #include "olap/like_column_predicate.h"
 #include "olap/match_predicate.h"
@@ -1020,8 +1021,15 @@ Status SegmentIterator::_init_return_column_iterators() {
 
     for (auto cid : _schema->column_ids()) {
         if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
-            _column_iterators[cid].reset(
-                    new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
+            if (auto& id_file_map = _opts.runtime_state->get_id_file_map(); id_file_map) {
+                uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
+                        _opts.tablet_id, _opts.rowset_id, _segment->id()));
+                _column_iterators[cid].reset(new RowIdColumnIteratorV2(
+                        IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id));
+            } else {
+                _column_iterators[cid].reset(
+                        new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
+            }
             continue;
         }
         std::set<ColumnId> del_cond_id_set;
