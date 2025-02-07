@@ -92,7 +92,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         }
 
     } else if (ReadBuffer rb(slice.data, slice.size);
-               !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
+               !read_datetime_v2_text_impl<UInt64>(val, rb, *options.time_zone, scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }

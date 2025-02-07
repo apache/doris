@@ -136,6 +136,10 @@ public:
          */
         bool date_olap_format = false;
         /**
+         * time_zone to support deserialize time with time zone
+         */
+        const cctz::time_zone* time_zone = nullptr;
+        /**
          * field delimiter is used to separate fields in one row
          */
         std::string field_delim = ",";
