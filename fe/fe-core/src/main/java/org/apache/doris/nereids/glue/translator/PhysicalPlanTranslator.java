@@ -106,6 +106,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -1821,6 +1822,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (physicalLimit.getPhase().isLocal()) {
             child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
                     child.getLimit()));
+            if (child instanceof AggregationNode && physicalLimit.child() instanceof PhysicalHashAggregate) {
+                PhysicalHashAggregate<? extends Plan> agg
+                        = (PhysicalHashAggregate<? extends Plan>) physicalLimit.child();
+                if (agg.isDistinct()) {
+                    if (agg.child(0) instanceof PhysicalDistribute
+                            && agg.child(0).child(0) instanceof PhysicalHashAggregate
+                            && ((Aggregate) agg.child(0).child(0)).isDistinct()
+                            && child.getChild(0) instanceof ExchangeNode
+                            && child.getChild(0).getChild(0) instanceof AggregationNode) {
+                        child.getChild(0).getChild(0).setLimit(child.getLimit());
+                    }
+                }
+            }
         } else if (physicalLimit.getPhase().isGlobal()) {
             if (!(child instanceof ExchangeNode)) {
                 ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), child);
