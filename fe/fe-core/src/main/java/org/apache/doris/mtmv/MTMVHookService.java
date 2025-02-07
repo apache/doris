@@ -55,9 +55,10 @@ public interface MTMVHookService {
      *
      * @param mtmv
      * @param alterMTMV
+     * @param isReplay
      * @throws DdlException
      */
-    void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException;
+    void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV, boolean isReplay) throws DdlException;
 
     /**
      * triggered when refresh mtmv

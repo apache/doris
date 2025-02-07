@@ -154,13 +154,14 @@ public class MTMVJobManager implements MTMVHookService {
      *
      * @param mtmv
      * @param alterMTMV
+     * @param isReplay
      * @throws DdlException
      */
     @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV, boolean isReplay) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
-            dropMTMV(mtmv);
-            //createMTMV(mtmv);
+            deregisterMTMV(mtmv, isReplay);
+            registerMTMV(mtmv, mtmv.getDatabase().getId(), isReplay);
         }
     }
 

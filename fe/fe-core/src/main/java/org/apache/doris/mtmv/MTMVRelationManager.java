@@ -209,7 +209,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV, boolean isReplay) throws DdlException {
 
     }
 
@@ -251,6 +251,7 @@ public class MTMVRelationManager implements MTMVHookService {
     @Override
     public void alterTable(Table table, String oldTableName) {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+        // TODO: 2025/1/24 zd has bug, only call once .follower will have bug.
         baseTableInfo.setTableName(oldTableName);
         if (table instanceof MTMV) {
             removeMTMV(baseTableInfo);

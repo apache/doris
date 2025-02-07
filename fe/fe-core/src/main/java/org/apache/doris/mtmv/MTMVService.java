@@ -90,12 +90,12 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV, boolean isReplay) throws DdlException {
         Objects.requireNonNull(mtmv);
         Objects.requireNonNull(alterMTMV);
         LOG.info("alterMTMV, mtmvName: {}, AlterMTMV: {}", mtmv.getName(), alterMTMV);
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterMTMV(mtmv, alterMTMV);
+            mtmvHookService.alterMTMV(mtmv, alterMTMV, isReplay);
         }
     }
 
