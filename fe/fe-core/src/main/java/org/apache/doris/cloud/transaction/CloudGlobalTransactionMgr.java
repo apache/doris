@@ -1142,6 +1142,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
             if (!mowTableList.isEmpty()) {
+                if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
+                    return true;
+                }
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
                 getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
@@ -1266,6 +1269,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, null);
+        if (!mowTableList.isEmpty()) {
+            if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
+                return;
+            }
+        }
         commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true, mowTableList, null);
     }
 
