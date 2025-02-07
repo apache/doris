@@ -249,7 +249,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema;
         context.newest_write_timestamp = UnixSeconds();
-        // context.push_type = push_type;
         auto rowset_writer = DORIS_TRY(cur_tablet->create_rowset_writer(context, false));
         _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
