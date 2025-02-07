@@ -102,7 +102,7 @@ public:
             }
 
             // Z_MEM_ERROR and Z_BUF_ERROR are already handled in compress, making sure st is always Z_OK
-            auto st = compression_codec->compress(data, &compressed_str);
+            auto st = RETURN_IF_ERROR(compression_codec->compress(data, &compressed_str));
             col_data.resize(col_data.size() + 4 + compressed_str.size());
 
             std::memcpy(col_data.data() + idx, &length, sizeof(length));
@@ -184,7 +184,8 @@ public:
             uncompressed_slice = Slice(col_data.data() + idx, length.value);
 
             Slice compressed_data(data.data + 4, data.size - 4);
-            auto st = compression_codec->decompress(compressed_data, &uncompressed_slice);
+            auto st = RETURN_IF_ERROR(
+                    compression_codec->decompress(compressed_data, &uncompressed_slice));
 
             if (!st.ok()) {                                      // is not a legal compressed string
                 col_data.resize(col_data.size() - length.value); // remove compressed_data
