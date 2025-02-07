@@ -30,7 +30,6 @@ def getProfileList = {
     return conn.getInputStream().getText()
 }
 
-
 def getProfile = { id ->
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
@@ -39,6 +38,35 @@ def getProfile = { id ->
                 (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
         conn.setRequestProperty("Authorization", "Basic ${encoding}")
         return conn.getInputStream().getText()
+}
+
+def verifyProfileContent = { stmt, serialReadOnLimit ->
+    // Sleep 500ms to wait for the profile collection 
+    Thread.sleep(500)
+    // Get profile list by using getProfileList
+    List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+    // Find the profile id for the query that we just emitted
+    String profileId = ""
+    for (def profileItem : profileData) {
+        if (profileItem["Sql Statement"].toString().contains(stmt)) {
+            profileId = profileItem["Profile ID"].toString()
+            logger.info("Profile ID of ${stmt} is ${profileId}")
+            break
+        }
+    }
+    if (profileId == "" || profileId == null) {
+        logger.error("Profile ID of ${stmt} is not found")
+        return false
+    }
+    // Get profile content by using getProfile
+    def String profileContent = getProfile(profileId).toString()
+    logger.info("Profile content of ${stmt} is\n${profileContent}")
+    // Check if the profile contains the expected content
+    if (serialReadOnLimit) {
+        return profileContent.contains("- MaxScanConcurrency: 1") == true
+    } else {
+        return !profileContent.contains("- MaxScanConcurrency: 1") == true
+    }
 }
 
 suite('adaptive_pipeline_task_serial_read_on_limit') {
@@ -79,72 +107,20 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     // and we can check MaxScannerThreadNum in profile.
     sql "set parallel_pipeline_task_num=1;"
 
-    // Create a set<String> queryShouldHasOnePeakRunningScanner
-    // to store the query that should have only one peak running scanner.
-    def queryShouldHaveOnePeakRunningScanner = new HashSet<String>()
-    queryShouldHaveOnePeakRunningScanner.add("select * from adaptive_pipeline_task_serial_read_on_limit limit 10;")
-    queryShouldHaveOnePeakRunningScanner.add("select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;")
-
-    def queryShouldHasMoreThanOnePeakRunningScanner = new HashSet<String>()
-    queryShouldHasMoreThanOnePeakRunningScanner.add("select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;")
-    queryShouldHasMoreThanOnePeakRunningScanner.add("select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;")
-    queryShouldHasMoreThanOnePeakRunningScanner.add("select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;")
-
     // With Limit, MaxScannerThreadNum = 1
     sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true))
     sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true))
     // With Limit, but bigger then adaptive_pipeline_task_serial_read_on_limit,  MaxScannerThreadNum = TabletNum
     sql "set adaptive_pipeline_task_serial_read_on_limit=9998;"
     sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false))
     // With limit, but with predicates too. MaxScannerThreadNum = TabletNum
     sql "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false))
     // With large engough limit, but enable_adaptive_pipeline_task_serial_read_on_limit is false. MaxScannerThreadNum = TabletNum
     sql "set enable_adaptive_pipeline_task_serial_read_on_limit=false;"
     sql """select "enable_adaptive_pipeline_task_serial_read_on_limit=false", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;"""
-    // Sleep 500ms to wait for the profile collection
-    Thread.sleep(500)
-
-    // Get profile list by using show query profile command
-    // SHOW QUERY PROFILE returns profile meta as a table.
-    // The first column is profile id, last column is query stmt.
-    // Compare the query stmt, and get profile id for each query that we just emitted.
-
-    def queryProfiles = sql "show query profile limit 100;"
-    def profileList = queryProfiles.collect { row -> row.toList() }
-    List<String> profileShouldHaveOnePeakRunningScanner = new ArrayList<String>()
-    List<String> profileShouldHaveMoreThanOnePeakRunningScanner = new ArrayList<String>()
-
-    for (def profileItem in profileList) {
-        if (profileShouldHaveMoreThanOnePeakRunningScanner.size() + profileShouldHaveOnePeakRunningScanner.size() ==
-                queryShouldHasMoreThanOnePeakRunningScanner.size() + queryShouldHaveOnePeakRunningScanner.size()) {
-            break
-        }
-
-        if (queryShouldHaveOnePeakRunningScanner.contains(profileItem[-1])) {
-            profileShouldHaveOnePeakRunningScanner.add(profileItem[0])
-            continue
-        }
-        if (queryShouldHasMoreThanOnePeakRunningScanner.contains(profileItem[-1])) {
-            profileShouldHaveMoreThanOnePeakRunningScanner.add(profileItem[0])
-            continue
-        }
-    }
-
-    logger.info("profileShouldHaveOnePeakRunningScanner: ${profileShouldHaveOnePeakRunningScanner}")    
-    logger.info("profileShouldHaveMoreThanOnePeakRunningScanner: ${profileShouldHaveMoreThanOnePeakRunningScanner}")
-
-    assertTrue(profileShouldHaveOnePeakRunningScanner.size() == queryShouldHaveOnePeakRunningScanner.size())
-    assertTrue(profileShouldHaveMoreThanOnePeakRunningScanner.size() == queryShouldHasMoreThanOnePeakRunningScanner.size())
-
-    for (def profileId : profileShouldHaveOnePeakRunningScanner) {
-        def profile = getProfile(profileId).toString()
-        logger.info("Profile ${profile}")
-        assertTrue(profile.contains("- MaxScannerThreadNum: 1"))
-    }
-
-    for (def profileId : profileShouldHaveMoreThanOnePeakRunningScanner) {
-        def profile = getProfile(profileId).toString()
-        logger.info("Profile ${profile}")
-        assertTrue(!profile.contains("- MaxScannerThreadNum: 1"))
-    }
+    assertTrue(verifyProfileContent("select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;", false))
 }
