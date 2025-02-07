@@ -715,7 +715,7 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     std::lock_guard cache_lock(_mutex);
     stats->lock_wait_timer += sw.elapsed_time();
     FileBlocks file_blocks;
-    int64_t duration;
+    int64_t duration = 0;
     {
         SCOPED_RAW_TIMER(&duration);
         if (auto iter = _key_to_time.find(hash);
