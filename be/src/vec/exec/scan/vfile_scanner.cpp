@@ -251,7 +251,7 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
     // 2. Fill _runtime_filter_partition_pruning_block from the partition column, then execute conjuncts and filter block.
     // 2.1 Fill _runtime_filter_partition_pruning_block from the partition column to match the conjuncts executing.
     size_t index = 0;
-    bool first_cloumn_filled = false;
+    bool first_column_filled = false;
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->need_materialize()) {
             // should be ignored from reading
@@ -274,14 +274,14 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
                                                      slot_desc->col_name()));
             }
             if (index == 0) {
-                first_cloumn_filled = true;
+                first_column_filled = true;
             }
         }
         index++;
     }
 
     // 2.2 Execute conjuncts.
-    if (!first_cloumn_filled) {
+    if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
         _runtime_filter_partition_pruning_block.get_by_position(0).column->assume_mutable()->resize(
