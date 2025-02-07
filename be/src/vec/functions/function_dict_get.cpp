@@ -84,7 +84,7 @@ public:
         }
 
         const auto dict = dict_state->dict;
-    
+
         const std::string attribute_name =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
         if (!dict->has_attribute(attribute_name)) {
