@@ -63,6 +63,7 @@ statementBase
     | supportedRecoverStatement         #supportedRecoverStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
+    | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
     | unsupportedStatement              #unsupported
     ;
@@ -709,6 +710,11 @@ unsupportedDropStatement
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
+supportedStatsStatement
+    : SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+        columnList=identifierList? partitionSpec?                               #showColumnStats
+    ;
+
 unsupportedStatsStatement
     : ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
@@ -729,8 +735,6 @@ unsupportedStatsStatement
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
     | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
-    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
-        columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
         columnList=identifierList                                               #showColumnHistogramStats
     | SHOW AUTO? ANALYZE tableName=multipartIdentifier? wildWhere?              #showAnalyze
