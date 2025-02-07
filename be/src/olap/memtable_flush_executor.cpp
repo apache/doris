@@ -146,17 +146,13 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     {
         SCOPED_RAW_TIMER(&duration_ns);
         SCOPED_ATTACH_TASK(memtable->resource_ctx());
-        signal::set_signal_task_id(_rowset_writer->load_id());
-        signal::tablet_id = memtable->tablet_id();
-        {
-            SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
-            std::unique_ptr<vectorized::Block> block;
-            RETURN_IF_ERROR(memtable->to_block(&block));
-            RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
-        }
+        SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
+        std::unique_ptr<vectorized::Block> block;
+        RETURN_IF_ERROR(memtable->to_block(&block));
+        RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
         memtable->set_flush_success();
-        _memtable_stat += memtable->stat();
     }
+    _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
@@ -166,6 +162,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                                  int64_t submit_task_time) {
+    signal::set_signal_task_id(_rowset_writer->load_id());
+    signal::tablet_id = memtable_ptr->tablet_id();
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);
         _stats.flush_running_count--;
