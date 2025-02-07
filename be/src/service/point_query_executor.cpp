@@ -398,7 +398,7 @@ Status PointQueryExecutor::_lookup_row_key() {
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        if (!config::disable_storage_row_cache) {
+        if (!config::disable_storage_row_cache && !config::is_cloud_mode()) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
@@ -448,7 +448,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         std::string value;
         // fill block by row store
         if (_reusable->rs_column_uid() != -1) {
-            bool use_row_cache = !config::disable_storage_row_cache;
+            bool use_row_cache = !config::disable_storage_row_cache && !config::is_cloud_mode();
             RETURN_IF_ERROR(_tablet->lookup_row_data(
                     _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                     *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
