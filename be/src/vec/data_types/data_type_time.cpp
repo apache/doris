@@ -33,6 +33,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace vectorized {
@@ -82,53 +83,10 @@ MutableColumnPtr DataTypeTimeV2::create_column() const {
 }
 
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
-    const static int64_t max_time = (int64_t)3020399 * 1000 * 1000;
     const int32_t scale = node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
-    auto len = cast_set<size_t>(node.time_literal.value.size());
-    const char* p = node.time_literal.value.c_str();
-    const char* end = p + len;
-    bool valid {true};
-    double value {};
-    int v[4] = {};
-    int part {}, sign {1};
-    if (*p == '-') {
-        sign = -1;
-        p++;
-    }
-    while (p != end) {
-        if (isdigit(*p)) {
-            v[part] *= 10;
-            v[part] += *p - '0';
-        } else {
-            part++;
-        }
-        if (part == 3) {
-            if (scale == 0) {
-                break;
-            }
-            const char* t = ++p;
-            for (int i = 0; i < 7; i++) {
-                v[3] *= 10;
-                if (i >= scale || t == end) {
-                    continue;
-                }
-                if (!isdigit(*t)) {
-                    valid = false;
-                    break;
-                }
-                v[3] += *t - '0';
-                t++;
-            }
-            break;
-        }
-        ++p;
-    }
-    if (v[1] > 59 || v[2] > 59) {
-        valid = false;
-    }
-    value = (((v[0] * 60.0) + v[1]) * 60 + v[2]) * 1000000 + v[3];
-    if (valid) {
-        return (value > max_time ? max_time : value) * sign;
+    TimeV2ValueType value;
+    if (value.from_time_str(node.time_literal.value.c_str(), scale)) {
+        return value.to_double_val();
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "Invalid value: {} for type TimeV2", node.time_literal.value);

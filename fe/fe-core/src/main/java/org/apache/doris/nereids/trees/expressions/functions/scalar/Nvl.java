@@ -36,7 +36,6 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -68,8 +67,6 @@ public class Nvl extends ScalarFunction
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)
                             .args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(TimeType.INSTANCE)
-                    .args(TimeType.INSTANCE, TimeType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE)
                     .args(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE),
             FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE, BitmapType.INSTANCE),

@@ -27,10 +27,10 @@ import org.apache.doris.thrift.TTimeLiteral;
 
 public class TimeLiteral extends LiteralExpr {
 
-    public static final TimeLiteral MIN_TIME = new TimeLiteral(0, 0, 0, 0, 0);
+    public static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0, 0, 0);
     public static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59, 999999, 6);
 
-    protected long hour;
+    protected float hour;
     protected long minute;
     protected long second;
     protected long microsecond;
@@ -47,7 +47,7 @@ public class TimeLiteral extends LiteralExpr {
         this.microsecond = 0;
     }
 
-    public TimeLiteral(long hour, long minute, long second) {
+    public TimeLiteral(float hour, long minute, long second) {
         super();
         this.type = Type.TIMEV2;
         this.hour = hour;
@@ -57,7 +57,7 @@ public class TimeLiteral extends LiteralExpr {
         analysisDone();
     }
 
-    public TimeLiteral(long hour, long minute, long second, long microsecond, long scale) {
+    public TimeLiteral(float hour, long minute, long second, long microsecond, long scale) {
         super();
         this.type = ScalarType.createTimeV2Type((int) scale);
         this.hour = hour;
@@ -91,7 +91,19 @@ public class TimeLiteral extends LiteralExpr {
     }
 
     protected void init(String s) throws AnalysisException {
+        // should like be/src/vec/runtime/vdatetime_value.h
+        // TimeV2ValueType's from_time_str()
         if (!s.contains(":")) {
+            boolean neg = false;
+            String tail = "";
+            if (s.charAt(0) == '-') {
+                s = s.substring(1);
+                neg = true;
+            }
+            if (s.contains(".")) {
+                tail = s.substring(s.indexOf("."));
+                s = s.substring(0, s.indexOf("."));
+            }
             int len = s.length();
             if (len == 1) {
                 s = "00:00:0" + s;
@@ -104,6 +116,10 @@ public class TimeLiteral extends LiteralExpr {
             } else {
                 s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
             }
+            if (neg) {
+                s = '-' + s;
+            }
+            s = s + tail;
         }
         if (s.indexOf(':') == s.lastIndexOf(':')) {
             s = s + ":00";
@@ -114,7 +130,7 @@ public class TimeLiteral extends LiteralExpr {
         }
         int scale = 0;
         try {
-            hour = Long.parseLong(parts[0]);
+            hour = Float.parseFloat(parts[0]);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid hour format", e);
         }
@@ -188,35 +204,35 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        long h = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
+        float h = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
         long m = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
         long s = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
         long ms = Math.max(Math.min(getMicroSecond(), MAX_TIME.getMicroSecond()), MIN_TIME.getMicroSecond());
 
         StringBuilder sb = new StringBuilder();
-        if (h > 99) {
-            sb.append(String.format("%03d:%02d:%02d", h, m, s));
+        if (h > 99 || 1.0 / h < 0) {
+            sb.append(String.format("%03.0f:%02d:%02d", h, m, s));
         } else {
-            sb.append(String.format("%02d:%02d:%02d", h, m, s));
+            sb.append(String.format("%02.0f:%02d:%02d", h, m, s));
         }
         switch (((ScalarType) type).getScalarScale()) {
             case 1:
-                sb.append(String.format(".%1d", ms));
+                sb.append(String.format(".%01d", ms));
                 break;
             case 2:
-                sb.append(String.format(".%2d", ms));
+                sb.append(String.format(".%02d", ms));
                 break;
             case 3:
-                sb.append(String.format(".%3d", ms));
+                sb.append(String.format(".%03d", ms));
                 break;
             case 4:
-                sb.append(String.format(".%4d", ms));
+                sb.append(String.format(".%04d", ms));
                 break;
             case 5:
-                sb.append(String.format(".%5d", ms));
+                sb.append(String.format(".%05d", ms));
                 break;
             case 6:
-                sb.append(String.format(".%6d", ms));
+                sb.append(String.format(".%06d", ms));
                 break;
             default:
                 break;
@@ -229,13 +245,13 @@ public class TimeLiteral extends LiteralExpr {
         return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
-    protected static boolean checkRange(long hour, long minute, long second, long microsecond) {
+    protected static boolean checkRange(float hour, long minute, long second, long microsecond) {
         return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond()
                 || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond()
-                || microsecond > MIN_TIME.getMicroSecond() || microsecond > MAX_TIME.getMicroSecond();
+                || microsecond < MIN_TIME.getMicroSecond() || microsecond > MAX_TIME.getMicroSecond();
     }
 
-    public long getHour() {
+    public float getHour() {
         return hour;
     }
 

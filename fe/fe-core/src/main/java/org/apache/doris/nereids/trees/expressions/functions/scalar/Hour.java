@@ -30,7 +30,6 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -49,7 +48,6 @@ public class Hour extends ScalarFunction
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.INSTANCE));
 
     /**

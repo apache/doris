@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <iterator>
@@ -246,6 +247,130 @@ struct DateTimeV2ValueType {
               day_(day),
               month_(month),
               year_(year) {}
+};
+
+class TimeV2ValueType {
+public:
+    TimeV2ValueType() : neg_(0), microsecond_(0), second_(0), minute_(0), hour_(0) {}
+    TimeV2ValueType(uint16_t hour, uint8_t minute, uint8_t second, uint32_t microsecond)
+            : neg_(hour < 0),
+              microsecond_(microsecond),
+              second_(second),
+              minute_(minute),
+              hour_(hour) {}
+
+    char* to_string(char* to) const {
+        if (neg_) {
+            *to++ = '-';
+        }
+        if (hour_ > 99) {
+            *to++ = hour_ / 100 + '0';
+            *to++ = hour_ / 10 % 10 + '0';
+            *to++ = hour_ % 10 + '0';
+        } else {
+            *to++ = hour_ / 10 + '0';
+            *to++ = hour_ % 10 + '0';
+        }
+        *to++ = ':';
+
+        *to++ = minute_ / 10 + '0';
+        *to++ = minute_ % 10 + '0';
+        *to++ = ':';
+
+        *to++ = second_ / 10 + '0';
+        *to++ = second_ % 10 + '0';
+        *to++ = '.';
+
+        *to++ = microsecond_ / 100000 + '0';
+        *to++ = microsecond_ / 10000 % 10 + '0';
+        *to++ = microsecond_ / 1000 % 10 + '0';
+        *to++ = microsecond_ / 100 % 10 + '0';
+        *to++ = microsecond_ / 10 % 10 + '0';
+        *to++ = microsecond_ % 10 + '0';
+
+        *to++ = '\0';
+        return to;
+    }
+
+    bool check_range(int64_t hour, uint64_t minute, uint64_t second, uint64_t microsecond) {
+        return hour < 839 && minute < 60 && second < 60;
+    }
+
+    bool from_olap_time_v2(double value) {
+        auto int_v = static_cast<uint64_t>(value) / 1000000;
+        hour_ = int_v / 3600;
+        minute_ = int_v % 3600 / 60;
+        second_ = int_v % 60;
+        microsecond_ = static_cast<uint64_t>(value) % 1000000;
+        return check_range(hour_, minute_, second_, microsecond_);
+    }
+
+    bool from_time_str(const char* str, int scale = 6) {
+        // like fe/fe-core/src/main/java/org/apache/doris/analysis/TimeLiteral.java and
+        // fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/literal/TimeLiteral.java
+        // init function to parse str
+        std::string s(str);
+        if (s[0] == '-') {
+            neg_ = true;
+            s = s.substr(1);
+        }
+        if (s.find(':') == std::string::npos) {
+            std::string tail;
+            if (auto idx = s.find('.'); idx != std::string::npos) {
+                tail = s.substr(idx);
+                s = s.substr(0, idx);
+            }
+            int len = s.length();
+            if (len == 1) {
+                s = "00:00:0" + s;
+            } else if (len == 2) {
+                s = "00:00:" + s;
+            } else if (len == 3) {
+                s = std::string("00:0") + s[0] + ":" + s.substr(1);
+            } else if (len == 4) {
+                s = "00:" + s.substr(0, 2) + ":" + s.substr(2);
+            } else {
+                s = s.substr(0, len - 4) + ":" + s.substr(len - 4, len - 2) + ":" +
+                    s.substr(len - 2);
+            }
+            if (neg_) {
+                s = '-' + s;
+            }
+            s = s + tail;
+        }
+        if (!std::all_of(s.begin(), s.end(),
+                         [](char c) { return c == '.' || isdigit(c) || c == ':'; })) {
+            return false;
+        }
+        if (s.find(':') == s.rfind(':')) {
+            s += ":00";
+        }
+        auto p1 = s.find(':');
+        auto p2 = s.rfind(':');
+        auto p3 = s.find('.');
+        hour_ = std::stoi(s.substr(0, p1));
+        minute_ = std::stoi(s.substr(p1 + 1, p2 - p1));
+        if (p3 != std::string::npos) {
+            second_ = std::stoi(s.substr(p2 + 1, p3 - p2));
+            microsecond_ = std::stoi(s.substr(p3 + 1));
+        } else {
+            second_ = std::stoi(s.substr(p2 + 1));
+            microsecond_ = 0;
+        }
+        return check_range(hour_, minute_, second_, microsecond_);
+    }
+
+    double to_double_val() const {
+        int sign = neg_ ? -1 : 1;
+        return sign * hour_ * 3600000000 + minute_ * 60000000 + second_ * 1000000 + microsecond_;
+    }
+
+private:
+    uint64_t neg_ : 1;
+    uint64_t microsecond_ : 20;
+    uint64_t second_ : 6;
+    uint64_t minute_ : 6;
+    uint64_t hour_ : 10;
 };
 
 template <typename T>

@@ -391,8 +391,6 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
-        } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
@@ -490,14 +488,14 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
-        const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
+        const auto* origin_value = reinterpret_cast<const TimeV2ValueType*>(data);
         TTimeLiteral time_literal;
-        char convert_buffer[30];
+        char convert_buffer[30] {};
         origin_value->to_string(convert_buffer);
         time_literal.__set_value(convert_buffer);
         (*node).__set_time_literal(time_literal);
         (*node).__set_node_type(TExprNodeType::TIME_LITERAL);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

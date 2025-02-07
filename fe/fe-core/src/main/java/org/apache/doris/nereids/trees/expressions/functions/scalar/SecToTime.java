@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.TimeType;
+import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +38,7 @@ public class SecToTime extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeType.INSTANCE).args(IntegerType.INSTANCE));
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(IntegerType.INSTANCE));
 
     /**
      * constructor with 1 argument.
