@@ -47,6 +47,7 @@
 #include "common/exception.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/olap_common.h"
+#include "olap/id_manager.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_fwd.h"
@@ -466,6 +467,173 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                          stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
                          acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
                          lookup_row_data_ms);
+    return Status::OK();
+}
+
+Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
+                                          PMultiGetResponseV2* response) {
+    // read from storage engine row id by row id
+    OlapReaderStatistics stats;
+    std::vector<vectorized::Block> result_blocks(request.schemas_size());
+    int64_t acquire_tablet_ms = 0;
+    int64_t acquire_rowsets_ms = 0;
+    int64_t acquire_segments_ms = 0;
+    int64_t lookup_row_data_ms = 0;
+    auto id_file_map = ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
+    if (!id_file_map) {
+        return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
+                                           BackendOptions::get_localhost(), print_id(request.query_id()));
+    }
+
+    for (int i = 0; i < request.schemas_size(); ++i) {
+        const auto& request_schema = request.schemas(i);
+        auto& result_block = result_blocks[i];
+        auto ret_block = response->add_blocks();
+        // init desc
+        TupleDescriptor desc(request_schema.desc());
+        std::vector<SlotDescriptor> slots;
+        slots.reserve(request_schema.slots_size());
+        for (const auto& pslot: request_schema.slots()) {
+            slots.push_back(SlotDescriptor(pslot));
+            desc.add_slot(&slots.back());
+        }
+
+        // init read schema
+        TabletSchema full_read_schema;
+        for (const ColumnPB& column_pb: request_schema.column_descs()) {
+            full_read_schema.append_column(TabletColumn(column_pb));
+        }
+
+        std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+        // read row by row
+        for (size_t j = 0; j < request_schema.row_id_size(); ++j) {
+            MonotonicStopWatch watch;
+            watch.start();
+
+            auto file_id = request_schema.file_id(j);
+            auto file_mapping = id_file_map->get_file_mapping(file_id);
+            if (!file_mapping) {
+                return Status::InternalError("Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                                             BackendOptions::get_localhost(), print_id(request.query_id()), file_id);
+            }
+
+            if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
+                auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
+                BaseTabletSPtr tablet = scope_timer_run(
+                        [&]() {
+                            auto res = ExecEnv::get_tablet(tablet_id);
+                            return !res.has_value() ? nullptr
+                                                    : std::dynamic_pointer_cast<BaseTablet>(res.value());
+                        },
+                        &acquire_tablet_ms);
+                if (!tablet) {
+                    return Status::InternalError("Backend:{} tablet not found, query_id: {}, file_id: {}, tablet_id: {}, rowset_id: {}, segment_id: {}, row_id: {}",
+                                                 BackendOptions::get_localhost(), print_id(request.query_id()), file_id,
+                                                 tablet_id, rowset_id.to_string(), segment_id);
+                }
+                // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
+                BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
+                        [&]() {
+                            return ExecEnv::GetInstance()->storage_engine().get_quering_rowset(rowset_id);
+                        },
+                        &acquire_rowsets_ms));
+                if (!rowset) {
+                    return Status::InternalError("Backend:{} rowset_id not found, query_id: {}, file_id: {}, tablet_id: {}, rowset_id: {}, segment_id: {}, row_id: {}",
+                                                 BackendOptions::get_localhost(), print_id(request.query_id()), file_id,
+                                                 tablet_id, rowset_id.to_string(), segment_id);
+                }
+                // TODO: supoort session variable enable_page_cache and disable_file_cache if necessary.
+                SegmentCacheHandle segment_cache;
+                RETURN_IF_ERROR(scope_timer_run(
+                        [&]() {
+                            return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
+                        },
+                        &acquire_segments_ms));
+                // find segment
+                auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                                       segment_cache.get_segments().cend(),
+                                       [segment_id](const segment_v2::SegmentSharedPtr &seg) {
+                                           return seg->id() == segment_id;
+                                       });
+                if (it == segment_cache.get_segments().end()) {
+                    return Status::InternalError("Backend:{} rowset_id not found, query_id: {}, file_id: {}, tablet_id: {}, rowset_id: {}, segment_id: {}, row_id: {}",
+                                                 BackendOptions::get_localhost(), print_id(request.query_id()), file_id,
+                                                 tablet_id, rowset_id.to_string(), segment_id);
+                }
+                segment_v2::SegmentSharedPtr segment = *it;
+                auto row_id = request_schema.row_id(j);
+
+                // seek and read by rowid
+                size_t row_size = 0;
+                Defer _defer([&]() {
+                    LOG_EVERY_N(INFO, 100)
+                        << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000
+                        << ", row_size:" << row_size;
+                });
+
+                // fetch by row store, more effcient way
+                if (request.fetch_row_store()) {
+                    CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
+                    RowLocation loc(rowset_id, segment->id(), row_id);
+                    string* value = ret_block->add_binary_row_data();
+                    RETURN_IF_ERROR(scope_timer_run(
+                            [&]() {
+                                return tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value);
+                            },
+                            &lookup_row_data_ms));
+                    row_size = value->size();
+                } else {
+                    // fetch by column store
+                    if (result_block.is_empty_column()) {
+                        result_block = vectorized::Block(desc.slots(), request_schema.row_id_size());
+                    }
+                    VLOG_DEBUG << "Read row location "
+                               << fmt::format("{}, {}, {}, {}", tablet_id, rowset_id.to_string(),
+                                              segment_id, row_id);
+
+                    for (int x = 0; x < desc.slots().size(); ++x) {
+                        vectorized::MutableColumnPtr column =
+                                result_block.get_by_position(x).column->assume_mutable();
+                        IteratorKey iterator_key{.tablet_id = tablet_id,
+                                .rowset_id = rowset_id,
+                                .segment_id = segment_id,
+                                .slot_id = desc.slots()[x]->id()};
+                        IteratorItem &iterator_item = iterator_map[iterator_key];
+                        if (iterator_item.segment == nullptr) {
+                            // hold the reference
+                            iterator_map[iterator_key].segment = segment;
+                        }
+                        segment = iterator_item.segment;
+                        RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
+                                                                        row_id, column, stats,
+                                                                        iterator_item.iterator));
+                    }
+                }
+            }
+        }
+
+        // serialize block if not empty
+        VLOG_DEBUG << "dump block:" << result_block.dump_data(0, 10);
+        [[maybe_unused]] size_t compressed_size = 0;
+        [[maybe_unused]] size_t uncompressed_size = 0;
+        int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
+        RETURN_IF_ERROR(result_block.serialize(be_exec_version, ret_block->mutable_block(),
+                                               &uncompressed_size, &compressed_size,
+                                                   segment_v2::CompressionTypePB::LZ4));
+    }
+
+    LOG(INFO) << "Query stats: "
+              << fmt::format(
+                      "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+                      "io_latency:{}ns, "
+                      "uncompressed_bytes_read:{},"
+                      "bytes_read:{},"
+                      "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
+                      "lookup_row_data_ms:{}",
+                      stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
+                      stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
+                      acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
+                      lookup_row_data_ms);
     return Status::OK();
 }
 

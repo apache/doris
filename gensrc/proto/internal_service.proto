@@ -781,6 +781,41 @@ message PMultiGetResponse {
     repeated PRowLocation row_locs = 5;
 };
 
+// Eeach block have own schema to read
+message PBlockSchema {
+    optional PTupleDescriptor desc = 1;
+    repeated PSlotDescriptor slots = 2;
+    repeated ColumnPB column_descs = 3;
+    repeated uint32 file_id = 4;
+    repeated uint32 row_id = 5;
+}
+
+message PMultiGetRequestV2 {
+    repeated PBlockSchema schemas = 3;
+
+    // for compability
+    optional int32 be_exec_version = 4;
+    optional bool fetch_row_store = 5;
+    optional PUniqueId query_id = 6;
+};
+
+message PMultiGetBlockV2 {
+    optional PBlock block = 1;
+    // more effecient serialization fields for row store
+    enum RowFormat {
+        JSONB = 0;
+    };
+    optional RowFormat format = 2;
+    repeated bytes binary_row_data = 3;
+    // for sorting rows
+    repeated uint32 row_ids = 4;
+}
+
+message PMultiGetResponseV2 {
+    optional PStatus status = 1;
+    repeated PMultiGetBlockV2 blocks = 2;
+};
+
 message PFetchColIdsRequest {
     message PFetchColIdParam {
         required int64 indexId = 1;
@@ -1026,6 +1061,7 @@ service PBackendService {
     rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
+    rpc multiget_data_v2(PMultiGetRequestV2) returns (PMultiGetResponseV2);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);

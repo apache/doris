@@ -64,6 +64,23 @@ struct FileMapping {
         ptr += sizeof(rowset_id);
         memcpy(ptr, &segment_id, sizeof(segment_id));
     }
+
+    std::tuple<int64_t, RowsetId, uint32_t> get_doris_format_info() const {
+        DCHECK(type == FileMappingType::DORIS_FORMAT);
+        DCHECK(value.size() == sizeof(int64_t) + sizeof(RowsetId) + sizeof(uint32_t));
+
+        auto* ptr = value.data();
+        int64_t tablet_id;
+        memcpy(&tablet_id, ptr, sizeof(tablet_id));
+        ptr += sizeof(tablet_id);
+        RowsetId rowset_id;
+        memcpy(&rowset_id, ptr, sizeof(rowset_id));
+        ptr += sizeof(rowset_id);
+        uint32_t segment_id;
+        memcpy(&segment_id, ptr, sizeof(segment_id));
+
+        return std::make_tuple(tablet_id, rowset_id, segment_id);
+    }
 };
 
 class IdFileMap {

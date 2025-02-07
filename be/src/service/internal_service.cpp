@@ -2031,6 +2031,27 @@ void PInternalService::multiget_data(google::protobuf::RpcController* controller
     }
 }
 
+void PInternalService::multiget_data_v2(google::protobuf::RpcController* controller,
+                                     const PMultiGetRequestV2* request, PMultiGetResponseV2* response,
+                                     google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([request, response, done]() {
+        signal::set_signal_task_id(request->query_id());
+        // multi get data by rowid
+        MonotonicStopWatch watch;
+        watch.start();
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(0);
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+        Status st = RowIdStorageReader::read_by_rowids(*request, response);
+        st.to_protobuf(response->mutable_status());
+        LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    });
+    if (!ret) {
+        offer_failed(response, done, _heavy_work_pool);
+        return;
+    }
+}
+
 void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
                                                       const PGetTabletVersionsRequest* request,
                                                       PGetTabletVersionsResponse* response,

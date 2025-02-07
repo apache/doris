@@ -73,6 +73,7 @@ private:
 class RowIdStorageReader {
 public:
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
+    static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 };
 
 } // namespace doris
