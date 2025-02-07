@@ -117,59 +117,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         return sort.withOrderKeys(retainExpression);
     }
 
-    private static List<OrderKey> eliminate(DataTrait dataTrait, List<OrderKey> orderKeys) {
-        // List<OrderKey> retainExpression = eliminateDuplicate(orderKeys);
-        // retainExpression = eliminateByFd(dataTrait, retainExpression);
-        // retainExpression = eliminateByUniform(dataTrait, retainExpression);
-        return eliminateByFd2(dataTrait, orderKeys);
-    }
-
-    private static List<OrderKey> eliminateByUniform(DataTrait dataTrait, List<OrderKey> orderKeys) {
-        List<OrderKey> retainExpression = new ArrayList<>();
-        for (OrderKey orderKey : orderKeys) {
-            if (orderKey.getExpr() instanceof Slot && dataTrait.isUniformAndNotNull((Slot) orderKey.getExpr())) {
-                continue;
-            }
-            retainExpression.add(orderKey);
-        }
-        return retainExpression;
-    }
-
-    private static List<OrderKey> eliminateByFd(DataTrait dataTrait, List<OrderKey> inputOrderKeys) {
-        Map<Expression, Integer> slotToIndex = new HashMap<>();
-        Set<Slot> validSlots = new HashSet<>();
-        List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
-        for (int i = 0; i < inputOrderKeys.size(); ++i) {
-            Expression expr = inputOrderKeys.get(i).getExpr();
-            validSlots.addAll(ImmutableList.of((Slot) expr));
-            slotToIndex.put(expr, i);
-            retainOrderKey.add(true);
-        }
-        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
-        if (funcDeps.isEmpty()) {
-            return inputOrderKeys;
-        }
-
-        for (FuncDepsItem funcDep : funcDeps.getItems()) {
-            Set<Slot> determinants = funcDep.determinants;
-            Set<Slot> dependencies = funcDep.dependencies;
-            if (!canEliminateSortKey(determinants, dependencies, slotToIndex)) {
-                continue;
-            }
-            for (Slot slot : dependencies) {
-                retainOrderKey.set(slotToIndex.get(slot), false);
-            }
-        }
-        List<OrderKey> retainExpression = new ArrayList<>();
-        for (int i = 0; i < retainOrderKey.size(); ++i) {
-            if (retainOrderKey.get(i)) {
-                retainExpression.add(inputOrderKeys.get(i));
-            }
-        }
-        return retainExpression;
-    }
-
-    private static List<OrderKey> eliminateByFd2(DataTrait dataTrait, List<OrderKey> inputOrderKeys) {
+    private static List<OrderKey> eliminate(DataTrait dataTrait, List<OrderKey> inputOrderKeys) {
         Map<Expression, Integer> slotToIndex = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
         List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
@@ -224,19 +172,5 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             min = slotToIndex.get(slot) < min ? slotToIndex.get(slot) : min;
         }
         return max < min;
-    }
-
-    private static List<OrderKey> eliminateDuplicate(List<OrderKey> orderKeys) {
-        // eliminate same order by expr. e.g. order by a,a -> order by a
-        List<OrderKey> uniqueOrderKeys = new ArrayList<>();
-        Set<Expression> set = new HashSet<>();
-        for (OrderKey orderKey : orderKeys) {
-            if (set.contains(orderKey.getExpr())) {
-                continue;
-            }
-            uniqueOrderKeys.add(orderKey);
-            set.add(orderKey.getExpr());
-        }
-        return uniqueOrderKeys;
     }
 }
