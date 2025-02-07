@@ -142,19 +142,21 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                   << ", memsize: " << memtable->memory_usage()
                   << ", rows: " << memtable->stat().raw_rows;
     memtable->update_mem_type(MemType::FLUSH);
-    int64_t duration_ns;
-    SCOPED_RAW_TIMER(&duration_ns);
-    SCOPED_ATTACH_TASK(memtable->resource_ctx());
-    signal::set_signal_task_id(_rowset_writer->load_id());
-    signal::tablet_id = memtable->tablet_id();
+    int64_t duration_ns = 0;
     {
-        SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
-        std::unique_ptr<vectorized::Block> block;
-        RETURN_IF_ERROR(memtable->to_block(&block));
-        RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
+        SCOPED_RAW_TIMER(&duration_ns);
+        SCOPED_ATTACH_TASK(memtable->resource_ctx());
+        signal::set_signal_task_id(_rowset_writer->load_id());
+        signal::tablet_id = memtable->tablet_id();
+        {
+            SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
+            std::unique_ptr<vectorized::Block> block;
+            RETURN_IF_ERROR(memtable->to_block(&block));
+            RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
+        }
+        memtable->set_flush_success();
+        _memtable_stat += memtable->stat();
     }
-    memtable->set_flush_success();
-    _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
