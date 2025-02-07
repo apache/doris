@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bvar/bvar.h>
+#include <concurrentqueue.h>
 
 #include <boost/lockfree/spsc_queue.hpp>
 #include <memory>
@@ -28,26 +29,47 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 
 namespace doris::io {
+using RecycleFileCacheKeys = moodycamel::ConcurrentQueue<FileCacheKey>;
+
+class LockScopedTimer {
+public:
+    LockScopedTimer() : start_(std::chrono::steady_clock::now()) {}
+    ~LockScopedTimer() {
+        auto end = std::chrono::steady_clock::now();
+        auto duration_us =
+                std::chrono::duration_cast<std::chrono::microseconds>(end - start_).count();
+        if (duration_us > config::cache_lock_held_long_tail_threshold_us) {
+            LOG(WARNING) << "Lock held time " << std::to_string(duration_us) << "us. "
+                         << get_stack_trace();
+        }
+    }
+
+private:
+    std::chrono::time_point<std::chrono::steady_clock> start_;
+};
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
 #ifdef ENABLE_CACHE_LOCK_DEBUG
-#define SCOPED_CACHE_LOCK(MUTEX)                                                                  \
+#define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
     std::lock_guard cache_lock(MUTEX);                                                            \
     std::chrono::time_point<std::chrono::steady_clock> acq_time =                                 \
             std::chrono::steady_clock::now();                                                     \
-    auto duration =                                                                               \
-            std::chrono::duration_cast<std::chrono::milliseconds>(acq_time - start_time).count(); \
-    if (duration > config::cache_lock_long_tail_threshold)                                        \
-        LOG(WARNING) << "Lock wait time " << std::to_string(duration) << "ms. "                   \
-                     << get_stack_trace_by_boost() << std::endl;                                  \
+    auto duration_us =                                                                            \
+            std::chrono::duration_cast<std::chrono::microseconds>(acq_time - start_time).count(); \
+    *(cache->_cache_lock_wait_time_us) << duration_us;                                            \
+    if (duration_us > config::cache_lock_wait_long_tail_threshold_us) {                           \
+        LOG(WARNING) << "Lock wait time " << std::to_string(duration_us) << "us. "                \
+                     << get_stack_trace() << std::endl;                                           \
+    }                                                                                             \
     LockScopedTimer cache_lock_timer;
 #else
-#define SCOPED_CACHE_LOCK(MUTEX) std::lock_guard cache_lock(MUTEX);
+#define SCOPED_CACHE_LOCK(MUTEX, cache) std::lock_guard cache_lock(MUTEX);
 #endif
 
 template <class Lock>
@@ -55,23 +77,6 @@ concept IsXLock = std::same_as<Lock, std::lock_guard<std::mutex>> ||
                   std::same_as<Lock, std::unique_lock<std::mutex>>;
 
 class FSFileCacheStorage;
-
-class LockScopedTimer {
-public:
-    LockScopedTimer() : start_(std::chrono::steady_clock::now()) {}
-
-    ~LockScopedTimer() {
-        auto end = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_).count();
-        if (duration > 500) {
-            LOG(WARNING) << "Lock held time " << std::to_string(duration) << "ms. "
-                         << get_stack_trace_by_boost();
-        }
-    }
-
-private:
-    std::chrono::time_point<std::chrono::steady_clock> start_;
-};
 
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
@@ -95,8 +100,14 @@ public:
             _close = true;
         }
         _close_cv.notify_all();
-        if (_cache_background_thread.joinable()) {
-            _cache_background_thread.join();
+        if (_cache_background_monitor_thread.joinable()) {
+            _cache_background_monitor_thread.join();
+        }
+        if (_cache_background_ttl_gc_thread.joinable()) {
+            _cache_background_ttl_gc_thread.join();
+        }
+        if (_cache_background_gc_thread.joinable()) {
+            _cache_background_gc_thread.join();
         }
     }
 
@@ -336,7 +347,6 @@ private:
         std::optional<LRUQueue::Iterator> queue_iterator;
 
         mutable int64_t atime {0};
-        mutable bool is_deleted {false};
         void update_atime() const {
             atime = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now().time_since_epoch())
@@ -425,12 +435,12 @@ private:
 
     bool need_to_move(FileCacheType cell_type, FileCacheType query_type) const;
 
-    bool remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, bool remove_directly,
-                                   std::lock_guard<std::mutex>&);
+    bool remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, bool remove_directly,
+                                   std::lock_guard<std::mutex>&, bool sync);
 
-    void run_background_operation();
-
-    void recycle_deleted_blocks();
+    void run_background_monitor();
+    void run_background_ttl_gc();
+    void run_background_gc();
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
@@ -443,9 +453,7 @@ private:
 
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
-
-    void remove_file_blocks_async(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
 
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
@@ -453,8 +461,6 @@ private:
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
                                std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size);
-
-    void recycle_stale_rowset_async_bottom_half();
 
     // info
     std::string _cache_base_path;
@@ -467,9 +473,10 @@ private:
     bool _close {false};
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
-    std::thread _cache_background_thread;
+    std::thread _cache_background_monitor_thread;
+    std::thread _cache_background_ttl_gc_thread;
+    std::thread _cache_background_gc_thread;
     std::atomic_bool _async_open_done {false};
-    bool _async_clear_file_cache {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
     bool _is_initialized {false};
@@ -495,7 +502,7 @@ private:
     LRUQueue _ttl_queue;
 
     // keys for async remove
-    std::shared_ptr<boost::lockfree::spsc_queue<FileCacheKey>> _recycle_keys;
+    RecycleFileCacheKeys _recycle_keys;
 
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
@@ -529,6 +536,12 @@ private:
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
+
+    std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
+    std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _storage_sync_remove_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _storage_retry_sync_remove_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;
 };
 
 } // namespace doris::io

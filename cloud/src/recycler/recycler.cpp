@@ -1464,7 +1464,8 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     return accessor->delete_files(file_paths);
 }
 
-int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets) {
+int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
+                                         RowsetRecyclingState type) {
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
@@ -1472,7 +1473,9 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
     std::vector<std::tuple<std::string, int64_t, std::string>> rowsets_delete_by_prefix;
 
     for (const auto& rs : rowsets) {
-        {
+        // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
+        // due to aborted schema change.
+        if (type == RowsetRecyclingState::FORMAL_ROWSET) {
             std::lock_guard lock(recycled_tablets_mtx_);
             if (recycled_tablets_.count(rs.tablet_id())) {
                 continue; // Rowset data has already been deleted
@@ -1499,7 +1502,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
         std::vector<std::pair<int64_t, std::string>> index_ids;
         // default format as v1.
         InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
-
+        int inverted_index_get_ret = 0;
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {
                 if (index.has_index_type() && index.index_type() == IndexType::INVERTED) {
@@ -1519,27 +1522,36 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 continue;
             }
             InvertedIndexInfo index_info;
-            int get_ret =
+            inverted_index_get_ret =
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
-            if (get_ret != 0) {
-                if (get_ret == 1) { // Schema kv not found
-                    // Check tablet existence
-                    std::string tablet_idx_key, tablet_idx_val;
-                    meta_tablet_idx_key({instance_id_, tablet_id}, &tablet_idx_key);
-                    if (txn_get(txn_kv_.get(), tablet_idx_key, tablet_idx_val) == 1) {
-                        // Tablet has been recycled, rowset data has already been deleted
-                        std::lock_guard lock(recycled_tablets_mtx_);
-                        recycled_tablets_.insert(tablet_id);
-                        continue;
-                    }
-                }
+            if (inverted_index_get_ret == 0) {
+                index_format = index_info.first;
+                index_ids = index_info.second;
+            } else if (inverted_index_get_ret == 1) {
+                // 1. Schema kv not found means tablet has been recycled
+                // Maybe some tablet recycle failed by some bugs
+                // We need to delete again to double check
+                // 2. Ensure this operation only deletes tablets and does not perform any operations on indexes,
+                // because we are uncertain about the inverted index information.
+                // If there are inverted indexes, some data might not be deleted,
+                // but this is acceptable as we have made our best effort to delete the data.
+                LOG_INFO(
+                        "delete rowset data schema kv not found, need to delete again to double "
+                        "check")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset", rs.ShortDebugString());
+                // Currently index_ids is guaranteed to be empty,
+                // but we clear it again here as a safeguard against future code changes
+                // that might cause index_ids to no longer be empty
+                index_format = InvertedIndexStorageFormatPB::V2;
+                index_ids.clear();
+            } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
                              << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
                 ret = -1;
                 continue;
             }
-            index_format = index_info.first;
-            index_ids = std::move(index_info.second);
         }
         if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
             // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
@@ -1554,7 +1566,16 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                     file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
                                                                 index_id.first, index_id.second));
                 }
-            } else if (!index_ids.empty()) {
+            } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
+                // try to recycle inverted index v2 when get_ret == 1
+                // we treat schema not found as if it has a v2 format inverted index
+                // to reduce chance of data leakage
+                if (inverted_index_get_ret == 1) {
+                    LOG_INFO("delete rowset data schema kv not found, try to delete index file")
+                            .tag("instance_id", instance_id_)
+                            .tag("inverted index v2 path",
+                                 inverted_index_path_v2(tablet_id, rowset_id, i));
+                }
                 file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
@@ -2020,7 +2041,7 @@ int InstanceRecycler::recycle_rowsets() {
         rowsets_to_delete.swap(rowsets);
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
                              rowsets_to_delete = std::move(rowsets_to_delete)]() {
-            if (delete_rowset_data(rowsets_to_delete) != 0) {
+            if (delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
             }
@@ -2217,7 +2238,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
         });
-        if (delete_rowset_data(tmp_rowsets) != 0) {
+        if (delete_rowset_data(tmp_rowsets, RowsetRecyclingState::TMP_ROWSET) != 0) {
             LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
             return -1;
         }

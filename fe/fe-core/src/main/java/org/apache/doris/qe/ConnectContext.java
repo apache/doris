@@ -870,7 +870,11 @@ public class ConnectContext {
     }
 
     public TUniqueId nextInstanceId() {
-        return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+        if (loadId != null) {
+            return new TUniqueId(loadId.hi, loadId.lo + instanceIdGenerator.incrementAndGet());
+        } else {
+            return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+        }
     }
 
     public String getSqlHash() {
@@ -1105,6 +1109,10 @@ public class ConnectContext {
 
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
+    }
+
+    public boolean supportHandleByFe() {
+        return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
     }
 
     // maybe user set cluster by SQL hint of session variable: cloud_cluster

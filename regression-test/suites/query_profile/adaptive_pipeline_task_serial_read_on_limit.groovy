@@ -75,6 +75,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     """
 
     sql "set enable_profile=true"
+    sql "set profile_level=2"
     // set parallel_pipeline_task_num to 1 so that only one scan operator is created,
     // and we can check MaxScannerThreadNum in profile.
     sql "set parallel_pipeline_task_num=1;"
@@ -139,12 +140,12 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     for (def profileId : profileShouldHaveOnePeakRunningScanner) {
         def profile = getProfile(profileId).toString()
         logger.info("Profile ${profile}")
-        assertTrue(profile.contains("- MaxScannerThreadNum: 1"))
+        assertTrue(profile.contains("- MaxScanConcurrency: 1"))
     }
 
     for (def profileId : profileShouldHaveMoreThanOnePeakRunningScanner) {
         def profile = getProfile(profileId).toString()
         logger.info("Profile ${profile}")
-        assertTrue(!profile.contains("- MaxScannerThreadNum: 1"))
+        assertTrue(!profile.contains("- MaxScanConcurrency: 1"))
     }
 }

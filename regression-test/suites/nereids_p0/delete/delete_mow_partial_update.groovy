@@ -146,4 +146,49 @@ suite('nereids_delete_mow_partial_update') {
             sql "drop table if exists ${tableName3};"
         }
     }
+
+    def tableName = "nereids_delete_mow_partial_update10"
+    sql "DROP TABLE IF EXISTS ${tableName};"
+    sql """
+        CREATE TABLE ${tableName} (
+          `l_shipdate` date NOT NULL,
+          `l_orderkey` bigint NOT NULL,
+          `l_linenumber` bigint NOT NULL,
+          `l_partkey` bigint NOT NULL,
+          `l_suppkey` bigint NOT NULL,
+          `l_quantity` decimal(15,2) NOT NULL,
+          `l_extendedprice` decimal(15,2) NOT NULL,
+          `l_discount` decimal(15,2) NOT NULL,
+          `l_tax` decimal(15,2) NOT NULL,
+          `l_returnflag` varchar(1) NOT NULL,
+          `l_linestatus` varchar(1) NOT NULL,
+          `l_commitdate` date NOT NULL,
+          `l_receiptdate` date NOT NULL,
+          `l_shipinstruct` varchar(25) NOT NULL,
+          `l_shipmode` varchar(10) NOT NULL,
+          `l_comment` varchar(44) NOT NULL
+        )
+        UNIQUE KEY(`l_shipdate`, `l_orderkey`, `l_linenumber`, `l_partkey`, `l_suppkey`)
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true",
+            "function_column.sequence_col" = "l_Shipdate"
+        );  
+    """
+    sql """
+        insert into ${tableName} values
+        ('2023-12-09', 1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k',  '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+        ('2023-12-09', 2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k',  '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy') ; 
+    """
+    explain {
+        sql """ delete from ${tableName} where l_orderkey = 800; """
+        contains "IS_PARTIAL_UPDATE: true"
+    }
+    sql """ delete from ${tableName} where l_orderkey = 800; """
+    sql "sync"
+    order_qt_sql """ SELECT * FROM ${tableName}; """
+    sql """ delete from ${tableName} where l_orderkey = 2; """
+    sql "sync"
+    order_qt_sql """ SELECT * FROM ${tableName}; """
 }

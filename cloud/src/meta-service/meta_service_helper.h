@@ -60,8 +60,8 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side();
     } else if constexpr (std::is_same_v<Request, UpdateDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
-                  << " tablet_id=" << req->tablet_id() << " lock_id=" << req->lock_id()
-                  << " initiator=" << req->initiator()
+                  << " table_id=" << req->table_id() << " tablet_id=" << req->tablet_id()
+                  << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " delete_bitmap_size=" << req->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
@@ -77,6 +77,11 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
+    } else if constexpr (std::is_same_v<Request, GetDeleteBitmapUpdateLockRequest>) {
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+                  << " table_id=" << req->table_id() << " lock_id=" << req->lock_id()
+                  << " initiator=" << req->initiator() << " expiration=" << req->expiration()
+                  << " require_compaction_stats=" << req->require_compaction_stats();
     } else {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " request=" << req->ShortDebugString();
@@ -124,6 +129,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
             res->clear_cumulative_compaction_cnts();
             res->clear_cumulative_points();
         }
+        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+                  << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = res->DebugString();
