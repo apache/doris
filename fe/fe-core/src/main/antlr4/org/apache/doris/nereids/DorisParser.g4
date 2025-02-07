@@ -230,7 +230,7 @@ supportedAlterStatement
     | ALTER WORKLOAD GROUP name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
-        LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
+        LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
@@ -307,7 +307,7 @@ supportedShowStatement
     | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
-    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
+    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW DATA TYPES                                                               #showDataTypes
@@ -337,6 +337,8 @@ supportedShowStatement
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
+    | SHOW QUERY STATS ((FOR database=identifier)
+            | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     ;
 
 supportedLoadStatement
@@ -416,8 +418,6 @@ unsupportedShowStatement
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
-    | SHOW QUERY STATS ((FOR database=identifier)
-            | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
@@ -971,7 +971,7 @@ dataDesc
 statementScope
     : (GLOBAL | SESSION | LOCAL)
     ;
-    
+
 buildMode
     : BUILD (IMMEDIATE | DEFERRED)
     ;
