@@ -908,7 +908,7 @@ public:
         if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to do deflateEnd, error={}, res={}", zError(zres),
                                            zres);
-        } else if (zres == Z_STREAM_ERROR) {
+        } else if (zres != Z_OK) {
             return Status::InternalError("Fail to do deflateEnd on ZLib stream, error={}, res={}",
                                          zError(zres), zres);
         }
@@ -924,7 +924,7 @@ public:
         } else if (zres == Z_MEM_ERROR) {
             return Status::MemoryLimitExceeded("Fail to do ZLib decompress, error={}",
                                                zError(zres));
-        } else if (zres == Z_BUF_ERROR) {
+        } else if (zres != Z_OK) {
             return Status::InternalError("Fail to do ZLib decompress, error={}", zError(zres));
         }
         return Status::OK();
@@ -954,8 +954,9 @@ public:
             return Status::MemoryLimitExceeded("Fail to do Bzip2 compress, ret={}", bzres);
         } else if (bzres == BZ_PARAM_ERROR) {
             return Status::InvalidArgument("Fail to do Bzip2 compress, ret={}", bzres);
-        } else if (bzres == BZ_OUTBUFF_FULL || bzres == BZ_SEQUENCE_ERROR) {
-            return Status::InternalError("Fail to do Bzip2 compress, ret={}", bzres);
+        } else if (bzres != BZ_RUN_OK && bzres != BZ_FLUSH_OK && bzres != BZ_FINISH_OK &&
+                   bzres != BZ_STREAM_END && bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
         }
         output->resize(size);
         return Status::OK();
@@ -971,10 +972,10 @@ public:
         int bzres = BZ2_bzCompressInit(&bzstrm, 9, 0, 0);
         if (bzres == BZ_PARAM_ERROR) {
             return Status::InvalidArgument("Failed to init bz2. status code: {}", bzres);
-        } else if (bzres == BZ_CONFIG_ERROR) {
-            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
         } else if (bzres == BZ_MEM_ERROR) {
             return Status::MemoryLimitExceeded("Failed to init bz2. status code: {}", bzres);
+        } else if (bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
         }
         // we assume that output is e
         bzstrm.next_out = (char*)output->data();
@@ -990,7 +991,8 @@ public:
             bzres = BZ2_bzCompress(&bzstrm, flush);
             if (bzres == BZ_PARAM_ERROR) {
                 return Status::InvalidArgument("Failed to init bz2. status code: {}", bzres);
-            } else if (bzres == BZ_CONFIG_ERROR || bzres == BZ_SEQUENCE_ERROR) {
+            } else if (bzres != BZ_RUN_OK && bzres != BZ_FLUSH_OK && bzres != BZ_FINISH_OK &&
+                       bzres != BZ_STREAM_END && bzres != BZ_OK) {
                 return Status::InternalError("Failed to init bz2. status code: {}", bzres);
             }
         }
@@ -1000,6 +1002,8 @@ public:
         bzres = BZ2_bzCompressEnd(&bzstrm);
         if (bzres == BZ_PARAM_ERROR) {
             return Status::InvalidArgument("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
+        } else if (bzres != BZ_OK) {
+            return Status::InternalError("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
         }
         return Status::OK();
     }
@@ -1270,7 +1274,7 @@ public:
         if (zres == Z_MEM_ERROR) {
             return Status::MemoryLimitExceeded("Fail to init ZLib compress, error={}, res={}",
                                                zError(zres), zres);
-        } else if (zres == Z_STREAM_ERROR) {
+        } else if (zres != Z_OK) {
             return Status::InternalError("Fail to init ZLib compress, error={}, res={}",
                                          zError(zres), zres);
         }
@@ -1290,7 +1294,7 @@ public:
         zres = deflateEnd(&z_strm);
         if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to end zlib compress");
-        } else if (zres == Z_STREAM_ERROR) {
+        } else if (zres != Z_OK) {
             return Status::InternalError("Fail to end zlib compress");
         }
         return Status::OK();
@@ -1310,7 +1314,7 @@ public:
         if (zres == Z_MEM_ERROR) {
             return Status::MemoryLimitExceeded(
                     "Fail to init ZLib stream compress, error={}, res={}", zError(zres), zres);
-        } else if (zres == Z_STREAM_ERROR) {
+        } else if (zres != Z_OK) {
             return Status::InternalError("Fail to init ZLib stream compress, error={}, res={}",
                                          zError(zres), zres);
         }
@@ -1338,7 +1342,7 @@ public:
         if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to do deflateEnd on ZLib stream, error={}, res={}",
                                            zError(zres), zres);
-        } else if (zres == Z_STREAM_ERROR) {
+        } else if (zres != Z_OK) {
             return Status::InternalError("Fail to do deflateEnd on ZLib stream, error={}, res={}",
                                          zError(zres), zres);
         }
