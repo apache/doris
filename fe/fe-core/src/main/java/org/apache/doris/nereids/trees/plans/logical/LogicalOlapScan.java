@@ -538,6 +538,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniqueBy(constructReplaceMap(mtmv));
         } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
+            // When skipDeleteBitmap is set to true, in the unique model, rows that are replaced due to having the same
+            // unique key will also be read. As a result, the uniqueness of the unique key cannot be guaranteed.
             if (ConnectContext.get().getSessionVariable().skipDeleteBitmap
                     && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
                 return;
