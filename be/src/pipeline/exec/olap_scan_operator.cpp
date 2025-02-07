@@ -408,6 +408,8 @@ Status OlapScanLocalState::hold_tablets() {
     if (!_tablets.empty()) {
         return Status::OK();
     }
+    MonotonicStopWatch timer;
+    timer.start();
     _tablets.resize(_scan_ranges.size());
     _read_sources.resize(_scan_ranges.size());
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
@@ -416,35 +418,46 @@ Status OlapScanLocalState::hold_tablets() {
                         _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(), version);
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
         _tablets[i] = {std::move(tablet), version};
-        if (config::is_cloud_mode()) {
-            int64_t duration_ns = 0;
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                std::vector<std::function<Status()>> tasks;
-                tasks.reserve(_scan_ranges.size());
-                for (auto&& [cur_tablet, cur_version] : _tablets) {
-                    tasks.emplace_back([cur_tablet, cur_version]() {
-                        return std::dynamic_pointer_cast<CloudTablet>(cur_tablet)
-                                ->sync_rowsets(cur_version);
-                    });
-                }
-                RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
-            }
-            _sync_rowset_timer->update(duration_ns);
-        }
 
         if (config::is_cloud_mode()) {
             // FIXME(plat1ko): Avoid pointer cast
             ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
                     *_tablets[i].tablet);
         }
+    }
 
+    if (config::is_cloud_mode()) {
+        int64_t duration_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            std::vector<std::function<Status()>> tasks;
+            tasks.reserve(_scan_ranges.size());
+            for (auto&& [cur_tablet, cur_version] : _tablets) {
+                tasks.emplace_back([cur_tablet, cur_version]() {
+                    return std::dynamic_pointer_cast<CloudTablet>(cur_tablet)
+                            ->sync_rowsets(cur_version);
+                });
+            }
+            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+        }
+        _sync_rowset_timer->update(duration_ns);
+    }
+    for (size_t i = 0; i < _scan_ranges.size(); i++) {
         RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers(
-                {0, version}, &_read_sources[i].rs_splits,
+                {0, _tablets[i].version}, &_read_sources[i].rs_splits,
                 RuntimeFilterConsumer::_state->skip_missing_version()));
-        if (!RuntimeFilterConsumer::_state->skip_delete_predicate()) {
+        if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
+    }
+    timer.stop();
+    double cost_secs = static_cast<double>(timer.elapsed_time()) / NANOS_PER_SEC;
+    if (cost_secs > 5) {
+        LOG_WARNING(
+                "Try to hold tablets costs {} seconds, it costs too much. (Query-ID={}, NodeId={}, "
+                "ScanRangeNum={})",
+                cost_secs, print_id(PipelineXLocalState<>::_state->query_id()), _parent->node_id(),
+                _scan_ranges.size());
     }
     return Status::OK();
 }
