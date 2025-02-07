@@ -42,6 +42,8 @@ Usage: $0 <options>
   "
     exit 1
 }
+DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -62,7 +64,7 @@ eval set -- "${OPTS}"
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
+    COMPONENTS="${DEFAULT_COMPONENTS}"
 else
     while true; do
         case "$1" in
@@ -98,7 +100,10 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,kerberos,lakesoul"
+            COMPONENTS="${ALL_COMPONENTS}"
+        fi
+        if [[ "${NEED_RESERVE_PORTS}" -eq 1 ]]; then
+            COMPONENTS="${DEFAULT_COMPONENTS}"
         fi
     fi
 fi
