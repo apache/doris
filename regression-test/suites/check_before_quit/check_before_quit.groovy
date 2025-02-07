@@ -259,7 +259,16 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 logger.info("create table sql: ${createTableSql}")
             } catch (Exception e) {
                 if (e.getMessage().contains("not support async materialized view")) {
-                    createTableSql = sql "show create materialized view ${tbl}"
+                    try {
+                        createTableSql = sql "show create materialized view ${tbl}"
+                    } catch (Exception e2) {
+                        if (e2.getMessage().contains("table not found")) {
+                            continue
+                        } else {
+                            logger.info(e2.getMessage())
+                            throw e2
+                        }
+                    } 
                     logger.info("create materialized view sql: ${createTableSql}")
                 }
             }
