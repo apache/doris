@@ -23,3 +23,18 @@ A
 -- !sql --
 \N
 
+-- !sql --
+{"k2":null, "k3":null}
+
+-- !sql --
+{"k2":null, "k3":null}
+
+-- !sql --
+{"k2":null, "k3":"def"}
+
+-- !sql --
+{"k2":null, "k3":null}
+
+-- !sql --
+{"k2":2, "k3":"DEF"}
+

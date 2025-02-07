@@ -112,7 +112,7 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         for (Literal colName : colNames) {
             Column col = dictionary.getOriginColumn(colName.getStringValue());
             StructField field = new StructField(col.getName(), DataType.fromCatalogType(col.getType()),
-                    col.isAllowNull(), col.getComment());
+                    true, col.getComment());
             returnFields.add(field);
         }
 

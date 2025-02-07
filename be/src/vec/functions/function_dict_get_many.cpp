@@ -53,7 +53,7 @@ public:
 
     bool skip_return_type_check() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
@@ -95,6 +95,8 @@ public:
             attribute_names.push_back(field.get<String>());
         }
         const auto dict = dict_state->dict;
+
+        DataTypes attribute_types;
         for (auto attribute_name : attribute_names) {
             if (!dict->has_attribute(attribute_name)) {
                 throw doris::Exception(
@@ -102,35 +104,21 @@ public:
                         "No corresponding attribute_name. The current attribute_name is: {}",
                         attribute_name);
             }
+            attribute_types.push_back(dict->get_attribute_type(attribute_name));
         }
         const ColumnPtr key_struct_column =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
-        if (!key_struct_column->is_column_struct()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "The third argument of dict_get_many must be struct");
-        }
+        // columns_copy is just copy ptr , not column
+        auto key_columns = assert_cast<const ColumnStruct&>(*key_struct_column).get_columns_copy();
 
-        auto key_tuple_columns = assert_cast<const ColumnStruct&>(*key_struct_column).get_columns();
-        ColumnPtrs key_columns;
-        for (auto key_column : key_tuple_columns) {
-            key_columns.push_back(remove_nullable(key_column));
-        }
-        DataTypes key_nullable_types =
+        DataTypes key_types = remove_nullable(
                 assert_cast<const DataTypeStruct&>(*block.get_by_position(arguments[2]).type)
-                        .get_elements();
-        DataTypes key_types;
-        for (auto key_nullable_type : key_nullable_types) {
-            key_types.push_back(remove_nullable(key_nullable_type));
-        }
+                        .get_elements());
         const DataTypePtr attribute_sturct_type = block.get_by_position(result).type;
-        if (attribute_sturct_type->get_type_id() != TypeIndex::Struct) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "The result of dict_get_many must be struct");
-        }
-        const auto& attribute_types =
-                assert_cast<const DataTypeStruct&>(*attribute_sturct_type).get_elements();
+
         auto result_columns =
                 dict->get_tuple_columns(attribute_names, attribute_types, key_columns, key_types);
+
         MutableColumns result_mut_columns;
         for (auto column : result_columns) {
             result_mut_columns.push_back(std::move(*column).mutate());

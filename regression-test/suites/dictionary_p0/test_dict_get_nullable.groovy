@@ -87,4 +87,33 @@ suite("test_dict_get_nullable") {
 
     qt_sql """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("125.168.1.0" as ipv4))""" 
 
+
+
+    sql """
+        create dictionary multi_key_dict using multi_key_table
+        (
+            k0 KEY,
+            k1 KEY,
+            k2 VALUE,
+            k3 VALUE
+        )
+        LAYOUT(HASH_MAP);
+    """
+
+
+     sql """ refresh dictionary multi_key_dict; """
+
+
+
+    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(null,null)) """  
+
+
+    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(null,'abc')) """  
+
+    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(1,'abc')) """  
+
+    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(3,'abc')) """  
+
+    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(2,'ABC')) """  
+
 }
