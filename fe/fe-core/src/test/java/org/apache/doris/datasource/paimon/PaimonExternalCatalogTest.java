@@ -17,15 +17,9 @@
 
 package org.apache.doris.datasource.paimon;
 
-import mockit.Mock;
-import mockit.MockUp;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.table.Table;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.io.IOException;
 import java.util.HashMap;
 
 
@@ -39,18 +33,27 @@ public class PaimonExternalCatalogTest {
         PaimonExternalCatalog catalog = new PaimonFileExternalCatalog(1, "name", "resource", props, "comment");
         catalog.setInitialized(true);
 
-        new MockUp<Catalog>() {
-            @Mock
-            Table getTable(Identifier id) throws Catalog.TableNotExistException {
-                throw new Catalog.TableNotExistException(id);
-            }
-        };
-
         try {
             catalog.getPaimonTable("dbName", "tblName");
             Assert.fail();
         } catch (Exception e) {
             Assert.assertTrue(e.getMessage().contains("Failed to get Paimon table"));
+        }
+    }
+
+    @Test
+    public void testListPaimonTable() {
+
+        HashMap<String, String> props = new HashMap<>();
+        props.put("warehouse", "not_exist");
+        PaimonExternalCatalog catalog = new PaimonFileExternalCatalog(1, "name", "resource", props, "comment");
+        catalog.setInitialized(true);
+
+        try {
+            catalog.listTableNames(null, "dbName");
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to list table names"));
         }
     }
 }

@@ -113,17 +113,10 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> {
-                List<String> tableNames = null;
-                try {
-                    tableNames = catalog.listTables(dbName);
-                } catch (Catalog.DatabaseNotExistException e) {
-                    LOG.warn("DatabaseNotExistException", e);
-                }
-                return tableNames;
-            });
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to list table names, catalog name: " + getName(), e);
+            return hadoopAuthenticator.doAs(() -> catalog.listTables(dbName));
+        } catch (Exception e) {
+            throw new RuntimeException(
+                "Failed to list table names, catalog name: " + getName() + ", because " + e.getMessage(), e);
         }
     }
 
