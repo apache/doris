@@ -109,7 +109,7 @@ suite("test_encrypt_sql") {
         sql "SET PASSWORD FOR '${user}' = PASSWORD('123456')"
     }
 
-    Thread.sleep(3000)
+    Thread.sleep(15000)
     sql "call flush_audit_log()"
 
     def dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd")
