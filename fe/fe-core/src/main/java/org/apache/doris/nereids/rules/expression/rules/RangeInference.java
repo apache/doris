@@ -71,13 +71,12 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc buildRange(ExpressionRewriteContext context, ComparisonPredicate predicate) {
-        Expression right = predicate.child(1);
-        if (right.isNullLiteral()) {
-            return new UnknownValue(context, predicate);
-        }
+        Expression left = predicate.left();
+        Expression right = predicate.right();
         // only handle `NumericType` and `DateLikeType`
         if (right instanceof ComparableLiteral
-                && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
+                && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())
+                && !left.containsNonfoldable()) {
             return ValueDesc.range(context, predicate);
         }
         return new UnknownValue(context, predicate);
@@ -111,7 +110,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     @Override
     public ValueDesc visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         // only handle `NumericType` and `DateLikeType`
-        if (inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
+        if (!inPredicate.getCompareExpr().containsNonfoldable()
+                && inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
                 && ExpressionUtils.isAllNonNullComparableLiteral(inPredicate.getOptions())
                 && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
                 || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
