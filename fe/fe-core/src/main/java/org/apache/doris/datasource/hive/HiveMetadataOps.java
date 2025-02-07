@@ -287,11 +287,16 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTableImpl(DropTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tblName = stmt.getTableName();
-        ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTableImpl(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
+    }
+    @Override
+    public void dropTableImpl(String dbName, String tblName, boolean ifExists) throws DdlException {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
         if (db == null) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("database [{}] does not exist when drop table[{}]", dbName, tblName);
                 return;
             } else {
@@ -299,7 +304,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             }
         }
         if (!tableExist(dbName, tblName)) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
