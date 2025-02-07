@@ -285,8 +285,13 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-# build thirdparty libraries if necessary
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/native/libhdfs.a" ]]; then
+# build thirdparty libraries if necessary. check last thirdparty lib installation
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    LAST_THIRDPARTY_LIB='libbrotlienc.a'
+else
+    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+fi
+if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
