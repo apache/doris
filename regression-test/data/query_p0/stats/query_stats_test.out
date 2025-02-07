@@ -36,17 +36,17 @@ stats_table	0
 
 -- !sql --
 stats_table	k0	0	0
-	k1	0	0
-	k2	0	0
-	k3	0	0
-	k4	0	0
-	k5	0	0
-	k6	0	0
-	k10	0	0
-	k11	0	0
-	k7	0	0
-	k8	0	0
-	k9	0	0
-	k12	0	0
-	k13	0	0
+stats_table	k1	0	0
+stats_table	k2	0	0
+stats_table	k3	0	0
+stats_table	k4	0	0
+stats_table	k5	0	0
+stats_table	k6	0	0
+stats_table	k10	0	0
+stats_table	k11	0	0
+stats_table	k7	0	0
+stats_table	k8	0	0
+stats_table	k9	0	0
+stats_table	k12	0	0
+stats_table	k13	0	0
 
