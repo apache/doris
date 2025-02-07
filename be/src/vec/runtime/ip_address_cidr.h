@@ -147,6 +147,48 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
 }
 #endif
 
+/**
+ * Normalize incomplete IP addresses to their canonical form
+ * For IPv4: 
+ *   - Append ".0" for missing octets (e.g. "192.168" -> "192.168.0.0")
+ * For IPv6:
+ *   - Expand compressed notation "::" with appropriate number of "0000" groups
+ *   - Pad each group with leading zeros to 4 digits
+ *   - Handle IPv4-mapped IPv6 addresses (e.g. "::ffff:192.168" -> "::ffff:192.168.0.0")
+ */
+static std::string normalize_ip_address(std::string_view addr_str) {
+    std::string normalized_addr;
+
+    if (addr_str.find(':') != std::string_view::npos) {
+        // IPv6 normalization
+        normalized_addr = std::string(addr_str);
+        // Handle IPv4-mapped IPv6 addresses
+        size_t ffff_pos = normalized_addr.find("::ffff:");
+        if (ffff_pos != std::string::npos) {
+            // Extract IPv4 part after ::ffff:
+            std::string_view ipv4_part = addr_str.substr(ffff_pos + 7);
+            auto dots = std::count(ipv4_part.begin(), ipv4_part.end(), '.');
+            if (dots < 3) {
+                std::string ipv4_normalized = std::string(ipv4_part);
+                while (dots < 3) {
+                    ipv4_normalized += ".0";
+                    ++dots;
+                }
+                normalized_addr = normalized_addr.substr(0, ffff_pos + 7) + ipv4_normalized;
+                return normalized_addr;
+            }
+        }
+    } else {
+        // IPv4 normalization
+        normalized_addr = std::string(addr_str);
+        auto dots = std::count(addr_str.begin(), addr_str.end(), '.');
+        while (dots < 3) {
+            normalized_addr += ".0";
+            ++dots;
+        }
+    }
+    return normalized_addr;
+}
 IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     size_t pos_slash = cidr_str.find('/');
 
@@ -161,7 +203,8 @@ IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     }
 
     std::string_view addr_str = cidr_str.substr(0, pos_slash);
-    IPAddressVariant addr(addr_str);
+    std::string normalized_addr = normalize_ip_address(addr_str);
+    IPAddressVariant addr(normalized_addr);
 
     uint8_t prefix = 0;
     auto prefix_str = cidr_str.substr(pos_slash + 1);
