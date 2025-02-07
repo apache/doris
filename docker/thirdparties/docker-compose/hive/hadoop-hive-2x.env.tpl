@@ -14,10 +14,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
-YARN_CONF_yarn_scheduler_minimum___allocation___mb=2048
-
-MAPRED_CONF_mapreduce_map_memory_mb=10150
-MAPRED_CONF_mapreduce_map_java_opts=-Xmx6144m
-MAPRED_CONF_mapreduce_reduce_memory_mb=10150
-MAPRED_CONF_mapreduce_reduce_java_opts=-Xmx8120m
