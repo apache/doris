@@ -152,11 +152,35 @@ void CSIndexInput::setIoContext(const void* io_ctx) {
     _io_ctx = static_cast<const io::IOContext*>(io_ctx);
 }
 
-DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32_t read_buffer_size)
+DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream,
+                                         EntriesType* entries_clone, int32_t read_buffer_size,
+                                         const io::IOContext* io_ctx)
+        : _stream(stream),
+          _entries(_CLNEW EntriesType(true, true)),
+          _read_buffer_size(read_buffer_size) {
+    // After stream clone, the io_ctx needs to be reconfigured.
+    initialize(io_ctx);
+
+    for (auto& e : *entries_clone) {
+        auto* origin_entry = e.second;
+        auto* entry = _CLNEW ReaderFileEntry();
+        char* aid = strdup(e.first);
+        entry->file_name = origin_entry->file_name;
+        entry->offset = origin_entry->offset;
+        entry->length = origin_entry->length;
+        _entries->put(aid, entry);
+    }
+};
+
+DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32_t read_buffer_size,
+                                         const io::IOContext* io_ctx)
         : _ram_dir(new lucene::store::RAMDirectory()),
           _stream(stream),
           _entries(_CLNEW EntriesType(true, true)),
           _read_buffer_size(read_buffer_size) {
+    // After stream clone, the io_ctx needs to be reconfigured.
+    initialize(io_ctx);
+
     try {
         int32_t count = _stream->readVInt();
         ReaderFileEntry* entry = nullptr;
@@ -381,6 +405,11 @@ std::string DorisCompoundReader::toString() const {
 
 CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
     return _stream;
+}
+
+void DorisCompoundReader::initialize(const io::IOContext* io_ctx) {
+    _stream->setIoContext(io_ctx);
+    _stream->setIdxFileCache(true);
 }
 
 } // namespace segment_v2
