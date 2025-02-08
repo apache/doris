@@ -193,7 +193,11 @@ public:
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
                                  size_t num_rows) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
+        if (col.size() < num_rows) {
+            throw Exception(
+                    Status::FatalError("Check failed: col.size() >= num_rows source column's size "
+                                       "should greater than num_rows"));
+        }
         auto* data = col.get_data().data();
         memcpy(places, data, sizeof(Data) * num_rows);
     }
@@ -228,7 +232,11 @@ public:
                                            Arena*) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
+        if (col.size() < num_rows) {
+            throw Exception(
+                    Status::FatalError("Check failed: col.size() >= num_rows source column's size "
+                                       "should greater than num_rows"));
+        }
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
 
         for (size_t i = 0; i != num_rows; ++i) {
@@ -240,8 +248,12 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > column.size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end, "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {

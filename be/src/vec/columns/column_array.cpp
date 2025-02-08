@@ -47,8 +47,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("offsets_column must be a ColumnUInt64"));
     }
 
     if (!offsets_concrete->empty() && data) {
@@ -56,10 +55,9 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            throw doris::Exception(
-                    ErrorCode::INTERNAL_ERROR,
+            throw Exception(Status::FatalError(
                     "nested_column's size {}, is not consistent with offsets_column's {}",
-                    data->size(), last_offset);
+                    data->size(), last_offset));
         }
     }
 
@@ -71,9 +69,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     if (!data->empty()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Not empty data passed to ColumnArray, but no offsets passed");
-        __builtin_unreachable();
+        throw Exception(
+                Status::FatalError("Not empty data passed to ColumnArray, but no offsets passed"));
     }
 
     offsets = ColumnOffsets::create();
@@ -303,7 +300,9 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
                                          uint32_t rows, uint32_t offset,
                                          const uint8_t* __restrict null_data) const {
     auto s = rows;
-    DCHECK(s == size());
+    if (s != size()) {
+        throw Exception(Status::FatalError("Check failed: s == size()"));
+    }
 
     if (null_data) {
         for (size_t i = 0; i < s; ++i) {
@@ -334,7 +333,9 @@ void ColumnArray::insert(const Field& x) {
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
-    DCHECK_LT(n, src_.size());
+    if (n >= src_.size()) {
+        throw Exception(Status::FatalError("Check failed: n < src_.size()"));
+    }
     const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
@@ -362,7 +363,9 @@ void ColumnArray::insert_default() {
 
 void ColumnArray::pop_back(size_t n) {
     auto& offsets_data = get_offsets();
-    DCHECK(n <= offsets_data.size());
+    if (n > offsets_data.size()) {
+        throw Exception(Status::FatalError("Check failed: n <= offsets_data.size()"));
+    }
     size_t nested_n = offsets_data.back() - offset_at(offsets_data.size() - n);
     if (nested_n) get_data().pop_back(nested_n);
     offsets_data.resize_assume_reserved(offsets_data.size() - n);
@@ -1041,9 +1044,7 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
         limit = std::min(size, limit);
     }
     if (perm.size() < limit) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Size of permutation is less than required.");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Size of permutation is less than required."));
     }
     if (limit == 0) {
         return ColumnArray::create(data);

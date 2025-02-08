@@ -181,9 +181,8 @@ public:
             data.resize(new_size);
             std::iota(data.begin() + old_size, data.begin() + new_size, begin);
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "double column not support insert_range_of_integer");
-            __builtin_unreachable();
+            throw Exception(
+                    Status::FatalError("double column not support insert_range_of_integer"));
         }
     }
 
@@ -227,7 +226,9 @@ public:
     }
 
     void insert_many_raw_data(const char* data_ptr, size_t num) override {
-        DCHECK(data_ptr);
+        if (!data_ptr) {
+            throw Exception(Status::FatalError("Check failed: data_ptr"));
+        }
         auto old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
@@ -400,7 +401,9 @@ public:
     T& get_element(size_t n) { return data[n]; }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        if (size() <= self_row) {
+            throw Exception(Status::FatalError("Check failed: size() > self_row"));
+        }
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 

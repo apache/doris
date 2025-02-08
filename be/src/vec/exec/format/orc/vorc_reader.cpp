@@ -569,14 +569,21 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    DCHECK(_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name()));
+    if (!_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name())) {
+        throw Exception(Status::FatalError(
+                "Check failed: "
+                "_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name())"));
+    }
     auto file_col_name_low_case = _col_name_to_file_col_name_low_case[slot_ref->expr_name()];
     if (!_type_map.contains(file_col_name_low_case)) {
         // TODO: this is for acid table
         LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
-    DCHECK(_type_map.contains(file_col_name_low_case));
+    if (!_type_map.contains(file_col_name_low_case)) {
+        throw Exception(
+                Status::FatalError("Check failed: _type_map.contains(file_col_name_low_case)"));
+    }
     const auto* orc_type = _type_map[file_col_name_low_case];
     if (!TYPEKIND_TO_PREDICATE_TYPE.contains(orc_type->getKind())) {
         LOG(WARNING) << "Unsupported Push Down Orc Type [TypeKind=" << orc_type->getKind() << "]";
@@ -705,7 +712,9 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
             return _check_expr_can_push_down(child);
         });
     case TExprOpcode::COMPOUND_NOT:
-        DCHECK_EQ(expr->children().size(), 1);
+        if (expr->children().size() != 1) {
+            throw Exception(Status::FatalError("Check failed: expr->children().size() == 1"));
+        }
         return _check_expr_can_push_down(expr->children()[0]);
 
     case TExprOpcode::GE:
@@ -736,63 +745,110 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
 
 void OrcReader::_build_less_than(const VExprSPtr& expr,
                                  std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->children().size() == 2);
-    DCHECK(expr->children()[0]->is_slot_ref());
-    DCHECK(expr->children()[1]->is_literal());
+    if (expr->children().size() != 2) {
+        throw Exception(Status::FatalError("Check failed: expr->children().size() == 2"));
+    }
+    if (!expr->children()[0]->is_slot_ref()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[0]->is_slot_ref()"));
+    }
+    if (!expr->children()[1]->is_literal()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[1]->is_literal()"));
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    if (!_vslot_ref_to_orc_predicate_data_type.contains(slot_ref)) {
+        throw Exception(Status::FatalError(
+                "Check failed: _vslot_ref_to_orc_predicate_data_type.contains(slot_ref)"));
+    }
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
-    DCHECK(_vliteral_to_orc_literal.contains(literal));
+    if (!_vliteral_to_orc_literal.contains(literal)) {
+        throw Exception(
+                Status::FatalError("Check failed: _vliteral_to_orc_literal.contains(literal)"));
+    }
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
     builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
 }
 
 void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
                                         std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->children().size() == 2);
-    DCHECK(expr->children()[0]->is_slot_ref());
-    DCHECK(expr->children()[1]->is_literal());
+    if (expr->children().size() != 2) {
+        throw Exception(Status::FatalError("Check failed: expr->children().size() == 2"));
+    }
+    if (!expr->children()[0]->is_slot_ref()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[0]->is_slot_ref()"));
+    }
+    if (!expr->children()[1]->is_literal()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[1]->is_literal()"));
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    if (!_vslot_ref_to_orc_predicate_data_type.contains(slot_ref)) {
+        throw Exception(Status::FatalError(
+                "Check failed: _vslot_ref_to_orc_predicate_data_type.contains(slot_ref)"));
+    }
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
-    DCHECK(_vliteral_to_orc_literal.contains(literal));
+    if (!_vliteral_to_orc_literal.contains(literal)) {
+        throw Exception(
+                Status::FatalError("Check failed: _vliteral_to_orc_literal.contains(literal)"));
+    }
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
     builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
 }
 
 void OrcReader::_build_equals(const VExprSPtr& expr,
                               std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->children().size() == 2);
-    DCHECK(expr->children()[0]->is_slot_ref());
-    DCHECK(expr->children()[1]->is_literal());
+    if (expr->children().size() != 2) {
+        throw Exception(Status::FatalError("Check failed: expr->children().size() == 2"));
+    }
+    if (!expr->children()[0]->is_slot_ref()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[0]->is_slot_ref()"));
+    }
+    if (!expr->children()[1]->is_literal()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[1]->is_literal()"));
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    if (!_vslot_ref_to_orc_predicate_data_type.contains(slot_ref)) {
+        throw Exception(Status::FatalError(
+                "Check failed: _vslot_ref_to_orc_predicate_data_type.contains(slot_ref)"));
+    }
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
-    DCHECK(_vliteral_to_orc_literal.contains(literal));
+    if (!_vliteral_to_orc_literal.contains(literal)) {
+        throw Exception(
+                Status::FatalError("Check failed: _vliteral_to_orc_literal.contains(literal)"));
+    }
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
     builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
 }
 
 void OrcReader::_build_filter_in(const VExprSPtr& expr,
                                  std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->children().size() >= 2);
-    DCHECK(expr->children()[0]->is_slot_ref());
+    if (expr->children().size() < 2) {
+        throw Exception(Status::FatalError("Check failed: expr->children().size() >= 2"));
+    }
+    if (!expr->children()[0]->is_slot_ref()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[0]->is_slot_ref()"));
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     std::vector<orc::Literal> literals;
-    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    if (!_vslot_ref_to_orc_predicate_data_type.contains(slot_ref)) {
+        throw Exception(Status::FatalError(
+                "Check failed: _vslot_ref_to_orc_predicate_data_type.contains(slot_ref)"));
+    }
     orc::PredicateDataType predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     for (size_t i = 1; i < expr->children().size(); ++i) {
-        DCHECK(expr->children()[i]->is_literal());
+        if (!expr->children()[i]->is_literal()) {
+            throw Exception(Status::FatalError("Check failed: expr->children()[i]->is_literal()"));
+        }
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
         if (_vliteral_to_orc_literal.contains(literal)) {
             auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
             literals.emplace_back(orc_literal);
         }
     }
-    DCHECK(!literals.empty());
+    if (literals.empty()) {
+        throw Exception(Status::FatalError("Check failed: !literals.empty()"));
+    }
     if (literals.size() == 1) {
         builder->equals(slot_ref->expr_name(), predicate_type, literals[0]);
     } else {
@@ -802,10 +858,17 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
 
 void OrcReader::_build_is_null(const VExprSPtr& expr,
                                std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->children().size() == 1);
-    DCHECK(expr->children()[0]->is_slot_ref());
+    if (expr->children().size() != 1) {
+        throw Exception(Status::FatalError("Check failed: expr->children().size() == 1"));
+    }
+    if (!expr->children()[0]->is_slot_ref()) {
+        throw Exception(Status::FatalError("Check failed: expr->children()[0]->is_slot_ref()"));
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    if (!_vslot_ref_to_orc_predicate_data_type.contains(slot_ref)) {
+        throw Exception(Status::FatalError(
+                "Check failed: _vslot_ref_to_orc_predicate_data_type.contains(slot_ref)"));
+    }
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     builder->isNull(slot_ref->expr_name(), predicate_type);
 }
@@ -825,7 +888,9 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
                 at_least_one_can_push_down = true;
             }
         }
-        DCHECK(at_least_one_can_push_down);
+        if (!at_least_one_can_push_down) {
+            throw Exception(Status::FatalError("Check failed: at_least_one_can_push_down"));
+        }
         builder->end();
         break;
     }
@@ -837,15 +902,21 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
                 all_can_push_down = false;
             }
         }
-        DCHECK(all_can_push_down);
+        if (!all_can_push_down) {
+            throw Exception(Status::FatalError("Check failed: all_can_push_down"));
+        }
         builder->end();
         break;
     }
     case TExprOpcode::COMPOUND_NOT: {
-        DCHECK_EQ(expr->children().size(), 1);
+        if (expr->children().size() != 1) {
+            throw Exception(Status::FatalError("Check failed: expr->children().size() == 1"));
+        }
         builder->startNot();
         auto res = _build_search_argument(expr->children()[0], builder);
-        DCHECK(res);
+        if (!res) {
+            throw Exception(Status::FatalError("Check failed: res"));
+        }
         builder->end();
         break;
     }
@@ -883,7 +954,10 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         break;
     // is null and is not null is represented as function call
     case TExprOpcode::INVALID_OPCODE:
-        DCHECK(expr->node_type() == TExprNodeType::FUNCTION_CALL);
+        if (expr->node_type() != TExprNodeType::FUNCTION_CALL) {
+            throw Exception(Status::FatalError(
+                    "Check failed: expr->node_type() == TExprNodeType::FUNCTION_CALL"));
+        }
         if (expr->fn().name.function_name == "is_null_pred") {
             _build_is_null(expr, builder);
         } else if (expr->fn().name.function_name == "is_not_null_pred") {
@@ -1556,8 +1630,7 @@ Status OrcReader::_decode_int32_column(const std::string& col_name,
         }
         return Status::OK();
     } else {
-        DCHECK(false) << "Bad ColumnVectorBatch type.";
-        return Status::InternalError("Bad ColumnVectorBatch type.");
+        throw Exception(Status::FatalError("Check failed: false. Bad ColumnVectorBatch type."));
     }
 }
 
@@ -2530,7 +2603,9 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
                 const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
                 const ColumnInt32* dict_column =
                         assert_cast<const ColumnInt32*>(nested_column.get());
-                DCHECK(dict_column);
+                if (!dict_column) {
+                    throw Exception(Status::FatalError("Check failed: dict_column"));
+                }
                 const NullMap& null_map = nullable_column->get_null_map_data();
 
                 MutableColumnPtr string_column;
@@ -2577,7 +2652,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     auto res = ColumnString::create();
     auto* encoded_string_vector_batch = static_cast<orc::EncodedStringVectorBatch*>(cvb);
-    DCHECK(encoded_string_vector_batch);
+    if (!encoded_string_vector_batch) {
+        throw Exception(Status::FatalError("Check failed: encoded_string_vector_batch"));
+    }
     std::vector<StringRef> string_values;
     size_t num_values = dict_column->size();
     const int* dict_data = dict_column->get_data().data();

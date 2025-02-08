@@ -519,7 +519,9 @@ private:
 
     /// Update batch size of elements that client can extract from current cursor
     void update_batch_size() {
-        DCHECK(!_queue.empty());
+        if (_queue.empty()) {
+            throw Exception(Status::FatalError("Check failed: !_queue.empty(), "));
+        }
 
         auto& begin_cursor = *_queue.begin();
         size_t min_cursor_size = begin_cursor->get_size();

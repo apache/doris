@@ -128,9 +128,10 @@ protected:
 #ifndef NDEBUG
         size_t amount;
         if (__builtin_mul_overflow(num_elements, ELEMENT_SIZE, &amount)) {
-            DCHECK(false)
-                    << "Amount of memory requested to allocate is more than allowed, num_elements "
-                    << num_elements << ", ELEMENT_SIZE " << ELEMENT_SIZE;
+            throw Exception(Status::FatalError(
+                    "Check failed: false. Amount of memory requested to allocate is more than "
+                    "allowed, num_elements {}, ELEMENT_SIZE {}",
+                    num_elements, ELEMENT_SIZE));
         }
         return amount;
 #else
@@ -355,14 +356,26 @@ public:
     /// The index is signed to access -1th element without pointer overflow.
     T& operator[](ssize_t n) {
         /// <= size, because taking address of one element past memory range is Ok in C++ (expression like &arr[arr.size()] is perfectly valid).
-        DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
-        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
+        if (n < (static_cast<ssize_t>(pad_left_) ? -1 : 0)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: n >= (static_cast<ssize_t>(pad_left_) ? -1 : 0)"));
+        }
+        if (n > static_cast<ssize_t>(this->size())) {
+            throw Exception(
+                    Status::FatalError("Check failed: n <= static_cast<ssize_t>(this->size())"));
+        }
         return t_start()[n];
     }
 
     const T& operator[](ssize_t n) const {
-        DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
-        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
+        if (n < (static_cast<ssize_t>(pad_left_) ? -1 : 0)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: n >= (static_cast<ssize_t>(pad_left_) ? -1 : 0)"));
+        }
+        if (n > static_cast<ssize_t>(this->size())) {
+            throw Exception(
+                    Status::FatalError("Check failed: n <= static_cast<ssize_t>(this->size())"));
+        }
         return t_start()[n];
     }
 
@@ -520,9 +533,13 @@ public:
     }
 
     void swap(PODArray& rhs) {
-        DCHECK(this->pad_left == rhs.pad_left && this->pad_right == rhs.pad_right)
-                << ", this.pad_left: " << this->pad_left << ", rhs.pad_left: " << rhs.pad_left
-                << ", this.pad_right: " << this->pad_right << ", rhs.pad_right: " << rhs.pad_right;
+        if (this->pad_left != rhs.pad_left || this->pad_right != rhs.pad_right) {
+            throw Exception(Status::FatalError(
+                    "Check failed: this->pad_left == rhs.pad_left && this->pad_right == "
+                    "rhs.pad_right, this->pad_left: {}, res.pad_left: {}, this.pad_right: {}, "
+                    "rhs.pad_right: {}",
+                    this->pad_left, rhs.pad_left, this->pad_right, rhs.pad_right));
+        }
 #ifndef NDEBUG
         this->unprotect();
         rhs.unprotect();

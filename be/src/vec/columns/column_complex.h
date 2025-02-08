@@ -77,8 +77,7 @@ public:
         } else if constexpr (std::is_same_v<T, QuantileState>) {
             pvalue->deserialize(Slice(pos, length));
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unexpected type in column complex");
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("Unexpected type in column complex"));
         }
     }
 
@@ -130,7 +129,10 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), Field::TypeToEnum<T>::value);
+        if (x.get_type() != Field::TypeToEnum<T>::value) {
+            throw Exception(Status::FatalError(
+                    "Check failed: x.get_type() == Field::TypeToEnum<T>::value"));
+        }
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }
@@ -146,13 +148,11 @@ public:
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("get field not implemented"));
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("get field not implemented"));
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -186,15 +186,11 @@ public:
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "serialize_value_into_arena not implemented");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("serialize_value_into_arena not implemented"));
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "deserialize_and_insert_from_arena not implemented");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("deserialize_and_insert_from_arena not implemented"));
     }
 
     // maybe we do not need to impl the function
@@ -232,7 +228,9 @@ public:
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
+        if (self_row >= size()) {
+            throw Exception(Status::FatalError("Check failed: size() > self_row"));
+        }
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
@@ -321,9 +319,7 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
     limit = limit ? std::min(size, limit) : size;
 
     if (perm.size() < limit) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Size of permutation is less than required.");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Size of permutation is less than required."));
     }
 
     auto res = this->create(limit);

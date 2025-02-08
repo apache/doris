@@ -330,7 +330,10 @@ void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
     auto concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
-    DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
+    if (struct_column.tuple_size() != concrete_struct->num_fields()) {
+        throw Exception(Status::FatalError(
+                "Check failed: struct_column.tuple_size() == concrete_struct->num_fields()"));
+    }
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
         elem_serdes_ptrs[i]->read_column_from_arrow(
                 struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz);
@@ -451,7 +454,10 @@ Status DataTypeStructSerDe::write_column_to_pb(const IColumn& column, PValues& r
 
 Status DataTypeStructSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& struct_column = assert_cast<ColumnStruct&>(column);
-    DCHECK_EQ(struct_column.tuple_size(), arg.child_element_size());
+    if (struct_column.tuple_size() != arg.child_element_size()) {
+        throw Exception(Status::FatalError(
+                "Check failed: struct_column.tuple_size() == arg.child_element_size()"));
+    }
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_pb(struct_column.get_column(i),
                                                                  arg.child_element(i)));
