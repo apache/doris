@@ -476,7 +476,7 @@ public class BinlogManager {
     }
 
     // get binlog by dbId, return first binlog.version > version
-    public Pair<TStatus, Long> getBinlogLag(long dbId, long tableId, long prevCommitSeq) {
+    public Pair<TStatus, BinlogLagInfo> getBinlogLag(long dbId, long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -486,7 +486,6 @@ public class BinlogManager {
                 LOG.warn("dbBinlog not found. dbId: {}", dbId);
                 return Pair.of(status, null);
             }
-
             return dbBinlog.getBinlogLag(tableId, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
