@@ -126,7 +126,6 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         Map<Set<Slot>, Set<Set<Slot>>> redges = funcDeps.getREdges();
 
         List<OrderKey> retainExpression = new ArrayList<>();
-        Set<Expression> orderExpressionSet = new HashSet<>();
         Set<Expression> orderExprWithEqualSet = new HashSet<>();
         for (int i = 0; i < inputOrderKeys.size(); ++i) {
             Expression expr = inputOrderKeys.get(i).getExpr();
@@ -134,12 +133,11 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
                 return inputOrderKeys;
             }
             // eliminate by duplicate
-            if (orderExpressionSet.contains(expr)) {
+            if (orderExprWithEqualSet.contains(expr)) {
                 continue;
             }
             // eliminate by uniform
             if (dataTrait.isUniformAndNotNull((Slot) expr)) {
-                orderExpressionSet.add(expr);
                 orderExprWithEqualSet.add(expr);
                 orderExprWithEqualSet.addAll(dataTrait.calEqualSet((Slot) expr));
                 continue;
@@ -160,7 +158,6 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
                 continue;
             }
             retainExpression.add(inputOrderKeys.get(i));
-            orderExpressionSet.add(expr);
             orderExprWithEqualSet.add(expr);
             orderExprWithEqualSet.addAll(dataTrait.calEqualSet((Slot) expr));
         }
