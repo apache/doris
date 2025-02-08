@@ -138,7 +138,7 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerPreFilterTimer", 1);
     _convert_to_output_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
                                                           "FileScannerConvertOuputBlockTime", 1);
-    _runtime_filter_partition_pruning_timer = ADD_TIMER_WITH_LEVEL(
+    _runtime_filter_partition_prune_timer = ADD_TIMER_WITH_LEVEL(
             _local_state->scanner_profile(), "FileScannerRuntimeFilterPartitionPruningTime", 1);
     _empty_file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
@@ -188,7 +188,7 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
 }
 
 // check if the expr is a partition pruning expr
-bool VFileScanner::_check_partition_pruning_expr(const VExprSPtr& expr) {
+bool VFileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     if (expr->is_slot_ref()) {
         auto* slot_ref = static_cast<VSlotRef*>(expr.get());
         return _partition_slot_index_map.find(slot_ref->slot_id()) !=
@@ -198,38 +198,38 @@ bool VFileScanner::_check_partition_pruning_expr(const VExprSPtr& expr) {
         return true;
     }
     return std::ranges::all_of(expr->children(), [this](const auto& child) {
-        return _check_partition_pruning_expr(child);
+        return _check_partition_prune_expr(child);
     });
 }
 
-void VFileScanner::_init_runtime_filter_partition_pruning_ctxs() {
-    if (_partition_slot_index_map.empty()) {
-        return;
-    }
-    _runtime_filter_partition_pruning_ctxs.clear();
+void VFileScanner::_init_runtime_filter_partition_prune_ctxs() {
+    _runtime_filter_partition_prune_ctxs.clear();
     for (auto& conjunct : _conjuncts) {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
-        if (_check_partition_pruning_expr(expr)) {
-            _runtime_filter_partition_pruning_ctxs.emplace_back(conjunct);
+        if (_check_partition_prune_expr(expr)) {
+            _runtime_filter_partition_prune_ctxs.emplace_back(conjunct);
         }
     }
+}
+
+void VFileScanner::_init_runtime_filter_partition_prune_block() {
     // init block with empty column
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->need_materialize()) {
             // should be ignored from reading
             continue;
         }
-        _runtime_filter_partition_pruning_block.insert(
+        _runtime_filter_partition_prune_block.insert(
                 ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                       slot_desc->get_data_type_ptr(), slot_desc->col_name()));
     }
 }
 
-Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter_all) {
-    SCOPED_TIMER(_runtime_filter_partition_pruning_timer);
-    if (_runtime_filter_partition_pruning_ctxs.empty() || _partition_col_descs.empty()) {
+Status VFileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
+    SCOPED_TIMER(_runtime_filter_partition_prune_timer);
+    if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
     }
     size_t partition_value_column_size = 1;
@@ -248,8 +248,8 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
         parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
-    // 2. Fill _runtime_filter_partition_pruning_block from the partition column, then execute conjuncts and filter block.
-    // 2.1 Fill _runtime_filter_partition_pruning_block from the partition column to match the conjuncts executing.
+    // 2. Fill _runtime_filter_partition_prune_block from the partition column, then execute conjuncts and filter block.
+    // 2.1 Fill _runtime_filter_partition_prune_block from the partition column to match the conjuncts executing.
     size_t index = 0;
     bool first_column_filled = false;
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
@@ -262,14 +262,14 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
             auto data_type = slot_desc->get_data_type_ptr();
             auto partition_value_column = std::move(parititon_slot_id_to_column[slot_desc->id()]);
             if (data_type->is_nullable()) {
-                _runtime_filter_partition_pruning_block.insert(
+                _runtime_filter_partition_prune_block.insert(
                         index, ColumnWithTypeAndName(
                                        ColumnNullable::create(
                                                std::move(partition_value_column),
                                                ColumnUInt8::create(partition_value_column_size, 0)),
                                        data_type, slot_desc->col_name()));
             } else {
-                _runtime_filter_partition_pruning_block.insert(
+                _runtime_filter_partition_prune_block.insert(
                         index, ColumnWithTypeAndName(std::move(partition_value_column), data_type,
                                                      slot_desc->col_name()));
             }
@@ -284,12 +284,12 @@ Status VFileScanner::_process_runtime_filters_partition_pruning(bool& can_filter
     if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        _runtime_filter_partition_pruning_block.get_by_position(0).column->assume_mutable()->resize(
+        _runtime_filter_partition_prune_block.get_by_position(0).column->assume_mutable()->resize(
                 partition_value_column_size);
     }
-    IColumn::Filter result_filter(_runtime_filter_partition_pruning_block.rows(), 1);
-    RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_pruning_ctxs, nullptr,
-                                                    &_runtime_filter_partition_pruning_block,
+    IColumn::Filter result_filter(_runtime_filter_partition_prune_block.rows(), 1);
+    RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
+                                                    &_runtime_filter_partition_prune_block,
                                                     &result_filter, &can_filter_all));
     return Status::OK();
 }
@@ -357,7 +357,11 @@ Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
-        _init_runtime_filter_partition_pruning_ctxs();
+        if (_state->query_options().enable_runtime_filter_partition_prune &&
+            !_partition_slot_index_map.empty()) {
+            _init_runtime_filter_partition_prune_ctxs();
+            _init_runtime_filter_partition_prune_block();
+        }
     } else {
         // there's no scan range in split source. stop scanner directly.
         _scanner_eof = true;
@@ -876,18 +880,23 @@ Status VFileScanner::_get_next_reader() {
         if (!_partition_slot_descs.empty()) {
             // we need get partition columns first for runtime filter partition pruning
             RETURN_IF_ERROR(_generate_parititon_columns());
-            if (_push_down_conjuncts.size() < _conjuncts.size()) {
-                // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
-                _init_runtime_filter_partition_pruning_ctxs();
-            }
 
-            bool can_filter_all = false;
-            RETURN_IF_ERROR(_process_runtime_filters_partition_pruning(can_filter_all));
-            if (can_filter_all) {
-                // this range can be filtered out by runtime filter partition pruning
-                // so we need to skip this range
-                COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
-                continue;
+            if (_state->query_options().enable_runtime_filter_partition_prune) {
+                // if enable_runtime_filter_partition_prune is true, we need to check whether this range can be filtered out
+                // by runtime filter partition prune
+                if (_push_down_conjuncts.size() < _conjuncts.size()) {
+                    // there are new runtime filters, need to re-init runtime filter partition pruning ctxs
+                    _init_runtime_filter_partition_prune_ctxs();
+                }
+
+                bool can_filter_all = false;
+                RETURN_IF_ERROR(_process_runtime_filters_partition_prune(can_filter_all));
+                if (can_filter_all) {
+                    // this range can be filtered out by runtime filter partition pruning
+                    // so we need to skip this range
+                    COUNTER_UPDATE(_runtime_filter_partition_pruned_range_counter, 1);
+                    continue;
+                }
             }
         }
 
