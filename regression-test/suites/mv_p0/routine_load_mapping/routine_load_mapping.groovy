@@ -104,15 +104,8 @@ PROPERTIES (
         heart_type = 1
         ;""")
 
-    sql """ ALTER TABLE rt_new MODIFY COLUMN event_id VARCHAR(51) NULL;"""
-    Thread.sleep(1000)
-
-    streamLoad {
-        table "rt_new"
-        set 'column_separator', ','
-        set 'columns', '`battery_id`,`create_time`,`imei`,`event_id`,`event_name`,`heart_type`'
-
-        file './test2'
-        time 10000 // limit inflight 10s
+    test {
+        sql """ ALTER TABLE rt_new MODIFY COLUMN event_id VARCHAR(51) NULL;"""
+        exception "Can not modify column contained by mv"
     }
 }
