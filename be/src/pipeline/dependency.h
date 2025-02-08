@@ -754,11 +754,8 @@ public:
         dep->set_ready();
     }
 
-    void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
+    void add_mem_usage(int channel_id, size_t delta) {
         mem_counters[channel_id]->update(delta);
-        if (update_total_mem_usage) {
-            add_total_mem_usage(delta, channel_id);
-        }
     }
 
     void sub_mem_usage(int channel_id, size_t delta) {
@@ -766,7 +763,8 @@ public:
     }
 
     virtual void add_total_mem_usage(size_t delta, int channel_id) {
-        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
+        if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) >
+            config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
@@ -775,7 +773,7 @@ public:
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;
-        if (prev_usage - delta <= config::local_exchange_buffer_mem_limit) {
+        if (cast_set<int64_t>(prev_usage - delta) <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }
