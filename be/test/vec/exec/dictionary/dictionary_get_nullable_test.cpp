@@ -207,4 +207,87 @@ TEST(DictionaryGetNullableTest, testIpTrieDictionary) {
     }
 }
 
+TEST(DictionaryGetNullableTest, testHashMapDictionaryMultiKey) {
+    auto dict = create_complex_hash_map_dict_from_column(
+            "dict",
+            {ColumnWithTypeAndName(create_column<DataTypeInt32>({1, 2, 3, 4, 5}),
+                                   std::make_shared<DataTypeInt32>(), "key1"),
+             ColumnWithTypeAndName(create_column<DataTypeInt32>({1, 2, 3, 4, 5}),
+                                   std::make_shared<DataTypeInt32>(), "key2")},
+
+            {ColumnWithTypeAndName(
+                     ColumnNullable::create(
+                             create_column<DataTypeInt32>({1, 2, 3, 4, 5}),
+                             create_column<DataTypeUInt8>({false, true, false, true, false})),
+                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "val1"),
+             ColumnWithTypeAndName(create_column<DataTypeInt32>({10, 20, 30, 40, 50}),
+                                   std::make_shared<DataTypeInt32>(), "val2")});
+
+    {
+        ColumnPtrs key_columns {create_column<DataTypeInt32>({1, 2, 6}),
+                                create_column<DataTypeInt32>({1, 2, 6})};
+
+        auto res = dict->get_tuple_columns(
+                {"val1", "val2"},
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, key_columns,
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()});
+
+        const auto* res_column1 = assert_cast<const ColumnNullable*>(res[0].get());
+        const auto* res_column2 = assert_cast<const ColumnNullable*>(res[1].get());
+        EXPECT_EQ(3, res_column1->size());
+        EXPECT_EQ(3, res_column2->size());
+
+        // found , value not null
+        EXPECT_FALSE(res_column1->is_null_at(0));
+        EXPECT_EQ(res_column1->get_nested_column().get_int(0), 1);
+        EXPECT_FALSE(res_column2->is_null_at(0));
+        EXPECT_EQ(res_column2->get_nested_column().get_int(0), 10);
+
+        // found ,  val1 is null val2 is not null
+        EXPECT_TRUE(res_column1->is_null_at(1));
+        EXPECT_FALSE(res_column2->is_null_at(1));
+        EXPECT_EQ(res_column2->get_nested_column().get_int(1), 20);
+
+        // not found
+        EXPECT_TRUE(res_column1->is_null_at(2));
+        EXPECT_TRUE(res_column2->is_null_at(2));
+    }
+
+    {
+        ColumnPtrs key_columns {
+                create_column<DataTypeInt32>({1, 2, 6, 3}),
+                ColumnNullable::create(create_column<DataTypeInt32>({1, 2, 6, 3}),
+                                       create_column<DataTypeUInt8>({false, false, false, true})),
+        };
+
+        auto res = dict->get_tuple_columns(
+                {"val1", "val2"},
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, key_columns,
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()});
+
+        const auto* res_column1 = assert_cast<const ColumnNullable*>(res[0].get());
+        const auto* res_column2 = assert_cast<const ColumnNullable*>(res[1].get());
+        EXPECT_EQ(4, res_column1->size());
+        EXPECT_EQ(4, res_column2->size());
+
+        // found , value not null
+        EXPECT_FALSE(res_column1->is_null_at(0));
+        EXPECT_EQ(res_column1->get_nested_column().get_int(0), 1);
+        EXPECT_FALSE(res_column2->is_null_at(0));
+        EXPECT_EQ(res_column2->get_nested_column().get_int(0), 10);
+
+        // found ,  val1 is null val2 is not null
+        EXPECT_TRUE(res_column1->is_null_at(1));
+        EXPECT_FALSE(res_column2->is_null_at(1));
+        EXPECT_EQ(res_column2->get_nested_column().get_int(1), 20);
+
+        // not found
+        EXPECT_TRUE(res_column1->is_null_at(2));
+        EXPECT_TRUE(res_column2->is_null_at(2));
+
+        // key is null
+        EXPECT_TRUE(res_column1->is_null_at(3));
+        EXPECT_TRUE(res_column2->is_null_at(3));
+    }
+}
 } // namespace doris::vectorized
