@@ -438,7 +438,6 @@ Status PushBrokerReader::next(vectorized::Block* block) {
     RETURN_IF_ERROR(_cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
     if (read_rows > 0) {
         RETURN_IF_ERROR(_cast_to_input_block());
-        LOG(INFO) << "After cast_to_input_block";
         RETURN_IF_ERROR(_convert_to_output_block(block));
     }
     return Status::OK();
@@ -526,8 +525,6 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
         vectorized::ColumnPtr column_ptr;
 
         auto& ctx = _dest_expr_ctxs[dest_index];
-        LOG(INFO) << "slot_desc->col_name(): " << slot_desc->col_name();
-        LOG(INFO) << "Expression context: " << ctx->root()->expr_name();
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
