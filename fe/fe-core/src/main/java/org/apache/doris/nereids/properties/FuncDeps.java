@@ -33,9 +33,10 @@ import java.util.stream.Collectors;
  * Function dependence items.
  */
 public class FuncDeps {
-    static class FuncDepsItem {
-        final Set<Slot> determinants;
-        final Set<Slot> dependencies;
+    /**FuncDepsItem*/
+    public static class FuncDepsItem {
+        public final Set<Slot> determinants;
+        public final Set<Slot> dependencies;
 
         public FuncDepsItem(Set<Slot> determinants, Set<Slot> dependencies) {
             this.determinants = ImmutableSet.copyOf(determinants);
@@ -64,16 +65,21 @@ public class FuncDeps {
     private final Set<FuncDepsItem> items;
     // determinants -> dependencies
     private final Map<Set<Slot>, Set<Set<Slot>>> edges;
+    // dependencies -> determinants
+    private final Map<Set<Slot>, Set<Set<Slot>>> redges;
 
     public FuncDeps() {
         items = new HashSet<>();
         edges = new HashMap<>();
+        redges = new HashMap<>();
     }
 
     public void addFuncItems(Set<Slot> determinants, Set<Slot> dependencies) {
         items.add(new FuncDepsItem(determinants, dependencies));
         edges.computeIfAbsent(determinants, k -> new HashSet<>());
         edges.get(determinants).add(dependencies);
+        redges.computeIfAbsent(dependencies, k -> new HashSet<>());
+        redges.get(dependencies).add(determinants);
     }
 
     public int size() {
@@ -183,6 +189,14 @@ public class FuncDeps {
 
     public Set<FuncDeps.FuncDepsItem> getItems() {
         return items;
+    }
+
+    public Map<Set<Slot>, Set<Set<Slot>>> getEdges() {
+        return edges;
+    }
+
+    public Map<Set<Slot>, Set<Set<Slot>>> getREdges() {
+        return redges;
     }
 
     /**

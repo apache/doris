@@ -1226,8 +1226,8 @@ SyntaxError:
 
 -- !shape --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((dwd_tracking_sensor_init_tmp_ymd.dt = dw_user_b2c_tracking_info_tmp_ymd.dt) and (dwd_tracking_sensor_init_tmp_ymd.guid = dw_user_b2c_tracking_info_tmp_ymd.guid)) otherCondition=((dwd_tracking_sensor_init_tmp_ymd.dt >= substring(first_visit_time, 1, 10)))
