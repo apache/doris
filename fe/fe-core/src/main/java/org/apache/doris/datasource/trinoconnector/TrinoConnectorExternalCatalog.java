@@ -162,7 +162,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         for (String requiredProperty : TRINO_CONNECTOR_REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+            if (!catalogProperty.containsProperty(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
@@ -308,7 +308,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     public Map<String, String> getTrinoConnectorPropertiesWithCreateTime() {
         Map<String, String> trinoPropertiesWithCreateTime = new HashMap<>();
         trinoPropertiesWithCreateTime.putAll(trinoProperties);
-        trinoPropertiesWithCreateTime.put("create_time", catalogProperty.getProperties().get("create_time"));
+        trinoPropertiesWithCreateTime.put("create_time", catalogProperty.getOrDefault("create_time", ""));
         return trinoPropertiesWithCreateTime;
     }
 

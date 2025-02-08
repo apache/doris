@@ -110,7 +110,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static CatalogMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("debug: read json: {}", json);
+            LOG.debug("Reading catalog configuration from JSON: {}", json);
         }
         return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
@@ -137,7 +137,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
-        LOG.info("Removed catalog with id {}, name {}", catalogId, catalog == null ? "N/A" : catalog.getName());
+        LOG.info("Removed catalog [id: {}, name: {}]", catalogId, catalog == null ? "N/A" : catalog.getName());
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
@@ -243,7 +243,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             if (nameToCatalog.containsKey(catalog.getName())) {
                 if (ifNotExists) {
-                    LOG.warn("Catalog {} is already exist.", catalogName);
+                    LOG.warn("Catalog '{}' already exists", catalogName);
                     return;
                 }
                 throw new DdlException("Catalog had already exist with name: " + catalogName);
@@ -280,7 +280,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             if (ifExists && !nameToCatalog.containsKey(catalogName)) {
-                LOG.warn("Non catalog {} is found.", catalogName);
+                LOG.warn("No catalog found with name '{}'", catalogName);
                 return;
             }
             CatalogIf<DatabaseIf<TableIf>> catalog = nameToCatalog.get(catalogName);
@@ -815,7 +815,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
         if (!(table instanceof HMSExternalTable)) {
-            LOG.warn("only support HMSTable");
+            LOG.warn("Operation only supported for HMS (Hive Metastore) tables");
             return;
         }
 
@@ -894,5 +894,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
+    }
+
+    // In version 2.1.9, the resource in catalog is no longer supported.
+    // Here we do the following things:
+    // 1. if this catalog has resource, get all resource properties and add them to catalog properties.
+    // 2. remove resource from catalog property
+    public void removeCatalogResource() {
+        for (CatalogIf catalog : idToCatalog.values()) {
+            if (!(catalog instanceof ExternalCatalog)) {
+                continue;
+            }
+            ((ExternalCatalog) catalog).removeResource();
+        }
     }
 }
