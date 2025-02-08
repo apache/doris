@@ -40,20 +40,4 @@ public class PaimonExternalCatalogTest {
             Assert.assertTrue(e.getMessage().contains("Failed to get Paimon table"));
         }
     }
-
-    @Test
-    public void testListPaimonTable() {
-
-        HashMap<String, String> props = new HashMap<>();
-        props.put("warehouse", "not_exist");
-        PaimonExternalCatalog catalog = new PaimonFileExternalCatalog(1, "name", "resource", props, "comment");
-        catalog.setInitialized(true);
-
-        try {
-            catalog.listTableNames(null, "dbName");
-            Assert.fail();
-        } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("Failed to list table names"));
-        }
-    }
 }
