@@ -250,6 +250,7 @@ public:
     }
 
     void set_low_memory_mode() { _queue_capacity = 8; }
+    std::string debug_each_instance_queue_size();
 #ifdef BE_TEST
 public:
 #else
@@ -319,6 +320,8 @@ private:
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
+    // _total_queue_size is the sum of the sizes of all instance_to_package_queues.
+    // Any modification to instance_to_package_queue requires a corresponding modification to _total_queue_size.
     std::atomic<int> _total_queue_size = 0;
 
     // _running_sink_count is used to track how many sinks have not finished yet.
