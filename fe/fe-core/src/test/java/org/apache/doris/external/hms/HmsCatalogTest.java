@@ -34,6 +34,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
@@ -107,6 +108,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
+        Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
         new Expectations(tbl) {
             {
                 tbl.getId();
