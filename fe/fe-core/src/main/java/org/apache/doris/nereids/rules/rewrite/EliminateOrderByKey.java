@@ -120,18 +120,19 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
         Set<Slot> validSlots = new HashSet<>();
         for (OrderKey inputOrderKey : inputOrderKeys) {
             Expression expr = inputOrderKey.getExpr();
-            validSlots.addAll(ImmutableList.of((Slot) expr));
+            if (!(expr instanceof Slot)) {
+                return inputOrderKeys;
+            }
+            validSlots.add((Slot) expr);
+            validSlots.addAll(dataTrait.calEqualSet((Slot) expr));
         }
         FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
         Map<Set<Slot>, Set<Set<Slot>>> redges = funcDeps.getREdges();
 
         List<OrderKey> retainExpression = new ArrayList<>();
         Set<Expression> orderExprWithEqualSet = new HashSet<>();
-        for (int i = 0; i < inputOrderKeys.size(); ++i) {
-            Expression expr = inputOrderKeys.get(i).getExpr();
-            if (!(expr instanceof Slot)) {
-                return inputOrderKeys;
-            }
+        for (OrderKey inputOrderKey : inputOrderKeys) {
+            Expression expr = inputOrderKey.getExpr();
             // eliminate by duplicate
             if (orderExprWithEqualSet.contains(expr)) {
                 continue;
@@ -157,7 +158,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             if (!shouldRetain) {
                 continue;
             }
-            retainExpression.add(inputOrderKeys.get(i));
+            retainExpression.add(inputOrderKey);
             orderExprWithEqualSet.add(expr);
             orderExprWithEqualSet.addAll(dataTrait.calEqualSet((Slot) expr));
         }
