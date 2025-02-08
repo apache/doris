@@ -1352,6 +1352,10 @@ bool TabletSchema::exist_column(const std::string& field_name) const {
     return _field_name_to_index.contains(StringRef {field_name});
 }
 
+bool TabletSchema::has_column_unique_id(int32_t col_unique_id) const {
+    return _field_id_to_index.contains(col_unique_id);
+}
+
 Status TabletSchema::have_column(const std::string& field_name) const {
     if (!_field_name_to_index.contains(StringRef(field_name))) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
