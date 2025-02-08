@@ -545,7 +545,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init hdfs accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name()
+                      << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         } else if (vault.has_obj_info()) {
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
@@ -564,7 +566,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " s3_vault=" << vault.obj_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
+                      << " s3_vault=" << vault.obj_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
     }
