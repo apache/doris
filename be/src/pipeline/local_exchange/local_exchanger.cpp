@@ -72,11 +72,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
                                          BlockType& block, bool* eos, vectorized::Block* data_block,
                                          int channel_id) {
     if (local_state == nullptr) {
-        if (!_dequeue_data(block, eos, data_block, channel_id)) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Exchanger has no data: {}",
-                            data_queue_debug_string(channel_id));
-        }
-        return true;
+        return _dequeue_data(block, eos, data_block, channel_id);
     }
     bool all_finished = _running_sink_operators == 0;
     if (_data_queue[channel_id].try_dequeue(block)) {
@@ -160,7 +156,8 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     {
         SCOPED_TIMER(profile.distribute_timer);
         RETURN_IF_ERROR(_split_rows(state, sink_info.partitioner->get_channel_ids().get<uint32_t>(),
-                                    in_block, *sink_info.channel_id, sink_info.local_state));
+                                    in_block, *sink_info.channel_id, sink_info.local_state,
+                                    sink_info.shuffle_idx_to_instance_idx));
     }
 
     return Status::OK();
@@ -214,7 +211,8 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
 
 Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                                      vectorized::Block* block, int channel_id,
-                                     LocalExchangeSinkLocalState* local_state) {
+                                     LocalExchangeSinkLocalState* local_state,
+                                     std::map<int, int>* shuffle_idx_to_instance_idx) {
     if (local_state == nullptr) {
         return _split_rows(state, channel_ids, block, channel_id);
     }
@@ -249,8 +247,6 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     }
     local_state->_shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes(),
                                                     channel_id);
-    auto bucket_seq_to_instance_idx =
-            local_state->_parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
         /**
          * If type is `HASH_SHUFFLE`, data are hash-shuffled and distributed to all instances of
@@ -258,8 +254,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
          * For example, row 1 get a hash value 1 which means we should distribute to instance 1 on
          * BE 1 and row 2 get a hash value 2 which means we should distribute to instance 1 on BE 3.
          */
-        const auto& map = local_state->_parent->cast<LocalExchangeSinkOperatorX>()
-                                  ._shuffle_idx_to_instance_idx;
+        DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
+        const auto& map = *shuffle_idx_to_instance_idx;
         new_block_wrapper->ref(cast_set<int>(map.size()));
         for (const auto& it : map) {
             DCHECK(it.second >= 0 && it.second < _num_partitions)
@@ -274,13 +270,13 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             }
         }
     } else {
-        DCHECK(!bucket_seq_to_instance_idx.empty());
+        DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
         new_block_wrapper->ref(_num_partitions);
         for (int i = 0; i < _num_partitions; i++) {
             uint32_t start = partition_rows_histogram[i];
             uint32_t size = partition_rows_histogram[i + 1] - start;
             if (size > 0) {
-                _enqueue_data_and_set_ready(bucket_seq_to_instance_idx[i], local_state,
+                _enqueue_data_and_set_ready((*shuffle_idx_to_instance_idx)[i], local_state,
                                             {new_block_wrapper, {row_idx, start, size}});
             } else {
                 new_block_wrapper->unref(local_state->_shared_state, channel_id);
