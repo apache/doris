@@ -206,6 +206,17 @@ suite("test_create_vault", "nonConcurrent") {
                 "hadoop.username" = "${getHmsUser()}"
             );
             """
+    }, "Invalid argument s3.bucket")
+
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type"="hdfs",
+                "path_prefix" = "${hdfsVaultName}",
+                "hadoop.username" = "${getHmsUser()}"
+            );
+            """
     }, "invalid fs_name")
 
     // test `if not exist` and dup name hdfs vault
