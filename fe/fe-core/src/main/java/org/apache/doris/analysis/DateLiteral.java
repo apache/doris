@@ -666,7 +666,7 @@ public class DateLiteral extends LiteralExpr {
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
         // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
     }
 
     @Override
