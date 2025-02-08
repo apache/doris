@@ -437,8 +437,8 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-#if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
-        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     init_hook();
 #endif
 
