@@ -369,6 +369,7 @@ struct TQueryOptions {
 
   148: optional i32 min_scanner_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0;
+  150: optional bool enable_runtime_filter_partition_prune = true;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
