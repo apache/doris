@@ -631,7 +631,7 @@ Status AdaptivePassthroughExchanger::sink(RuntimeState* state, vectorized::Block
     if (_is_pass_through) {
         return _passthrough_sink(state, in_block, std::move(sink_info));
     } else {
-        if (_total_block++ > _num_partitions) {
+        if (++_total_block >= _num_partitions) {
             _is_pass_through = true;
         }
         return _shuffle_sink(state, in_block, std::move(sink_info));
