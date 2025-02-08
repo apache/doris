@@ -716,7 +716,10 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
     case TExprOpcode::NE:
     case TExprOpcode::FILTER_IN:
     case TExprOpcode::FILTER_NOT_IN:
-        return _check_slot_can_push_down(expr) && _check_rest_children_can_push_down(expr);
+        // don't support NULL_AWARE_BINARY_PRED and NULL_AWARE_IN_PRED
+        return expr->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED &&
+               expr->node_type() != TExprNodeType::NULL_AWARE_IN_PRED &&
+               _check_slot_can_push_down(expr) && _check_rest_children_can_push_down(expr);
 
     case TExprOpcode::INVALID_OPCODE:
         if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
