@@ -25,6 +25,7 @@
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class PaimonReader : public TableFormatReader {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -74,4 +75,5 @@ public:
                 ->set_delete_rows(&_delete_rows);
     }
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
