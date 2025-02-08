@@ -149,7 +149,7 @@ public class MTMVTask extends AbstractTask {
     private StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
 
-    private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     public MTMVTask() {
     }
@@ -490,6 +490,9 @@ public class MTMVTask extends AbstractTask {
         }
         if (null != partitionSnapshots) {
             partitionSnapshots = null;
+        }
+        if (null != snapshots) {
+            snapshots = null;
         }
     }
 
