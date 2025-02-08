@@ -25,6 +25,7 @@
 
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
+#include "common/cast_set.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -36,6 +37,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
     boost::regex pattern(
@@ -82,7 +84,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
         }
         auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                 inverted_index_ctx.char_filter_map);
-        reader->init(tokenize_str.data, tokenize_str.size, true);
+        reader->init(tokenize_str.data, cast_set<int32_t>(tokenize_str.size), true);
 
         std::vector<std::string> query_tokens =
                 doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
