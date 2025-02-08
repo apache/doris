@@ -209,6 +209,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table.isPresent()) {
+                if (Strings.isNullOrEmpty(table.get().getRemoteName())
+                        || table.get().getDb() == null) {
+                    LOG.info("Table [{}] remoteName or database is empty, mark as uninitialized",
+                            table.get().getName());
+                    tableNameToId = Maps.newConcurrentMap();
+                    idToTbl = Maps.newConcurrentMap();
+                    lastUpdateTime = log.getLastUpdateTime();
+                    initialized = false;
+                    return;
+                }
                 tmpTableNameToId.put(table.get().getName(), table.get().getId());
                 tmpIdToTbl.put(table.get().getId(), table.get());
 
@@ -221,6 +231,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
+            if (Strings.isNullOrEmpty(log.getRemoteTableNames().get(i))) {
+                LOG.info("Table [{}] remoteName is empty, mark as uninitialized",
+                        log.getCreateTableNames().get(i));
+                tableNameToId = Maps.newConcurrentMap();
+                idToTbl = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
+            }
             T table =
                     buildTableForInit(log.getRemoteTableNames().get(i), log.getCreateTableNames().get(i),
                             log.getCreateTableIds().get(i), catalog, this, false);
@@ -620,24 +639,39 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     case "ExternalInfoSchemaTable":
                         ExternalInfoSchemaTable infoSchemaTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
                                 ExternalInfoSchemaTable.class);
+                        if (infoSchemaTable.getDb() == null) {
+                            infoSchemaTable.setDb(this);
+                        }
                         tmpIdToTbl.put(infoSchemaTable.getId(), (T) infoSchemaTable);
                         tableNameToId.put(infoSchemaTable.getName(), infoSchemaTable.getId());
+                        lowerCaseToTableName.put(infoSchemaTable.getName().toLowerCase(), infoSchemaTable.getName());
                         break;
                     case "ExternalMysqlTable":
                         ExternalMysqlTable mysqlTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
                                 ExternalMysqlTable.class);
+                        if (mysqlTable.getDb() == null) {
+                            mysqlTable.setDb(this);
+                        }
                         tmpIdToTbl.put(mysqlTable.getId(), (T) mysqlTable);
                         tableNameToId.put(mysqlTable.getName(), mysqlTable.getId());
+                        lowerCaseToTableName.put(mysqlTable.getName().toLowerCase(), mysqlTable.getName());
                         break;
                     default:
+                        LOG.warn("Unknown table type {} in database {}", clazzType, name);
                         break;
                 }
             } else {
                 Preconditions.checkState(obj instanceof ExternalTable);
-                tmpIdToTbl.put(((ExternalTable) obj).getId(), (T) obj);
-                tableNameToId.put(((ExternalTable) obj).getName(), ((ExternalTable) obj).getId());
-                lowerCaseToTableName.put(((ExternalTable) obj).getName().toLowerCase(),
-                        ((ExternalTable) obj).getName());
+                ExternalTable table = (ExternalTable) obj;
+                if (Strings.isNullOrEmpty(table.getRemoteName()) || table.getDb() == null) {
+                    LOG.info("Table [{}] remoteName or database is empty in catalog [{}], mark as uninitialized",
+                            table.getName(), extCatalog.getName());
+                    this.initialized = false;
+                } else {
+                    tmpIdToTbl.put(table.getId(), (T) table);
+                    tableNameToId.put(table.getName(), table.getId());
+                    lowerCaseToTableName.put(table.getName().toLowerCase(), table.getName());
+                }
             }
         }
         idToTbl = tmpIdToTbl;

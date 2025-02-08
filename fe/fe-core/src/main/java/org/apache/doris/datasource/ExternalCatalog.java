@@ -756,6 +756,15 @@ public abstract class ExternalCatalog
                 continue;
             }
             Preconditions.checkNotNull(db.get());
+            if (Strings.isNullOrEmpty(db.get().getRemoteName())) {
+                LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
+                        db.get().getFullName(), name);
+                dbNameToId = Maps.newConcurrentMap();
+                idToDb = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
+            }
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
             LOG.info("Synchronized database (refresh): [Name: {}, ID: {}]", db.get().getFullName(), db.get().getId());
@@ -765,6 +774,15 @@ public abstract class ExternalCatalog
                     buildDbForInit(log.getRemoteDbNames().get(i), log.getCreateDbNames().get(i),
                             log.getCreateDbIds().get(i), log.getType(), false);
             if (db != null) {
+                if (Strings.isNullOrEmpty(db.getRemoteName())) {
+                    LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
+                            db.getFullName(), name);
+                    dbNameToId = Maps.newConcurrentMap();
+                    idToDb = Maps.newConcurrentMap();
+                    lastUpdateTime = log.getLastUpdateTime();
+                    initialized = false;
+                    return;
+                }
                 tmpDbNameToId.put(db.getFullName(), db.getId());
                 tmpIdToDb.put(db.getId(), db);
                 LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
