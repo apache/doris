@@ -16,6 +16,16 @@
 // under the License.
 
 suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+    def command = "sudo docker ps"
+    def process = command.execute()
+    process.waitFor()
+
+    def output = process.in.text
+
+    def keytab_root_dir = "/keytabs"
+
+    println "Docker containers:"
+    println output
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -29,7 +39,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-                "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
                 "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
@@ -53,7 +63,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                     "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                     "hadoop.security.authentication" = "kerberos",
                     "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab"
+                    "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab"
                 );
             """
             sql """ switch hms_kerberos_hadoop_err1 """
@@ -92,7 +102,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         //                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
         //                    "hadoop.security.authentication" = "kerberos",
         //                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-        //                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+        //                    "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
         //                    "hive.metastore.thrift.impersonation.enabled" = true"
         //                    "hive.metastore.client.credential-cache.location" = "hive-presto-master-krbcc"
         //                );
@@ -102,5 +112,13 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         //        } catch (Exception e) {
         //            logger.error(e.message)
         //        }
+        
+        // test information_schema.backend_kerberos_ticket_cache
+        // switch to a normal catalog
+        sql "switch internal";
+        test {
+            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/presto-server.keytab";"""
+            rowNum 1
+        } 
     }
 }

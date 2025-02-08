@@ -27,12 +27,11 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
-// #include "io/fs/hdfs_file_system.h"
+#include "io/hdfs_util.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
-#include "util/hdfs_util.h"
 
 namespace doris {
 namespace io {
