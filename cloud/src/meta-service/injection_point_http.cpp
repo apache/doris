@@ -36,7 +36,7 @@ std::once_flag register_suites_once;
 
 // define a struct to store value only
 struct TypedValue {
-    std::variant<int64_t, bool, std::string> value;
+    std::variant<int64_t, bool, std::string, double> value;
 };
 
 inline std::default_random_engine make_random_engine() {
@@ -90,6 +90,14 @@ static void register_suites() {
                           << " inject kv txn conflict";
             }
         });
+    });
+    suite_map.emplace("Transaction::commit.enable_inject", []() {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Transaction::commit.inject_random_fault", [](auto&& args) {
+            auto* enable = try_any_cast<bool*>(args[0]);
+            *enable = true;
+        });
+        LOG_INFO("enable Transaction::commit.enable_inject");
     });
 }
 
@@ -153,10 +161,12 @@ HttpResponse set_value(const std::string& point, const brpc::URI& uri) {
                 typed_value.value = value.GetBool();
             } else if (value.IsInt64()) {
                 typed_value.value = value.GetInt64();
+            } else if (value.IsDouble()) {
+                typed_value.value = value.GetDouble();
             } else if (value.IsString()) {
                 typed_value.value = value.GetString();
             } else {
-                auto msg = "value must be boolean, integer or string";
+                auto msg = "value must be boolean, integer, double or string";
                 LOG(WARNING) << msg;
                 return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
@@ -183,6 +193,9 @@ HttpResponse set_value(const std::string& point, const brpc::URI& uri) {
                         } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>, bool>) {
                             // process bool
                             *try_any_cast<bool*>(args[i]) = v;
+                        } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>, double>) {
+                            // process double
+                            *try_any_cast<double*>(args[i]) = v;
                         } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>,
                                                             std::string>) {
                             // process string
