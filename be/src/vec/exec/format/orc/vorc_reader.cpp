@@ -716,7 +716,7 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
     case TExprOpcode::NE:
     case TExprOpcode::FILTER_IN:
     case TExprOpcode::FILTER_NOT_IN:
-        // don't support NULL_AWARE_BINARY_PRED and NULL_AWARE_IN_PRED
+        // can't push down if expr is null aware predicate
         return expr->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED &&
                expr->node_type() != TExprNodeType::NULL_AWARE_IN_PRED &&
                _check_slot_can_push_down(expr) && _check_rest_children_can_push_down(expr);
