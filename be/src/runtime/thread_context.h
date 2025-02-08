@@ -203,7 +203,7 @@ public:
     bool is_attach_task() { return resource_ctx_ != nullptr; }
 
     std::shared_ptr<ResourceContext> resource_ctx() {
-#ifndef BE_TEST
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
         CHECK(is_attach_task());
         return resource_ctx_;
 #else
