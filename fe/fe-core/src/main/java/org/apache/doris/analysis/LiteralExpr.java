@@ -106,6 +106,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case IPV6:
                 literalExpr = new IPv6Literal(value);
                 break;
+            case TIME:
+            case TIMEV2:
+                literalExpr = new TimeLiteral(value);
+                break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
         }
@@ -169,6 +173,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             literalExpr = new JsonLiteral(value);
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
+        } else if (expr instanceof TimeLiteral) {
+            literalExpr = new TimeLiteral(value);
         } else {
             throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
         }
@@ -483,6 +489,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            case TIME_LITERAL: return new TimeLiteral(node.time_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");
         }
     }

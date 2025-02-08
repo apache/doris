@@ -15,25 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.analysis;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.common.AnalysisException;
 
-import java.util.List;
+import org.junit.Assert;
+import org.junit.Test;
 
-/**
- * some function PropagateNullable when args are datev2 or datetimev2
- * and AlwaysNullable when other type parameters
- */
-public interface PropagateNullableOnDateLikeV2Args extends PropagateNullable, AlwaysNullable {
-    @Override
-    default boolean nullable() {
-        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType())) {
-            return PropagateNullable.super.nullable();
-        } else {
-            return AlwaysNullable.super.nullable();
-        }
+public class TimeLiteralTest {
+
+    @Test
+    public void testTimeLiteralCreate() throws AnalysisException {
+        TimeLiteral literal = new TimeLiteral("12:12:12");
+        String s = literal.getStringValue();
+        Assert.assertEquals(s, "12:12:12");
+        literal = new TimeLiteral("112:00:00");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "112:00:00");
+        literal = new TimeLiteral(21, 12, 21);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "21:12:21");
+        literal = new TimeLiteral(838, 59, 59);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59");
     }
 
-    List<Expression> children();
 }

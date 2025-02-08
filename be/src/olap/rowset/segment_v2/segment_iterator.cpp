@@ -727,6 +727,7 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
+    case TExprNodeType::TIME_LITERAL:
         return true;
     default:
         return false;
