@@ -499,7 +499,7 @@ Status Segment::_load_pk_bloom_filter(OlapReaderStatistics* stats) {
 
 Status Segment::load_pk_index_and_bf(OlapReaderStatistics* index_load_stats) {
     RETURN_IF_ERROR(load_index(index_load_stats));
-    RETURN_IF_ERROR(_load_pk_bloom_filter(index_load_stats));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_load_pk_bloom_filter(index_load_stats));
     return Status::OK();
 }
 
