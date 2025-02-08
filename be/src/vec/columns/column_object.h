@@ -116,6 +116,8 @@ public:
 
         size_t allocatedBytes() const;
 
+        bool has_enough_capacity(const IColumn& src) const { return false; };
+
         bool is_finalized() const;
 
         const DataTypePtr& get_least_common_type() const { return least_common_type.get(); }
@@ -385,6 +387,8 @@ public:
     size_t byte_size() const override;
 
     size_t allocated_bytes() const override;
+
+    bool has_enough_capacity(const IColumn& src) const override { return false; }
 
     void for_each_subcolumn(ColumnCallback callback) override;
 

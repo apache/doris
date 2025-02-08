@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <queue>
@@ -114,6 +115,7 @@ public:
     virtual void init_profile(RuntimeProfile* runtime_profile) {
         _partial_sort_timer = ADD_TIMER(runtime_profile, "PartialSortTime");
         _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
+        _partial_sort_counter = ADD_COUNTER(runtime_profile, "PartialSortCounter", TUnit::UNIT);
     }
 
     virtual Status append_block(Block* block) = 0;
@@ -151,6 +153,7 @@ protected:
 
     RuntimeProfile::Counter* _partial_sort_timer = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _partial_sort_counter = nullptr;
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
@@ -180,16 +183,16 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block()->allocated_bytes() >= buffered_block_bytes_;
+        return _state->unsorted_block()->allocated_bytes() >= INITIAL_BUFFERED_BLOCK_BYTES;
     }
+
+    bool has_enough_capacity(Block* input_block, Block* unsorted_block) const;
 
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 
     static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 * 1024 * 1024;
-
-    size_t buffered_block_bytes_ = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 
 } // namespace doris::vectorized

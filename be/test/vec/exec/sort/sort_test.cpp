@@ -77,6 +77,8 @@ public:
         default:
             break;
         }
+
+        sorter->init_profile(profile.get());
     }
 
     void append_block(ColumnInt32::Ptr column) {
@@ -114,6 +116,7 @@ public:
     VSortExecExprs sort_exec_exprs;
     ObjectPool pool;
     std::unique_ptr<MockRowDescriptor> row_desc;
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
