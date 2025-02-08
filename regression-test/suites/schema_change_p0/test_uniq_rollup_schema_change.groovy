@@ -33,6 +33,7 @@ suite ("test_uniq_rollup_schema_change") {
         Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getMVJobState(tbName)
             if (result == "FINISHED") {
+                sleep(3000)
                 return true;
             }
             return false;
