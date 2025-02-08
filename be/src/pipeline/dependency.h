@@ -754,9 +754,7 @@ public:
         dep->set_ready();
     }
 
-    void add_mem_usage(int channel_id, size_t delta) {
-        mem_counters[channel_id]->update(delta);
-    }
+    void add_mem_usage(int channel_id, size_t delta) { mem_counters[channel_id]->update(delta); }
 
     void sub_mem_usage(int channel_id, size_t delta) {
         mem_counters[channel_id]->update(-(int64_t)delta);

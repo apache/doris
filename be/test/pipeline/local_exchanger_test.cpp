@@ -105,22 +105,20 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                 new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
                         num_partitions));
         auto texpr =
-                TExprNodeBuilder(
-                        TExprNodeType::SLOT_REF,
-                        TTypeDescBuilder()
-                                .set_types(TTypeNodeBuilder()
-                                                   .set_type(TTypeNodeType::SCALAR)
-                                                   .set_scalar_type(TPrimitiveType::INT)
-                                                   .build())
-                                .build(),
-                        0)
+                TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                 TTypeDescBuilder()
+                                         .set_types(TTypeNodeBuilder()
+                                                            .set_type(TTypeNodeType::SCALAR)
+                                                            .set_scalar_type(TPrimitiveType::INT)
+                                                            .build())
+                                         .build(),
+                                 0)
                         .set_slot_ref(TSlotRefBuilder(0, 0).build())
                         .build();
         auto slot = doris::vectorized::VSlotRef::create_shared(texpr);
         slot->_column_id = 0;
-        ((vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>*)
-                 _sink_local_states[i]
-                         ->_partitioner.get())
+        ((vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>*)_sink_local_states[i]
+                 ->_partitioner.get())
                 ->_partition_expr_ctxs.push_back(
                         std::make_shared<doris::vectorized::VExprContext>(slot));
         _sink_local_states[i]->_channel_id = i;
