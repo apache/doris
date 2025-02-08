@@ -490,21 +490,22 @@ Status Segment::_load_pk_bloom_filter(OlapReaderStatistics* stats) {
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
 
-    return _load_pk_bf_once.call([this, stats] {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_load_pk_bf_once.call([this, stats] {
         RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta, stats));
         // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
         return Status::OK();
-    });
+    }));
+    return Status::OK();
 }
 
 Status Segment::load_pk_index_and_bf(OlapReaderStatistics* index_load_stats) {
     RETURN_IF_ERROR(load_index(index_load_stats));
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_load_pk_bloom_filter(index_load_stats));
+    RETURN_IF_ERROR(_load_pk_bloom_filter(index_load_stats));
     return Status::OK();
 }
 
 Status Segment::load_index(OlapReaderStatistics* stats) {
-    return _load_index_once.call([this, stats] {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_load_index_once.call([this, stats] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta, stats));
@@ -536,7 +537,8 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             _sk_index_decoder = std::make_unique<ShortKeyIndexDecoder>();
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
-    });
+    }));
+    return Status::OK();
 }
 
 Status Segment::healthy_status() {
@@ -601,11 +603,12 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
 
 Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
-    return _create_column_readers_once_call.call([&] {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_column_readers_once_call.call([&] {
         DCHECK(_footer_pb);
         Defer defer([&]() { _footer_pb.reset(); });
         return _create_column_readers(*_footer_pb);
-    });
+    }));
+    return Status::OK();
 }
 
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
@@ -959,7 +962,7 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
         if (_inverted_index_file_reader == nullptr) {
-            RETURN_IF_ERROR(
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
                     _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
         }
         RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,

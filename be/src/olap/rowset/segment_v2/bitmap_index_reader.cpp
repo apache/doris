@@ -34,9 +34,10 @@ namespace segment_v2 {
 
 Status BitmapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory] {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_load_once.call([this, use_page_cache, kept_in_memory] {
         return _load(use_page_cache, kept_in_memory, std::move(_index_meta));
-    });
+    }));
+    return Status::OK();
 }
 
 Status BitmapIndexReader::_load(bool use_page_cache, bool kept_in_memory,

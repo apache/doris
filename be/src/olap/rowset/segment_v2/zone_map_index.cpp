@@ -143,10 +143,12 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
                                 OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
-        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
-                     index_load_stats);
-    });
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+                return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
+                             index_load_stats);
+            }));
+    return Status::OK();
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,

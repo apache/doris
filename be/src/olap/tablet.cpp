@@ -326,7 +326,8 @@ Status Tablet::_init_once_action() {
 }
 
 Status Tablet::init() {
-    return _init_once.call([this] { return _init_once_action(); });
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_init_once.call([this] { return _init_once_action(); }));
+    return Status::OK();
 }
 
 // should save tablet meta to remote meta store

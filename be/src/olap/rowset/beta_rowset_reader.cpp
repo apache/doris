@@ -280,7 +280,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSpl
 }
 
 Status BetaRowsetReader::_init_iterator_once() {
-    return _init_iter_once.call([this] { return _init_iterator(); });
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_init_iter_once.call([this] { return _init_iterator(); }));
+    return Status::OK();
 }
 
 Status BetaRowsetReader::_init_iterator() {
