@@ -41,6 +41,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -175,7 +176,7 @@ public class CoordinatorTest extends Coordinator {
                         new ArrayList<>());
 
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs, THashType.CRC32)));
 
         // hash join node is not bucket shuffle join
         Assert.assertEquals(false,
@@ -183,13 +184,13 @@ public class CoordinatorTest extends Coordinator {
 
         // the fragment id is different from hash join node
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-2), hashJoinNode,
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs, THashType.CRC32)));
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
         Assert.assertEquals(false,
                 Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
 
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs, THashType.CRC32)));
         Assert.assertEquals(true,
                 Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
 
@@ -278,10 +279,10 @@ public class CoordinatorTest extends Coordinator {
         Assert.assertEquals(java.util.Optional.of(66).get(),
                 Deencapsulation.invoke(bucketShuffleJoinController, "getFragmentBucketNum", new PlanFragmentId(1)));
 
-        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap =
-                Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBuckendIdBucketCountMap");
+        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBackendIdBucketCountMap =
+                Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBackendIdBucketCountMap");
 
-        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values()
+        long targetBeCount = fragmentIdToBackendIdBucketCountMap.values()
                 .stream().flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
                 .filter(count -> count == 22).count();
         Assert.assertEquals(targetBeCount, 3);
@@ -408,10 +409,10 @@ public class CoordinatorTest extends Coordinator {
         Assert.assertEquals(java.util.Optional.of(66).get(),
                 Deencapsulation.invoke(bucketShuffleJoinController, "getFragmentBucketNum", new PlanFragmentId(1)));
 
-        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap =
-                Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBuckendIdBucketCountMap");
+        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBackendIdBucketCountMap =
+                Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBackendIdBucketCountMap");
 
-        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values()
+        long targetBeCount = fragmentIdToBackendIdBucketCountMap.values()
                 .stream()
                 .flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
                 .filter(count -> count == 22).count();
@@ -708,9 +709,9 @@ public class CoordinatorTest extends Coordinator {
                     .put(1L, backend1)
                     .put(2L, backend2)
                     .build();
-        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap = Maps.newHashMap();
+        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBackendIdBucketCountMap = Maps.newHashMap();
         Map<Long, Integer> backendIdBucketCountMap = new HashMap<Long, Integer>();
-        fragmentIdToBuckendIdBucketCountMap.put(planFragmentId, backendIdBucketCountMap);
+        fragmentIdToBackendIdBucketCountMap.put(planFragmentId, backendIdBucketCountMap);
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
         BucketShuffleJoinController controller = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
         Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
@@ -719,7 +720,7 @@ public class CoordinatorTest extends Coordinator {
         replicaNumPerHost.put(tScanRangeLocation0.server, 1L);
         replicaNumPerHost.put(tScanRangeLocation1.server, 1L);
         replicaNumPerHost.put(tScanRangeLocation2.server, 1L);
-        Deencapsulation.setField(controller,  "fragmentIdToBuckendIdBucketCountMap", fragmentIdToBuckendIdBucketCountMap);
+        Deencapsulation.setField(controller,  "fragmentIdToBackendIdBucketCountMap", fragmentIdToBackendIdBucketCountMap);
         Deencapsulation.setField(controller, "fragmentIdToSeqToAddressMap", fragmentIdToSeqToAddressMap);
         Deencapsulation.invoke(controller, "getExecHostPortForFragmentIDAndBucketSeq",
                 tScanRangeLocations, planFragmentId, 1, idToBackend, addressToBackendID, replicaNumPerHost);
