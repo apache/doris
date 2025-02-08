@@ -41,6 +41,7 @@ struct SinkInfo {
     int* channel_id;
     vectorized::PartitionerBase* partitioner;
     LocalExchangeSinkLocalState* local_state;
+    std::map<int, int>* shuffle_idx_to_instance_idx;
 };
 
 struct SourceInfo {
@@ -262,7 +263,8 @@ public:
 protected:
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, int channel_id,
-                       LocalExchangeSinkLocalState* local_state);
+                       LocalExchangeSinkLocalState* local_state,
+                       std::map<int, int>* shuffle_idx_to_instance_idx);
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, int channel_id);
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;

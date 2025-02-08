@@ -91,7 +91,7 @@ public:
               _num_partitions(num_partitions),
               _texprs(texprs),
               _partitioned_exprs_num(texprs.size()),
-              _bucket_seq_to_instance_idx(bucket_seq_to_instance_idx) {}
+              _shuffle_idx_to_instance_idx(bucket_seq_to_instance_idx) {}
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
@@ -116,8 +116,7 @@ private:
     const std::vector<TExpr>& _texprs;
     const size_t _partitioned_exprs_num;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    const std::map<int, int> _bucket_seq_to_instance_idx;
-    std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;
+    std::map<int, int> _shuffle_idx_to_instance_idx;
     bool _use_global_shuffle = false;
 };
 
