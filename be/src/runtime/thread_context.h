@@ -64,6 +64,8 @@
 // thread context need to be initialized, required by Allocator and elsewhere.
 #define SCOPED_ATTACH_TASK(arg1, ...) \
     auto VARNAME_LINENUM(scoped_tls_at) = doris::ScopedInitThreadContext()
+#define SCOPED_SWITCH_RESOURCE_CONTEXT(arg1) \
+    auto VARNAME_LINENUM(switch_resource_context) = doris::ScopedInitThreadContext()
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) \
     auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
