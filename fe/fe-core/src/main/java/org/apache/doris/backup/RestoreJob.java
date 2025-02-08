@@ -2387,7 +2387,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             colocatePersistInfos.clear();
 
             LOG.info("finished to cancel restore job. current state: {}. is replay: {}. {}",
-                     curState.name(), isReplay, this);
+                    curState.name(), isReplay, this);
 
             // Send release snapshot tasks after log restore job, so that the snapshot won't be released
             // before the cancelled restore job is persisted.

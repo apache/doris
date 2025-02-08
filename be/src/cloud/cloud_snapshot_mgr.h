@@ -33,8 +33,7 @@ class CloudStorageEngine;
 class RowsetMetaPB;
 class MemTrackerLimiter;
 
-// In cloud mode, snapshot management is in memory, which will only be used by
-// backup and restore, snapshot in cloud mode only includes tablet meta string.
+// In cloud mode, snapshot only includes tablet metas.
 class CloudSnapshotMgr {
 public:
     CloudSnapshotMgr(CloudStorageEngine &engine);
@@ -47,11 +46,11 @@ public:
 
     Status release_snapshot(int64_t tablet_id);
 
+    Status commit_snapshot(int64_t tablet_id);
+
     Status convert_rowsets(TabletMetaPB* out, const TabletMetaPB& in, int64_t tablet_id,
                            CloudTabletSPtr& target_tablet, StorageResource& storage_resource,
                            std::unordered_map<std::string, std::string>& file_mapping);
-
-    Status commit_snapshot(int64_t tablet_id);
 
 private:
     Status _create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, const RowsetMetaPB& source_meta,
@@ -63,10 +62,6 @@ private:
     CloudStorageEngine &_engine;
     std::atomic<uint64_t> _snapshot_base_id {0};
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-    std::mutex mutex;
-    // TODO(xy): put these meta to fdb?
-    // tablet_id -> tablet_meta_binary
-    std::unordered_map<int64_t, std::string> tablet_meta_map;
 }; // CloudSnapshotMgr
 
 } // namespace doris

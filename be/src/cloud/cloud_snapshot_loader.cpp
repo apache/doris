@@ -134,7 +134,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
                 if (_end_with(iter->first, ".hdr")) {
                     *hdr_file_len = iter->second.size;
                     full_hdr_path = remote_path + "/" + iter->first + "." + iter->second.md5;
-                    // remote hdr file from remote_files
+                    // remove hdr file from remote_files
                     iter = remote_files.erase(iter);
                     return true;
                 } else {
@@ -174,10 +174,15 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             return Status::InternalError(ss.str());
         }
 
+        RETURN_IF_ERROR(_report_every(0, &tmp_counter, finished_num, total_num,
+                                      TTaskType::type::DOWNLOAD));
+
         // 1.4. make snapshot
         std::unordered_map<std::string, std::string> file_mapping;
         RETURN_IF_ERROR(_engine.cloud_snapshot_mgr().make_snapshot(target_tablet_id, *_storage_resource,
-                                                              file_mapping, true, &hdr_slice));
+                                                                   file_mapping, true, &hdr_slice));
+
+        LOG(INFO) << "finish to make snapshot for tablet: " << target_tablet_id;
 
         // 1.5. download files
         for (auto& iter : remote_files) {
@@ -191,7 +196,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             }
             std::string target_file = find->second;
             std::string full_remote_file = remote_path + "/" + remote_file + "." + file_stat.md5;
-            std::string full_target_file = target_path + "/" + target_file + "." + file_stat.md5;
+            std::string full_target_file = target_path + "/" + target_file;
             LOG(INFO) << "begin to download from " << full_remote_file << " to " << full_target_file;
             io::FileReaderOptions reader_options {
                     .cache_type = io::FileCachePolicy::NO_CACHE,
@@ -224,13 +229,6 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
 
     LOG(INFO) << "finished to download snapshots. job: " << _job_id << ", task id: " << _task_id;
     return status;
-}
-
-Status CloudSnapshotLoader::commit(const CloudTabletSPtr& tablet) {
-    LOG(INFO) << "begin to commit snapshot. from: job: " << _job_id << ", task id: " << _task_id;
-    RETURN_IF_ERROR(_engine.cloud_snapshot_mgr().commit_snapshot(tablet->tablet_id()));
-    LOG(INFO) << "finished to commit snapshot: " << tablet->tablet_id();
-    return Status::OK();
 }
 
 } // end namespace doris
