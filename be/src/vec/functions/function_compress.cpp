@@ -102,7 +102,7 @@ public:
             }
 
             // Z_MEM_ERROR and Z_BUF_ERROR are already handled in compress, making sure st is always Z_OK
-            auto st = compression_codec->compress(data, &compressed_str);
+            RETURN_IF_ERROR(compression_codec->compress(data, &compressed_str));
             col_data.resize(col_data.size() + 4 + compressed_str.size());
 
             std::memcpy(col_data.data() + idx, &length, sizeof(length));
