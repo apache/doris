@@ -319,6 +319,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_variant_enable_flatten_nested(tablet_schema.variant_enable_flatten_nested);
     }
 
+    if (tablet_schema.__isset.variant_max_subcolumns_count) {
+        schema->set_variant_max_subcolumns_count(tablet_schema.variant_max_subcolumns_count);
+    }
+
     if (tablet_schema.__isset.enable_single_replica_compaction) {
         schema->set_enable_single_replica_compaction(
                 tablet_schema.enable_single_replica_compaction);
@@ -443,6 +447,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
                                  tcolumn.children_column[i], children_column);
+    }
+    if (tcolumn.__isset.variant_max_subcolumns_count) {
+        column->set_variant_max_subcolumns_count(tcolumn.variant_max_subcolumns_count);
     }
 }
 

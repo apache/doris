@@ -36,7 +36,7 @@ import java.util.List;
 public class ExplodeVariantArray extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new VariantType()).args(new VariantType())
+            FunctionSignature.ret(new VariantType(-12)).args(new VariantType(-12))
     );
 
     /**

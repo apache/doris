@@ -351,7 +351,10 @@ public abstract class DataType {
             case CHAR: return CharType.createCharType(type.getLength());
             case VARCHAR: return VarcharType.createVarcharType(type.getLength());
             case STRING: return StringType.INSTANCE;
-            case VARIANT: return VariantType.INSTANCE;
+            case VARIANT: {
+                ScalarType scType = (ScalarType) type;
+                return new VariantType(scType.getVariantMaxSubcolumnsCount());
+            }
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;

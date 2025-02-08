@@ -6,11 +6,11 @@
 {"code":2,"state":"open"}
 
 -- !select_b_3 --
-12288
+24588
 
 -- !select_b_4 --
 12288
 
 -- !select_1 --
-\N
+{"code":2,"state":"open"}
 

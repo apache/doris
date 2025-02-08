@@ -162,10 +162,10 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
-        // set variant root column/type to from column/type
-        auto variant = ColumnObject::create(true /*always nullable*/);
+    if (auto to_type = remove_nullable(type); WhichDataType(to_type).is_variant_type()) {
         CHECK(arg.column->is_nullable());
+        const auto& data_type_object = assert_cast<const DataTypeObject&>(*to_type);
+        auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
         variant->create_root(arg.type, arg.column->assume_mutable());
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
@@ -510,7 +510,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         }
 
         if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnObject::create(true);
+            variant_column = ColumnObject::create(var.max_subcolumns_count());
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
