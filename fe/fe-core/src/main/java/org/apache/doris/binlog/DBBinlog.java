@@ -43,6 +43,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -288,7 +289,6 @@ public class DBBinlog {
 
     public Pair<TStatus, Long> lockBinlog(long tableId, String jobUniqueId, long lockCommitSeq) {
         TableBinlog tableBinlog = null;
-
         lock.writeLock().lock();
         try {
             if (tableId < 0) {
@@ -457,18 +457,41 @@ public class DBBinlog {
         }
 
         if (lastExpiredBinlog != null) {
-            dummy.setCommitSeq(lastExpiredBinlog.getCommitSeq());
+            final long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
+            dummy.setCommitSeq(expiredCommitSeq);
 
             // release expired timestamps by commit seq.
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
-            while (timeIter.hasNext() && timeIter.next().first <= lastExpiredBinlog.getCommitSeq()) {
+            while (timeIter.hasNext() && timeIter.next().first <= expiredCommitSeq) {
                 timeIter.remove();
             }
 
-            gcDroppedResources(lastExpiredBinlog.getCommitSeq());
+            lockedBinlogs.entrySet().removeIf(ent -> ent.getValue() <= expiredCommitSeq);
+            gcDroppedResources(expiredCommitSeq);
         }
 
         return lastExpiredBinlog;
+    }
+
+    private Optional<Long> getMinLockedCommitSeq() {
+        lock.readLock().lock();
+        try {
+            Optional<Long> minLockedCommitSeq = lockedBinlogs.values().stream().min(Long::compareTo);
+            for (TableBinlog tableBinlog : tableBinlogMap.values()) {
+                Optional<Long> tableMinLockedCommitSeq = tableBinlog.getMinLockedCommitSeq();
+                if (!tableMinLockedCommitSeq.isPresent()) {
+                    continue;
+                }
+                if (minLockedCommitSeq.isPresent()) {
+                    minLockedCommitSeq = Optional.of(Math.min(minLockedCommitSeq.get(), tableMinLockedCommitSeq.get()));
+                } else {
+                    minLockedCommitSeq = tableMinLockedCommitSeq;
+                }
+            }
+            return minLockedCommitSeq;
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private BinlogTombstone dbBinlogEnableGc(BinlogConfig dbBinlogConfig) {
@@ -481,10 +504,12 @@ public class DBBinlog {
                 dbId, expiredMs, ttlSeconds, maxBytes, maxHistoryNums);
 
         // step 1: get current tableBinlog info and expiredCommitSeq
+        Optional<Long> minLockedCommitSeq = getMinLockedCommitSeq();
         TBinlog lastExpiredBinlog = null;
+        List<TableBinlog> tableBinlogs = Lists.newArrayList();
         lock.writeLock().lock();
         try {
-            long expiredCommitSeq = -1;
+            long expiredCommitSeq = -1L;
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
             while (timeIter.hasNext()) {
                 Pair<Long, Long> pair = timeIter.next();
@@ -492,6 +517,13 @@ public class DBBinlog {
                     break;
                 }
                 expiredCommitSeq = pair.first;
+            }
+
+            // Speed up gc by recycling binlogs that are not locked by syncer.
+            // To keep compatible with the old version, if no binlog is locked here, fallthrough to the
+            // previous behavior (keep the entire binlogs until it is expired).
+            if (minLockedCommitSeq.isPresent() && expiredCommitSeq + 1L < minLockedCommitSeq.get()) {
+                expiredCommitSeq = minLockedCommitSeq.get() - 1L;
             }
 
             final long lastExpiredCommitSeq = expiredCommitSeq;
@@ -507,6 +539,7 @@ public class DBBinlog {
                         || maxHistoryNums < allBinlogs.size();
             };
             lastExpiredBinlog = getLastExpiredBinlog(checker);
+            tableBinlogs.addAll(tableBinlogMap.values());
         } finally {
             lock.writeLock().unlock();
         }
@@ -518,7 +551,7 @@ public class DBBinlog {
         // step 2: gc every tableBinlog in dbBinlog, get table tombstone to complete db
         // tombstone
         List<BinlogTombstone> tableTombstones = Lists.newArrayList();
-        for (TableBinlog tableBinlog : tableBinlogMap.values()) {
+        for (TableBinlog tableBinlog : tableBinlogs) {
             // step 2.1: gc tableBinlog，and get table tombstone
             BinlogTombstone tableTombstone = tableBinlog.commitSeqGc(lastExpiredBinlog.getCommitSeq());
             if (tableTombstone != null) {
