@@ -280,7 +280,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
 
         // TODO After removing b from the projection column, b+a+100 cannot be deleted from sort.
-        // This is because the equal set after the project does not output a=b because the b projection column does not output it.
+        //  This is because the equal set after the project does not output a=b because the b projection column does not output it.
         PlanChecker.from(connectContext)
                 .analyze("select c,d,a,a+100,b+a+100 from eliminate_order_by_constant_t where b=a order by c,d,a,a+100,b+a+100")
                 .rewrite()
@@ -480,6 +480,8 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
     }
 
+    // TODO LogicalUnion compute uniform can expand support scope when each child has same uniform output
+    //  and corresponding same position
     @Test
     void testUnionJoin() {
         PlanChecker.from(connectContext)
@@ -494,6 +496,6 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                         + "    order by a, b, a+100,abs(a)+b;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 4));
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 2));
     }
 }
