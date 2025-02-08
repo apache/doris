@@ -205,12 +205,12 @@ public class JdbcResourceTest {
     }
 
     @Test
-    public void testJdbcDriverPtah() {
+    public void testJdbcDriverPath() {
         String driverPath = "postgresql-42.5.0.jar";
         Config.jdbc_driver_secure_path = "";
         Config.jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
         String fullPath = JdbcResource.getFullDriverUrl(driverPath);
-        Assert.assertEquals("file://" + Config.jdbc_drivers_dir + "/" + driverPath, fullPath);
+        Assert.assertEquals("file://" + EnvUtils.getDorisHome() + "/jdbc_drivers/" + driverPath, fullPath);
         Config.jdbc_driver_secure_path = "file:///jdbc/;http://jdbc";
         String driverPath2 = "file:///postgresql-42.5.0.jar";
         Exception exception = Assert.assertThrows(IllegalArgumentException.class, () -> {

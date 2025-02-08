@@ -21,6 +21,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
@@ -314,11 +315,11 @@ public class JdbcResource extends Resource {
     }
 
     private static String checkAndReturnDefaultDriverUrl(String driverUrl) {
-        final String defaultDriverUrl = System.getenv("DORIS_HOME") + "/plugins/jdbc_drivers";
-        final String defaultOldDriverUrl = System.getenv("DORIS_HOME") + "/jdbc_drivers";
+        final String defaultDriverUrl = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
+        final String defaultOldDriverUrl = EnvUtils.getDorisHome() + "/jdbc_drivers";
         if (Config.jdbc_drivers_dir.equals(defaultDriverUrl)) {
             // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
-            // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
+            // Because in new version, we change the default value of `jdbc_drivers_dir`
             // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
             // so we need to check the old default dir for compatibility.
             File file = new File(defaultDriverUrl + "/" + driverUrl);
