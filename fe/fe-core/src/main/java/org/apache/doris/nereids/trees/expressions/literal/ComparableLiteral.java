@@ -15,32 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.trees.expressions.literal;
 
-#include <boost/circular_buffer.hpp>
-#include <shared_mutex>
-
-namespace doris {
-
-// A thread-safe interval histogram stat class.
-// IntervalHistogramStat will keep a FIXED-SIZE window of values and provide
-// statistics like mean, median, max, min.
-
-template <typename T>
-class IntervalHistogramStat {
-public:
-    explicit IntervalHistogramStat(size_t N);
-
-    void add(T value);
-
-    T mean();
-    T median();
-    T max();
-    T min();
-
-private:
-    boost::circular_buffer<T> window;
-    mutable std::shared_mutex mutex;
-};
-
-} // namespace doris
+/**
+ * comparable literal
+ */
+public interface ComparableLiteral extends Comparable<ComparableLiteral> {
+}

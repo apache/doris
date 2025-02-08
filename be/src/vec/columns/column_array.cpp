@@ -382,6 +382,12 @@ size_t ColumnArray::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
 }
 
+bool ColumnArray::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnArray&>(src);
+    return get_data().has_enough_capacity(src_concrete.get_data()) &&
+           get_offsets_column().has_enough_capacity(src_concrete.get_offsets_column());
+}
+
 bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
     const Offsets64& offsets1 = get_offsets();
     const Offsets64& offsets2 = other.get_offsets();
