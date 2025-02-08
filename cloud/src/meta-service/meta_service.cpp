@@ -1691,7 +1691,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             }
         }
 
-        if (need_read_schema_dict) {
+        if (need_read_schema_dict && request->schema_op() != GetRowsetRequest::NO_DICT) {
             read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(),
                              response->mutable_rowset_meta(), response->mutable_schema_dict(),
                              request->schema_op());
@@ -2554,6 +2554,60 @@ std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset
         ret += key_bounds.ByteSizeLong();
     }
     return ret;
+}
+
+void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* controller,
+                                      const GetSchemaDictRequest* request,
+                                      GetSchemaDictResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_schema_dict);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    if (!request->has_index_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing index_id in request";
+        return;
+    }
+
+    RPC_RATE_LIMIT(get_schema_dict)
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    std::string dict_key = meta_schema_pb_dictionary_key({instance_id, request->index_id()});
+    ValueBuf dict_val;
+    err = cloud::get(txn.get(), dict_key, &dict_val);
+    LOG(INFO) << "Retrieved column pb dictionary, index_id=" << request->index_id()
+              << " key=" << hex(dict_key) << " error=" << err;
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        // Handle retrieval error.
+        ss << "Failed to retrieve column pb dictionary, instance_id=" << instance_id
+           << " table_id=" << request->index_id() << " key=" << hex(dict_key) << " error=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    SchemaCloudDictionary schema_dict;
+    if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(&schema_dict)) {
+        // Handle parse error.
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("Malformed tablet dictionary value, key={}", hex(dict_key));
+        return;
+    }
+
+    response->mutable_schema_dict()->Swap(&schema_dict);
+    TEST_SYNC_POINT_CALLBACK("get_schema_dict::finish", &response);
 }
 
 } // namespace doris::cloud
