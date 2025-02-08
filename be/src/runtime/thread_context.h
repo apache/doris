@@ -42,6 +42,9 @@
 // This will save some info about a working thread in the thread context.
 // Looking forward to tracking memory during thread execution into MemTrackerLimiter.
 #define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
+// Switch resource context in thread context, used after SCOPED_ATTACH_TASK.
+#define SCOPED_SWITCH_RESOURCE_CONTEXT(arg1) \
+    auto VARNAME_LINENUM(switch_resource_context) = doris::SwitchResourceContext(arg1)
 
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Used after SCOPED_ATTACH_TASK, in order to count the memory into another
@@ -161,6 +164,7 @@ namespace doris {
 class ThreadContext;
 class MemTracker;
 class RuntimeState;
+class SwitchResourceContext;
 
 extern bthread_key_t btls_key;
 
@@ -189,15 +193,16 @@ public:
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(resource_ctx_ == nullptr);
         resource_ctx_ = rc;
-        old_mem_tracker_ = thread_mem_tracker_mgr->limiter_mem_tracker();
-        thread_mem_tracker_mgr->attach_task(rc->memory_context()->mem_tracker(),
-                                            rc->workload_group_context()->workload_group());
+        thread_mem_tracker_mgr->attach_limiter_tracker(
+                rc->memory_context()->mem_tracker(),
+                rc->workload_group_context()->workload_group());
+        thread_mem_tracker_mgr->enable_wait_gc();
     }
 
     void detach_task() {
         resource_ctx_.reset();
-        thread_mem_tracker_mgr->detach_task(old_mem_tracker_);
-        old_mem_tracker_.reset();
+        thread_mem_tracker_mgr->detach_limiter_tracker();
+        thread_mem_tracker_mgr->disable_wait_gc();
     }
 
     bool is_attach_task() { return resource_ctx_ != nullptr; }
@@ -233,8 +238,8 @@ public:
     int thread_local_handle_count = 0;
 
 private:
+    friend class SwitchResourceContext;
     std::shared_ptr<ResourceContext> resource_ctx_;
-    std::shared_ptr<doris::MemTrackerLimiter> old_mem_tracker_ {nullptr};
 };
 
 class ThreadLocalHandle {
@@ -357,16 +362,25 @@ public:
     ~AttachTask();
 };
 
+class SwitchResourceContext {
+public:
+    explicit SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc);
+
+    ~SwitchResourceContext();
+
+private:
+    std::shared_ptr<ResourceContext> old_resource_ctx_ {nullptr};
+};
+
 class SwitchThreadMemTrackerLimiter {
 public:
     explicit SwitchThreadMemTrackerLimiter(
             const std::shared_ptr<doris::MemTrackerLimiter>& mem_tracker);
-    explicit SwitchThreadMemTrackerLimiter(ResourceContext* rc);
 
     ~SwitchThreadMemTrackerLimiter();
 
 private:
-    std::shared_ptr<doris::MemTrackerLimiter> _old_mem_tracker {nullptr};
+    bool is_switched_ {false};
 };
 
 class AddThreadMemTrackerConsumer {
