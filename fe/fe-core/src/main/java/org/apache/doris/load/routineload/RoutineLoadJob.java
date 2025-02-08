@@ -1521,8 +1521,6 @@ public abstract class RoutineLoadJob
             }
         }
 
-        preCheckNeedSchedule();
-
         writeLock();
         try {
             if (unprotectNeedReschedule()) {
@@ -1536,6 +1534,8 @@ public abstract class RoutineLoadJob
         } finally {
             writeUnlock();
         }
+
+        preCheckNeedSchedule();
     }
 
     // Call this before calling unprotectUpdateProgress().
