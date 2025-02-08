@@ -21,7 +21,7 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "exprs/runtime_filter/runtime_filter.h"
+#include "exprs/runtime_filter/runtime_filter_consumer.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"

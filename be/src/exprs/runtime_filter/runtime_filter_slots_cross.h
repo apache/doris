@@ -32,10 +32,10 @@ namespace doris {
 // this class used in cross join node
 class RuntimeFilterSlotsCross : public RuntimeFilterSlots {
 public:
-    RuntimeFilterSlotsCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                            RuntimeProfile* profile,
-                            const std::vector<std::shared_ptr<RuntimeFilter>>& runtime_filters,
-                            bool should_build_hash_table)
+    RuntimeFilterSlotsCross(
+            const vectorized::VExprContextSPtrs& build_expr_ctxs, RuntimeProfile* profile,
+            const std::vector<std::shared_ptr<RuntimeFilterProducer>>& runtime_filters,
+            bool should_build_hash_table)
             : RuntimeFilterSlots(build_expr_ctxs, profile, runtime_filters,
                                  should_build_hash_table) {}
 

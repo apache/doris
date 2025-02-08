@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter/runtime_filter_definitions.h"
+#include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
@@ -115,6 +116,9 @@ public:
     }
 
     friend class RuntimeFilter;
+    friend class RuntimeFilterProducer;
+    friend class RuntimeFilterConsumer;
+    friend class RuntimeFilterMerger;
 
     void set_filter_id(int id);
 
@@ -151,6 +155,14 @@ public:
         default:
             return Status::InternalError("unknown filter type {}", int(filter_type));
         }
+    }
+
+    std::string debug_string() const {
+        return fmt::format(
+                "filter_id: {}, ignored: {}, disabled: {}, build_bf_cardinality: {}, error_msg: "
+                "[{}]",
+                _filter_id, _context->ignored, _context->disabled, get_build_bf_cardinality(),
+                _context->err_msg);
     }
 
 private:

@@ -273,12 +273,13 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, RuntimeFilter* runtime_filter)
+    RuntimeFilterDependency(int id, int node_id, std::string name,
+                            RuntimeFilterConsumer* runtime_filter)
             : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
 private:
-    const RuntimeFilter* _runtime_filter = nullptr;
+    const RuntimeFilterConsumer* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
