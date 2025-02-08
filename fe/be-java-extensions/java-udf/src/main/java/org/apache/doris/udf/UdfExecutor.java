@@ -48,7 +48,6 @@ public class UdfExecutor extends BaseExecutor {
      */
     public UdfExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
-        className = fn.scalar_fn.symbol;
     }
 
     /**
@@ -58,7 +57,6 @@ public class UdfExecutor extends BaseExecutor {
     public void close() {
         // We are now un-usable (because the class loader has been
         // closed), so null out method_ and classLoader_.
-        // method = null;
         if (!isStaticLoad) {
             super.close();
         } else if (outputTable != null) {
@@ -114,6 +112,7 @@ public class UdfExecutor extends BaseExecutor {
     @Override
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
+        className = fn.scalar_fn.symbol;
         super.init(request, jarPath, funcRetType, parameterTypes);
         Method prepareMethod = objCache.allMethods.get(UDF_PREPARE_FUNCTION_NAME);
         if (prepareMethod != null) {

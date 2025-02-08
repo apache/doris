@@ -37,7 +37,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.Array;
-import java.net.MalformedURLException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -57,7 +58,6 @@ public class UdafExecutor extends BaseExecutor {
     private static final String UDAF_MERGE_FUNCTION = "merge";
     private static final String UDAF_RESULT_FUNCTION = "getValue";
 
-    // private HashMap<String, Method> allMethods;
     private HashMap<Long, Object> stateObjMap;
 
     /**
@@ -65,7 +65,6 @@ public class UdafExecutor extends BaseExecutor {
      */
     public UdafExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
-        className = fn.aggregate_fn.symbol;
     }
 
     /**
@@ -266,9 +265,9 @@ public class UdafExecutor extends BaseExecutor {
 
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
+        className = fn.aggregate_fn.symbol;
         super.init(request, jarPath, funcRetType, parameterTypes);
         stateObjMap = new HashMap<>();
-
     }
 
     @Override
