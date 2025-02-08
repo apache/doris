@@ -26,6 +26,7 @@
 #include <vector>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
@@ -404,10 +405,17 @@ public:
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
 
+#include "common/compile_check_avoid_begin.h"
+    //This code uses templates, and errors like the following are likely to occur, mainly due to literal type mismatches:
+    // be/src/vec/common/cow.h:409:39: warning: implicit conversion loses integer precision: 'int' to 'value_type' (aka 'unsigned char') [-Wimplicit-int-conversion]
+    //   409 |         return MutablePtr(new Derived(std::forward<Args>(args)...));
+    //       |                               ~~~~~~~ ^~~~~~~~~~~~~~~~~~~~~~~~
+    // ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     template <typename... Args>
     static MutablePtr create(Args&&... args) {
         return MutablePtr(new Derived(std::forward<Args>(args)...));
     }
+#include "common/compile_check_avoid_end.h"
 
     typename Base::MutablePtr clone() const override {
         return typename Base::MutablePtr(new Derived(static_cast<const Derived&>(*this)));
@@ -433,4 +441,5 @@ protected:
         return MutablePtr(static_cast<Derived*>(Base::shallow_mutate().get()));
     }
 };
+#include "common/compile_check_end.h"
 } // namespace doris

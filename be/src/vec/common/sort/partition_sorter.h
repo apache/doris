@@ -29,6 +29,7 @@
 #include "vec/common/sort/sorter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 class RuntimeProfile;
@@ -68,7 +69,7 @@ public:
         return true;
     }
 
-    int row = 0;
+    size_t row = 0;
     std::shared_ptr<MergeSortCursorImpl> impl = nullptr;
 };
 
@@ -76,11 +77,12 @@ class PartitionSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(PartitionSorter);
 
 public:
-    PartitionSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
-                    std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-                    const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile,
-                    bool has_global_limit, int partition_inner_limit,
-                    TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row);
+    PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
+                    ObjectPool* pool, std::vector<bool>& is_asc_order,
+                    std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+                    RuntimeState* state, RuntimeProfile* profile, bool has_global_limit,
+                    int64_t partition_inner_limit, TopNAlgorithm::type top_n_algorithm,
+                    SortCursorCmp* previous_row);
 
     ~PartitionSorter() override = default;
 
@@ -116,10 +118,11 @@ private:
     const RowDescriptor& _row_desc;
     int64 _output_total_rows = 0;
     int64 _output_distinct_rows = 0;
-    int _partition_inner_limit = 0;
+    int64 _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
     SortCursorCmp* _previous_row = nullptr;
     std::atomic_bool _prepared_finish = false;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
