@@ -2032,8 +2032,9 @@ void PInternalService::multiget_data(google::protobuf::RpcController* controller
 }
 
 void PInternalService::multiget_data_v2(google::protobuf::RpcController* controller,
-                                     const PMultiGetRequestV2* request, PMultiGetResponseV2* response,
-                                     google::protobuf::Closure* done) {
+                                        const PMultiGetRequestV2* request,
+                                        PMultiGetResponseV2* response,
+                                        google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, response, done]() {
         signal::set_signal_task_id(request->query_id());
         // multi get data by rowid

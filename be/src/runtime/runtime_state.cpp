@@ -555,7 +555,7 @@ bool RuntimeState::low_memory_mode() const {
 }
 
 void RuntimeState::set_id_file_map() {
-    _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id);
+    _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
 }
 
 } // end namespace doris

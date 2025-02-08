@@ -85,6 +85,8 @@ struct FileMapping {
 
 class IdFileMap {
 public:
+    IdFileMap(uint64_t expired_timestamp) : delayed_expired_timestamp(expired_timestamp) {}
+
     std::shared_ptr<FileMapping> get_file_mapping(uint32_t id) {
         std::shared_lock lock(_mtx);
         auto it = _id_map.find(id);
@@ -107,11 +109,22 @@ public:
         return _init_id - 1;
     }
 
+    void add_temp_rowset(const RowsetSharedPtr& rowset) {
+        std::unique_lock lock(_mtx);
+        _temp_rowsets.insert(rowset);
+    }
+
+    int64_t get_delayed_expired_timestamp() { return delayed_expired_timestamp; }
+
 private:
     std::shared_mutex _mtx;
     uint32_t _init_id = 0;
     std::unordered_map<std::string_view, uint32_t> _mapping_to_id;
     std::unordered_map<uint32_t, std::shared_ptr<FileMapping>> _id_map;
+
+    // use in Doris Format to keep temp rowsets, preventing them from being deleted by compaction
+    std::set<RowsetSharedPtr> _temp_rowsets;
+    uint64_t delayed_expired_timestamp = 0;
 };
 
 class IdManager {
@@ -125,15 +138,26 @@ public:
         _query_to_id_file_map.clear();
     }
 
-    std::shared_ptr<IdFileMap> add_id_file_map(const UniqueId& query_id) {
+    std::shared_ptr<IdFileMap> add_id_file_map(const UniqueId& query_id, int timeout) {
         std::unique_lock lock(_query_to_id_file_map_mtx);
         auto it = _query_to_id_file_map.find(query_id);
         if (it == _query_to_id_file_map.end()) {
-            auto id_file_map = std::make_shared<IdFileMap>();
+            auto id_file_map = std::make_shared<IdFileMap>(UnixSeconds() + timeout);
             _query_to_id_file_map[query_id] = id_file_map;
             return id_file_map;
         }
         return it->second;
+    }
+
+    void gc_expired_id_file_map(int64_t now) {
+        std::unique_lock lock(_query_to_id_file_map_mtx);
+        for (auto it = _query_to_id_file_map.begin(); it != _query_to_id_file_map.end();) {
+            if (it->second->get_delayed_expired_timestamp() <= now) {
+                it = _query_to_id_file_map.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     void remove_id_file_map(const UniqueId& query_id) {
