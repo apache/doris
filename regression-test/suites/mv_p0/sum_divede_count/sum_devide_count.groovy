@@ -44,6 +44,7 @@ suite ("sum_devide_count") {
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
     sql """analyze table d_table with sync;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     sql """set enable_stats=false;"""
 
 
@@ -60,7 +61,6 @@ suite ("sum_devide_count") {
     qt_select_mv "select sum(k2)/count(k2) from d_table;"
 
     sql """set enable_stats=true;"""
-    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
 
     mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")

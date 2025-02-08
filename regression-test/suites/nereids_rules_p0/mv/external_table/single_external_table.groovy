@@ -88,7 +88,8 @@ suite("single_external_table", "p0,external,hive") {
             from ${hive_catalog_name}.${hive_database}.${hive_table};
             """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(olap_db, mv1_0, query1_0, "mv1_0")
+    // todo after add cost on external table, change to check
+    async_mv_rewrite_success_without_check_chosen(olap_db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -105,7 +106,8 @@ suite("single_external_table", "p0,external,hive") {
             where o_custkey > 2;
             """
     order_qt_query1_1_before "${query1_1}"
-    async_mv_rewrite_success(olap_db, mv1_1, query1_1, "mv1_1")
+    // todo after add cost on external table, change to check
+    async_mv_rewrite_success_without_check_chosen(olap_db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
