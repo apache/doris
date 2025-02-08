@@ -22,7 +22,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "pipeline/common/runtime_filter_consumer.h"
+#include "pipeline/common/runtime_filter_consumer_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -73,9 +73,9 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.is_serial_operator()));
+    RETURN_IF_ERROR(RuntimeFilterConsumerOperator::init(state, p.is_serial_operator()));
     // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
+    RuntimeFilterConsumerOperator::_init_profile(profile());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
                                    p.get_name() + "_FILTER_DEPENDENCY");
 

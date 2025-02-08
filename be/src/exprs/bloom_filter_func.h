@@ -20,9 +20,10 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
-#include "exprs/runtime_filter.h"
+#include "exprs/runtime_filter/runtime_filter_definitions.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -129,6 +130,7 @@ public:
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _null_aware = params->null_aware;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
+        _enable_fixed_len_to_uint32_v2 = params->enable_fixed_len_to_uint32_v2;
         _limit_length();
     }
 
@@ -234,8 +236,6 @@ public:
 
     void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
-    void set_enable_fixed_len_to_uint32_v2() { _enable_fixed_len_to_uint32_v2 = true; }
-
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 
     void light_copy(BloomFilterFuncBase* bloomfilter_func) {
@@ -243,7 +243,7 @@ public:
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
-        _enable_fixed_len_to_uint32_v2 |= other_func->_enable_fixed_len_to_uint32_v2;
+        _enable_fixed_len_to_uint32_v2 = other_func->_enable_fixed_len_to_uint32_v2;
         set_filter_id(bloomfilter_func->get_filter_id());
     }
 
