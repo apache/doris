@@ -19,18 +19,18 @@
 
 #include <utility>
 
-#include "exprs/runtime_filter/runtime_filter.h"
 #include "pipeline/dependency.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris::pipeline {
 
-class RuntimeFilterConsumer {
+class RuntimeFilterConsumerOperator {
 public:
-    RuntimeFilterConsumer(const int32_t filter_id,
-                          const std::vector<TRuntimeFilterDesc>& runtime_filters,
-                          const RowDescriptor& row_descriptor,
-                          vectorized::VExprContextSPtrs& conjuncts);
-    ~RuntimeFilterConsumer() = default;
+    RuntimeFilterConsumerOperator(const int32_t filter_id,
+                                  const std::vector<TRuntimeFilterDesc>& runtime_filters,
+                                  const RowDescriptor& row_descriptor,
+                                  vectorized::VExprContextSPtrs& conjuncts);
+    ~RuntimeFilterConsumerOperator() = default;
 
     Status init(RuntimeState* state, bool need_local_merge = false);
 
@@ -57,10 +57,11 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext(std::shared_ptr<RuntimeFilter> rf) : runtime_filter(std::move(rf)) {}
+        RuntimeFilterContext(std::shared_ptr<RuntimeFilterConsumer> rf)
+                : runtime_filter(std::move(rf)) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark = false;
-        std::shared_ptr<RuntimeFilter> runtime_filter;
+        std::shared_ptr<RuntimeFilterConsumer> runtime_filter;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;

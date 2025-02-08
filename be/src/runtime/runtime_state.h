@@ -70,6 +70,8 @@ class ExecEnv;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
+class RuntimeFilterConsumer;
+class RuntimeFilterProducer;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -545,12 +547,13 @@ public:
         return _task_execution_context;
     }
 
-    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<RuntimeFilter>* producer_filter);
+    Status register_producer_runtime_filter(
+            const doris::TRuntimeFilterDesc& desc,
+            std::shared_ptr<RuntimeFilterProducer>* producer_filter);
 
-    Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge, int node_id,
-                                            std::shared_ptr<RuntimeFilter>* producer_filter);
+    Status register_consumer_runtime_filter(
+            const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
+            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
     bool is_nereids() const;
 
     bool enable_join_spill() const {

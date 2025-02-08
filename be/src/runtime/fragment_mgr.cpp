@@ -19,7 +19,7 @@
 
 #include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
-#include <exprs/runtime_filter/runtime_filter.h>
+#include <exprs/runtime_filter/runtime_filter_consumer.h>
 #include <fmt/format.h>
 #include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/FrontendService.h>
@@ -1315,8 +1315,8 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
     SCOPED_ATTACH_TASK(pip_context->get_query_ctx());
     // 1. get the target filters
-    std::vector<std::shared_ptr<RuntimeFilter>> filters;
-    RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
+            runtime_filter_mgr->get_consume_filters(request->filter_id());
 
     // 2. create the filter wrapper to replace or ignore the target filters
     if (!filters.empty()) {

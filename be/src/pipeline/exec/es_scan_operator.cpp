@@ -79,11 +79,11 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
         }
         properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range->shard_id);
         properties[ESScanReader::KEY_BATCH_SIZE] =
-                std::to_string(RuntimeFilterConsumer::_state->batch_size());
+                std::to_string(RuntimeFilterConsumerOperator::_state->batch_size());
         properties[ESScanReader::KEY_HOST_PORT] = get_host_and_port(es_scan_range->es_hosts);
         // push down limit to Elasticsearch
         // if predicate in _conjuncts can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
-        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumer::_state->batch_size() &&
+        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumerOperator::_state->batch_size() &&
             p.conjuncts().empty()) {
             properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(p.limit());
         }
@@ -93,11 +93,11 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
                 properties, p._column_names, p._docvalue_context, &doc_value_mode);
 
         std::shared_ptr<vectorized::NewEsScanner> scanner = vectorized::NewEsScanner::create_shared(
-                RuntimeFilterConsumer::_state, this, p._limit, p._tuple_id, properties,
+                RuntimeFilterConsumerOperator::_state, this, p._limit, p._tuple_id, properties,
                 p._docvalue_context, doc_value_mode,
-                RuntimeFilterConsumer::_state->runtime_profile());
+                RuntimeFilterConsumerOperator::_state->runtime_profile());
 
-        RETURN_IF_ERROR(scanner->prepare(RuntimeFilterConsumer::_state, Base::_conjuncts));
+        RETURN_IF_ERROR(scanner->prepare(RuntimeFilterConsumerOperator::_state, Base::_conjuncts));
         scanners->push_back(scanner);
     }
 

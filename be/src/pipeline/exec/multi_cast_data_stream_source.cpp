@@ -28,13 +28,13 @@ namespace doris::pipeline {
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                parent->runtime_filter_descs(),
-                                static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
+          RuntimeFilterConsumerOperator(static_cast<Parent*>(parent)->dest_id_from_sink(),
+                                        parent->runtime_filter_descs(),
+                                        static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
+    RETURN_IF_ERROR(RuntimeFilterConsumerOperator::init(state));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
@@ -44,7 +44,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
     _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
     // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
+    RuntimeFilterConsumerOperator::_init_profile(profile());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
                                    p.get_name() + "_FILTER_DEPENDENCY");
     return Status::OK();
