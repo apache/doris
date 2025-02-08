@@ -22,7 +22,6 @@ import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
-import org.apache.doris.nereids.properties.FuncDeps.FuncDepsItem;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -37,9 +36,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -118,59 +117,53 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     }
 
     private static List<OrderKey> eliminate(DataTrait dataTrait, List<OrderKey> inputOrderKeys) {
-        Map<Expression, Integer> slotToIndex = new HashMap<>();
         Set<Slot> validSlots = new HashSet<>();
-        List<Boolean> retainOrderKey = new ArrayList<>(inputOrderKeys.size());
-        for (int i = 0; i < inputOrderKeys.size(); ++i) {
-            Expression expr = inputOrderKeys.get(i).getExpr();
+        for (OrderKey inputOrderKey : inputOrderKeys) {
+            Expression expr = inputOrderKey.getExpr();
             validSlots.addAll(ImmutableList.of((Slot) expr));
-            slotToIndex.put(expr, i);
-            retainOrderKey.add(true);
         }
         FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
+        Map<Set<Slot>, Set<Set<Slot>>> redges = funcDeps.getREdges();
 
-        for (FuncDepsItem funcDep : funcDeps.getItems()) {
-            Set<Slot> determinants = funcDep.determinants;
-            Set<Slot> dependencies = funcDep.dependencies;
-            if (!canEliminateSortKey(determinants, dependencies, slotToIndex)) {
-                continue;
-            }
-            for (Slot slot : dependencies) {
-                retainOrderKey.set(slotToIndex.get(slot), false);
-            }
-        }
         List<OrderKey> retainExpression = new ArrayList<>();
         Set<Expression> orderExpressionSet = new HashSet<>();
+        Set<Expression> orderExprWithEqualSet = new HashSet<>();
         for (int i = 0; i < inputOrderKeys.size(); ++i) {
             Expression expr = inputOrderKeys.get(i).getExpr();
+            if (!(expr instanceof Slot)) {
+                return inputOrderKeys;
+            }
             // eliminate by duplicate
             if (orderExpressionSet.contains(expr)) {
                 continue;
             }
-            orderExpressionSet.add(expr);
-            // eliminate by function dependency
-            if (!retainOrderKey.get(i)) {
+            // eliminate by uniform
+            if (dataTrait.isUniformAndNotNull((Slot) expr)) {
+                orderExpressionSet.add(expr);
+                orderExprWithEqualSet.add(expr);
+                orderExprWithEqualSet.addAll(dataTrait.calEqualSet((Slot) expr));
                 continue;
             }
-            // eliminate by uniform
-            if (expr instanceof Slot && dataTrait.isUniformAndNotNull((Slot) expr)) {
+            // eliminate by fd
+            Set<Slot> set = ImmutableSet.of((Slot) expr);
+            boolean shouldRetain = true;
+            if (redges.containsKey(set)) {
+                Set<Set<Slot>> dominants = redges.get(set);
+                for (Set<Slot> dominant : dominants) {
+                    if (orderExprWithEqualSet.containsAll(dominant)) {
+                        shouldRetain = false;
+                        break;
+                    }
+                }
+            }
+            if (!shouldRetain) {
                 continue;
             }
             retainExpression.add(inputOrderKeys.get(i));
+            orderExpressionSet.add(expr);
+            orderExprWithEqualSet.add(expr);
+            orderExprWithEqualSet.addAll(dataTrait.calEqualSet((Slot) expr));
         }
         return retainExpression;
-    }
-
-    private static boolean canEliminateSortKey(Set<Slot> determinants, Set<Slot> dependencies,
-            Map<Expression, Integer> slotToIndex) {
-        int max = -1;
-        for (Slot slot : determinants) {
-            max = slotToIndex.get(slot) > max ? slotToIndex.get(slot) : max;
-        }
-        int min = Integer.MAX_VALUE;
-        for (Slot slot : dependencies) {
-            min = slotToIndex.get(slot) < min ? slotToIndex.get(slot) : min;
-        }
-        return max < min;
     }
 }
