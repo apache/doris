@@ -21,7 +21,7 @@ suite("eliminate_order_by_key") {
     sql """create table eliminate_order_by_constant_t(a int null, b int not null, c varchar(10) null, d date, dt datetime, id int)
     distributed by hash(a) properties("replication_num"="1");
     """
-    sql "set disable_nereids_rules='eliminate_order_by_key'"
+//    sql "set disable_nereids_rules='eliminate_order_by_key'"
     sql """
     INSERT INTO eliminate_order_by_constant_t (a, b, c, d, dt,id) VALUES
     (1, 100, 'apple', '2023-01-01', '2023-01-01 10:00:00',1),
@@ -40,7 +40,7 @@ suite("eliminate_order_by_key") {
     qt_predicate_order_by_two "select 1 as c1,a from eliminate_order_by_constant_t where a=1 order by a,c1"
     qt_with_group_by """select 1 as c1,a from eliminate_order_by_constant_t where a=1 group by c1,a order by a"""
     qt_predicate_multi_other """select 1 as c1,a,b,c from eliminate_order_by_constant_t where a=1 order by a,'abc',b,c"""
-//    qt_with_group_by_shape """explain shape plan select 1 as c1,a from eliminate_order_by_constant_t where a=1 group by c1,a order by a"""
+    qt_with_group_by_shape """explain shape plan select 1 as c1,a from eliminate_order_by_constant_t where a=1 group by c1,a order by a"""
 
     // fd
     qt_fd "select a,b,c,d,dt from eliminate_order_by_constant_t order by a,abs(a),a+1,id"
