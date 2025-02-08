@@ -94,12 +94,6 @@ public class RuntimeProfile {
     private Boolean isDone = false;
     @SerializedName(value = "isCancel")
     private Boolean isCancel = false;
-    // In pipelineX, we have explicitly split the Operator into sink and operator,
-    // and we can distinguish them using tags.
-    // In the old pipeline, we can only differentiate them based on their position
-    // in the profile, which is quite tricky and only transitional.
-    @SerializedName(value = "isSinkOperator")
-    private Boolean isSinkOperator = false;
     @SerializedName(value = "nodeid")
     private int nodeid = -1;
 
@@ -170,10 +164,6 @@ public class RuntimeProfile {
 
     public int nodeId() {
         return this.nodeid;
-    }
-
-    public Boolean sinkOperator() {
-        return this.isSinkOperator;
     }
 
     public Map<String, Counter> getCounterMap() {
@@ -265,9 +255,7 @@ public class RuntimeProfile {
         if (node.isSetMetadata()) {
             this.nodeid = (int) node.getMetadata();
         }
-        if (node.isSetIsSink()) {
-            this.isSinkOperator = node.is_sink;
-        }
+
         Preconditions.checkState(timestamp == -1 || node.timestamp != -1);
         // update this level's counters
         if (node.counters != null) {
@@ -497,6 +485,7 @@ public class RuntimeProfile {
         RuntimeProfile templateProfile = profiles.get(0);
         for (int i = 0; i < templateProfile.childList.size(); i++) {
             RuntimeProfile templateChildProfile = templateProfile.childList.get(i).first;
+            // Traverse all profiles and get the child profile with the same name
             List<RuntimeProfile> allChilds = getChildListFromLists(templateChildProfile.name, profiles);
             RuntimeProfile newCreatedMergedChildProfile = new RuntimeProfile(templateChildProfile.name,
                     templateChildProfile.nodeId());
