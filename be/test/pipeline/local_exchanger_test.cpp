@@ -124,11 +124,15 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit =
+            (num_partitions - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue 2 blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_partitions; i++) {
             hash_vals_and_value.push_back({std::vector<uint32_t> {}, i});
-            for (size_t j = 0; j < 2; j++) {
+            for (size_t j = 0; j < num_blocks; j++) {
                 vectorized::Block in_block;
                 vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
                 auto int_col0 = vectorized::ColumnInt32::create();
@@ -142,6 +146,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                                                  PrimitiveType::TYPE_INT,
                                                  cast_set<uint32_t>(int_col0->size()), 0, nullptr);
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
+                EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
                 bool in_eos = false;
                 auto texpr =
                         TExprNodeBuilder(
@@ -170,6 +175,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                                    _sink_local_states[i]->_partitioner.get(),
                                    _sink_local_states[i].get(), &shuffle_idx_to_instance_idx}),
                           Status::OK());
+                EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), i < num_partitions - 1);
                 EXPECT_EQ(_sink_local_states[i]->_channel_id, i);
             }
         }

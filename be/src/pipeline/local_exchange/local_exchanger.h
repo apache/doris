@@ -213,13 +213,16 @@ class LocalExchangeSinkLocalState;
  */
 struct BlockWrapper {
     ENABLE_FACTORY_CREATOR(BlockWrapper);
-    BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
-    ~BlockWrapper() { DCHECK_EQ(ref_count.load(), 0); }
-    void ref(int delta) { ref_count += delta; }
-    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes, int channel_id) {
-        if (ref_count.fetch_sub(1) == 1 && shared_state != nullptr) {
+    BlockWrapper(vectorized::Block&& data_block_, LocalExchangeSharedState* shared_state_)
+            : data_block(std::move(data_block_)),
+              shared_state(shared_state_),
+              allocated_bytes(data_block.allocated_bytes()) {}
+    ~BlockWrapper() {
+        if (shared_state != nullptr) {
             DCHECK_GT(allocated_bytes, 0);
-            shared_state->sub_total_mem_usage(allocated_bytes, channel_id);
+            std::for_each(channel_ids.begin(), channel_ids.end(), [&](int& channel_id) {
+                shared_state->sub_total_mem_usage(allocated_bytes, channel_id);
+            });
             if (shared_state->exchanger->_free_block_limit == 0 ||
                 shared_state->exchanger->_free_blocks.size_approx() <
                         shared_state->exchanger->_free_block_limit *
@@ -229,15 +232,18 @@ struct BlockWrapper {
                 // free block will not incur any bad result so just ignore the return value.
                 shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
             }
+        };
+    }
+    void record_channel_id(int channel_id, bool update_total_mem_usage) {
+        channel_ids.push_back(channel_id);
+        if (shared_state) {
+            shared_state->add_mem_usage(channel_id, allocated_bytes, update_total_mem_usage);
         }
     }
-
-    void unref(LocalExchangeSharedState* shared_state = nullptr, int channel_id = 0) {
-        unref(shared_state, data_block.allocated_bytes(), channel_id);
-    }
-    int ref_value() const { return ref_count.load(); }
-    std::atomic<int> ref_count = 0;
     vectorized::Block data_block;
+    LocalExchangeSharedState* shared_state;
+    std::vector<int> channel_ids;
+    const size_t allocated_bytes;
 };
 
 class ShuffleExchanger : public Exchanger<PartitionedBlock> {
