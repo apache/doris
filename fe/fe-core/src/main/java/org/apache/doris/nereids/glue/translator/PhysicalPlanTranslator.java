@@ -1820,9 +1820,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode child = inputFragment.getPlanRoot();
 
         if (physicalLimit.getPhase().isLocal()) {
-            child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
-                    child.getLimit()));
-            if (child instanceof AggregationNode && physicalLimit.child() instanceof PhysicalHashAggregate) {
+            long newLimit = MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
+                    child.getLimit());
+            child.setLimit(newLimit);
+            if (newLimit != -1
+                    && child instanceof AggregationNode && physicalLimit.child() instanceof PhysicalHashAggregate) {
                 PhysicalHashAggregate<? extends Plan> agg
                         = (PhysicalHashAggregate<? extends Plan>) physicalLimit.child();
                 if (agg.isDistinct()) {
@@ -1831,7 +1833,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             && ((Aggregate) agg.child(0).child(0)).isDistinct()
                             && child.getChild(0) instanceof ExchangeNode
                             && child.getChild(0).getChild(0) instanceof AggregationNode) {
-                        child.getChild(0).getChild(0).setLimit(child.getLimit());
+                        child.getChild(0).getChild(0).setLimit(newLimit);
                     }
                 }
             }
