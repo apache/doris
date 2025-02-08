@@ -324,9 +324,31 @@ Status UserFunctionCache::_download_lib(const std::string& url,
 
 std::string UserFunctionCache::_get_real_url(const std::string& url) {
     if (url.find(":/") == std::string::npos) {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
+        return _check_and_return_default_driver_url(url);
     }
     return url;
+}
+
+std::string UserFunctionCache::_check_and_return_default_driver_url(const std::string& url) {
+    const char* doris_home = std::getenv("DORIS_HOME");
+
+    std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
+    std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
+
+    if (config::jdbc_drivers_dir == default_url) {
+        // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
+        // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
+        // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
+        // so we need to check the old default dir for compatibility.
+        std::filesystem::path file = default_url + "/" + url;
+        if (std::filesystem::exists(file)) {
+            return "file://" + default_url + "/" + url;
+        } else {
+            return "file://" + default_old_url + "/" + url;
+        }
+    } else {
+        return "file://" + config::jdbc_drivers_dir + "/" + url;
+    }
 }
 
 std::string UserFunctionCache::_get_file_name_from_url(const std::string& url) const {
