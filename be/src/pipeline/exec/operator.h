@@ -795,6 +795,11 @@ public:
     StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+
+#ifdef BE_TEST
+    StreamingOperatorX() = default;
+#endif
+
     virtual ~StreamingOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
