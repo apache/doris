@@ -930,7 +930,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            //AbstractJob.read(in);
             AbstractJob job = AbstractJob.read(in);
             addBackupOrRestoreJob(job.getDbId(), job);
         }

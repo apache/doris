@@ -69,6 +69,9 @@
 //
 // 0x01 "storage_vault" ${instance_id} "vault" ${resource_id}                              -> StorageVaultPB
 //
+// 0x01 "snapshot" ${instance_id} "tablet" ${tablet_id}                                   -> SnapshotPB
+// 0x01 "snapshot" ${instance_id} "rowset" ${tablet_id} ${version}                        -> RowsetMetaCloudPB
+//
 // 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
 // 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
 // 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
@@ -191,6 +194,11 @@ using TableVersionKeyInfo = BasicKeyInfo<27, std::tuple<std::string, int64_t, in
 //                                                      0:instance_id  1:index_id
 using MetaSchemaPBDictionaryInfo = BasicKeyInfo<28 , std::tuple<std::string,  int64_t>>;
 
+//                                                      0:instance_id  1:tablet_id
+using SnapshotTabletKeyInfo = BasicKeyInfo<29, std::tuple<std::string, int64_t>>;
+//                                                      0:instance_id  1:tablet_id  2:version
+using SnapshotRowsetKeyInfo = BasicKeyInfo<30, std::tuple<std::string, int64_t,     int64_t>>;
+
 
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
@@ -260,6 +268,11 @@ static inline std::string stats_tablet_num_rowsets_key(const StatsTabletKeyInfo&
 static inline std::string stats_tablet_num_segs_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_segs_key(in, &s); return s; }
 static inline std::string stats_tablet_index_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_index_size_key(in, &s); return s; }
 static inline std::string stats_tablet_segment_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_segment_size_key(in, &s); return s; }
+
+void snapshot_tablet_key(const SnapshotTabletKeyInfo& in, std::string* out);
+static inline std::string snapshot_tablet_key(const SnapshotTabletKeyInfo& in) { std::string s; snapshot_tablet_key(in, &s); return s; }
+void snapshot_rowset_key(const SnapshotRowsetKeyInfo& in, std::string* out);
+static inline std::string snapshot_rowset_key(const SnapshotRowsetKeyInfo& in) { std::string s; snapshot_rowset_key(in, &s); return s; }
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);

@@ -468,6 +468,20 @@ message RecycleStagePB {
     optional StagePB stage = 3;
 }
 
+message SnapshotPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+    }
+    optional int64 tablet_id = 1;
+    optional int64 creation_time = 2;
+    optional int64 expiration = 3; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 4;
+    optional bool is_restore = 5;
+    optional State state = 6;
+}
+
 message JobRecyclePB {
     enum Status {
         IDLE = 0;
@@ -1023,6 +1037,18 @@ message PartitionResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message SnapshotRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    optional doris.TabletMetaCloudPB tablet_meta = 3;
+    optional bool is_restore = 4;
+    optional int64 expiration = 5;
+}
+
+message SnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message MetaServiceResponseStatus {
     optional MetaServiceCode code = 1;
     optional string msg = 2;
@@ -1549,6 +1575,10 @@ service MetaService {
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
     rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
+
+    rpc make_snapshot(SnapshotRequest) returns (SnapshotResponse);
+    rpc commit_snapshot(SnapshotRequest) returns (SnapshotResponse);
+    rpc release_snapshot(SnapshotRequest) returns (SnapshotResponse);
 
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);

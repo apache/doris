@@ -1471,16 +1471,8 @@ void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
 
     LOG(INFO) << "get move dir task. signature=" << req.signature
               << ", job_id=" << move_dir_req.job_id;
-    Status status;
-    auto res = engine.tablet_mgr().get_tablet(move_dir_req.tablet_id);
-    if (!res.has_value()) {
-        status = Status::InvalidArgument("Could not find tablet");
-    } else {
-        std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
-                engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
-        status = loader->commit(std::move(res.value()));
-    }
 
+    Status status = engine.cloud_snapshot_mgr().commit_snapshot(move_dir_req.tablet_id);
     if (!status.ok()) {
         LOG_WARNING("failed to move dir")
                 .tag("signature", req.signature)

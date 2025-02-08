@@ -33,6 +33,7 @@ static const char* STATS_KEY_PREFIX    = "stats";
 static const char* JOB_KEY_PREFIX      = "job";
 static const char* COPY_KEY_PREFIX     = "copy";
 static const char* VAULT_KEY_PREFIX    = "storage_vault";
+static const char* SNAPSHOT_KEY_PREFIX = "snapshot";
 
 // Infix
 static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
@@ -113,7 +114,7 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo, TableVersionKeyInfo,
+        StatsTabletKeyInfo, TableVersionKeyInfo, SnapshotTabletKeyInfo, SnapshotRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo>);
 
@@ -156,6 +157,9 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(COPY_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
+    } else if constexpr (std::is_same_v<T, SnapshotTabletKeyInfo>
+                      || std::is_same_v<T, SnapshotRowsetKeyInfo>) {
+        encode_bytes(SNAPSHOT_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -457,6 +461,23 @@ void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
     encode_prefix(in, out);
     encode_bytes(VAULT_KEY_INFIX, out);
     encode_bytes(std::get<1>(in), out);
+}
+
+//==============================================================================
+// Snapshot keys
+//==============================================================================
+
+void snapshot_tablet_key(const SnapshotTabletKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                        // 0x01 "snapshot" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TABLET, out);      // "tablet"
+    encode_int64(std::get<1>(in), out);            // tablet_id
+}
+
+void snapshot_rowset_key(const SnapshotRowsetKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                        // 0x01 "snapshot" ${instance_id}
+    encode_bytes(META_KEY_INFIX_ROWSET, out);      // "rowset"
+    encode_int64(std::get<1>(in), out);            // tablet_id
+    encode_int64(std::get<2>(in), out);            // version
 }
 
 //==============================================================================

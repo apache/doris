@@ -44,8 +44,6 @@ public:
     Status download(const std::map<std::string, std::string>& src_to_dest_path,
                     std::vector<int64_t>* downloaded_tablet_ids) override;
 
-    Status commit(const CloudTabletSPtr& tablet);
-
 protected:
     std::optional<StorageResource> _storage_resource;
 

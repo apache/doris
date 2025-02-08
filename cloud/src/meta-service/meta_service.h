@@ -170,6 +170,18 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void make_snapshot(::google::protobuf::RpcController* controller,
+                       const SnapshotRequest* request, SnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
+    void commit_snapshot(::google::protobuf::RpcController* controller,
+                         const SnapshotRequest* request, SnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override;
+
+    void release_snapshot(::google::protobuf::RpcController* controller,
+                          const SnapshotRequest* request, SnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
     void get_tablet_stats(::google::protobuf::RpcController* controller,
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
                           ::google::protobuf::Closure* done) override;
@@ -491,6 +503,24 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_partition, controller, request, response, done);
+    }
+
+    void make_snapshot(::google::protobuf::RpcController* controller,
+                       const SnapshotRequest* request, SnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::make_snapshot, controller, request, response, done);
+    }
+
+    void commit_snapshot(::google::protobuf::RpcController* controller,
+                         const SnapshotRequest* request, SnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_snapshot, controller, request, response, done);
+    }
+
+    void release_snapshot(::google::protobuf::RpcController* controller,
+                          const SnapshotRequest* request, SnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::release_snapshot, controller, request, response, done);
     }
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,

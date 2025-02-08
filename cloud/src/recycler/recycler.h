@@ -193,6 +193,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
+    // scan and recycle expired snapshots
+    // returns 0 for success otherwise error
+    int recycle_snapshots();
+
     bool check_recycle_tasks();
 
 private:

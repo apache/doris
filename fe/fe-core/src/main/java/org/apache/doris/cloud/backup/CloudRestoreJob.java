@@ -523,7 +523,8 @@ public class CloudRestoreJob extends RestoreJob {
         // 1. for restoring tables for remote tables
         for (Table table : restoredTbls) {
             if (table.getType() == TableIf.TableType.OLAP) {
-                handleOlapTableMeta(operation, (OlapTable) table, null, true);
+                OlapTable olapTable = (OlapTable) table;
+                handleOlapTableMeta(operation, olapTable, olapTable.getAllPartitions());
             }
         }
         // 2. for restoring partitions for local tables
@@ -535,65 +536,40 @@ public class CloudRestoreJob extends RestoreJob {
         }
         for (Map.Entry<String, Collection<Partition>> entry : localTableToPartitions.entrySet()) {
             OlapTable localTbl = (OlapTable) db.getTableOrDdlException(entry.getKey());
-            handleOlapTableMeta(operation, localTbl, entry.getValue(), false);
+            handleOlapTableMeta(operation, localTbl, entry.getValue());
         }
     }
 
     private void handleOlapTableMeta(MetaSeriviceOperation operation, OlapTable olapTable,
-                                     Collection<Partition> partitions, boolean isNewTable)
-                throws DdlException {
+                                     Collection<Partition> partitions) throws DdlException {
+        List<Long> partitionIds = new ArrayList<>();
         switch (operation) {
-            case PREPARE:
-                if (isNewTable) {
-                    prepareIndexes(olapTable);
-                } else {
-                    List<Long> visibleVersions = new ArrayList<>();
-                    List<Long> partitionIds = new ArrayList<>();
-                    partitions.forEach(partition -> {
-                        visibleVersions.add(partition.getVisibleVersion());
-                        partitionIds.add(partition.getId());
-                    });
-                    preparePartitions(olapTable, partitionIds, visibleVersions);
-                }
+            case PREPARE: {
+                List<Long> visibleVersions = new ArrayList<>();
+                partitions.forEach(partition -> {
+                    visibleVersions.add(partition.getVisibleVersion(true));
+                    partitionIds.add(partition.getId());
+                });
+                preparePartitions(olapTable, partitionIds, visibleVersions);
                 break;
-            case COMMIT:
-                if (isNewTable) {
-                    commitIndexes(olapTable);
-                } else {
-                    List<Long> partitionIds = new ArrayList<>();
-                    partitions.forEach(partition -> {
-                        partitionIds.add(partition.getId());
-                    });
-                    commitPartitions(olapTable, partitionIds);
-                }
+            }
+            case COMMIT: {
+                partitions.forEach(partition -> {
+                    partitionIds.add(partition.getId());
+                });
+                commitPartitions(olapTable, partitionIds);
                 break;
-            case DROP:
-                if (isNewTable) {
-                    dropIndexes(olapTable);
-                } else {
-                    List<Long> partitionIds = new ArrayList<>();
-                    partitions.forEach(partition -> {
-                        partitionIds.add(partition.getId());
-                    });
-                    dropPartitions(olapTable, partitionIds);
-                }
+            }
+            case DROP: {
+                partitions.forEach(partition -> {
+                    partitionIds.add(partition.getId());
+                });
+                dropPartitions(olapTable, partitionIds);
                 break;
+            }
             default:
                 throw new IllegalArgumentException("Unsupported operation: " + operation);
         }
-    }
-
-    private void prepareIndexes(OlapTable olapTable) throws DdlException {
-        try {
-            ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).prepareMaterializedIndex(
-                    olapTable.getId(), olapTable.getIndexIdList(), 0);
-        } catch (Exception e) {
-            String errMsg = String.format("cloud restore job failed to prepare table. table=%s, "
-                    + "indexes=%s, errMsg=%s", olapTable.getName(), olapTable.getIndexIdList(), e.getMessage());
-            throw new DdlException(errMsg);
-        }
-        LOG.info("cloud restore job prepare table, dbId: {}, tableName: {}, indexes: {},"
-                + " vault name: {}", dbId, olapTable.getName(), olapTable.getIndexIdList(), storageVaultName);
     }
 
     private void preparePartitions(OlapTable olapTable, List<Long> partitionIds, List<Long> visibleVersions)
@@ -612,19 +588,6 @@ public class CloudRestoreJob extends RestoreJob {
                 + " vault name: {}", dbId, olapTable.getName(), partitionIds, storageVaultName);
     }
 
-    private void commitIndexes(OlapTable olapTable) throws DdlException {
-        try {
-            ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).commitMaterializedIndex(
-                    dbId, olapTable.getId(), olapTable.getIndexIdList(), true);
-        } catch (Exception e) {
-            String errMsg = String.format("cloud restore job failed to commit table. table=%s, "
-                    + "indexes=%s, errMsg=%s", olapTable.getName(), olapTable.getIndexIdList(), e.getMessage());
-            throw new DdlException(errMsg);
-        }
-        LOG.info("cloud restore job commit table, dbId: {}, tableName: {}, indexes: {},"
-                + " vault name: {}", dbId, olapTable.getName(), olapTable.getIndexIdList(), storageVaultName);
-    }
-
     private void commitPartitions(OlapTable olapTable, List<Long> partitionIds) throws DdlException {
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).commitPartition(
@@ -636,19 +599,6 @@ public class CloudRestoreJob extends RestoreJob {
         }
         LOG.info("cloud restore job commit partitions, dbId: {}, tableName: {}, partitions: {},"
                 + " vault name: {}", dbId, olapTable.getName(), partitionIds, storageVaultName);
-    }
-
-    private void dropIndexes(OlapTable olapTable) throws DdlException {
-        try {
-            ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).dropMaterializedIndex(
-                    olapTable.getId(), olapTable.getIndexIdList(), true);
-        } catch (Exception e) {
-            String errMsg = String.format("cloud restore job failed to drop table. table=%s, "
-                    + "indexes=%s, errMsg=%s", olapTable.getName(), olapTable.getIndexIdList(), e.getMessage());
-            throw new DdlException(errMsg);
-        }
-        LOG.info("cloud restore job drop table, dbId: {}, tableName: {}, indexes: {},"
-                + " vault name: {}", dbId, olapTable.getName(), olapTable.getIndexIdList(), storageVaultName);
     }
 
     private void dropPartitions(OlapTable olapTable, List<Long> partitionIds) throws DdlException {

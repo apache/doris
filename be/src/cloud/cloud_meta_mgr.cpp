@@ -342,6 +342,8 @@ static std::string debug_info(const Request& req) {
                            req.tablet_id(), req.lock_id());
     } else if constexpr (is_any_v<Request, GetDeleteBitmapRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, SnapshotRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -985,6 +987,41 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
+}
+
+Status CloudMetaMgr::make_snapshot(const TabletMetaPB& tablet_meta, bool is_restore) {
+    VLOG_DEBUG << "make snapshot, tablet_id: " << tablet_meta.tablet_id()
+               << ", is_restore: " << is_restore;
+    SnapshotRequest req;
+    SnapshotResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_meta.tablet_id());
+    req.set_is_restore(is_restore);
+    req.set_expiration(config::snapshot_expire_time_sec);
+
+    doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
+    return retry_rpc("make snapshot", req, &resp, &MetaService_Stub::make_snapshot);
+}
+
+Status CloudMetaMgr::commit_snapshot(const int64_t tablet_id) {
+    VLOG_DEBUG << "commit snapshot, tablet_id: " << tablet_id;
+    SnapshotRequest req;
+    SnapshotResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+    req.set_is_restore(true);
+
+    return retry_rpc("commit snapshot", req, &resp, &MetaService_Stub::commit_snapshot);
+}
+
+Status CloudMetaMgr::release_snapshot(const int64_t tablet_id) {
+    VLOG_DEBUG << "release snapshot, tablet_id: " << tablet_id;
+    SnapshotRequest req;
+    SnapshotResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+
+    return retry_rpc("release snapshot", req, &resp, &MetaService_Stub::release_snapshot);
 }
 
 Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {

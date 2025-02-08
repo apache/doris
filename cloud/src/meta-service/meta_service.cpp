@@ -80,6 +80,10 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
 
 MetaServiceImpl::~MetaServiceImpl() = default;
 
+void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
+                         std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                         std::string& msg);
+
 // FIXME(gavin): should it be a member function of ResourceManager?
 std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                             const std::string& cloud_unique_id) {
@@ -936,6 +940,622 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
             msg = fmt::format("malformed schema value, key={}", schema_key);
             return;
         }
+    }
+}
+
+void scan_snapshot_rowset(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
+                          MetaServiceCode& code, std::string& msg,
+                          std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas) {
+    std::stringstream ss;
+
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    SnapshotRowsetKeyInfo rs_key_info0 {instance_id, tablet_idx.tablet_id(), 0};
+    SnapshotRowsetKeyInfo rs_key_info1 {instance_id, tablet_idx.tablet_id() + 1, 0};
+    std::string snapshot_rs_key0;
+    std::string snapshot_rs_key1;
+    snapshot_rowset_key(rs_key_info0, &snapshot_rs_key0);
+    snapshot_rowset_key(rs_key_info1, &snapshot_rs_key1);
+
+    int num_rowsets = 0;
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
+            (int*)0x01, [snapshot_rs_key0, snapshot_rs_key1, &num_rowsets](int*) {
+                LOG(INFO) << "get snapshot rs meta, num_rowsets=" << num_rowsets << " range=["
+                          << hex(snapshot_rs_key0) << "," << hex(snapshot_rs_key1) << "]";
+            });
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        TxnErrorCode err = txn->get(snapshot_rs_key0, snapshot_rs_key1, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get snapshot rs meta while committing,"
+               << " tablet_id=" << tablet_idx.tablet_id()
+               << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            LOG(INFO) << "range_get snapshot_rs_key=" << hex(k) << " tablet_id=" << tablet_idx.tablet_id();
+            snapshot_rs_metas->emplace_back();
+            if (!snapshot_rs_metas->back().second.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "malformed snapshot rowset meta, tablet_id=" << tablet_idx.tablet_id()
+                   << " key=" << hex(k);
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            snapshot_rs_metas->back().first = std::string(k.data(), k.size());
+            ++num_rowsets;
+            if (!it->has_next()) snapshot_rs_key0 = k;
+        }
+        snapshot_rs_key0.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+    return;
+}
+
+void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controller,
+                                    const SnapshotRequest* request,
+                                    SnapshotResponse* response,
+                                    ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(make_snapshot);
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet_id";
+        return;
+    }
+
+    bool is_restore = request->has_is_restore() && request->is_restore();
+    if (is_restore) {
+        if (!request->has_tablet_meta() || !request->tablet_meta().rs_metas_size()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = !request->has_tablet_meta() ? "no tablet meta" : "no rowset meta";
+            return;
+        }
+        if (!request->tablet_meta().has_schema() && !request->tablet_meta().has_schema_version()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "tablet_meta must have either schema or schema_version";
+            return;
+        }
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(make_snapshot)
+
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    // validate request
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    auto key = snapshot_tablet_key({instance_id, tablet_idx.tablet_id()});
+    std::string val;
+    err = txn0->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check snapshot {} existence, err={}", tablet_idx.tablet_id(), err);;
+        return;
+    }
+    if (err == TxnErrorCode::TXN_OK) {
+        SnapshotPB snapshot_pb;
+        if (!snapshot_pb.ParseFromString(val)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "malformed snapshot";
+            LOG_WARNING(msg);
+            return;
+        }
+        if (snapshot_pb.state() != SnapshotPB::DROPPED) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("snapshot {} already exists, state: {}", tablet_idx.tablet_id(),
+                              SnapshotPB::State_Name(snapshot_pb.state()));
+            return;
+        }
+    }
+
+    TabletMetaCloudPB tablet_meta;
+    std::vector<doris::RowsetMetaCloudPB> rs_metas;
+    if (is_restore) {
+        tablet_meta = request->tablet_meta();
+        rs_metas.assign(tablet_meta.rs_metas().begin(), tablet_meta.rs_metas().end());
+    } else {
+        // backup not implemented
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "not implemented";
+        return;
+    }
+    tablet_meta.clear_rs_metas(); // strip off rs meta
+
+    // 1. save tablet snapshot
+    std::string to_save_val;
+    {
+        SnapshotPB pb;
+        pb.set_tablet_id(tablet_idx.tablet_id());
+        pb.mutable_tablet_meta()->Swap(&tablet_meta);
+        pb.set_creation_time(::time(nullptr));
+        pb.set_expiration(request->expiration());
+        pb.set_is_restore(is_restore);
+        pb.set_state(SnapshotPB::PREPARED);
+        pb.SerializeToString(&to_save_val);
+    }
+    LOG_INFO("put tablet snapshot")
+            .tag("snapshot_tablet_key", hex(key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("is_restore", is_restore)
+            .tag("state", SnapshotPB::PREPARED);
+    txn0->put(key, to_save_val);
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit txn: {}", err);
+        return;
+    }
+
+    // 2. save rs snapshots
+    for (auto& rowset_meta : rs_metas) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return;
+        }
+        // put snapshot rowset kv
+        std::string snapshot_rs_key;
+        std::string snapshot_rs_val;
+        SnapshotRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(), rowset_meta.end_version()};
+        snapshot_rowset_key(rs_key_info, &snapshot_rs_key);
+        if (!rowset_meta.SerializeToString(&snapshot_rs_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize rowset meta";
+            return;
+        }
+        txn->put(snapshot_rs_key, snapshot_rs_val);
+        LOG_INFO("put rowset snapshot")
+                .tag("snapshot_rowset_key", hex(snapshot_rs_key))
+                .tag("tablet_id", tablet_idx.tablet_id())
+                .tag("rowset_id", rowset_meta.rowset_id_v2())
+                .tag("rowset_size", snapshot_rs_key.size() + snapshot_rs_val.size());
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to make snapshot,"
+               << " tablet_id=" << tablet_idx.tablet_id()
+               << " rowset_id=" << rowset_meta.rowset_id_v2()
+               << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+    }
+}
+
+void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* controller,
+                                      const SnapshotRequest* request,
+                                      SnapshotResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(commit_snapshot);
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet_id";
+        return;
+    }
+
+    bool is_restore = request->has_is_restore() && request->is_restore();
+    if (!is_restore) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "commit snapshot only support for restore";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(commit_snapshot)
+
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    // 1. get tablet snapshot
+    auto key = snapshot_tablet_key({instance_id, request->tablet_id()});
+    std::string val;
+    err = txn0->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "snapshot not exists or has been recycled";
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check snapshot existence, err={}", err);
+        LOG_WARNING(msg);
+        return;
+    }
+
+    SnapshotPB snapshot_pb;
+    if (!snapshot_pb.ParseFromString(val)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "malformed snapshot";
+        LOG_WARNING(msg);
+        return;
+    }
+
+    if (snapshot_pb.state() != SnapshotPB::PREPARED) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("snapshot {} with invalid state: {}", tablet_idx.tablet_id(),
+                          SnapshotPB::State_Name(snapshot_pb.state()));
+        return;
+    }
+
+    // 2. get rs snapshots
+    std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
+    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg, &snapshot_rs_metas);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("scan snapshot rowset failed")
+                .tag("tablet_id", request->tablet_id())
+                .tag("msg", msg)
+                .tag("code", code);
+        return;
+    }
+
+    // 3. convert rs snapshots to rs meta
+    TabletStats tablet_stat;
+    int32_t max_batch_size = config::max_snapshot_rowsets_per_batch;
+    for (size_t i = 0; i < snapshot_rs_metas.size(); i += max_batch_size) {
+        size_t end = (i + max_batch_size) > snapshot_rs_metas.size()
+                    ? snapshot_rs_metas.size() : i + max_batch_size;
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>
+                sub_snapshot_rs_metas(snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return;
+        }
+
+        // 3.1 put rs metas
+        for (auto& [_, rowset_meta] : sub_snapshot_rs_metas) {
+            if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
+                rowset_meta.set_index_id(tablet_idx.index_id());
+                rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
+                std::string schema_key = meta_schema_key(
+                        {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+                if (rowset_meta.has_variant_type_in_schema()) {
+                    write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+                    if (code != MetaServiceCode::OK) {
+                        return;
+                    }
+                }
+                put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
+                if (code != MetaServiceCode::OK) {
+                    return;
+                }
+                rowset_meta.set_allocated_tablet_schema(nullptr);
+            }
+            // put rowset meta
+            std::string rs_key;
+            std::string rs_val;
+            MetaRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(), rowset_meta.end_version()};
+            meta_rowset_key(rs_key_info, &rs_key);
+            if (!rowset_meta.SerializeToString(&rs_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize rowset meta";
+                return;
+            }
+            txn->put(rs_key, rs_val);
+            LOG_INFO("put rowset key")
+                    .tag("rowset_key", hex(rs_key))
+                    .tag("tablet_id", tablet_idx.tablet_id())
+                    .tag("rowset_size", rs_key.size() + rs_val.size());
+
+            tablet_stat.data_size += rowset_meta.total_disk_size();
+            tablet_stat.num_rows += rowset_meta.num_rows();
+            tablet_stat.num_segs += rowset_meta.num_segments();
+            tablet_stat.index_size += rowset_meta.index_disk_size();
+            tablet_stat.segment_size += rowset_meta.data_disk_size();
+            ++tablet_stat.num_rowsets;
+        }
+
+        // 3.2 remove snapshot rs keys
+        for (auto& [k, _] : sub_snapshot_rs_metas) {
+            txn0->remove(k);
+        }
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit rowset snapshot,"
+               << " tablet_id=" << tablet_idx.tablet_id()
+               << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+    }
+
+    // 4. convert tablet snapshot to tablet meta
+    txn0.reset();
+    err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "failed to create txn, err=" << err;
+        msg = ss.str();
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    TabletMetaCloudPB* tablet_meta = snapshot_pb.mutable_tablet_meta();
+    DCHECK_EQ(tablet_meta->tablet_id(), tablet_idx.tablet_id());
+    if (tablet_meta->has_schema()) {
+        // Temporary hard code to fix wrong column type string generated by FE
+        auto fix_column_type = [](doris::TabletSchemaCloudPB* schema) {
+            for (auto& column : *schema->mutable_column()) {
+                if (column.type() == "DECIMAL128") {
+                    column.mutable_type()->push_back('I');
+                }
+            }
+        };
+        if (config::write_schema_kv) {
+            // detach TabletSchemaCloudPB from TabletMetaCloudPB
+            tablet_meta->set_schema_version(tablet_meta->schema().schema_version());
+            fix_column_type(tablet_meta->mutable_schema());
+            auto schema_key =
+                    meta_schema_key({instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
+            put_schema_kv(code, msg, txn0.get(), schema_key, tablet_meta->schema());
+            if (code != MetaServiceCode::OK) return;
+            tablet_meta->set_allocated_schema(nullptr);
+        } else {
+            fix_column_type(tablet_meta->mutable_schema());
+        }
+    }
+
+    MetaTabletKeyInfo tablet_info {instance_id, tablet_meta->table_id(), tablet_meta->index_id(),
+                                   tablet_meta->partition_id(), tablet_meta->tablet_id()};
+    std::string tablet_key;
+    std::string tablet_val;
+    meta_tablet_key(tablet_info, &tablet_key);
+    if (!tablet_meta->SerializeToString(&tablet_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize tablet meta";
+        return;
+    }
+    txn0->put(tablet_key, tablet_val);
+    LOG_INFO("put tablet key")
+            .tag("tablet_key", hex(tablet_key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("tablet_size", tablet_key.size() + tablet_val.size());
+
+    StatsTabletKeyInfo stat_info {instance_id, tablet_meta->table_id(), tablet_meta->index_id(),
+                                  tablet_meta->partition_id(), tablet_meta->tablet_id()};
+    std::string stats_key;
+    std::string stats_val;
+    stats_tablet_key(stat_info, &stats_key);
+    TabletStatsPB stats_pb;
+    stats_pb.mutable_idx()->set_table_id(tablet_meta->table_id());
+    stats_pb.mutable_idx()->set_index_id(tablet_meta->index_id());
+    stats_pb.mutable_idx()->set_partition_id(tablet_meta->partition_id());
+    stats_pb.mutable_idx()->set_tablet_id(tablet_meta->tablet_id());
+    stats_pb.set_base_compaction_cnt(0);
+    stats_pb.set_cumulative_compaction_cnt(0);
+    stats_pb.set_cumulative_point(tablet_meta->cumulative_layer_point());
+    stats_val = stats_pb.SerializeAsString();
+    txn0->put(stats_key, stats_val);
+    LOG_INFO("put tablet stats")
+            .tag("tablet_id", tablet_meta->tablet_id())
+            .tag("stats key", hex(stats_key));
+
+    update_tablet_stats(stat_info, tablet_stat, txn0, code, msg);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    // 5. update tablet snapshot
+    std::string to_save_val;
+    snapshot_pb.set_state(SnapshotPB::DROPPED);
+    snapshot_pb.SerializeToString(&to_save_val);
+    LOG_INFO("put tablet snapshot")
+            .tag("snapshot_tablet_key", hex(key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("is_restore", is_restore)
+            .tag("state", snapshot_pb.state());
+    txn0->put(key, to_save_val);
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit tablet snapshot: {}", err);
+        return;
+    }
+}
+
+void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* controller,
+                                       const SnapshotRequest* request,
+                                       SnapshotResponse* response,
+                                       ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(release_snapshot);
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet_id";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(release_snapshot)
+
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+
+    // 1. get tablet snapshot
+    auto key = snapshot_tablet_key({instance_id, request->tablet_id()});
+    std::string val;
+    err = txn0->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "snapshot not exists or has been recycled";
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check snapshot existence, err={}", err);
+        LOG_WARNING(msg);
+        return;
+    }
+
+    SnapshotPB snapshot_pb;
+    if (!snapshot_pb.ParseFromString(val)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "malformed snapshot";
+        LOG_WARNING(msg);
+        return;
+    }
+
+    if (snapshot_pb.state() == SnapshotPB::DROPPED) {
+        LOG_INFO("snapshot already released")
+                .tag("snapshot_tablet_key", hex(key))
+                .tag("tablet_id", tablet_idx.tablet_id());
+        return;
+    }
+
+    // 2. get rs snapshots
+    std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
+    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg, &snapshot_rs_metas);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("scan snapshot rowset failed")
+                .tag("tablet_id", request->tablet_id())
+                .tag("msg", msg)
+                .tag("code", code);
+        return;
+    }
+
+    bool is_restore = snapshot_pb.is_restore();
+    if (is_restore) {
+        // 3. convert snapshot rs to recycle rs
+        int32_t max_batch_size = config::max_snapshot_rowsets_per_batch;
+        for (size_t i = 0; i < snapshot_rs_metas.size(); i += max_batch_size) {
+            size_t end = (i + max_batch_size) > snapshot_rs_metas.size()
+                         ? snapshot_rs_metas.size() : i + max_batch_size;
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>
+                    sub_snapshot_rs_metas(snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::CREATE>(err);
+                msg = "failed to init txn";
+                return;
+            }
+
+            // 3.1 put recycle rs metas
+            for (auto& [_, rowset_meta] : sub_snapshot_rs_metas) {
+                std::string recycle_rs_key;
+                std::string recycle_rs_val;
+                RecycleRowsetKeyInfo recycle_rs_key_info {instance_id, tablet_idx.tablet_id(),
+                                                          rowset_meta.rowset_id_v2()};
+                recycle_rowset_key(recycle_rs_key_info, &recycle_rs_key);
+                if (!rowset_meta.SerializeToString(&recycle_rs_val)) {
+                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                    msg = "failed to serialize rowset meta";
+                    return;
+                }
+                txn->put(recycle_rs_key, recycle_rs_val);
+                LOG_INFO("put recycle rowset key")
+                        .tag("rowset_key", hex(recycle_rs_key))
+                        .tag("tablet_id", tablet_idx.tablet_id())
+                        .tag("rowset_id", rowset_meta.rowset_id_v2())
+                        .tag("rowset_size", recycle_rs_key.size() + recycle_rs_val.size());
+            }
+
+            // 3.2 remove snapshot rs keys
+            for (auto& [k, _] : sub_snapshot_rs_metas) {
+                txn0->remove(k);
+            }
+
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::COMMIT>(err);
+                ss << "failed to commit rowset snapshot,"
+                   << " tablet_id=" << tablet_idx.tablet_id()
+                   << " err=" << err;
+                msg = ss.str();
+                return;
+            }
+        }
+    } else {
+        // backup not implemented
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "not implemented";
+        return;
+    }
+
+    // 4. update tablet snapshot
+    std::string to_save_val;
+    snapshot_pb.set_state(SnapshotPB::DROPPED);
+    snapshot_pb.SerializeToString(&to_save_val);
+    LOG_INFO("put tablet snapshot")
+            .tag("snapshot_tablet_key", hex(key))
+            .tag("tablet_id", tablet_idx.tablet_id())
+            .tag("is_restore", is_restore)
+            .tag("state", snapshot_pb.state());
+    txn0->put(key, to_save_val);
+    err = txn0->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit txn: {}", err);
+        return;
     }
 }
 
