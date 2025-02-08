@@ -241,4 +241,22 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .printlnTree()
                 .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
     }
+
+    @Test
+    void testEqualSetAndFd() {
+        PlanChecker.from(connectContext)
+                .analyze("select a,b,c,d,dt from eliminate_order_by_constant_t  where a=b order by a,a+b, b ")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
+    }
+
+    @Test
+    void testUniformAndFd() {
+        PlanChecker.from(connectContext)
+                .analyze("select a,b from eliminate_order_by_constant_t where a=b and a=1 order by a,b,a+b")
+                .rewrite()
+                .printlnTree()
+                .nonMatch(logicalSort());
+    }
 }
