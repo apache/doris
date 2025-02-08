@@ -486,27 +486,15 @@ Status PushBrokerReader::_cast_to_input_block() {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
-        // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         // bitmap convert：src -> to_base64 -> bitmap_from_base64
         if (slot_desc->type().is_bitmap_type()) {
-            auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
-                    vectorized::DataTypeString().get_type_as_type_descriptor(),
-                    slot_desc->is_nullable());
-            auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
-                    "to_base64", {arg}, base64_return_type);
-            RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
-                                                    arg.column->size()));
-            _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
-            auto& arg_base64 = _src_block_ptr->get_by_name(slot_desc->col_name());
-            auto func_bitmap_from_base64 =
-                    vectorized::SimpleFunctionFactory::instance().get_function(
-                            "bitmap_from_base64", {arg_base64}, return_type);
-            RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
-                                                             arg_base64.column->size()));
-            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+            RETURN_IF_ERROR(_convert_bitmap(_src_block_ptr, arg, idx, return_type));
+        } else if (slot_desc->type().is_hll_type()) {
+            RETURN_IF_ERROR(_convert_hll(_src_block_ptr, arg, idx, return_type));
         } else {
+            // remove nullable here, let the get_function decide whether nullable
             vectorized::ColumnsWithTypeAndName arguments {
                     arg,
                     {vectorized::DataTypeString().create_column_const(
@@ -689,6 +677,97 @@ Status PushBrokerReader::_get_next_reader() {
     }
     _cur_reader_eof = false;
 
+    return Status::OK();
+}
+
+Status PushBrokerReader::_convert_bitmap(vectorized::Block* block,
+                                         vectorized::ColumnWithTypeAndName& arg, uint32_t idx,
+                                         vectorized::DataTypePtr return_type) {
+    const vectorized::ColumnPtr& src_column = arg.column;
+    const vectorized::ColumnPtr& inner_column =
+            arg.type->is_nullable() ? assert_cast<const vectorized::ColumnNullable&>(*src_column)
+                                              .get_nested_column_ptr()
+                                    : src_column;
+    auto inner_type = std::make_shared<vectorized::DataTypeString>();
+    auto base64_return_type = std::make_shared<vectorized::DataTypeString>();
+
+    vectorized::Block temp_block;
+    temp_block.insert({inner_column, inner_type, "source"});
+    temp_block.insert({nullptr, base64_return_type, "result"});
+
+    auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+            "to_base64", {vectorized::ColumnWithTypeAndName {inner_column, inner_type, "source"}},
+            base64_return_type);
+    auto dst_column = vectorized::ColumnString::create();
+    temp_block.replace_by_position(1, std::move(dst_column));
+
+    RETURN_IF_ERROR(func_to_base64->execute(nullptr, temp_block, {0}, 1, inner_column->size()));
+    auto result_column = temp_block.get_by_position(1).column;
+    if (arg.type->is_nullable()) {
+        const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*src_column)
+                                       .get_null_map_column_ptr();
+        auto nullable_result = vectorized::ColumnNullable::create(result_column, null_map);
+        block->get_by_position(idx).column = std::move(nullable_result);
+        block->get_by_position(idx).type = make_nullable(base64_return_type);
+    } else {
+        block->get_by_position(idx).column = std::move(result_column);
+        block->get_by_position(idx).type = std::move(base64_return_type);
+    }
+
+    auto& arg_base64 = _src_block_ptr->get_by_position(idx);
+    auto func_bitmap_from_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+            "bitmap_from_base64", {arg_base64}, return_type);
+
+    RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *block, {idx}, idx,
+                                                     arg_base64.column->size()));
+    block->get_by_position(idx).type = std::move(return_type);
+    return Status::OK();
+}
+
+Status PushBrokerReader::_convert_hll(vectorized::Block* block,
+                                      vectorized::ColumnWithTypeAndName& arg, uint32_t idx,
+                                      vectorized::DataTypePtr return_type) {
+    const vectorized::ColumnPtr& src_column = arg.column;
+    const vectorized::ColumnPtr& inner_column =
+            arg.type->is_nullable() ? assert_cast<const vectorized::ColumnNullable&>(*src_column)
+                                              .get_nested_column_ptr()
+                                    : src_column;
+
+    auto inner_type = std::make_shared<vectorized::DataTypeString>();
+    auto base64_return_type = std::make_shared<vectorized::DataTypeString>();
+
+    vectorized::Block temp_block;
+    temp_block.insert({inner_column, inner_type, "source"});
+    temp_block.insert({nullptr, base64_return_type, "result"});
+
+    auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+            "to_base64", {vectorized::ColumnWithTypeAndName {inner_column, inner_type, "source"}},
+            base64_return_type);
+    auto dst_column = vectorized::ColumnString::create();
+    temp_block.replace_by_position(1, std::move(dst_column));
+
+    RETURN_IF_ERROR(func_to_base64->execute(nullptr, temp_block, {0}, 1, inner_column->size()));
+
+    auto result_column = temp_block.get_by_position(1).column;
+
+    if (arg.type->is_nullable()) {
+        const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*src_column)
+                                       .get_null_map_column_ptr();
+        auto nullable_result = vectorized::ColumnNullable::create(result_column, null_map);
+        block->get_by_position(idx).column = std::move(nullable_result);
+        block->get_by_position(idx).type = make_nullable(base64_return_type);
+    } else {
+        block->get_by_position(idx).column = std::move(result_column);
+        block->get_by_position(idx).type = std::move(base64_return_type);
+    }
+
+    auto& arg_base64 = _src_block_ptr->get_by_position(idx);
+    auto func_hll_from_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+            "hll_from_base64", {arg_base64}, return_type);
+
+    RETURN_IF_ERROR(
+            func_hll_from_base64->execute(nullptr, *block, {idx}, idx, arg_base64.column->size()));
+    block->get_by_position(idx).type = std::move(return_type);
     return Status::OK();
 }
 
