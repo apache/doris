@@ -336,6 +336,14 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * datetime arithmetic function to_datev2
+     */
+    @ExecFunction(name = "to_datev2")
+    public static Expression toDateV2(DateTimeV2Literal dateTime) {
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
+    }
+
+    /**
      * datetime arithmetic function date-trunc
      */
     @ExecFunction(name = "date_trunc")

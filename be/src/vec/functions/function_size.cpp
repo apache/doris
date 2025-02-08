@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
+
 #include "simple_function_factory.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
@@ -35,13 +39,17 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr datatype = arguments[0];
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DataTypePtr datatype = arguments[0].type;
         if (datatype->is_nullable()) {
             datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
         DCHECK(is_map(datatype) || is_array(datatype)) << "first argument for function: " << name
                                                        << " should be DataTypeMap or DataTypeArray";
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt64>();
     }
 
