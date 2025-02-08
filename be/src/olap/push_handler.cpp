@@ -683,8 +683,9 @@ Status PushBrokerReader::_get_next_reader() {
     return Status::OK();
 }
 
-Status PushBrokerReader::_convert_bitmap(vectorized::Block* block, vectorized::ColumnWithTypeAndName& arg,
-                                       uint32_t idx, vectorized::DataTypePtr return_type) {
+Status PushBrokerReader::_convert_bitmap(vectorized::Block* block,
+                                         vectorized::ColumnWithTypeAndName& arg, uint32_t idx,
+                                         vectorized::DataTypePtr return_type) {
     const vectorized::ColumnPtr& src_column = arg.column;
     const vectorized::ColumnPtr& inner_column =
             arg.type->is_nullable() ? assert_cast<const vectorized::ColumnNullable&>(*src_column)
@@ -721,13 +722,14 @@ Status PushBrokerReader::_convert_bitmap(vectorized::Block* block, vectorized::C
             "bitmap_from_base64", {arg_base64}, return_type);
 
     RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *block, {idx}, idx,
-                                                         arg_base64.column->size()));
+                                                     arg_base64.column->size()));
     block->get_by_position(idx).type = std::move(return_type);
     return Status::OK();
 }
 
-Status PushBrokerReader::_convert_hll(vectorized::Block* block, vectorized::ColumnWithTypeAndName& arg,
-                                       uint32_t idx, vectorized::DataTypePtr return_type) {
+Status PushBrokerReader::_convert_hll(vectorized::Block* block,
+                                      vectorized::ColumnWithTypeAndName& arg, uint32_t idx,
+                                      vectorized::DataTypePtr return_type) {
     const vectorized::ColumnPtr& src_column = arg.column;
     const vectorized::ColumnPtr& inner_column =
             arg.type->is_nullable() ? assert_cast<const vectorized::ColumnNullable&>(*src_column)
@@ -766,8 +768,8 @@ Status PushBrokerReader::_convert_hll(vectorized::Block* block, vectorized::Colu
     auto func_hll_from_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
             "hll_from_base64", {arg_base64}, return_type);
 
-    RETURN_IF_ERROR(func_hll_from_base64->execute(nullptr, *block, {idx}, idx,
-                                                         arg_base64.column->size()));
+    RETURN_IF_ERROR(
+            func_hll_from_base64->execute(nullptr, *block, {idx}, idx, arg_base64.column->size()));
     block->get_by_position(idx).type = std::move(return_type);
     return Status::OK();
 }
