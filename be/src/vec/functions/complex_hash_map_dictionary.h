@@ -70,7 +70,7 @@ private:
     void load_data(const ColumnPtrs& key_columns, const DataTypes& key_types,
                    const std::vector<ColumnPtr>& values_column);
 
-    ColumnPtr get_single_value_column(const IColumn::Selector& selector, const NullMap& null_map,
+    ColumnPtr get_single_value_column(const IColumn::Selector& value_index, const NullMap& null_map,
                                       const std::string& attribute_name,
                                       const DataTypePtr& attribute_type) const;
 

@@ -44,16 +44,11 @@ namespace doris::vectorized {
 /*
  * Dictionary implementation in Doris that provides key-value mapping functionality
  * Currently only supports in-memory dictionary storage
- * A dictionary maps one key to multiple values
  */
 
-/**
- * Represents an attribute (value column) in the dictionary
- * Each attribute has a name and a non-nullable data type
- */
 struct DictionaryAttribute {
     const std::string name; // value name
-    const DataTypePtr type; // value type (if load value is nullable , will be a nullable type)
+    const DataTypePtr type; // value type
 };
 
 // Abstract base class IDictionary that only stores values. Keys are maintained by specific derived classes
@@ -68,6 +63,7 @@ public:
     std::string dict_name() const { return _dict_name; }
 
     // Returns the result column, throws an exception if there is an issue
+    // attribute_type , key_type must be no nullable type
     virtual ColumnPtr get_column(const std::string& attribute_name,
                                  const DataTypePtr& attribute_type, const ColumnPtr& key_column,
                                  const DataTypePtr& key_type) const = 0;
@@ -152,13 +148,17 @@ protected:
         }
     };
 
-    template <bool vlaue_is_nullable, typename ResultColumnType>
-    ALWAYS_INLINE static void set_value_data(
-            ResultColumnType* res_real_column,
-            UInt8& res_null /* is value is null , will set res_null to true */,
-            const auto* value_column, const ColumnUInt8* value_null_column,
-            const size_t& value_idx) {
-        if constexpr (vlaue_is_nullable) {
+    // res_real_column : result column (get_column result)
+    // res_null : if value is null, will set res_null to true
+    // value_column : corresponding value column, non-nullable
+    // value_null_column : corresponding value null map, if the original value is non-nullable, it will be nullptr
+    // value_idx : index in the value column
+    template <bool value_is_nullable, typename ResultColumnType>
+    ALWAYS_INLINE static void set_value_data(ResultColumnType* res_real_column, UInt8& res_null,
+                                             const auto* value_column,
+                                             const ColumnUInt8* value_null_column,
+                                             const size_t& value_idx) {
+        if constexpr (value_is_nullable) {
             // if the value is null, set the result column to null
             if (value_null_column->get_element(value_idx)) {
                 res_null = true;
@@ -175,6 +175,7 @@ protected:
         }
     }
 
+    /// TODO: Add support for more data types ,such as Array, Map, etc.
     using ValueData =
             std::variant<ColumnWithType<DataTypeUInt8>, ColumnWithType<DataTypeInt8>,
                          ColumnWithType<DataTypeInt16>, ColumnWithType<DataTypeInt32>,

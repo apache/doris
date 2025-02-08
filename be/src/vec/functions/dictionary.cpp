@@ -114,6 +114,7 @@ void IDictionary::load_values(const std::vector<ColumnPtr>& values_column) {
                     auto& att = _values_data[i];
                     auto init_column_with_type = [&](auto& column_with_type) {
                         column_with_type.column = value_column_without_nullable;
+                        // if original value is nullable, the null_map must be not null
                         if (values_column[i]->is_nullable()) {
                             column_with_type.null_map =
                                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(

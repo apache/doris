@@ -50,6 +50,8 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
                                          const std::vector<ColumnPtr>& values_column) {
     // load key column
     THROW_IF_ERROR(init_hash_method<DictionaryHashMapMethod>(&_hash_map_method, key_types, true));
+
+    // save key columns
     _key_columns = key_columns;
 
     std::visit(vectorized::Overload {
@@ -75,8 +77,7 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
                                };
 
                                auto creator_for_null_key = [&](auto& mapped) {
-                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                          "no null key"); // NOLINT
+                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR, "no null key");
                                };
                                dict_method.lazy_emplace(state, i, creator, creator_for_null_key);
                            }
@@ -122,7 +123,8 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
     }
 
     const size_t rows = key_columns[0]->size();
-    IColumn::Selector selector = IColumn::Selector(rows);
+    IColumn::Selector value_index = IColumn::Selector(rows);
+    // if key is not found, or key is null , wiil set true
     NullMap key_not_found = NullMap(rows, false);
 
     DictionaryHashMapMethod find_hash_map;
@@ -171,7 +173,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
                                }
                                auto find_result = dict_method.find(state, i);
                                if (find_result.is_found()) {
-                                   selector[i] = find_result.get_mapped();
+                                   value_index[i] = find_result.get_mapped();
                                } else {
                                    key_not_found[i] = true;
                                }
@@ -181,16 +183,16 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
 
     ColumnPtrs columns;
     for (size_t i = 0; i < attribute_names.size(); ++i) {
-        columns.push_back(get_single_value_column(selector, key_not_found, attribute_names[i],
+        columns.push_back(get_single_value_column(value_index, key_not_found, attribute_names[i],
                                                   attribute_types[i]));
     }
     return columns;
 }
 
 ColumnPtr ComplexHashMapDictionary::get_single_value_column(
-        const IColumn::Selector& selector, const NullMap& key_not_found,
+        const IColumn::Selector& value_index, const NullMap& key_not_found,
         const std::string& attribute_name, const DataTypePtr& attribute_type) const {
-    const auto rows = selector.size();
+    const auto rows = value_index.size();
     MutableColumnPtr res_column = attribute_type->create_column();
     ColumnUInt8::MutablePtr res_null = ColumnUInt8::create(rows, false);
     auto& res_null_map = res_null->get_data();
@@ -204,12 +206,13 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
                 const auto* value_null_map = arg.get_null_map();
                 for (size_t i = 0; i < rows; i++) {
                     if (key_not_found[i]) {
+                        // if input key is not found, set the result column to null
                         res_real_column->insert_default();
                         res_null_map[i] = true;
                     } else {
-                        const auto idx = selector[i];
                         set_value_data<value_is_nullable>(res_real_column, res_null_map[i],
-                                                          value_column, value_null_map, idx);
+                                                          value_column, value_null_map,
+                                                          value_index[i]);
                     }
                 }
             },

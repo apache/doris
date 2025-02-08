@@ -78,7 +78,9 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
     const auto& value_data = _values_data[attribute_index(attribute_name)];
 
     if (WhichDataType {key_type}.is_ipv6()) {
+        // input key column without nullable
         const auto* ipv6_column = assert_cast<const ColumnIPv6*>(remove_nullable(key_column).get());
+        // if input key column is nullable, will not be null
         const ColumnNullable* null_key =
                 key_column->is_nullable() ? assert_cast<const ColumnNullable*>(key_column.get())
                                           : nullptr;
@@ -92,6 +94,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                     for (size_t i = 0; i < rows; i++) {
                         if constexpr (key_is_nullable) {
                             if (null_key->is_null_at(i)) {
+                                // if input key is null, set the result column to null
                                 res_real_column->insert_default();
                                 res_null_map[i] = true;
                                 continue;
@@ -99,6 +102,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                         }
                         auto it = look_up_IP(ipv6_column->get_element(i));
                         if (it == ip_not_found()) {
+                            // if input key is not found, set the result column to null
                             res_real_column->insert_default();
                             res_null_map[i] = true;
                         } else {
@@ -108,10 +112,12 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                         }
                     }
                 },
-                value_data, make_bool_variant(null_key),
+                value_data, make_bool_variant(null_key != nullptr),
                 attribute_nullable_variant(attribute_index(attribute_name)));
     } else {
+        // input key column without nullable
         const auto* ipv4_column = assert_cast<const ColumnIPv4*>(remove_nullable(key_column).get());
+        // if input key column is nullable, will not be null
         const ColumnNullable* null_key =
                 key_column->is_nullable() ? assert_cast<const ColumnNullable*>(key_column.get())
                                           : nullptr;
@@ -125,6 +131,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                     for (size_t i = 0; i < rows; i++) {
                         if constexpr (key_is_nullable) {
                             if (null_key->is_null_at(i)) {
+                                // if input key is null, set the result column to null
                                 res_real_column->insert_default();
                                 res_null_map[i] = true;
                                 continue;
@@ -132,6 +139,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                         }
                         auto it = look_up_IP(ipv4_to_ipv6(ipv4_column->get_element(i)));
                         if (it == ip_not_found()) {
+                            // if input key is not found, set the result column to null
                             res_real_column->insert_default();
                             res_null_map[i] = true;
                         } else {
@@ -141,7 +149,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                         }
                     }
                 },
-                value_data, make_bool_variant(null_key),
+                value_data, make_bool_variant(null_key != nullptr),
                 attribute_nullable_variant(attribute_index(attribute_name)));
     }
 
