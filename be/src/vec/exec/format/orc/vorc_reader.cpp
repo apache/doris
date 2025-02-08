@@ -142,7 +142,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat)
+                     bool enable_lazy_mat, std::vector<orc::TypeKind>* unsupported_pushdown_types)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -155,7 +155,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
-          _dict_cols_has_converted(false) {
+          _dict_cols_has_converted(false),
+          _unsupported_pushdown_types(unsupported_pushdown_types) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -458,8 +459,7 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::DOUBLE, orc::PredicateDataType::FLOAT},
         {orc::TypeKind::STRING, orc::PredicateDataType::STRING},
         {orc::TypeKind::BINARY, orc::PredicateDataType::STRING},
-        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
-        // {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
+        {orc::TypeKind::CHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::VARCHAR, orc::PredicateDataType::STRING},
         {orc::TypeKind::DATE, orc::PredicateDataType::DATE},
         {orc::TypeKind::DECIMAL, orc::PredicateDataType::DECIMAL},
@@ -491,9 +491,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             [[fallthrough]];
         case orc::TypeKind::BINARY:
             [[fallthrough]];
-        // should not pust down CHAR type, because CHAR type is fixed length and will be padded
-        // case orc::TypeKind::CHAR:
-        //     [[fallthrough]];
+        case orc::TypeKind::CHAR:
+            [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
         }
@@ -587,15 +586,7 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
-    auto primitive_type = slot_type.type;
-    auto src_type = OrcReader::convert_to_doris_type(orc_type).type;
-    // should not down predicate for string type change from other type
-    if (src_type != primitive_type && !is_string_type(src_type) && is_string_type(primitive_type)) {
-        LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << primitive_type << " to "
-                     << src_type;
-        return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
-    }
-    switch (primitive_type) {
+    switch (slot_type.type) {
 #define M(NAME)                                                                \
     case TYPE_##NAME: {                                                        \
         auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(       \
@@ -608,6 +599,7 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     M(INT)                          \
     M(BIGINT)                       \
     M(LARGEINT)                     \
+    M(CHAR)                         \
     M(DATE)                         \
     M(DATETIME)                     \
     M(DATEV2)                       \
