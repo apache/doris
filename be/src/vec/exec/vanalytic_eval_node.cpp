@@ -95,8 +95,8 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                     _rows_start_offset = b.rows_offset_value;
                     if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
                         _rows_start_offset *= -1; //preceding--> negative
-                    }                             //current_row  0
-                } else {                          //following    positive
+                    } //current_row  0
+                } else { //following    positive
                     DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                     _rows_start_offset = 0;
                 }
@@ -383,6 +383,8 @@ Status VAnalyticEvalNode::_get_next_for_rows(size_t current_block_rows) {
                 range_start = _current_row_position + _rows_start_offset;
             }
             range_end = _current_row_position + _rows_end_offset + 1;
+            // Make sure range_start <= range_end
+            range_start = std::min(range_start, range_end);
         }
         _executor.execute(_partition_by_start.pos, _partition_by_end.pos, range_start, range_end);
         _executor.insert_result(current_block_rows);
