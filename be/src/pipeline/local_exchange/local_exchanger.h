@@ -28,7 +28,7 @@ class PartitionerBase;
 namespace pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
-struct BlockWrapper;
+class BlockWrapper;
 class SortSourceOperatorX;
 
 struct Profile {
@@ -63,6 +63,66 @@ struct SourceInfo {
  */
 class ExchangerBase {
 public:
+    /**
+     * `BlockWrapper` is used to wrap a data block with a reference count.
+     *
+     * In function `unref()`, if `ref_count` decremented to 0, which means this block is not needed by
+     * operators, so we put it into `_free_blocks` to reuse its memory if needed and refresh memory usage
+     * in current queue.
+     *
+     * Note: `ref_count` will be larger than 1 only if this block is shared between multiple queues in
+     * shuffle exchanger.
+     */
+    class BlockWrapper {
+    public:
+        ENABLE_FACTORY_CREATOR(BlockWrapper);
+        BlockWrapper(vectorized::Block&& data_block, LocalExchangeSharedState* shared_state,
+                     int channel_id)
+                : _data_block(std::move(data_block)),
+                  _shared_state(shared_state),
+                  _allocated_bytes(_data_block.allocated_bytes()) {
+            if (_shared_state) {
+                _shared_state->add_total_mem_usage(_allocated_bytes, channel_id);
+            }
+        }
+        ~BlockWrapper() {
+            if (_shared_state != nullptr) {
+                DCHECK_GT(_allocated_bytes, 0);
+                _shared_state->sub_total_mem_usage(_allocated_bytes, _channel_ids.front());
+                if (_shared_state->exchanger->_free_block_limit == 0 ||
+                    _shared_state->exchanger->_free_blocks.size_approx() <
+                            _shared_state->exchanger->_free_block_limit *
+                                    _shared_state->exchanger->_num_sources) {
+                    _data_block.clear_column_data();
+                    // Free blocks is used to improve memory efficiency. Failure during pushing back
+                    // free block will not incur any bad result so just ignore the return value.
+                    _shared_state->exchanger->_free_blocks.enqueue(std::move(_data_block));
+                }
+            };
+        }
+        void record_channel_id(int channel_id) {
+            _channel_ids.push_back(channel_id);
+            if (_shared_state) {
+                _shared_state->add_mem_usage(channel_id, _allocated_bytes);
+            }
+        }
+
+    private:
+        friend class ShuffleExchanger;
+        friend class BucketShuffleExchanger;
+        friend class PassthroughExchanger;
+        friend class BroadcastExchanger;
+        friend class PassToOneExchanger;
+        friend class LocalMergeSortExchanger;
+        friend class AdaptivePassthroughExchanger;
+        template <typename BlockType>
+        friend class Exchanger;
+
+        vectorized::Block _data_block;
+        LocalExchangeSharedState* _shared_state;
+        std::vector<int> _channel_ids;
+        const size_t _allocated_bytes;
+    };
     ExchangerBase(int running_sink_operators, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
               _running_source_operators(num_partitions),
@@ -94,7 +154,6 @@ public:
 
 protected:
     friend struct LocalExchangeSharedState;
-    friend struct BlockWrapper;
     friend class LocalExchangeSourceLocalState;
     friend class LocalExchangeSinkOperatorX;
     friend class LocalExchangeSinkLocalState;
@@ -113,13 +172,14 @@ struct PartitionedRowIdxs {
     uint32_t length;
 };
 
-using PartitionedBlock = std::pair<std::shared_ptr<BlockWrapper>, PartitionedRowIdxs>;
+using PartitionedBlock =
+        std::pair<std::shared_ptr<ExchangerBase::BlockWrapper>, PartitionedRowIdxs>;
 
 struct RowRange {
     uint32_t offset_start;
     size_t length;
 };
-using BroadcastBlock = std::pair<std::shared_ptr<BlockWrapper>, RowRange>;
+using BroadcastBlock = std::pair<std::shared_ptr<ExchangerBase::BlockWrapper>, RowRange>;
 
 template <typename BlockType>
 struct BlockQueue {
@@ -158,7 +218,7 @@ struct BlockQueue {
     void set_eos() { eos = true; }
 };
 
-using BlockWrapperSPtr = std::shared_ptr<BlockWrapper>;
+using BlockWrapperSPtr = std::shared_ptr<ExchangerBase::BlockWrapper>;
 
 template <typename BlockType>
 class Exchanger : public ExchangerBase {
@@ -200,45 +260,6 @@ protected:
 
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
-
-/**
- * `BlockWrapper` is used to wrap a data block with a reference count.
- *
- * In function `unref()`, if `ref_count` decremented to 0, which means this block is not needed by
- * operators, so we put it into `_free_blocks` to reuse its memory if needed and refresh memory usage
- * in current queue.
- *
- * Note: `ref_count` will be larger than 1 only if this block is shared between multiple queues in
- * shuffle exchanger.
- */
-struct BlockWrapper {
-    ENABLE_FACTORY_CREATOR(BlockWrapper);
-    BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
-    ~BlockWrapper() { DCHECK_EQ(ref_count.load(), 0); }
-    void ref(int delta) { ref_count += delta; }
-    void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes, int channel_id) {
-        if (ref_count.fetch_sub(1) == 1 && shared_state != nullptr) {
-            DCHECK_GT(allocated_bytes, 0);
-            shared_state->sub_total_mem_usage(allocated_bytes, channel_id);
-            if (shared_state->exchanger->_free_block_limit == 0 ||
-                shared_state->exchanger->_free_blocks.size_approx() <
-                        shared_state->exchanger->_free_block_limit *
-                                shared_state->exchanger->_num_sources) {
-                data_block.clear_column_data();
-                // Free blocks is used to improve memory efficiency. Failure during pushing back
-                // free block will not incur any bad result so just ignore the return value.
-                shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
-            }
-        }
-    }
-
-    void unref(LocalExchangeSharedState* shared_state = nullptr, int channel_id = 0) {
-        unref(shared_state, data_block.allocated_bytes(), channel_id);
-    }
-    int ref_value() const { return ref_count.load(); }
-    std::atomic<int> ref_count = 0;
-    vectorized::Block data_block;
-};
 
 class ShuffleExchanger : public Exchanger<PartitionedBlock> {
 public:
