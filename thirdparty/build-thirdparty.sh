@@ -1849,7 +1849,8 @@ build_icu() {
         --disable-shared \
         --enable-static \
         --disable-samples \
-        --disable-tests
+        --disable-tests \
+        --enable-release
 
     make -j "${PARALLEL}"
     make install
