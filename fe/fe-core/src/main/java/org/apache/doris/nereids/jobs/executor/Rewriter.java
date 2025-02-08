@@ -271,8 +271,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
                                 new CheckAndStandardizeWindowFunctionAndFrame(),
-                                new SimplifyWindowExpression(),
-                                new EliminateOrderByKey()
+                                new SimplifyWindowExpression()
                         )
                 ),
                 topic("Rewrite join",
@@ -354,7 +353,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-
+                topic("Eliminate Order By Key",
+                        topDown(new EliminateOrderByKey())),
                 topic("Eliminate GroupBy",
                         topDown(new EliminateGroupBy(),
                                 new MergeAggregate(),
