@@ -115,7 +115,20 @@ Status MemTableWriter::write(const vectorized::Block* block,
     }
 
     _total_received_rows += row_idxs.size();
-    RETURN_IF_ERROR(_mem_table->insert(block, row_idxs));
+    auto st = _mem_table->insert(block, row_idxs);
+
+    // Reset memtable immediately after insert failure to prevent potential flush operations.
+    // This is a defensive measure because:
+    // 1. When insert fails (e.g., memory allocation failure during add_rows),
+    //    the memtable is in an inconsistent state and should not be flushed
+    // 2. However, memory pressure might trigger a flush operation on this failed memtable
+    // 3. By resetting here, we ensure the failed memtable won't be included in any subsequent flush,
+    //    thus preventing potential crashes
+    if (!st.ok()) [[unlikely]] {
+        std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
+        _mem_table.reset();
+        return st;
+    }
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
