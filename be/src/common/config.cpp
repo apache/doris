@@ -1028,7 +1028,7 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
-DEFINE_mBool(variant_use_cloud_schema_dict, "true");
+DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -1424,6 +1424,7 @@ DEFINE_mInt32(compaction_num_per_round, "1");
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 
 // clang-format off
 #ifdef BE_TEST

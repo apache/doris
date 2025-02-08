@@ -1232,7 +1232,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
-DECLARE_mBool(variant_use_cloud_schema_dict);
+DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
@@ -1509,6 +1509,7 @@ DECLARE_mInt32(compaction_num_per_round);
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
+DECLARE_mInt32(schema_dict_cache_capacity);
 
 #ifdef BE_TEST
 // test s3
