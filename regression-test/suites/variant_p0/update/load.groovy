@@ -69,6 +69,19 @@ suite("update_test_load", "p0") {
 
     createMV ("create materialized view table_mv1 as select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name};")
 
+    explain {
+        sql("select max(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv;")
+        contains("table_mv1 chose")
+    }
+    explain {
+        sql("select min(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv;")
+        contains("table_mv1 chose")
+    }
+    explain {
+        sql("select count(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv;")
+        contains("table_mv1 chose")
+    }
+
     qt_sql """ select max(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv; """
     qt_sql """ select min(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv; """
     qt_sql """ select count(kk) from (select (abs(cast(v['repo']['id'] as int)) + cast(v['payload']['review']['user']['id'] as int) + 20) as kk from ${table_name}) as mv; """
@@ -79,23 +92,32 @@ suite("update_test_load", "p0") {
     """
     waitingMTMVTaskFinishedByMvName("table_mv2")
 
-    qt_sql """ SELECT sum(cast(v['public'] as int))  FROM ${table_name} group by cast(v['type'] as text); """
-
-
-    def table_name_sc = "test_update_sc"
-
-    sql "DROP TABLE IF EXISTS ${table_name_sc}"
-    sql """
-        CREATE TABLE IF NOT EXISTS ${table_name_sc} (
-            k bigint,
-            v variant NOT NULL
-        )
-        DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
-    """
-
-    for (int i = 0; i < 10; i++) {
-        load_json_data.call(table_name_sc, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
+    explain {
+        sql("SELECT sum(cast(v['public'] as int)) FROM ${table_name} group by cast(v['type'] as text) order by cast(v['type'] as text);")
+        contains("table_mv2 chose")
     }
+
+    qt_sql """ SELECT sum(cast(v['public'] as int))  FROM ${table_name} group by cast(v['type'] as text) order by cast(v['type'] as text); """
+
+
+    def create_table_load_data = {create_table_name->
+        sql "DROP TABLE IF EXISTS ${create_table_name}"
+        sql """
+            CREATE TABLE IF NOT EXISTS ${create_table_name} (
+                k bigint,
+                v variant NOT NULL
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        """
+
+        for (int i = 0; i < 10; i++) {
+            load_json_data.call(create_table_name, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
+        }
+    }
+
+    create_table_load_data.call("test_update_sc")
+    create_table_load_data.call("test_update_compact")
+    create_table_load_data.call("test_update_sc2")
 }
