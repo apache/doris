@@ -174,6 +174,7 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
             }
         }
         sql "alter table ${tableName} drop index idx_b"
+        wait_for_latest_op_on_table_finish(table_name, timeout)
         sql "alter table ${tableName} drop index idx_en"
 
         // agg table
