@@ -17,11 +17,14 @@
 
 package org.apache.doris.plugin.audit;
 
+
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -108,7 +111,7 @@ public class AuditStreamLoader {
         return response.toString();
     }
 
-    public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
+    public LoadResponse loadBatch(String data, String clusterToken) {
         String label = genLabel();
 
         HttpURLConnection feConn = null;
@@ -131,7 +134,7 @@ public class AuditStreamLoader {
             beConn = getConnection(location, label, clusterToken);
             // send data to be
             try (BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream())) {
-                bos.write(sb.toString().getBytes());
+                bos.write(data.getBytes());
             }
 
             // get respond
@@ -172,11 +175,15 @@ public class AuditStreamLoader {
         public int status;
         public String respMsg;
         public String respContent;
+        public RespContent respContentObj;
 
         public LoadResponse(int status, String respMsg, String respContent) {
             this.status = status;
             this.respMsg = respMsg;
             this.respContent = respContent;
+            if (status == 200 && respContent != null) {
+                respContentObj = GsonUtils.GSON.fromJson(respContent, RespContent.class);
+            }
         }
 
         @Override
@@ -186,6 +193,11 @@ public class AuditStreamLoader {
             sb.append(", resp msg: ").append(respMsg);
             sb.append(", resp content: ").append(respContent);
             return sb.toString();
+        }
+
+        public static class RespContent {
+            @SerializedName(value = "Status")
+            public String status;
         }
     }
 }
