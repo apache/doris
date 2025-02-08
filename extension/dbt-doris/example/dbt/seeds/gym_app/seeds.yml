@@ -1,0 +1,58 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+version: 2
+
+seeds:
+  - name: raw_weight
+    description: "Seed data for raw_weight table"
+    config:
+      enabled: true
+      column_types:
+        date: date
+        weight_unit: string
+        user_id: int
+        weight: decimal
+    columns:
+      - name: date
+        description: "The date the weight was recorded"
+      - name: weight_unit
+        description: "The unit of weight_unit for the weight"
+      - name: user_id
+        description: "The user's unique identifier"
+      - name: weight
+        description: "The user's weight"
+
+  - name: raw_height
+    description: "Seed data for raw_height table"
+    config:
+      enabled: true
+      column_types:
+        date: date
+        height_unit: string
+        user_id: int
+        height: decimal
+    columns:
+      - name: date
+        description: "The date the height was recorded"
+      - name: height_unit
+        description: "The unit of height_unit for the height"
+      - name: user_id
+        description: "The user's unique identifier"
+      - name: height
+        description: "The user's height"
+
