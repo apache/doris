@@ -44,7 +44,9 @@ class IOBufAsZeroCopyInputStream;
 namespace doris {
 class PPublishFilterRequestV2;
 class PMergeFilterRequest;
-class RuntimeFilter;
+class RuntimeFilterMerger;
+class RuntimeFilterProducer;
+class RuntimeFilterConsumer;
 class MemTracker;
 class MemTrackerLimiter;
 class RuntimeState;
@@ -59,7 +61,8 @@ struct LocalMergeFilters {
     int merge_time = 0;
     int merge_size_times = 0;
     uint64_t local_merged_size = 0;
-    std::vector<std::shared_ptr<RuntimeFilter>> filters;
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
     MonotonicStopWatch merge_watcher;
 };
 
@@ -83,11 +86,9 @@ public:
 
     ~RuntimeFilterMgr();
 
-    Status get_consume_filters(const int filter_id,
-                               std::vector<std::shared_ptr<RuntimeFilter>>& consumer_filters);
-    std::vector<std::shared_ptr<RuntimeFilter>> get_consume_filters(const int filter_id);
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> get_consume_filters(int filter_id);
 
-    std::shared_ptr<RuntimeFilter> try_get_product_filter(const int filter_id) {
+    std::shared_ptr<RuntimeFilterProducer> try_get_product_filter(const int filter_id) {
         std::lock_guard<std::mutex> l(_lock);
         auto iter = _producer_map.find(filter_id);
         if (iter == _producer_map.end()) {
@@ -98,17 +99,18 @@ public:
 
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id, std::shared_ptr<RuntimeFilter>* consumer_filter,
+                                    int node_id,
+                                    std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
                                     bool need_local_merge = false);
 
-    Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
-                                                const TQueryOptions& options,
-                                                std::shared_ptr<RuntimeFilter> producer_filter);
+    Status register_local_merger_filter(const TRuntimeFilterDesc& desc,
+                                        const TQueryOptions& options,
+                                        std::shared_ptr<RuntimeFilterProducer> producer_filter);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    std::shared_ptr<RuntimeFilter>* producer_filter);
+                                    std::shared_ptr<RuntimeFilterProducer>* producer_filter);
 
     // update filter by remote
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
@@ -118,10 +120,6 @@ public:
     Status sync_filter_size(const PSyncFilterSizeRequest* request);
 
 private:
-    struct ConsumerFilterHolder {
-        int node_id;
-        std::shared_ptr<RuntimeFilter> filter;
-    };
     /**
      * `_is_global = true` means this runtime filter manager menages query-level runtime filters.
      * If so, all consumers in this query shared the same RF with the same ID. For producers, all
@@ -137,8 +135,8 @@ private:
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
     // key: "filter-id"
-    std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
-    std::map<int32_t, std::shared_ptr<RuntimeFilter>> _producer_map;
+    std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map;
+    std::map<int32_t, std::shared_ptr<RuntimeFilterProducer>> _producer_map;
     std::map<int32_t, LocalMergeFilters> _local_merge_producer_map;
 
     RuntimeFilterParamsContext* _state = nullptr;
@@ -180,7 +178,7 @@ public:
         uint64_t global_size;
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
-        std::shared_ptr<RuntimeFilter> filter = nullptr;
+        std::shared_ptr<RuntimeFilterMerger> filter = nullptr;
         std::unordered_set<UniqueId> arrive_id;
         std::vector<PNetworkAddress> source_addrs;
         uint64_t local_merge_time = 0;

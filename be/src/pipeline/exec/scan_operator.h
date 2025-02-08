@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "exprs/function_filter.h"
 #include "operator.h"
-#include "pipeline/common/runtime_filter_consumer.h"
+#include "pipeline/common/runtime_filter_consumer_operator.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -62,12 +62,12 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
-class ScanLocalStateBase : public PipelineXLocalState<>, public RuntimeFilterConsumer {
+class ScanLocalStateBase : public PipelineXLocalState<>, public RuntimeFilterConsumerOperator {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
-                                    parent->row_descriptor(), _conjuncts) {}
+              RuntimeFilterConsumerOperator(parent->node_id(), parent->runtime_filter_descs(),
+                                            parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
     [[nodiscard]] virtual bool should_run_serial() const = 0;

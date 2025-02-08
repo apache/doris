@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/common/runtime_filter_consumer.h"
+#include "pipeline/common/runtime_filter_consumer_operator.h"
 
 namespace doris {
 class RuntimeState;
@@ -38,7 +38,7 @@ class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
 class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState>,
-                                                  public RuntimeFilterConsumer {
+                                                  public RuntimeFilterConsumerOperator {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
     using Base = PipelineXLocalState<MultiCastSharedState>;
@@ -91,7 +91,6 @@ public:
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::open(state));
         // init profile for runtime filter
-        // RuntimeFilterConsumer::_init_profile(local_state._shared_state->_multi_cast_data_streamer->profile());
         if (_t_data_stream_sink.__isset.output_exprs) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
                                                                  _output_expr_contexts));
