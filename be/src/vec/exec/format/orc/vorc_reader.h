@@ -81,6 +81,9 @@ class DataBuffer;
 
 namespace doris::vectorized {
 
+static const int64_t timestamp_threshold = -2177481943;
+static const int64_t timestamp_diff = 343;
+
 class ORCFileInputStream;
 
 struct LazyReadContext {
@@ -495,6 +498,14 @@ private:
                     if (!filter_data[i]) {
                         continue;
                     }
+                }
+
+                // -2177481943 represent '1900-12-31 23:54:17'
+                // but -2177481944 represent '1900-12-31 23:59:59'
+                // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+                // Reference: https://www.timeanddate.com/time/change/china/shanghai?year=1900
+                if (_ctz == "Asia/Shanghai" && data->data[i] < timestamp_threshold) {
+                    data->data[i] -= timestamp_diff;
                 }
                 v.from_unixtime(data->data[i], _time_zone);
                 if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
