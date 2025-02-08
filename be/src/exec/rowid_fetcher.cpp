@@ -472,91 +472,100 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
-    OlapReaderStatistics stats;
-    std::vector<vectorized::Block> result_blocks(request.schemas_size());
-    int64_t acquire_tablet_ms = 0;
-    int64_t acquire_rowsets_ms = 0;
-    int64_t acquire_segments_ms = 0;
-    int64_t lookup_row_data_ms = 0;
+    if (request.schemas_size()) {
+        OlapReaderStatistics stats;
+        std::vector<vectorized::Block> result_blocks(request.schemas_size());
+        int64_t acquire_tablet_ms = 0;
+        int64_t acquire_rowsets_ms = 0;
+        int64_t acquire_segments_ms = 0;
+        int64_t lookup_row_data_ms = 0;
 
-    // Add counters for different file mapping types
-    std::unordered_map<FileMappingType, int64_t> file_type_counts;
+        // Add counters for different file mapping types
+        std::unordered_map<FileMappingType, int64_t> file_type_counts;
 
-    auto id_file_map =
-            ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
-    if (!id_file_map) {
-        return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
-                                     BackendOptions::get_localhost(), print_id(request.query_id()));
-    }
-
-    for (int i = 0; i < request.schemas_size(); ++i) {
-        const auto& request_schema = request.schemas(i);
-        auto& result_block = result_blocks[i];
-        auto ret_block = response->add_blocks();
-
-        TupleDescriptor desc(request_schema.desc());
-        std::vector<SlotDescriptor> slots;
-        slots.reserve(request_schema.slots_size());
-        for (const auto& pslot : request_schema.slots()) {
-            slots.push_back(SlotDescriptor(pslot));
-            desc.add_slot(&slots.back());
+        auto id_file_map =
+                ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
+        if (!id_file_map) {
+            return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
+                                         BackendOptions::get_localhost(),
+                                         print_id(request.query_id()));
         }
 
-        TabletSchema full_read_schema;
-        for (const ColumnPB& column_pb : request_schema.column_descs()) {
-            full_read_schema.append_column(TabletColumn(column_pb));
-        }
+        for (int i = 0; i < request.schemas_size(); ++i) {
+            const auto& request_schema = request.schemas(i);
+            auto& result_block = result_blocks[i];
+            auto ret_block = response->add_blocks();
 
-        std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-
-        for (size_t j = 0; j < request_schema.row_id_size(); ++j) {
-            auto file_id = request_schema.file_id(j);
-            auto file_mapping = id_file_map->get_file_mapping(file_id);
-            if (!file_mapping) {
-                return Status::InternalError(
-                        "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                        BackendOptions::get_localhost(), print_id(request.query_id()), file_id);
+            TupleDescriptor desc(request_schema.desc());
+            std::vector<SlotDescriptor> slots;
+            slots.reserve(request_schema.slots_size());
+            for (const auto& pslot : request_schema.slots()) {
+                slots.push_back(SlotDescriptor(pslot));
+                desc.add_slot(&slots.back());
             }
 
-            // Count file mapping types
-            file_type_counts[file_mapping->type]++;
-
-            if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
-                RETURN_IF_ERROR(read_doris_format_row(
-                        file_mapping, request_schema.row_id(j), desc, full_read_schema,
-                        request.fetch_row_store(), request_schema.row_id_size(), stats,
-                        &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
-                        &lookup_row_data_ms, iterator_map, result_block, ret_block));
+            TabletSchema full_read_schema;
+            for (const ColumnPB& column_pb : request_schema.column_descs()) {
+                full_read_schema.append_column(TabletColumn(column_pb));
             }
+
+            std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+
+            for (size_t j = 0; j < request_schema.row_id_size(); ++j) {
+                auto file_id = request_schema.file_id(j);
+                auto file_mapping = id_file_map->get_file_mapping(file_id);
+                if (!file_mapping) {
+                    return Status::InternalError(
+                            "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                            BackendOptions::get_localhost(), print_id(request.query_id()), file_id);
+                }
+
+                // Count file mapping types
+                file_type_counts[file_mapping->type]++;
+
+                if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
+                    RETURN_IF_ERROR(read_doris_format_row(
+                            file_mapping, request_schema.row_id(j), desc, full_read_schema,
+                            request.fetch_row_store(), request_schema.row_id_size(), stats,
+                            &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
+                            &lookup_row_data_ms, iterator_map, result_block, ret_block));
+                }
+            }
+
+            [[maybe_unused]] size_t compressed_size = 0;
+            [[maybe_unused]] size_t uncompressed_size = 0;
+            int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
+            RETURN_IF_ERROR(result_block.serialize(be_exec_version, ret_block->mutable_block(),
+                                                   &uncompressed_size, &compressed_size,
+                                                   segment_v2::CompressionTypePB::LZ4));
         }
 
-        [[maybe_unused]] size_t compressed_size = 0;
-        [[maybe_unused]] size_t uncompressed_size = 0;
-        int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-        RETURN_IF_ERROR(result_block.serialize(be_exec_version, ret_block->mutable_block(),
-                                               &uncompressed_size, &compressed_size,
-                                               segment_v2::CompressionTypePB::LZ4));
-    }
-
-    // Build file type statistics string
-    std::string file_type_stats;
-    for (const auto& [type, count] : file_type_counts) {
-        if (!file_type_stats.empty()) {
-            file_type_stats += ", ";
+        // Build file type statistics string
+        std::string file_type_stats;
+        for (const auto& [type, count] : file_type_counts) {
+            if (!file_type_stats.empty()) {
+                file_type_stats += ", ";
+            }
+            file_type_stats += fmt::format("{}:{}", type, count);
         }
-        file_type_stats += fmt::format("{}:{}", type, count);
+
+        LOG(INFO) << "Query stats: "
+                  << fmt::format(
+                             "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+                             "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
+                             "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
+                             "lookup_row_data_ms:{}, file_types:[{}]",
+                             stats.cached_pages_num, stats.total_pages_num,
+                             stats.compressed_bytes_read, stats.io_ns,
+                             stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
+                             acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
+                             file_type_stats);
     }
 
-    LOG(INFO) << "Query stats: "
-              << fmt::format(
-                         "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
-                         "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
-                         "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
-                         "lookup_row_data_ms:{}, file_types:[{}]",
-                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
-                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                         lookup_row_data_ms, file_type_stats);
+    if (request.has_gc_id_map() && request.gc_id_map()) {
+        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
+    }
+
     return Status::OK();
 }
 

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <memory>
 
 #include "common/status.h"
@@ -32,40 +30,46 @@ class RuntimeState;
 namespace pipeline {
 class DataQueue;
 
-class CacheSinkOperatorX;
-class CacheSinkLocalState final : public PipelineXSinkLocalState<DataQueueSharedState> {
+class MaterializationSinkOperatorX;
+class MaterializationSinkLocalState final : public PipelineXSinkLocalState<DataQueueSharedState> {
 public:
-    ENABLE_FACTORY_CREATOR(CacheSinkLocalState);
-    CacheSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+    ENABLE_FACTORY_CREATOR(MaterializationSinkLocalState);
+    MaterializationSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : Base(parent, state) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    friend class CacheSinkOperatorX;
+
+private:
+    friend class MaterializationSinkOperatorX;
     using Base = PipelineXSinkLocalState<DataQueueSharedState>;
-    using Parent = CacheSinkOperatorX;
+    using Parent = MaterializationSinkOperatorX;
 };
 
-class CacheSinkOperatorX final : public DataSinkOperatorX<CacheSinkLocalState> {
+class MaterializationSinkOperatorX final : public DataSinkOperatorX<MaterializationSinkLocalState> {
 public:
-    using Base = DataSinkOperatorX<CacheSinkLocalState>;
+    using Base = DataSinkOperatorX<MaterializationSinkLocalState>;
 
-    friend class CacheSinkLocalState;
-    CacheSinkOperatorX(int sink_id, int child_id, int dest_id);
-    ~CacheSinkOperatorX() override = default;
-    Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TDataSink",
-                                     DataSinkOperatorX<CacheSinkLocalState>::_name);
+    friend class MaterializationSinkLocalState;
+    MaterializationSinkOperatorX(int sink_id, int child_id, const std::vector<int>& column_mapping,
+                                 const std::vector<bool>& need_materialize)
+            : Base(sink_id, child_id, child_id) {
+        _name = "MATERIALIZATION_SINK_OPERATOR";
     }
+    ~MaterializationSinkOperatorX() override = default;
 
+    Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    std::shared_ptr<BasicSharedState> create_shared_state() const override {
-        std::shared_ptr<BasicSharedState> ss = std::make_shared<DataQueueSharedState>();
-        ss->id = operator_id();
-        for (auto& dest : dests_id()) {
-            ss->related_op_ids.insert(dest);
-        }
-        return ss;
-    }
+    //    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+    //        std::shared_ptr<BasicSharedState> ss = std::make_shared<MaterializationSharedState>();
+    //        ss->id = operator_id();
+    //        for (auto& dest : dests_id()) {
+    //            ss->related_op_ids.insert(dest);
+    //        }
+    //        return ss;
+    //    }
+    //
+private:
 };
 
 } // namespace pipeline

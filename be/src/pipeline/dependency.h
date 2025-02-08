@@ -551,8 +551,8 @@ public:
     const int _child_count;
 };
 
-struct CacheSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(CacheSharedState)
+struct DataQueueSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(DataQueueSharedState)
 public:
     DataQueue data_queue;
 };
