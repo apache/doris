@@ -999,7 +999,7 @@ public class Column implements GsonPostProcessable {
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
-                sb.append(" DEFAULT ").append(defaultValue).append("");
+                sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
             } else {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
