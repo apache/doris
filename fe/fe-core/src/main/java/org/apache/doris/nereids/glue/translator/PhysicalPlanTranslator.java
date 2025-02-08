@@ -1916,7 +1916,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> allProjectionExprs = Lists.newArrayList();
         List<Slot> slots = null;
         // TODO FE/BE do not support multi-layer-project on MultiDataSink now.
-        if (project.hasMultiLayerProjection() && !(inputFragment instanceof MultiCastPlanFragment)) {
+        if (project.hasMultiLayerProjection()
+                && !(inputFragment instanceof MultiCastPlanFragment)
+                // TODO support for two phase read with project, remove it after refactor
+                && !(project.child() instanceof PhysicalDeferMaterializeTopN)
+                && !(project.child() instanceof PhysicalDeferMaterializeOlapScan
+                || (project.child() instanceof PhysicalFilter
+                && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
             int layerCount = project.getMultiLayerProjects().size();
             for (int i = 0; i < layerCount; i++) {
                 List<NamedExpression> layer = project.getMultiLayerProjects().get(i);
@@ -2024,37 +2030,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         if (inputPlanNode instanceof ScanNode) {
-            TupleDescriptor projectionTuple = null;
-            // slotIdsByOrder is used to ensure the ScanNode's output order is same with current Project
-            // if we change the output order in translate project, the upper node will receive wrong order
-            // tuple, since they get the order from project.getOutput() not scan.getOutput()./
-            projectionTuple = generateTupleDesc(slots,
-                    ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
-            inputPlanNode.setProjectList(projectionExprs);
-            inputPlanNode.setOutputTupleDesc(projectionTuple);
-
-            // TODO: this is a temporary scheme to support two phase read when has project.
-            //  we need to refactor all topn opt into rbo stage.
+            // TODO support for two phase read with project, remove this if after refactor
+            if (!(project.child() instanceof PhysicalDeferMaterializeOlapScan
+                    || (project.child() instanceof PhysicalFilter
+                    && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
+                TupleDescriptor projectionTuple = generateTupleDesc(slots,
+                        ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+                inputPlanNode.setProjectList(projectionExprs);
+                inputPlanNode.setOutputTupleDesc(projectionTuple);
+            }
             if (inputPlanNode instanceof OlapScanNode) {
-                ArrayList<SlotDescriptor> olapScanSlots =
-                        context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
-                SlotDescriptor lastSlot = olapScanSlots.get(olapScanSlots.size() - 1);
-                if (lastSlot.getColumn() != null
-                        && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
-                    injectRowIdColumnSlot(projectionTuple);
-                    SlotRef slotRef = new SlotRef(lastSlot);
-                    inputPlanNode.getProjectList().add(slotRef);
-                    requiredByProjectSlotIdSet.add(lastSlot.getId());
-                    requiredSlotIdSet.add(lastSlot.getId());
-                }
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
         } else {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-            inputPlanNode.setProjectList(projectionExprs);
-            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            if (project.child() instanceof PhysicalDeferMaterializeTopN) {
+                inputFragment.setOutputExprs(projectionExprs);
+            } else {
+                TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+                inputPlanNode.setProjectList(projectionExprs);
+                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            }
         }
         return inputFragment;
     }
