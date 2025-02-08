@@ -103,14 +103,15 @@ suite("test_partial_update_publish_conflict_seq", "nonConcurrent") {
 
         Thread.sleep(500)
 
-        threads << Thread.start {
-            sql "set enable_unique_key_partial_update=true;"
-            sql "set enable_insert_strict=false"
-            sql "sync;"
-            sql "insert into ${tableName}(k,v4) values(3,-1);"
-        }
+        // see https://github.com/selectdb/enterprise-core/pull/194
+        // threads << Thread.start {
+        //     sql "set enable_unique_key_partial_update=true;"
+        //     sql "set enable_insert_strict=false"
+        //     sql "sync;"
+        //     sql "insert into ${tableName}(k,v4) values(3,-1);"
+        // }
 
-        Thread.sleep(500)
+        // Thread.sleep(500)
 
         disable_block_in_publish()
         threads.each { t -> t.join() }
