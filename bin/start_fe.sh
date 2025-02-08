@@ -216,8 +216,16 @@ for f in "${DORIS_HOME}/lib"/*.jar; do
 done
 
 # add custom_libs to CLASSPATH
+# ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
+    done
+fi
+
+# add plugins/java_extensions to CLASSPATH
+if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
+    for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
         CLASSPATH="${CLASSPATH}:${f}"
     done
 fi

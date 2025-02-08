@@ -141,7 +141,7 @@ public class Config extends ConfigBase {
     public static boolean check_table_lock_leaky = false;
 
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
-    public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+    public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true, description = {"是否启用插件", "Whether to enable the plugin"})
     public static boolean plugin_enable = true;
@@ -150,7 +150,7 @@ public class Config extends ConfigBase {
             "JDBC 驱动的存放路径。在创建 JDBC Catalog 时，如果指定的驱动文件路径不是绝对路径，则会在这个目录下寻找",
             "The path to save jdbc drivers. When creating JDBC Catalog,"
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
-    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
+    public static String jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
 
     @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
             + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
@@ -201,10 +201,10 @@ public class Config extends ConfigBase {
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
 
     @ConfField(description = {"元数据的存储目录", "The directory to save Doris meta data"})
-    public static String meta_dir = System.getenv("DORIS_HOME") + "/doris-meta";
+    public static String meta_dir =  EnvUtils.getDorisHome() + "/doris-meta";
 
     @ConfField(description = {"临时文件的存储目录", "The directory to save Doris temp data"})
-    public static String tmp_dir = System.getenv("DORIS_HOME") + "/temp_dir";
+    public static String tmp_dir =  EnvUtils.getDorisHome() + "/temp_dir";
 
     @ConfField(description = {"元数据日志的存储类型。BDB: 日志存储在 BDBJE 中。LOCAL：日志存储在本地文件中（仅用于测试）",
             "The storage type of the metadata log. BDB: Logs are stored in BDBJE. "
@@ -359,7 +359,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"FE https 服务的 key store 路径",
             "The key store path of FE https service"})
-    public static String key_store_path = System.getenv("DORIS_HOME")
+    public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
     @ConfField(description = {"FE https 服务的 key store 密码",
@@ -631,7 +631,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Spark Load 所使用的 Spark 程序目录",
             "Spark dir for Spark Load"})
-    public static String spark_home_default_dir = System.getenv("DORIS_HOME") + "/lib/spark2x";
+    public static String spark_home_default_dir =  EnvUtils.getDorisHome() + "/lib/spark2x";
 
     @ConfField(description = {"Spark load 所使用的依赖项目录", "Spark dependencies dir for Spark Load"})
     public static String spark_resource_path = "";
@@ -640,10 +640,10 @@ public class Config extends ConfigBase {
     public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
 
     @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
-    public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
+    public static String yarn_client_path =  EnvUtils.getDorisHome() + "/lib/yarn-client/hadoop/bin/yarn";
 
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
-    public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
+    public static String yarn_config_dir =  EnvUtils.getDorisHome() + "/lib/yarn-config";
 
     @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
             "Default timeout for ingestion load job, in seconds."})
@@ -1293,7 +1293,7 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField
-    public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
+    public static String small_file_dir =  EnvUtils.getDorisHome() + "/small_files";
 
     /**
      * This will limit the max recursion depth of hash distribution pruner.
@@ -2376,14 +2376,14 @@ public class Config extends ConfigBase {
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_ca_certificate = System.getenv("DORIS_HOME")
+    public static String mysql_ssl_default_ca_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/ca_certificate.p12";
 
     /**
      * Default server certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_server_certificate = System.getenv("DORIS_HOME")
+    public static String mysql_ssl_default_server_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/server_certificate.p12";
 
     /**
@@ -2915,7 +2915,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;

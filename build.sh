@@ -757,7 +757,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
-    mkdir -p "${DORIS_OUTPUT}/fe/connectors"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -884,7 +888,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
-    mkdir -p "${DORIS_OUTPUT}/be/connectors"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

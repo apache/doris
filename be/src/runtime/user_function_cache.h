@@ -76,6 +76,8 @@ private:
     std::string _get_file_name_from_url(const std::string& url) const;
     std::vector<std::string> _split_string_by_checksum(const std::string& file);
 
+    std::string _check_and_return_default_driver_url(const std::string& url);
+
 private:
     std::string _lib_dir;
     void* _current_process_handle = nullptr;
