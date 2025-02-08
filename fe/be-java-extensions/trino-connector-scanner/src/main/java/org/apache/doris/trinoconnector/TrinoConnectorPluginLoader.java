@@ -40,7 +40,7 @@ import java.util.logging.SimpleFormatter;
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
 
-    private static String pluginsDir = EnvUtils.getDorisHome() + "/connectors";
+    private static String pluginsDir = EnvUtils.getDorisHome() + "/plugins/connectors";
 
     // Suppress default constructor for noninstantiability
     private TrinoConnectorPluginLoader() {
@@ -72,7 +72,7 @@ public class TrinoConnectorPluginLoader {
                 TypeRegistry typeRegistry = new TypeRegistry(typeOperators, featuresConfig);
 
                 ServerPluginsProviderConfig serverPluginsProviderConfig = new ServerPluginsProviderConfig()
-                        .setInstalledPluginsDir(new File(pluginsDir));
+                        .setInstalledPluginsDir(new File(checkAndReturnPluginDir()));
                 ServerPluginsProvider serverPluginsProvider = new ServerPluginsProvider(serverPluginsProviderConfig,
                         MoreExecutors.directExecutor());
                 HandleResolver handleResolver = new HandleResolver();
@@ -80,7 +80,8 @@ public class TrinoConnectorPluginLoader {
                         typeRegistry, handleResolver);
                 trinoConnectorPluginManager.loadPlugins();
             } catch (Exception e) {
-                LOG.warn("Failed load trino-connector plugins from  " + pluginsDir + ", Exception:" + e.getMessage());
+                LOG.warn("Failed load trino-connector plugins from  " + checkAndReturnPluginDir()
+                        + ", Exception:" + e.getMessage(), e);
             }
         }
     }
@@ -88,6 +89,29 @@ public class TrinoConnectorPluginLoader {
     // called by c++
     public static void setPluginsDir(String pluginsDir) {
         TrinoConnectorPluginLoader.pluginsDir = pluginsDir;
+    }
+
+    private static String checkAndReturnPluginDir() {
+        final String defaultDir = System.getenv("DORIS_HOME") + "/plugins/connectors";
+        final String defaultOldDir = System.getenv("DORIS_HOME") + "/connectors";
+        if (TrinoConnectorPluginLoader.pluginsDir.equals(defaultDir)) {
+            // If true, which means user does not set `trino_connector_plugin_dir` and use the default one.
+            // Because in 2.1.8, we change the default value of `trino_connector_plugin_dir`
+            // from `DORIS_HOME/connectors` to `DORIS_HOME/plugins/connectors`,
+            // so we need to check the old default dir for compatibility.
+            File oldDir = new File(defaultOldDir);
+            if (oldDir.exists() && oldDir.isDirectory()) {
+                String[] contents = oldDir.list();
+                if (contents != null && contents.length > 0) {
+                    // there are contents in old dir, use old one
+                    return defaultOldDir;
+                }
+            }
+            return defaultDir;
+        } else {
+            // Return user specified dir directly.
+            return TrinoConnectorPluginLoader.pluginsDir;
+        }
     }
 
     public static TrinoConnectorPluginManager getTrinoConnectorPluginManager() {
