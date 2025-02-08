@@ -784,7 +784,8 @@ public class SessionVariable implements Serializable, Writable {
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, needForward = true, checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
+    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, needForward = true,
+            checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
     private int queryTimeoutS = 900;
 
     // query timeout in second.
