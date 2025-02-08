@@ -434,6 +434,10 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
                     return;
                 }
                 txn->put(ver_key, ver_val);
+                LOG_INFO("put partition_version_key")
+                        .tag("key", hex(ver_key))
+                        .tag("partition_id", request->partition_ids(i))
+                        .tag("version", request->partition_versions(i));
             }
             continue;
         }

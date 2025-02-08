@@ -20,7 +20,6 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <fmt/format.h>
-#include <mutex>
 #include <map>
 #include <unordered_map>
 
@@ -78,27 +77,28 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
         TabletMetaPB tablet_meta_pb;
         tablet_meta.to_meta_pb(&tablet_meta_pb);
 
-        tablet_meta_pb.clear_rs_metas();
-        tablet_meta_pb.clear_stale_rs_metas();
-        for (auto& rs : tablet_meta.all_rs_metas()) {
-            rs->to_rowset_pb(tablet_meta_pb.add_rs_metas());
+        tablet_meta_pb.clear_rs_metas(); // copy the rs meta
+        if (tablet_meta.all_rs_metas().size() > 0) {
+            tablet_meta_pb.mutable_inc_rs_metas()->Reserve(tablet_meta.all_rs_metas().size());
+            for (auto& rs : tablet_meta.all_rs_metas()) {
+                rs->to_rowset_pb(tablet_meta_pb.add_rs_metas());
+            }
         }
-        for (auto& rs : tablet_meta.all_stale_rs_metas()) {
-            rs->to_rowset_pb(tablet_meta_pb.add_stale_rs_metas());
+        tablet_meta_pb.clear_stale_rs_metas(); // copy the stale rs meta
+        if (tablet_meta.all_stale_rs_metas().size() > 0) {
+            tablet_meta_pb.mutable_stale_rs_metas()->Reserve(tablet_meta.all_stale_rs_metas().size());
+            for (auto& rs : tablet_meta.all_stale_rs_metas()) {
+                rs->to_rowset_pb(tablet_meta_pb.add_stale_rs_metas());
+            }
         }
 
-        TabletMetaPB new_tablet_meta_pb;
         // 2. convert rowsets
+        TabletMetaPB new_tablet_meta_pb;
         RETURN_IF_ERROR(convert_rowsets(&new_tablet_meta_pb, tablet_meta_pb, target_tablet_id,
                                         target_tablet, storage_resource, file_mapping));
-        std::string meta_binary;
-        if (!new_tablet_meta_pb.SerializeToString(&meta_binary)) {
-            return Status::InternalError("Failed to serialize TabletMetaPB.");
-        }
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            tablet_meta_map[target_tablet_id] = meta_binary;
-        }
+
+        // 3. send make snapshot request
+        RETURN_IF_ERROR(_engine.meta_mgr().make_snapshot(new_tablet_meta_pb, true));
         return Status::OK();
     }
 
@@ -108,11 +108,22 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
     return Status::OK();
 }
 
+Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
+    SCOPED_ATTACH_TASK(_mem_tracker);
+    CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
+    if (tablet == nullptr) {
+        return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", tablet_id);
+    }
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_snapshot(tablet_id));
+    tablet->clear_cache();
+    LOG(INFO) << "success to commit snapshot. [tablet_id=" << tablet_id << "]";
+    return Status::OK();
+}
+
 Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id) {
     SCOPED_ATTACH_TASK(_mem_tracker);
-    std::lock_guard<std::mutex> lock(mutex);
-    tablet_meta_map.erase(tablet_id);
-    LOG(INFO) << "success to release snapshot path. [tablet_id=" << tablet_id << "]";
+    RETURN_IF_ERROR(_engine.meta_mgr().release_snapshot(tablet_id));
+    LOG(INFO) << "success to release snapshot. [tablet_id=" << tablet_id << "]";
     return Status::OK();
 }
 
@@ -126,11 +137,15 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
     out->clear_rs_metas();
     out->clear_inc_rs_metas();
     out->clear_stale_rs_metas();
-    // modify tablet id
+    // modify id
     out->set_tablet_id(tablet_id);
     *out->mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     out->set_table_id(target_tablet->table_id());
     out->set_partition_id(target_tablet->partition_id());
+    out->set_index_id(target_tablet->index_id());
+    PUniqueId* cooldown_meta_id = out->mutable_cooldown_meta_id();
+    cooldown_meta_id->set_hi(0);
+    cooldown_meta_id->set_lo(0);
 
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(in.schema());
@@ -157,37 +172,6 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
     return Status::OK();
 }
 
-// TODO(xy): we should commit tablet meta in single request
-Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
-    std::string meta_binary_to_commit;
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        auto it = tablet_meta_map.find(tablet_id);
-        if (it == tablet_meta_map.end()) {
-            return Status::NotFound("No tablet meta found for tablet_id: " + std::to_string(tablet_id));
-        }
-        meta_binary_to_commit = std::move(it->second);
-        tablet_meta_map.erase(it);
-    }
-    TabletMetaPB tablet_meta_pb;
-    if (!tablet_meta_pb.ParseFromString(meta_binary_to_commit)) {
-        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
-                "fail to parse file content to protobuf object. file={}.");
-    }
-    for (auto&& rowset_meta_pb : tablet_meta_pb.rs_metas()) {
-        RowsetMeta rowset_meta;
-        rowset_meta.init_from_pb(rowset_meta_pb);
-        RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(rowset_meta));
-    }
-    for (auto&& stale_rowset_pb : tablet_meta_pb.stale_rs_metas()) {
-        RowsetMeta rowset_meta;
-        rowset_meta.init_from_pb(stale_rowset_pb);
-        RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(rowset_meta));
-    }
-    return Status::OK();
-}
-
 Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, const RowsetMetaPB& source_meta_pb,
                                              int64_t target_tablet_id, CloudTabletSPtr& target_tablet,
                                              StorageResource& storage_resource, TabletSchemaSPtr tablet_schema,
@@ -198,13 +182,13 @@ Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, c
     context.tablet_id = target_tablet_id;
     context.partition_id = target_tablet->partition_id();
     context.index_id = target_tablet->index_id();
-    context.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
-                         std::numeric_limits<int64_t>::max();
+    // Note: use origin txn id
+    context.txn_id = source_meta_pb.txn_id();
     context.txn_expiration = 0;
-    context.rowset_state = PREPARED;
+    context.rowset_state = source_meta_pb.rowset_state();
     context.storage_resource = storage_resource;
     context.tablet = target_tablet;
-    context.version = context.version = {source_meta_pb.start_version(), source_meta_pb.end_version()};
+    context.version = {source_meta_pb.start_version(), source_meta_pb.end_version()};
     context.segments_overlap = source_meta_pb.segments_overlap_pb();
     context.tablet_schema_hash = source_meta_pb.tablet_schema_hash();
     if (source_meta_pb.has_tablet_schema()) {
@@ -216,9 +200,8 @@ Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, c
     context.newest_write_timestamp = source_meta_pb.newest_write_timestamp();
 
     auto rs_writer = DORIS_TRY(RowsetFactory::create_rowset_writer(_engine, context, false));
-    // TODO(xy): we should prepare the tablet meta in single request
     // prepare rowsets
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*rs_writer->rowset_meta()));
+    // RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*rs_writer->rowset_meta()));
     rs_writer->rowset_meta()->to_rowset_pb(new_rowset_meta_pb);
 
     // build file mapping
