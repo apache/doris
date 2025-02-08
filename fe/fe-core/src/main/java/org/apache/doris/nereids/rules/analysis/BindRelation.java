@@ -251,7 +251,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Slot> childOutputSlots = olapScan.computeOutput();
         List<Expression> groupByExpressions = new ArrayList<>();
         List<NamedExpression> outputExpressions = new ArrayList<>();
-        List<Column> columns = olapTable.getBaseSchema();
+        List<Column> columns = olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId());
 
         for (Column col : columns) {
             // use exist slot in the plan
