@@ -599,38 +599,6 @@ public abstract class ConnectProcessor {
 
         if (request.isSetSessionVariables()) {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
-        } else {
-            // For compatibility, all following variables are moved to SessionVariables.
-            // Should move in future.
-            if (request.isSetTimeZone()) {
-                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-            }
-            if (request.isSetSqlMode()) {
-                ctx.getSessionVariable().setSqlMode(request.sqlMode);
-            }
-            if (request.isSetEnableStrictMode()) {
-                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
-            }
-            if (request.isSetCurrentUserIdent()) {
-                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-                ctx.setCurrentUserIdentity(currentUserIdentity);
-            }
-            if (request.isSetInsertVisibleTimeoutMs()) {
-                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
-            }
-        }
-
-        if (request.isSetQueryOptions()) {
-            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
-        } else {
-            // For compatibility, all following variables are moved to TQueryOptions.
-            // Should move in future.
-            if (request.isSetExecMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
-            }
-            if (request.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-            }
         }
 
         if (request.isSetUserVariables()) {
