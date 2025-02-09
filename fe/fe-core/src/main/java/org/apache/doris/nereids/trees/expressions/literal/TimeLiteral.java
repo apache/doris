@@ -84,8 +84,7 @@ public class TimeLiteral extends Literal {
     }
 
     protected void init(String s) throws AnalysisException {
-        // should like be/src/vec/runtime/vdatetime_value.h
-        // TimeV2ValueType's from_time_str()
+        // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
         if (!s.contains(":")) {
             boolean neg = false;
             String tail = "";

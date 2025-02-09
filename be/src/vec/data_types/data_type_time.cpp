@@ -33,7 +33,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/runtime/time_value.h"
 
 namespace doris {
 namespace vectorized {
@@ -84,9 +84,9 @@ MutableColumnPtr DataTypeTimeV2::create_column() const {
 
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
     const int32_t scale = node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
-    TimeV2ValueType value;
-    if (value.from_time_str(node.time_literal.value.c_str(), scale)) {
-        return value.to_double_val();
+    double v;
+    if (TimeValue::timev2_to_double_from_str(node.time_literal.value.c_str(), v, scale)) {
+        return v;
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "Invalid value: {} for type TimeV2", node.time_literal.value);

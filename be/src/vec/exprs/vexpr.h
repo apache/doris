@@ -36,6 +36,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "util/date_func.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -488,10 +489,10 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
-        const auto* origin_value = reinterpret_cast<const TimeV2ValueType*>(data);
+        const auto* origin_value = reinterpret_cast<const double*>(data);
         TTimeLiteral time_literal;
         char convert_buffer[30] {};
-        origin_value->to_string(convert_buffer);
+        time_to_buffer_from_double(*origin_value, convert_buffer);
         time_literal.__set_value(convert_buffer);
         (*node).__set_time_literal(time_literal);
         (*node).__set_node_type(TExprNodeType::TIME_LITERAL);

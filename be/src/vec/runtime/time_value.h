@@ -81,6 +81,67 @@ public:
     static TimeType from_second(int64_t sec) {
         return static_cast<TimeType>(sec * ONE_SECOND_MICROSECONDS);
     }
+
+    static bool timev2_to_double_from_str(const char* str, double& v, int scale = 6) {
+        // like fe/fe-core/src/main/java/org/apache/doris/analysis/TimeLiteral.java and
+        // fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/literal/TimeLiteral.java
+        // init function to parse str
+        std::string s(str);
+        bool neg;
+        int64_t hour, minute, second, microsecond;
+        if (s[0] == '-') {
+            neg = true;
+            s = s.substr(1);
+        }
+        if (s.find(':') == std::string::npos) {
+            std::string tail;
+            if (auto idx = s.find('.'); idx != std::string::npos) {
+                tail = s.substr(idx);
+                s = s.substr(0, idx);
+            }
+            auto len = s.length();
+            if (len == 1) {
+                s = "00:00:0" + s;
+            } else if (len == 2) {
+                s = "00:00:" + s;
+            } else if (len == 3) {
+                s = std::string("00:0") + s[0] + ":" + s.substr(1);
+            } else if (len == 4) {
+                s = "00:" + s.substr(0, 2) + ":" + s.substr(2);
+            } else {
+                s = s.substr(0, len - 4) + ":" + s.substr(len - 4, len - 2) + ":" +
+                    s.substr(len - 2);
+            }
+            if (neg) {
+                s = '-' + s;
+            }
+            s = s + tail;
+        }
+        if (!std::all_of(s.begin(), s.end(),
+                         [](char c) { return c == '.' || isdigit(c) || c == ':'; })) {
+            return false;
+        }
+        if (s.find(':') == s.rfind(':')) {
+            s += ":00";
+        }
+        auto p1 = s.find(':');
+        auto p2 = s.rfind(':');
+        auto p3 = s.find('.');
+        hour = std::stoi(s.substr(0, p1));
+        minute = std::stoi(s.substr(p1 + 1, p2 - p1));
+        if (p3 != std::string::npos) {
+            second = std::stoi(s.substr(p2 + 1, p3 - p2));
+            // Supplement 0 to save 6 digits while satisfying precision
+            microsecond =
+                    std::stoi(s.substr(p3 + 1, scale) +
+                              std::string(std::max(6 - scale, 7 - (int)s.length() + (int)p3), '0'));
+        } else {
+            second = std::stoi(s.substr(p2 + 1));
+            microsecond = 0;
+        }
+        v = make_time(hour, minute, second, microsecond);
+        return check_over_max_time(v);
+    }
 };
 
 } // namespace doris

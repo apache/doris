@@ -169,6 +169,12 @@ struct TimeCast {
             num = int_value;
             return true;
         };
+        bool neg {};
+        if (*first_char == '-') {
+            neg = true;
+            first_char++;
+            len--;
+        }
         if (char* first_colon {nullptr};
             (first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
             if (char* second_colon {nullptr};
@@ -202,17 +208,18 @@ struct TimeCast {
             }
         } else {
             // no colon ,so try to parse as a number
-            size_t from {};
+            int64_t from {};
             if (!parse_from_str_to_int(first_char, len, from)) {
                 return false;
             }
+            from *= (neg ? -1 : 1);
             return try_parse_time(from, x, local_time_zone);
         }
         // minute second must be < 60
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = TimeValue::make_time(hour, minute, second);
+        x = TimeValue::make_time(hour, minute, second) * (neg ? -1 : 1);
         return true;
     }
     // Cast from number
