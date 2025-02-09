@@ -748,10 +748,10 @@ public class SessionVariable implements Serializable, Writable {
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
-    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
     public long maxExecMemByte = 2147483648L;
 
-    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
             description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
                     "How many bytes of block can be saved in the block queue of each Scan Instance"})
     // 100MB
@@ -784,7 +784,8 @@ public class SessionVariable implements Serializable, Writable {
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
+    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, needForward = true,
+            checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
     private int queryTimeoutS = 900;
 
     // query timeout in second.
@@ -804,7 +805,7 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setMaxExecutionTimeMS")
     public int maxExecutionTimeMS = 900000;
 
-    @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
+    @VariableMgr.VarAttr(name = INSERT_TIMEOUT, needForward = true)
     public int insertTimeoutS = 14400;
 
     // if true, need report to coordinator when plan fragment execute successfully.
@@ -4195,23 +4196,6 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetAnalyzeTimeout()) {
             setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
         }
-    }
-
-    /**
-     * Get all variables which need to be set in TQueryOptions.
-     **/
-    public TQueryOptions getQueryOptionVariables() {
-        TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setMemLimit(maxExecMemByte);
-        queryOptions.setScanQueueMemLimit(maxScanQueueMemByte);
-        queryOptions.setNumScannerThreads(numScannerThreads);
-        queryOptions.setMinScannerConcurrency(minScannerConcurrency);
-        queryOptions.setMinScanSchedulerConcurrency(minScanSchedulerConcurrency);
-        queryOptions.setQueryTimeout(queryTimeoutS);
-        queryOptions.setInsertTimeout(insertTimeoutS);
-        queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
-        queryOptions.setBeExecVersion(Config.be_exec_version);
-        return queryOptions;
     }
 
     /**
