@@ -152,12 +152,13 @@ Status HDFSCommonBuilder::set_kerberos_ticket_cache() {
     config.set_refresh_interval(config::kerberos_refresh_interval_second);
     config.set_min_time_before_refresh(600);
     kerberos::KerberosTicketMgr* ticket_mgr = ExecEnv::GetInstance()->kerberos_ticket_mgr();
-    // the life cycle of string "ticket_cache_file" must be same as hdfs_builder,
-    // so here we need to use the ticket_cache_file instead of a temp string
     RETURN_IF_ERROR(ticket_mgr->get_or_set_ticket_cache(config, &ticket_cache));
-    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_cache->get_ticket_cache_path().c_str());
+    // ATTN, can't use ticket_cache->get_ticket_cache_path() directly,
+    // it may cause the kerberos ticket cache path in libhdfs is empty,
+    kerberos_ticket_path = ticket_cache->get_ticket_cache_path();
+    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, kerberos_ticket_path.c_str());
     hdfsBuilderSetForceNewInstance(hdfs_builder);
-    LOG(INFO) << "get kerberos ticket path: " << ticket_cache->get_ticket_cache_path()
+    LOG(INFO) << "get kerberos ticket path: " << kerberos_ticket_path
               << " with principal: " << hdfs_kerberos_principal;
     return Status::OK();
 }

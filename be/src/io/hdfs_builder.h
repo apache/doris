@@ -83,6 +83,7 @@ private:
     std::string hadoop_user;
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
+    std::string kerberos_ticket_path;
     std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;
     std::unordered_map<std::string, std::string> hdfs_conf;
 };
