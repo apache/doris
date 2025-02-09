@@ -1635,7 +1635,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
 template <TimeUnit unit, bool need_check>
 bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
     }
@@ -1825,7 +1825,7 @@ void VecDateTimeValue::unchecked_set_time(uint32_t year, uint32_t month, uint32_
 
 template <TimeUnit unit>
 bool VecDateTimeValue::datetime_trunc() {
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return false;
     }
     switch (unit) {
@@ -2704,7 +2704,7 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
     // if this is an invalid date, write nothing(instead of 0000-00-00) to output string, or else
     // it will cause problem for null DataTypeDateV2 value in cast function,
     // e.g. cast(cast(null_date as char) as date)
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return 0;
     }
     char* start = buffer;
@@ -2904,7 +2904,7 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
 template <typename T>
 template <TimeUnit unit, typename TO>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return false;
     }
 
@@ -2977,7 +2977,7 @@ template <typename T>
 template <TimeUnit unit, bool need_check>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
     }
@@ -3088,7 +3088,7 @@ template <typename T>
 template <TimeUnit unit>
 bool DateV2Value<T>::datetime_trunc() {
     if constexpr (is_datetime) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
         switch (unit) {
@@ -3161,7 +3161,7 @@ bool DateV2Value<T>::datetime_trunc() {
             return false;
         }
     } else { // is_datev2
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
         switch (unit) {
