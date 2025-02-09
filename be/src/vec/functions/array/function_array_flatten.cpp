@@ -77,7 +77,7 @@ public:
                 offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
             }
             src_column_array_ptr = nested_src_column_array_ptr;
-            src_data_type_array = 
+            src_data_type_array =
                     assert_cast<const DataTypeArray*>(src_data_type_array.get())->get_nested_type();
         }
 
