@@ -1801,10 +1801,12 @@ build_icu() {
     cd "${BUILD_DIR}"
 
     ../configure --prefix="${TP_INSTALL_DIR}" \
-        --disable-shared \
         --enable-static \
+        --disable-shared \
+        --enable-release \
+        --disable-tests \
         --disable-samples \
-        --disable-tests
+        --disable-fuzzer
 
     make -j "${PARALLEL}"
     make install
