@@ -83,7 +83,7 @@ MutableColumnPtr DataTypeTimeV2::create_column() const {
 }
 
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
-    const int32_t scale = node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
+    const int32_t scale = node.type.types.empty() ? 0 : node.type.types.front().scalar_type.scale;
     double v;
     if (TimeValue::timev2_to_double_from_str(node.time_literal.value.c_str(), v, scale)) {
         return v;
