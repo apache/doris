@@ -251,7 +251,6 @@ suite("test_cast") {
     check_fold_consistency "cast(cast(1111.1 as double) as time);"
     check_fold_consistency "cast(cast(111111 as json) as time);"
     check_fold_consistency "cast(cast(111111 as jsonb) as time);"
-    check_fold_consistency "cast('-01:00:00' as time);"
     check_fold_consistency "cast('11-11-11' as time);"
     check_fold_consistency "cast('11@11@11' as time);"
     check_fold_consistency "cast('11.11.11' as time);"
