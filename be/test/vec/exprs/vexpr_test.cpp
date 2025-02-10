@@ -21,6 +21,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
@@ -35,12 +36,14 @@
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 #include "vec/columns/columns_number.h"
+#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/exprs/vexpr_context.h"
@@ -263,6 +266,13 @@ struct literal_traits<TYPE_DECIMALV2> {
     using CXXType = std::string;
 };
 
+template <>
+struct literal_traits<TYPE_TIMEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::TIMEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::TIME_LITERAL;
+    using CXXType = std::string;
+};
+
 //======================== set literal ===================================
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires std::is_integral_v<U>
@@ -348,6 +358,14 @@ void set_literal(TExprNode& node, const U& value) {
     TDecimalLiteral decimal_literal;
     decimal_literal.__set_value(value);
     node.__set_decimal_literal(decimal_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_TIMEV2)
+void set_literal(TExprNode& node, const U& value) {
+    TTimeLiteral time_literal;
+    time_literal.__set_value(value);
+    node.__set_time_literal(time_literal);
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
@@ -575,5 +593,16 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
+    }
+    // timev2
+    {
+        VLiteral literal(create_literal<TYPE_TIMEV2, std::string>(std::string("12:00:00.0000"), 4));
+        Block block;
+        int ret = -1;
+        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<Float64>();
+        EXPECT_FLOAT_EQ(v / 1000000, 12 * 60 * 60);
+        EXPECT_EQ("12:00:00.0000", literal.value());
     }
 }

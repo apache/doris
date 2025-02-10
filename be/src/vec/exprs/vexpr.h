@@ -489,6 +489,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
+        // the code use for runtime filter but we dont support timev2 as predicate now
+        // so this part not used
         const auto* origin_value = reinterpret_cast<const double*>(data);
         TTimeLiteral time_literal;
         char convert_buffer[30] {};

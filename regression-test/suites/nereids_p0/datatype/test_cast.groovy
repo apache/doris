@@ -184,6 +184,14 @@ suite("test_cast") {
         sql "select cast(cast('11:11:11' as time) as quantile_state);"
         exception "cannot cast"
     }
+    test {
+        sql "select cast(cast('11:11:11' as time) as datetimev2);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('11:11:11' as time) as datev2);"
+        exception "cannot cast"
+    }
 
     qt_sql8 "select cast('-01:00:00' as time);"
     qt_sql9 "select cast('00:-01:00' as time);"
@@ -283,6 +291,14 @@ suite("test_cast") {
     }
     test {
         sql "select cast(cast(1111 as ipv6) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('2025-01-25 11:11:11' as datetimev2) as time);"
+        exception "cannot cast"
+    }
+    test {
+        sql "select cast(cast('2025-01-25' as datev2) as time);"
         exception "cannot cast"
     }
 
