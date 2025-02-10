@@ -57,6 +57,7 @@ statementBase
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedRefreshStatement         #supportedRefreshStatementAlias
+    | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedLoadStatement            #supportedLoadStatementAlias
     | supportedCancelStatement          #supportedCancelStatementAlias
@@ -709,6 +710,10 @@ unsupportedDropStatement
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
+supportedStatsStatement
+    : SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
+    ;
+
 unsupportedStatsStatement
     : ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
@@ -736,7 +741,6 @@ unsupportedStatsStatement
     | SHOW AUTO? ANALYZE tableName=multipartIdentifier? wildWhere?              #showAnalyze
     | SHOW ANALYZE jobId=INTEGER_VALUE wildWhere?                               #showAnalyzeFromJobId
     | SHOW AUTO JOBS tableName=multipartIdentifier? wildWhere?                  #showAutoAnalyzeJobs
-    | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
 analyzeProperties
