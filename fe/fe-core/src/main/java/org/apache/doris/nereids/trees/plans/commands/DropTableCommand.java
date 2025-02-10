@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -37,12 +38,12 @@ import com.google.common.base.Strings;
 public class DropTableCommand extends Command implements ForwardWithSync {
 
     private boolean ifExists;
-    private final TableName tableName;
+    private final TableNameInfo tableName;
     private final boolean isView;
     private boolean forceDrop;
     private boolean isMaterializedView;
 
-    public DropTableCommand(boolean ifExists, TableName tableName, boolean forceDrop) {
+    public DropTableCommand(boolean ifExists, TableNameInfo tableName, boolean forceDrop) {
         super(PlanType.DROP_TABLE_COMMAND);
         this.ifExists = ifExists;
         this.tableName = tableName;
@@ -50,7 +51,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         this.forceDrop = forceDrop;
     }
 
-    public DropTableCommand(boolean ifExists, TableName tableName, boolean isView, boolean forceDrop) {
+    public DropTableCommand(boolean ifExists, TableNameInfo tableName, boolean isView, boolean forceDrop) {
         super(PlanType.DROP_TABLE_COMMAND);
         this.ifExists = ifExists;
         this.tableName = tableName;

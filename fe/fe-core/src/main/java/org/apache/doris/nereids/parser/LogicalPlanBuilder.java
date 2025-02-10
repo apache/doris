@@ -5237,8 +5237,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         boolean ifExists = ctx.EXISTS() != null;
         boolean forceDrop = ctx.FORCE() != null;
-        TableName tblName = new TableName(ctlName, dbName, tableName);
-        return new DropTableCommand(ifExists, tblName, forceDrop);
+        TableNameInfo tblNameInfo = new TableNameInfo(dbName, tableName);
+        return new DropTableCommand(ifExists, tblNameInfo, forceDrop);
     }
 
     @Override
