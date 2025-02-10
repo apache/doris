@@ -303,7 +303,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
                                                        txn_expiration, tablet_delete_bitmap);
         }
-        update_delete_bitmap_time_us = MonotonicMicros() - t3;
     }
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to calculate delete bitmap. rowset_id=" << rowset->rowset_id()
