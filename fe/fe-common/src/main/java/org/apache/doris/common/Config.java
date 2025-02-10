@@ -194,7 +194,7 @@ public class Config extends ConfigBase {
             "针对 EXPORT 作业，如果系统内 EXPORT 作业数量超过这个值，则会删除最老的记录。",
             "For EXPORT jobs, If the number of EXPORT jobs in the system exceeds this value, "
                     + "the oldest records will be deleted."})
-    public static int maximum_history_job_num = 1000; // 7 days
+    public static int max_export_history_job_num = 1000;
 
     @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
             "The clean interval of transaction, in seconds. "
