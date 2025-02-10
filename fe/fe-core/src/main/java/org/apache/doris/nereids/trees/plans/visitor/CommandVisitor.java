@@ -155,6 +155,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
+import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -766,5 +767,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropDatabaseCommand(DropDatabaseCommand dropDatabaseCommand, C context) {
         return visitCommand(dropDatabaseCommand, context);
+    }
+
+    default R visitAlterRepositoryCommand(AlterRepositoryCommand alterRepositoryCommand,
+                                          C context) {
+        return visitCommand(alterRepositoryCommand, context);
     }
 }
