@@ -18,8 +18,8 @@
 #pragma once
 
 #include "common/object_pool.h"
-#include "exprs/runtime_filter/utils.h"
 #include "runtime/primitive_type.h"
+#include "runtime_filter/utils.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"

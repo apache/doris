@@ -17,8 +17,8 @@
 
 #include "pipeline/common/runtime_filter_consumer_operator.h"
 
-#include "exprs/runtime_filter/runtime_filter_consumer.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 
 namespace doris::pipeline {
 

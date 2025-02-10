@@ -19,8 +19,8 @@
 
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
-#include "exprs/runtime_filter/runtime_filter_definitions.h"
 #include "runtime/runtime_state.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 

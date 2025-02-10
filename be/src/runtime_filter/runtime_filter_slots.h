@@ -18,10 +18,10 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/runtime_filter/runtime_filter.h"
-#include "exprs/runtime_filter/runtime_filter_producer.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/runtime_filter_producer.h"
 #include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/shared_hash_table_controller.h"
