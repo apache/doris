@@ -304,7 +304,7 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * config rf wait time if wait time is not default value
+     * config rf wait time if wait time is the same as default value
      * 1. local mode, config according to max table row count
      *     a. olap table:
      *       row < 1G: 1 sec
@@ -314,14 +314,17 @@ public class NereidsPlanner extends Planner {
      *       row < 1G: 5 sec
      *       1G <= row < 10G: 10 sec
      *       10G < row: 50 sec
-     * 2. cloud mode, config it to 300 sec (TODO: refine this in the future)
+     * 2. cloud mode, config it as query time out
      */
     private void configRuntimeFilterWaitTime() {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
-                != VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
+                == VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
             if (Config.isCloudMode()) {
-                sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "300000");
+                sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS,
+                        String.valueOf(Math.max(VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs(),
+                                1000 * sessionVariable.getQueryTimeoutS())));
             } else {
                 List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
                         .collectToList(LogicalCatalogRelation.class::isInstance);
