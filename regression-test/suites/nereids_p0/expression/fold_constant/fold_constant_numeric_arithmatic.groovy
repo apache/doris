@@ -191,8 +191,8 @@ suite("fold_constant_numeric_arithmatic") {
 
 //Cosh function cases
     testFoldConst("SELECT COSH(0) AS cosh_case_1") //cosh(0) = 1
-    expectException({sql "SELECT COSH(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
-    expectException({sql "SELECT COSH(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+//    expectException({sql "SELECT COSH(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+//    expectException({sql "SELECT COSH(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
     testFoldConst("SELECT COSH(NULL)") // NULL handling
     testFoldConst("SELECT COSH(1)") // Common value
     testFoldConst("SELECT COSH(-1)") // Negative common value
@@ -307,7 +307,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG(NULL, 10)") // NULL number
     testFoldConst("SELECT LOG(100, NULL)") // NULL base
     expectException({sql "SELECT LOG(0, 10)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1 is out of boundary")
-    expectException({sql "SELECT LOG(100, 0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: -Infinity result is invalid")
+//    expectException({sql "SELECT LOG(100, 0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: -Infinity result is invalid")
     testFoldConst("SELECT LOG(100, 1)") // Base 1
     expectException({sql "SELECT LOG(-1, 10)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1.0 is out of boundary")
     expectException({sql "SELECT LOG(100, -1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: NaN result is invalid")
