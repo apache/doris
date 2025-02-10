@@ -46,9 +46,9 @@ public abstract class AuthenticationConfig {
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
             return conf.get(HADOOP_KERBEROS_PRINCIPAL) + "-" + conf.get(HADOOP_KERBEROS_KEYTAB) + "-"
                     + conf.getOrDefault(DORIS_KRB5_DEBUG, "false");
+        } else {
+            return conf.getOrDefault(HADOOP_USER_NAME, DEFAULT_HADOOP_USERNAME);
         }
-        // kerberos config
-        return getHadoopUserName(conf);
     }
 
     /**
@@ -104,23 +104,8 @@ public abstract class AuthenticationConfig {
     private static AuthenticationConfig createSimpleAuthenticationConfig(Configuration conf) {
         // AuthType.SIMPLE
         SimpleAuthenticationConfig simpleAuthenticationConfig = new SimpleAuthenticationConfig();
-        simpleAuthenticationConfig.setUsername(conf.get(HADOOP_USER_NAME));
-        String hadoopUserName = conf.get(HADOOP_USER_NAME);
-        if (hadoopUserName == null) {
-            hadoopUserName = DEFAULT_HADOOP_USERNAME;
-            simpleAuthenticationConfig.setUsername(hadoopUserName);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("{} is unset, use default user: hadoop", AuthenticationConfig.HADOOP_USER_NAME);
-            }
-        }
+        String hadoopUserName = conf.get(HADOOP_USER_NAME, DEFAULT_HADOOP_USERNAME);
+        simpleAuthenticationConfig.setUsername(hadoopUserName);
         return simpleAuthenticationConfig;
-    }
-
-    private static String getHadoopUserName(Map<String, String> conf) {
-        String hadoopUserName = conf.get(HADOOP_USER_NAME);
-        if (hadoopUserName == null) {
-            hadoopUserName = DEFAULT_HADOOP_USERNAME;
-        }
-        return hadoopUserName;
     }
 }

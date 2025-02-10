@@ -127,11 +127,7 @@ public class PaimonJniScanner extends JniScanner {
 
         } catch (Throwable e) {
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
-            try {
-                throw e;
-            } catch (Exception ex) {
-                throw new RuntimeException(ex);
-            }
+            throw new RuntimeException(e);
         }
     }
 
