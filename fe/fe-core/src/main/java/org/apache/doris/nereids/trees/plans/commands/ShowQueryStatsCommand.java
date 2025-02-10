@@ -196,8 +196,112 @@ public class ShowQueryStatsCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+<<<<<<< HEAD
         validate(ctx);
         return new ShowResultSet(getMetaData(), totalRows);
+=======
+        String catalog = ctx.getCurrentCatalog().getName();
+        String effectiveDatabase = database;
+
+        // First check if we need to use default database
+        if (effectiveDatabase == null) {
+            effectiveDatabase = ctx.getDatabase();
+        }
+
+        // For catalog level query (both database and table are null)
+        if (effectiveDatabase == null && table == null) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW QUERY STATS");
+            }
+            Map<String, Long> stats = QueryStatsUtil.getMergedCatalogStats(catalog);
+            List<List<String>> rows = Lists.newArrayList();
+            for (Map.Entry<String, Long> entry : stats.entrySet()) {
+                List<String> row = Lists.newArrayList();
+                row.add(entry.getKey());
+                row.add(String.valueOf(entry.getValue()));
+                rows.add(row);
+            }
+            return new ShowResultSet(SHOW_QUERY_STATS_CATALOG_META_DATA, rows);
+        }
+
+        // At this point we must have a database, either specified or default
+        if (effectiveDatabase == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+
+        if (table == null) {
+            // Database level query
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ctx, catalog, effectiveDatabase, PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR,
+                        ctx.getQualifiedUser(), effectiveDatabase);
+            }
+
+            Map<String, Long> stats = QueryStatsUtil.getMergedDatabaseStats(catalog, effectiveDatabase);
+            List<List<String>> rows = Lists.newArrayList();
+            for (Map.Entry<String, Long> entry : stats.entrySet()) {
+                if (Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ctx, catalog, effectiveDatabase, entry.getKey(), PrivPredicate.SHOW)) {
+                    List<String> row = Lists.newArrayList();
+                    row.add(entry.getKey());
+                    row.add(String.valueOf(entry.getValue()));
+                    rows.add(row);
+                }
+            }
+            return new ShowResultSet(SHOW_QUERY_STATS_DATABASE_META_DATA, rows);
+        }
+
+        // Table level query
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ctx, catalog, effectiveDatabase, table, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW QUERY STATS",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(), effectiveDatabase + "." + table);
+        }
+
+        List<List<String>> rows = Lists.newArrayList();
+        if (isAll) {
+            if (isVerbose) {
+                Map<String, Map<String, Pair<Long, Long>>> stats =
+                        QueryStatsUtil.getMergedTableAllVerboseStats(catalog, effectiveDatabase, table);
+                for (Map.Entry<String, Map<String, Pair<Long, Long>>> indexEntry : stats.entrySet()) {
+                    boolean firstRow = true;
+                    for (Map.Entry<String, Pair<Long, Long>> columnEntry : indexEntry.getValue().entrySet()) {
+                        List<String> row = Lists.newArrayList();
+                        row.add(firstRow ? indexEntry.getKey() : "");
+                        row.add(columnEntry.getKey());
+                        row.add(String.valueOf(columnEntry.getValue().first));
+                        row.add(String.valueOf(columnEntry.getValue().second));
+                        rows.add(row);
+                        firstRow = false;
+                    }
+                }
+                return new ShowResultSet(SHOW_QUERY_STATS_TABLE_ALL_VERBOSE_META_DATA, rows);
+            } else {
+                Map<String, Long> stats = QueryStatsUtil.getMergedTableAllStats(catalog, effectiveDatabase, table);
+                for (Map.Entry<String, Long> entry : stats.entrySet()) {
+                    List<String> row = Lists.newArrayList();
+                    row.add(entry.getKey());
+                    row.add(String.valueOf(entry.getValue()));
+                    rows.add(row);
+                }
+                return new ShowResultSet(SHOW_QUERY_STATS_TABLE_ALL_META_DATA, rows);
+            }
+        } else {
+            if (isVerbose) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "verbose is not supported if all is not set");
+            }
+            Map<String, Pair<Long, Long>> stats = QueryStatsUtil.getMergedTableStats(catalog, effectiveDatabase, table);
+            for (Map.Entry<String, Pair<Long, Long>> entry : stats.entrySet()) {
+                List<String> row = Lists.newArrayList();
+                row.add(entry.getKey());
+                row.add(String.valueOf(entry.getValue().first));
+                row.add(String.valueOf(entry.getValue().second));
+                rows.add(row);
+            }
+            return new ShowResultSet(SHOW_QUERY_STATS_TABLE_META_DATA, rows);
+        }
+>>>>>>> 907709ac3e (save)
     }
 
     @Override
