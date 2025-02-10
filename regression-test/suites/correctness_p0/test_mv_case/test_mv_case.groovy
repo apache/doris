@@ -137,4 +137,6 @@ suite("test_mv_case") {
         mv1 a;"""
     waitingMTMVTaskFinishedByMvName("mv2")
     qt_select_mv """ select * from mv2 """
+    sql "drop MATERIALIZED VIEW mv1"
+    sql "drop MATERIALIZED VIEW mv2"
 }
