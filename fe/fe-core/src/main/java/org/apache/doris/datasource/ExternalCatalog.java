@@ -399,7 +399,7 @@ public abstract class ExternalCatalog
                     db.setRemoteName(remoteDbName);
                 }
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
+                initCatalogLog.addRefreshDb(dbId, remoteDbName);
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(localDbName, dbId);
@@ -769,6 +769,18 @@ public abstract class ExternalCatalog
                 tmpIdToDb.put(db.getId(), db);
                 LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
                         db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
+            }
+        }
+        // Check whether the remoteName of db in tmpIdToDb is empty
+        for (ExternalDatabase<? extends ExternalTable> db : tmpIdToDb.values()) {
+            if (Strings.isNullOrEmpty(db.getRemoteName())) {
+                LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
+                        db.getFullName(), name);
+                dbNameToId = Maps.newConcurrentMap();
+                idToDb = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
             }
         }
         dbNameToId = tmpDbNameToId;

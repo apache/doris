@@ -234,6 +234,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.info("Synchronized table (create): [Name: {}, ID: {}, Remote Name: {}]",
                     table.getName(), table.getId(), log.getRemoteTableNames().get(i));
         }
+        // Check whether the remoteName and db Tbl db in idToTbl is empty
+        for (T table : idToTbl.values()) {
+            if (Strings.isNullOrEmpty(table.getRemoteName())
+                    || table.getDb() == null) {
+                LOG.info("Table [{}] remoteName or database is empty, mark as uninitialized",
+                        table.getName());
+                tableNameToId = Maps.newConcurrentMap();
+                idToTbl = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
+            }
+        }
         tableNameToId = tmpTableNameToId;
         idToTbl = tmpIdToTbl;
         lastUpdateTime = log.getLastUpdateTime();
@@ -266,7 +279,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                         table.setDb(this);
                     }
                     tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addRefreshTable(tblId);
+                    initDatabaseLog.addRefreshTable(tblId, remoteTableName);
                 } else {
                     tblId = Env.getCurrentEnv().getNextId();
                     tmpTableNameToId.put(localTableName, tblId);
@@ -620,14 +633,22 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     case "ExternalInfoSchemaTable":
                         ExternalInfoSchemaTable infoSchemaTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
                                 ExternalInfoSchemaTable.class);
+                        if (infoSchemaTable.getDb() == null) {
+                            infoSchemaTable.setDb(this);
+                        }
                         tmpIdToTbl.put(infoSchemaTable.getId(), (T) infoSchemaTable);
                         tableNameToId.put(infoSchemaTable.getName(), infoSchemaTable.getId());
+                        lowerCaseToTableName.put(infoSchemaTable.getName().toLowerCase(), infoSchemaTable.getName());
                         break;
                     case "ExternalMysqlTable":
                         ExternalMysqlTable mysqlTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
                                 ExternalMysqlTable.class);
+                        if (mysqlTable.getDb() == null) {
+                            mysqlTable.setDb(this);
+                        }
                         tmpIdToTbl.put(mysqlTable.getId(), (T) mysqlTable);
                         tableNameToId.put(mysqlTable.getName(), mysqlTable.getId());
+                        lowerCaseToTableName.put(mysqlTable.getName().toLowerCase(), mysqlTable.getName());
                         break;
                     default:
                         break;
@@ -638,6 +659,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 tableNameToId.put(((ExternalTable) obj).getName(), ((ExternalTable) obj).getId());
                 lowerCaseToTableName.put(((ExternalTable) obj).getName().toLowerCase(),
                         ((ExternalTable) obj).getName());
+            }
+        }
+        // Check whether the remoteName and db Tbl db in idToTbl is empty
+        for (T table : idToTbl.values()) {
+            if (Strings.isNullOrEmpty(table.getRemoteName())
+                    || table.getDb() == null) {
+                initialized = false;
+                break;
             }
         }
         idToTbl = tmpIdToTbl;
