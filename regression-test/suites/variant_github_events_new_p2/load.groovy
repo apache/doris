@@ -62,7 +62,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
             v variant,
-            INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+            INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
@@ -128,4 +128,26 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """DELETE FROM github_events where k >= 9223372036854775107"""
 
     qt_sql_select_count """ select count(*) from github_events_2; """
+
+    trigger_and_wait_compaction("github_events", "full")
+
+    // query and filterd by inverted index
+    profile("test_profile_1") {
+        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_pipeline_x_engine = true;"""
+        sql """ set enable_profile = true;"""
+        sql """ set profile_level = 2;"""
+        run {
+            qt_sql_inv """/* test_profile_1 */
+                select k, v['payload']['pull_request']['head']['repo']['topics'] from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] ) order by k
+            """
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("RowsInvertedIndexFiltered:  67.682K"))
+        }
+    }
+    qt_sql_inv """select k, v['payload']['pull_request']['head']['repo']['topics'] from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] ) order by k limit 10;"""
 }

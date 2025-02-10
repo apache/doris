@@ -8,3 +8,15 @@
 -- !sql_select_count --
 67843
 
+-- !sql_inv --
+11	["async-await", "express", "javascript", "promise"]
+106	["javascript", "nodejs"]
+165	["bem-methodology", "css", "frontend-components", "react-components", "style-guide"]
+181	["bem-methodology", "css", "frontend-components", "react-components", "style-guide"]
+448	["es6", "eslint", "front-end", "frontend", "html", "html-css", "html5", "javascript", "js", "minions", "pam", "salt", "salt-command", "webapp", "yarn"]
+496	["bootstrap", "css", "css-framework", "html", "javascript", "sass", "scss"]
+685	["apollo-client", "apollo-server", "graphql", "javascript", "node", "react"]
+826	["javascript", "react"]
+948	["chrome", "chrome-extension", "firefox", "firefox-addon", "javascript", "jquery"]
+962	["application-programming-interface", "clang", "command-line-interface", "community-feedback-supported", "cpp", "css3", "html5", "javascript", "php8", "py311", "typescript"]
+
