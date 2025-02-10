@@ -275,6 +275,7 @@ import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
+import org.apache.doris.nereids.DorisParser.ShowAnalyzeContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
@@ -564,6 +565,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultComma
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
@@ -5521,6 +5523,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
 
         return new AlterRepositoryCommand(ctx.name.getText(), properties);
+    }
+
+    @Override
+    public LogicalPlan visitShowAnalyze(ShowAnalyzeContext ctx) {
+        boolean isAuto = ctx.AUTO() != null;
+        List<String> tableName = ctx.tableName == null ? null : visitMultipartIdentifier(ctx.tableName);
+        long jobId = ctx.jobId == null ? 0 : Long.parseLong(ctx.jobId.getText());
+        String stateKey = ctx.stateKey == null ? null : stripQuotes(ctx.stateKey.getText());
+        String stateValue = ctx.stateValue == null ? null : stripQuotes(ctx.stateValue.getText());
+        return new ShowAnalyzeCommand(tableName, jobId, stateKey, stateValue, isAuto);
     }
 }
 

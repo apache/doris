@@ -2711,6 +2711,29 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("\'name1\'", result[0][7])
     assertEquals("\'name3\'", result[0][8])
 
+    // Test show analyze
+    sql """drop stats region"""
+    sql """analyze table region"""
+    result = sql """show analyze region"""
+    assertEquals(1, result.size())
+    result = sql """show auto analyze region"""
+    assertEquals(0, result.size())
+    for (int i = 0; i < 100; i++) {
+        result = sql """show analyze region"""
+        if (!result[0][9].equals("FINISHED")) {
+            Thread.sleep(1000)
+            continue;
+        }
+        break;
+    }
+    assertEquals("FINISHED", result[0][9])
+    assertEquals(1, result.size())
+    result = sql """show analyze region where state="FINISHED";"""
+    assertEquals(1, result.size())
+    result = sql """show analyze region where state="pending";"""
+    assertEquals(0, result.size())
+
+
     // Test sample string type min max
     sql """
      CREATE TABLE `string_min_max` (
@@ -2957,4 +2980,3 @@ PARTITION `p599` VALUES IN (599)
 
     sql """drop database if exists test_version"""
 }
-
