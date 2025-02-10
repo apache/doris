@@ -50,3 +50,21 @@
 \N
 ["a", "b", "c", "12345", ""]
 
+-- !select8 --
+["aa,bbb,cccc"]
+
+-- !select9 --
+["aa", "bbb,cccc"]
+
+-- !select10 --
+["aa", "bbb", "cccc"]
+
+-- !select11 --
+["aa", "bbb", "cccc"]
+
+-- !select12 --
+["aa", "bbb", "cccc"]
+
+-- !select13 --
+["aa", "bbb", "cccc"]
+
