@@ -304,6 +304,10 @@ public:
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
     TabletInfo get_tablet_info() const { return TabletInfo(tablet_id(), tablet_uid()); }
 
+    void get_base_rowset_delete_bitmap_count(
+            uint64_t* max_base_rowset_delete_bitmap_score,
+            int64_t* max_base_rowset_delete_bitmap_score_tablet_id);
+
 protected:
     // Find the missed versions until the spec_version.
     //

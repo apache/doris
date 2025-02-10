@@ -885,9 +885,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SchemaScanNode scanNode = null;
         if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                 table.getName())) {
-            scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
+            scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                schemaScan.getSchemaTable().orElse(null));
         } else {
-            scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
+            scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                schemaScan.getSchemaTable().orElse(null));
         }
         scanNode.setNereidsId(schemaScan.getId());
         SchemaScanNode finalScanNode = scanNode;
@@ -957,7 +961,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
         ArrayList<Expr> execGroupingExpressions = groupByExpressions.stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
+                .map(e -> {
+                    Expr result = ExpressionTranslator.translate(e, context);
+                    if (result == null) {
+                        throw new RuntimeException("translate " + e + " failed");
+                    }
+                    return result;
+                })
                 .collect(Collectors.toCollection(ArrayList::new));
         // 2. collect agg expressions and generate agg function to slot reference map
         List<Slot> aggFunctionOutput = Lists.newArrayList();
@@ -1402,7 +1412,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 null, null, null, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         hashJoinNode.setChildrenDistributeExprLists(distributeExprLists);
-        hashJoinNode.setUseSpecificProjections(false);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
 
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
@@ -1658,7 +1667,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
                 leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
                 null, null, null, nestedLoopJoin.isMarkJoin());
-        nestedLoopJoinNode.setUseSpecificProjections(false);
         nestedLoopJoinNode.setNereidsId(nestedLoopJoin.getId());
         nestedLoopJoinNode.setChildrenDistributeExprLists(distributeExprLists);
         if (nestedLoopJoin.getStats() != null) {

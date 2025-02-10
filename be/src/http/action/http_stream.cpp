@@ -239,7 +239,15 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
-    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+    // In HttpStreamAction::on_chunk_data
+    //      -> process_put
+    //      -> StreamLoadExecutor::execute_plan_fragment
+    //      -> exec_plan_fragment
+    // , SCOPED_ATTACH_TASK will be called.
+    // So, SCOPED_ATTACH_TASK cannot be used here because it does not allow nesting.
+    // If stream pipe needs to use ResourceContext in the future,
+    // maybe SCOPED_ATTACH_TASK should be allowed to support nesting?
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->stream_load_pipe_tracker());
 
     int64_t start_read_data_time = MonotonicNanos();
     Status st = ctx->allocate_schema_buffer();

@@ -51,9 +51,11 @@ import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
@@ -100,6 +102,7 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -191,12 +194,18 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_DB: {
                     Database db = (Database) journal.getData();
-                    env.replayCreateDb(db);
+                    CreateDbInfo info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    env.replayCreateDb(info);
+                    break;
+                }
+                case OperationType.OP_NEW_CREATE_DB: {
+                    CreateDbInfo info = (CreateDbInfo) journal.getData();
+                    env.replayCreateDb(info);
                     break;
                 }
                 case OperationType.OP_DROP_DB: {
                     DropDbInfo dropDbInfo = (DropDbInfo) journal.getData();
-                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop(), dropDbInfo.getRecycleTime());
+                    env.replayDropDb(dropDbInfo);
                     break;
                 }
                 case OperationType.OP_ALTER_DB: {
@@ -225,28 +234,38 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_TABLE: {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
-                            .getId());
-                    CreateTableRecord record = new CreateTableRecord(logId, info);
-                    env.replayCreateTable(info.getDbName(), info.getTable());
-                    env.getBinlogManager().addCreateTableRecord(record);
+                    LOG.info("Begin to unprotect create table. {}", info);
+                    env.replayCreateTable(info);
+                    if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName().equals(
+                            InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                        CreateTableRecord record = new CreateTableRecord(logId, info);
+                        env.getBinlogManager().addCreateTableRecord(record);
+                    }
                     break;
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect alter external table schema. db = " + info.getDbName() + " table = "
-                            + info.getTableName());
+                    LOG.info("Begin to unprotect alter external table schema. db = {} table = {}", info.getDbName(),
+                            info.getTableName());
                     env.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
-                    LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
-                            + info.getTableId());
-                    DropTableRecord record = new DropTableRecord(logId, info);
-                    env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
-                    env.getBinlogManager().addDropTableRecord(record);
+                    LOG.info("Begin to unprotect drop table: {}", info);
+                    if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(
+                            InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
+                        env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
+                        DropTableRecord record = new DropTableRecord(logId, info);
+                        env.getBinlogManager().addDropTableRecord(record);
+                    } else {
+                        ExternalCatalog ctl = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+                                .getCatalog(info.getCtl());
+                        if (ctl != null) {
+                            ctl.replayDropTable(info.getDb(), info.getTableName());
+                        }
+                    }
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
@@ -1025,12 +1044,20 @@ public class EditLog {
                 }
                 case OperationType.OP_ADD_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().replayAddConstraint(log.getConstraint());
+                    try {
+                        log.getTableIf().replayAddConstraint(log.getConstraint());
+                    } catch (Exception e) {
+                        LOG.error("Failed to replay add constraint", e);
+                    }
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().replayDropConstraint(log.getConstraint().getName());
+                    try {
+                        log.getTableIf().replayDropConstraint(log.getConstraint().getName());
+                    } catch (Exception e) {
+                        LOG.error("Failed to replay drop constraint", e);
+                    }
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1398,8 +1425,8 @@ public class EditLog {
         logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
     }
 
-    public void logCreateDb(Database db) {
-        logEdit(OperationType.OP_CREATE_DB, db);
+    public void logCreateDb(CreateDbInfo info) {
+        logEdit(OperationType.OP_NEW_CREATE_DB, info);
     }
 
     public void logDropDb(DropDbInfo dropDbInfo) {
@@ -1420,8 +1447,11 @@ public class EditLog {
 
     public void logCreateTable(CreateTableInfo info) {
         long logId = logEdit(OperationType.OP_CREATE_TABLE, info);
-        CreateTableRecord record = new CreateTableRecord(logId, info);
-        Env.getCurrentEnv().getBinlogManager().addCreateTableRecord(record);
+        if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
+                .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            CreateTableRecord record = new CreateTableRecord(logId, info);
+            Env.getCurrentEnv().getBinlogManager().addCreateTableRecord(record);
+        }
     }
 
     public void logRefreshExternalTableSchema(RefreshExternalTableInfo info) {
@@ -1465,8 +1495,10 @@ public class EditLog {
 
     public void logDropTable(DropInfo info) {
         long logId = logEdit(OperationType.OP_DROP_TABLE, info);
-        DropTableRecord record = new DropTableRecord(logId, info);
-        Env.getCurrentEnv().getBinlogManager().addDropTableRecord(record);
+        if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            DropTableRecord record = new DropTableRecord(logId, info);
+            Env.getCurrentEnv().getBinlogManager().addDropTableRecord(record);
+        }
     }
 
     public void logEraseTable(long tableId) {
@@ -1704,7 +1736,9 @@ public class EditLog {
     public void logTruncateTable(TruncateTableInfo info) {
         long logId = logEdit(OperationType.OP_TRUNCATE_TABLE, info);
         LOG.info("log truncate table, logId:{}, infos: {}", logId, info);
-        Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
+        if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
+        }
     }
 
     public void logColocateModifyRepliaAlloc(ColocatePersistInfo info) {

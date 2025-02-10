@@ -17,13 +17,12 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
@@ -34,7 +33,6 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
@@ -152,6 +150,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -448,7 +447,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 try {
                     unprotectCreateDb(db);
-                    Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                    CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(dbInfo);
                 } finally {
                     db.writeUnlock();
                 }
@@ -487,9 +487,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        LOG.info("begin drop database[{}], is force : {}", dbName, stmt.isForceDrop());
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        LOG.info("begin drop database[{}], is force : {}", dbName, force);
 
         // 1. check if database exists
         if (!tryLock(false)) {
@@ -497,7 +497,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         try {
             if (!fullNameToDb.containsKey(dbName)) {
-                if (stmt.isSetIfExists()) {
+                if (ifExists) {
                     LOG.info("drop database[{}] which does not exist", dbName);
                     return;
                 } else {
@@ -510,13 +510,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLock();
             long recycleTime = 0;
             try {
-                if (!stmt.isForceDrop()) {
+                if (!force) {
                     if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
                         throw new DdlException(
-                                "There are still some transactions in the COMMITTED state waiting to be completed. "
-                                        + "The database [" + dbName
-                                        + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                        + " please use \"DROP database FORCE\".");
+                            "There are still some transactions in the COMMITTED state waiting to be completed. "
+                                + "The database [" + dbName
+                                + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP database FORCE\".");
                     }
                 }
 
@@ -529,16 +529,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 MetaLockUtils.writeLockTables(tableList);
                 try {
-                    if (!stmt.isForceDrop()) {
+                    if (!force) {
                         for (Table table : tableList) {
                             if (table.isManagedTable()) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
-                                            + olapTable.getState() + ", cannot be dropped."
-                                            + " please cancel the operation on olap table firstly."
-                                            + " If you want to forcibly drop(cannot be recovered),"
-                                            + " please use \"DROP table FORCE\".");
+                                        + olapTable.getState() + ", cannot be dropped."
+                                        + " please cancel the operation on olap table firstly."
+                                        + " If you want to forcibly drop(cannot be recovered),"
+                                        + " please use \"DROP table FORCE\".");
                                 }
                             }
                         }
@@ -548,12 +548,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                             Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                         }
                     }
-                    unprotectDropDb(db, stmt.isForceDrop(), false, 0);
+                    unprotectDropDb(db, force, false, 0);
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
 
-                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, stmt.isForceDrop(), 0);
+                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
             } finally {
                 db.writeUnlock();
@@ -562,14 +562,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
-            DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
+            DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
         } finally {
             unlock();
         }
 
-        LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
+        LOG.info("finish drop database[{}], is force : {}", dbName, force);
     }
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {
@@ -759,21 +759,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("replay recover db[{}]", dbId);
     }
 
-    public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = (Database) getDbOrDdlException(dbName);
-        QuotaType quotaType = stmt.getQuotaType();
+    public void alterDatabaseQuota(String dbName, QuotaType quotaType, long quotaValue) throws DdlException {
+        Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
             if (quotaType == QuotaType.DATA) {
-                db.setDataQuota(stmt.getQuota());
+                db.setDataQuota(quotaValue);
             } else if (quotaType == QuotaType.REPLICA) {
-                db.setReplicaQuota(stmt.getQuota());
+                db.setReplicaQuota(quotaValue);
             } else if (quotaType == QuotaType.TRANSACTION) {
-                db.setTransactionQuotaSize(stmt.getQuota());
+                db.setTransactionQuotaSize(quotaValue);
             }
-            long quota = stmt.getQuota();
-            DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
+
+            DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quotaValue, quotaType);
             Env.getCurrentEnv().getEditLog().logAlterDb(dbInfo);
         } finally {
             db.writeUnlock();
@@ -3165,6 +3163,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
+                }
+                // storage policy is invalid for table/partition when table is being synced
+                if (isBeingSynced) {
+                    olapTable.setStoragePolicy("");
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);

@@ -189,7 +189,11 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void createDb(CreateDbStmt stmt) throws DdlException;
 
-    void dropDb(DropDbStmt stmt) throws DdlException;
+    default void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     /**
      * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,

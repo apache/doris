@@ -52,7 +52,7 @@ suite("test_show_data", "p2") {
                           `request` text NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
@@ -659,7 +659,7 @@ suite("test_show_data_with_compaction", "p2") {
                           `request` text NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
@@ -751,7 +751,7 @@ suite("test_show_data_with_compaction", "p2") {
                 `hobbies` text NULL,
                 `score` int(11) NULL,
                 index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)

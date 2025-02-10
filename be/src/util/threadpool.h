@@ -40,7 +40,6 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 #include "common/status.h"
-#include "util/interval_histogram.h"
 #include "util/metrics.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
@@ -414,11 +413,8 @@ private:
     IntGauge* thread_pool_queue_size = nullptr;
     IntGauge* thread_pool_max_queue_size = nullptr;
     IntGauge* thread_pool_max_threads = nullptr;
-    IntGauge* task_execution_time_ns_avg_in_last_1000_times = nullptr;
-    IntGauge* task_wait_worker_ns_avg_in_last_1000_times = nullptr;
-
-    IntervalHistogramStat<int64_t> _task_execution_time_ns_statistic {1000};
-    IntervalHistogramStat<int64_t> _task_wait_worker_time_ns_statistic {1000};
+    IntCounter* task_execution_time_ns_total = nullptr;
+    IntCounter* task_wait_worker_time_ns_total = nullptr;
 
     IntCounter* thread_pool_submit_failed = nullptr;
 };

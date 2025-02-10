@@ -90,7 +90,7 @@ public:
     }
 
     static bool try_reserve_process_memory(int64_t bytes);
-    static void release_process_reserved_memory(int64_t bytes);
+    static void shrink_process_reserved(int64_t bytes);
 
     static inline int64_t process_reserved_memory() {
         return _process_reserved_memory.load(std::memory_order_relaxed);

@@ -53,9 +53,9 @@ Status UnionSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
+UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
                                        const TPlanNode& tnode, const DescriptorTbl& descs)
-        : Base(sink_id, tnode.node_id, tnode.node_id),
+        : Base(sink_id, tnode.node_id, dest_id),
           _first_materialized_child_idx(
                   cast_set<int>(tnode.union_node.first_materialized_child_idx)),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),

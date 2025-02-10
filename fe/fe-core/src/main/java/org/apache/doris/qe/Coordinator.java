@@ -377,6 +377,7 @@ public class Coordinator implements CoordInterface {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
+        this.queryOptions.setProfileLevel(2);
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
@@ -2541,6 +2542,11 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setBatchSize(batchSize);
     }
 
+    // Currently this method is for BrokerLoad.
+    public void setProfileLevel(int profileLevel) {
+        this.queryOptions.setProfileLevel(profileLevel);
+    }
+
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
     static class FragmentScanRangeAssignment
@@ -3429,6 +3435,11 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentId = id;
             this.targetFragmentInstanceAddr = host;
         }
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
 

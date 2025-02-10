@@ -35,6 +35,8 @@ fi
 RUN_DAEMON=0
 RUN_VERSION=0
 RUN_CONSOLE=0
+RUN_METASERVICE=0
+RUN_RECYCLYER=0
 for arg; do
     shift
     [[ "${arg}" = "--daemonized" ]] && RUN_DAEMON=1 && continue
@@ -42,8 +44,16 @@ for arg; do
     [[ "${arg}" = "--daemon" ]] && RUN_DAEMON=1 && continue
     [[ "${arg}" = "--version" ]] && RUN_VERSION=1 && continue
     [[ "${arg}" = "--console" ]] && RUN_CONSOLE=1 && continue
+    [[ "${arg}" = "--meta-service" ]] && RUN_METASERVICE=1 && continue
+    [[ "${arg}" = "--recycler" ]] && RUN_RECYCLYER=1 && continue
     set -- "$@" "${arg}"
 done
+if [[ ${RUN_METASERVICE} -eq 1 ]]; then
+    set -- "$@" "--meta-service"
+fi
+if [[ ${RUN_RECYCLYER} -eq 1 ]]; then
+    set -- "$@" "--recycler"
+fi
 # echo "$@" "daemonized=${daemonized}"}
 
 # export env variables from doris_cloud.conf
@@ -60,13 +70,23 @@ while read -r line; do
     fi
 done <"${DORIS_HOME}/conf/doris_cloud.conf"
 
+role=''
+if [[ ${RUN_METASERVICE} -eq 0 ]] && [[ ${RUN_RECYCLYER} -eq 0 ]]; then
+    role='MetaService and Recycler'
+elif [[ ${RUN_METASERVICE} -eq 1 ]] && [[ ${RUN_RECYCLYER} -eq 0 ]]; then
+    role='MetaService'
+elif [[ ${RUN_METASERVICE} -eq 0 ]] && [[ ${RUN_RECYCLYER} -eq 1 ]]; then
+    role='Recycler'
+elif [[ ${RUN_METASERVICE} -eq 1 ]] && [[ ${RUN_RECYCLYER} -eq 1 ]]; then
+    role='MetaService and Recycler'
+fi
 process=doris_cloud
 
 if [[ ${RUN_VERSION} -eq 0 ]] && [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     pid=$(cat "${DORIS_HOME}/bin/${process}.pid")
     if [[ "${pid}" != "" ]]; then
         if kill -0 "$(cat "${DORIS_HOME}/bin/${process}.pid")" >/dev/null 2>&1; then
-            echo "pid file existed, ${process} have already started, pid=${pid}"
+            echo "pid file existed, ${role} have already started, pid=${pid}"
             exit 1
         fi
     fi
@@ -113,7 +133,7 @@ if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
+# echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
 # to enable dump jeprof heap stats prodigally, change `prof_active:false` to `prof_active:true` or curl http://be_host:be_webport/jeheap/prof/true
 # to control the dump interval change `lg_prof_interval` to a specific value, it is pow/exponent of 2 in size of bytes, default 34 means 2 ** 34 = 16GB
@@ -126,26 +146,25 @@ if [[ "${RUN_VERSION}" -ne 0 ]]; then
 fi
 
 mkdir -p "${DORIS_HOME}/log"
-echo "starts ${process} with args: $*"
+echo "$(date +'%F %T') start with args: $*"
 out_file=${DORIS_HOME}/log/${process}.out
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     # append 10 blank lines to ensure the following tail -n10 works correctly
     printf "\n\n\n\n\n\n\n\n\n\n" >>"${out_file}"
-    echo "$(date +'%F %T') try to start ${process}" >>"${out_file}"
+    echo "$(date +'%F %T') start with args: $*" >>"${out_file}"
     nohup "${bin}" "$@" >>"${out_file}" 2>&1 &
-    echo "wait and check ${process} start successfully"
+    echo "wait and check ${role} start successfully" >>"${out_file}"
     sleep 3
-    tail -n10 "${out_file}" | grep 'successfully started brpc'
+    tail -n12 "${out_file}" | grep 'successfully started service'
     ret=$?
     if [[ ${ret} -ne 0 ]]; then
-        echo "${process} may not start successfully please check process log for more details"
+        echo "${role} may not start successfully please check process log for more details"
         exit 1
     fi
-    echo "${process} start successfully"
+    tail -n12 "${out_file}"
     exit 0
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
-    date
     "${bin}" "$@" 2>&1
 else
     "${bin}" "$@"

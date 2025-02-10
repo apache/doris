@@ -42,6 +42,15 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${jdbcUser}""";
+    }
+
     sql """grant all on *.*.* to ${jdbcUser}"""
 
     sql """drop database if exists internal.upgrade_lower_case_catalog_lower; """

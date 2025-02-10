@@ -68,9 +68,9 @@ public:
     using typename Base::LocalState;
 
     friend class SetSinkLocalState<is_intersect>;
-    SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                     const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id),
+    SetSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                     const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, dest_id),
               _cur_child_id(child_id),
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()

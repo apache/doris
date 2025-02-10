@@ -244,6 +244,7 @@ public:
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
         _enable_fixed_len_to_uint32_v2 |= other_func->_enable_fixed_len_to_uint32_v2;
+        set_filter_id(bloomfilter_func->get_filter_id());
     }
 
     virtual void insert(const void* data) = 0;

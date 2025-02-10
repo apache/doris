@@ -392,11 +392,21 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         auto stream = _load_stream_map->at(node_id)->select_one_stream();
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+            LOG(INFO) << "[skip_two_backends](detail) tablet_id=" << tablet_id
+                      << ", node_id=" << node_id
+                      << ", stream_ok=" << (stream == nullptr ? "no" : "yes");
+        });
         if (stream == nullptr) {
             continue;
         }
         streams.emplace_back(std::move(stream));
     }
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+        LOG(INFO) << "[skip_two_backends](summary) tablet_id=" << tablet_id
+                  << ", num_streams=" << streams.size()
+                  << ", num_nodes=" << location->node_ids.size();
+    });
     if (streams.size() <= location->node_ids.size() / 2) {
         return Status::InternalError("not enough streams {}/{}", streams.size(),
                                      location->node_ids.size());

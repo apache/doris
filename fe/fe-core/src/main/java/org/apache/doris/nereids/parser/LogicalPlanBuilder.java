@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
@@ -72,11 +73,13 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseRenameContext;
+import org.apache.doris.nereids.DorisParser.AlterDatabaseSetQuotaContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
+import org.apache.doris.nereids.DorisParser.AlterSystemRenameComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableAddRollupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterTableContext;
@@ -132,6 +135,7 @@ import org.apache.doris.nereids.DorisParser.DropCatalogContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.DropColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
+import org.apache.doris.nereids.DorisParser.DropDatabaseContext;
 import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
 import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
@@ -495,6 +499,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
@@ -527,6 +532,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -620,6 +626,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
@@ -648,6 +655,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
@@ -1284,9 +1292,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAlterView(AlterViewContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        String querySql = getOriginSql(ctx.query());
-        AlterViewInfo info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
-                ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
+        String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
+        AlterViewInfo info;
+        if (comment != null) {
+            info = new AlterViewInfo(new TableNameInfo(nameParts), comment);
+        } else {
+            String querySql = getOriginSql(ctx.query());
+            info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
+                    ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
+        }
         return new AlterViewCommand(info);
     }
 
@@ -1296,6 +1310,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String vaultName = nameParts.get(0);
         Map<String, String> properties = this.visitPropertyClause(ctx.properties);
         return new AlterStorageVaultCommand(vaultName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterSystemRenameComputeGroup(AlterSystemRenameComputeGroupContext ctx) {
+        return new AlterSystemRenameComputeGroupCommand(ctx.name.getText(), ctx.newName.getText());
     }
 
     @Override
@@ -2117,10 +2136,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.identifierOrText() == null) {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
-                } else if (expression instanceof Literal) {
-                    return new Alias(expression);
                 } else {
-                    return new UnboundAlias(expression);
+                    int start = ctx.expression().start.getStartIndex();
+                    int stop = ctx.expression().stop.getStopIndex();
+                    String alias = ctx.start.getInputStream()
+                            .getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
+                    if (expression instanceof Literal) {
+                        return new Alias(expression, alias, true);
+                    } else {
+                        return new UnboundAlias(expression, alias, true);
+                    }
                 }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
@@ -2368,37 +2393,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCurrentDate(DorisParser.CurrentDateContext ctx) {
-        return new CurrentDate().alias("CURRENT_DATE");
+        return new CurrentDate();
     }
 
     @Override
     public Expression visitCurrentTime(DorisParser.CurrentTimeContext ctx) {
-        return new CurrentTime().alias("CURRENT_TIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitCurrentTimestamp(DorisParser.CurrentTimestampContext ctx) {
-        return new Now().alias("CURRENT_TIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitLocalTime(DorisParser.LocalTimeContext ctx) {
-        return new CurrentTime().alias("LOCALTIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitLocalTimestamp(DorisParser.LocalTimestampContext ctx) {
-        return new Now().alias("LOCALTIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitCurrentUser(DorisParser.CurrentUserContext ctx) {
-        return new CurrentUser().alias("CURRENT_USER");
+        return new CurrentUser();
     }
 
     @Override
     public Expression visitSessionUser(DorisParser.SessionUserContext ctx) {
-        return new SessionUser().alias("SESSION_USER");
+        return new SessionUser();
     }
 
     @Override
@@ -5452,6 +5477,39 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
+
+    @Override
+    public Object visitAlterDatabaseSetQuota(AlterDatabaseSetQuotaContext ctx) {
+        String databaseName = Optional.ofNullable(ctx.name)
+                .map(ParseTree::getText).filter(s -> !s.isEmpty())
+                .orElseThrow(() -> new ParseException("database name can not be null"));
+        String quota = Optional.ofNullable(ctx.quota)
+                .map(ParseTree::getText)
+                .orElseGet(() -> Optional.ofNullable(ctx.INTEGER_VALUE())
+                        .map(TerminalNode::getText)
+                        .orElse(null));
+        // Determine the quota type
+        QuotaType quotaType;
+        if (ctx.DATA() != null) {
+            quotaType = QuotaType.DATA;
+        } else if (ctx.REPLICA() != null) {
+            quotaType = QuotaType.REPLICA;
+        } else if (ctx.TRANSACTION() != null) {
+            quotaType = QuotaType.TRANSACTION;
+        } else {
+            quotaType = QuotaType.NONE;
+        }
+        return new AlterDatabaseSetQuotaCommand(databaseName, quotaType, quota);
+    }
+
+    @Override
+    public LogicalPlan visitDropDatabase(DropDatabaseContext ctx) {
+        boolean ifExists = ctx.EXISTS() != null;
+        List<String> databaseNameParts = visitMultipartIdentifier(ctx.name);
+        boolean force = ctx.FORCE() != null;
+        DropDatabaseInfo databaseInfo = new DropDatabaseInfo(ifExists, databaseNameParts, force);
+        return new DropDatabaseCommand(databaseInfo);
     }
 }
 

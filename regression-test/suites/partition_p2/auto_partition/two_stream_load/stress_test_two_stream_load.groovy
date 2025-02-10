@@ -22,6 +22,7 @@ import java.nio.file.Paths
 suite("stress_test_two_stream_load", "p2,nonConcurrent") {
 
     sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('enable_cloud_txn_lazy_commit' = 'true')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent

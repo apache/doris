@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -153,6 +154,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -756,5 +758,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
         return visitCommand(alterDatabaseRenameCommand, context);
+    }
+
+    default R visitAlterDatabaseSetQuotaCommand(AlterDatabaseSetQuotaCommand alterDatabaseSetQuotaCommand, C context) {
+        return visitCommand(alterDatabaseSetQuotaCommand, context);
+    }
+
+    default R visitDropDatabaseCommand(DropDatabaseCommand dropDatabaseCommand, C context) {
+        return visitCommand(dropDatabaseCommand, context);
     }
 }
