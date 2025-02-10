@@ -95,8 +95,8 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                     _rows_start_offset = b.rows_offset_value;
                     if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
                         _rows_start_offset *= -1; //preceding--> negative
-                    } //current_row  0
-                } else { //following    positive
+                    }                             //current_row  0
+                } else {                          //following    positive
                     DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                     _rows_start_offset = 0;
                 }
