@@ -118,6 +118,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
@@ -766,5 +767,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropDatabaseCommand(DropDatabaseCommand dropDatabaseCommand, C context) {
         return visitCommand(dropDatabaseCommand, context);
+    }
+
+    default R visitShowIndexCommand(ShowIndexCommand showIndexCommand, C context) {
+        return visitCommand(showIndexCommand, context);
     }
 }
