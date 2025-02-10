@@ -759,7 +759,7 @@ public abstract class ExternalCatalog
                         log.getRefreshDbIds().get(i), name);
                 continue;
             }
-            db.get().setRemoteName(log.getRemoteDbNames().get(i));
+            db.get().setRemoteName(log.getRefreshRemoteDbNames().get(i));
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
