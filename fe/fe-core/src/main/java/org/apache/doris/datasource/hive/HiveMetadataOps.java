@@ -292,6 +292,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         dropTableImpl(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
     }
+
     @Override
     public void dropTableImpl(String dbName, String tblName, boolean ifExists) throws DdlException {
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);

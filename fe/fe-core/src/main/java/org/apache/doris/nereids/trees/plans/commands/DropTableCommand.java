@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -73,7 +72,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ctx);
         // check access
         if (!Env.getCurrentEnv().getAccessManager()
-            .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
