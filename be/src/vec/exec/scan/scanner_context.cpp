@@ -366,7 +366,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 Status ScannerContext::validate_block_schema(Block* block) {
     size_t index = 0;
     for (auto& slot : _output_tuple_desc->slots()) {
-        if (!slot->need_materialize()) {
+        if (!slot->is_materialized()) {
             continue;
         }
         auto& data = block->get_by_position(index++);
