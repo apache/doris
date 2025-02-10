@@ -51,6 +51,7 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     void update_memory_usage();
+    void update_profile_from_inner();
 
     Dependency* finishdependency() override;
 

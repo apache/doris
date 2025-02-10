@@ -553,6 +553,29 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     return Status::OK();
 }
 
+#define UPDATE_COUNTER_FROM_INNER(name) \
+    update_profile_from_inner_profile<false>(name, _profile, inner_profile)
+
+void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
+    auto* sink_local_state = _shared_state->inner_runtime_state->get_sink_local_state();
+    if (sink_local_state) {
+        auto* inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(sink_local_state);
+        auto* inner_profile = inner_sink_state->profile();
+        UPDATE_COUNTER_FROM_INNER("PublishRuntimeFilterTime");
+        UPDATE_COUNTER_FROM_INNER("BuildRuntimeFilterTime");
+        UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
+        UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
+        UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
+        UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
+        UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
+        UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
+        UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
+        UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");
+    }
+}
+
+#undef UPDATE_COUNTER_FROM_INNER
+
 // After building hash table it will not be able to spill later
 // even if memory is low, and will cause cancel of queries.
 // So make a check here, if build blocks mem usage is too high,
@@ -613,6 +636,8 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 RETURN_IF_ERROR(_inner_sink_operator->sink(
                         local_state._shared_state->inner_runtime_state.get(), in_block, eos));
 
+                local_state.update_profile_from_inner();
+
                 LOG(INFO) << fmt::format(
                         "Query:{}, hash join sink:{}, task:{}, eos, set_ready_to_read, nonspill "
                         "memory usage:{}",
@@ -660,6 +685,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         RETURN_IF_ERROR(_inner_sink_operator->sink(
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
         local_state.update_memory_usage();
+        local_state.update_profile_from_inner();
         if (eos) {
             LOG(INFO) << fmt::format(
                     "Query:{}, hash join sink:{}, task:{}, eos, set_ready_to_read, nonspill memory "

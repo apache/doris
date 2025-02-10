@@ -51,9 +51,6 @@ private:
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
-    RuntimeProfile::Counter* _partial_sort_timer = nullptr;
-    RuntimeProfile::Counter* _merge_block_timer = nullptr;
-    RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 

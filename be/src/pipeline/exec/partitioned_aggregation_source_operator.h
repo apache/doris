@@ -45,11 +45,10 @@ public:
     Status recover_blocks_from_disk(RuntimeState* state, bool& has_data);
     Status setup_in_memory_agg_op(RuntimeState* state);
 
+    template <bool spilled>
     void update_profile(RuntimeProfile* child_profile);
 
 protected:
-    void _init_counters();
-
     friend class PartitionedAggSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 
@@ -63,23 +62,8 @@ protected:
     std::vector<vectorized::Block> _blocks;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
-    RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::Counter* _memory_usage_container = nullptr;
-    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
-    RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 };
+
 class AggSourceOperatorX;
 class PartitionedAggSourceOperatorX : public OperatorX<PartitionedAggLocalState> {
 public:

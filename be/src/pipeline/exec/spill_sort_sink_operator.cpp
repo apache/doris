@@ -55,26 +55,17 @@ Status SpillSortSinkLocalState::open(RuntimeState* state) {
 
 void SpillSortSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
-
-    _partial_sort_timer = ADD_TIMER(_profile, "PartialSortTime");
-    _merge_block_timer = ADD_TIMER(_profile, "MergeBlockTime");
-    _sort_blocks_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
     _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(_profile, "SpillMergeSortTime", 1);
 }
-#define UPDATE_PROFILE(counter, name)                           \
-    do {                                                        \
-        auto* child_counter = child_profile->get_counter(name); \
-        if (child_counter != nullptr) {                         \
-            COUNTER_SET(counter, child_counter->value());       \
-        }                                                       \
-    } while (false)
+
+#define UPDATE_PROFILE(name) update_profile_from_inner_profile<true>(name, _profile, child_profile)
 
 void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_partial_sort_timer, "PartialSortTime");
-    UPDATE_PROFILE(_merge_block_timer, "MergeBlockTime");
-    UPDATE_PROFILE(_sort_blocks_memory_usage, "MemoryUsageSortBlocks");
+    UPDATE_PROFILE("PartialSortTime");
+    UPDATE_PROFILE("MergeBlockTime");
+    UPDATE_PROFILE("MemoryUsageSortBlocks");
 }
+#undef UPDATE_PROFILE
 
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
     return Base::close(state, execsink_status);
@@ -161,7 +152,6 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     RETURN_IF_ERROR(_sort_sink_operator->sink(local_state._runtime_state.get(), in_block, false));
 
     int64_t data_size = local_state._shared_state->in_mem_shared_state->sorter->data_size();
-    COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
     COUNTER_SET(local_state._memory_used_counter, data_size);
 
     if (eos) {

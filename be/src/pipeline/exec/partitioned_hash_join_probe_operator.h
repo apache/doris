@@ -57,10 +57,15 @@ public:
 
     Status finish_spilling(uint32_t partition_index);
 
+    template <bool spilled>
     void update_build_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
     void update_probe_profile(RuntimeProfile* child_profile);
 
     std::string debug_string(int indentation_level = 0) const override;
+
+    void update_profile_from_inner();
 
     friend class PartitionedHashJoinProbeOperatorX;
 
@@ -102,37 +107,8 @@ private:
     RuntimeProfile::Counter* _recovery_probe_blocks = nullptr;
     RuntimeProfile::Counter* _recovery_probe_timer = nullptr;
 
-    RuntimeProfile::Counter* _build_phase_label = nullptr;
-    RuntimeProfile::Counter* _build_rows_counter = nullptr;
-    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
-
-    RuntimeProfile::Counter* _build_table_timer = nullptr;
-    RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
-    RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
-    RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
-    RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
-
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _probe_blocks_bytes = nullptr;
-
-    RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
-
-    RuntimeProfile::Counter* _probe_phase_label = nullptr;
-    RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
-    RuntimeProfile::Counter* _probe_next_timer = nullptr;
-    RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
-    RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
-    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
-    RuntimeProfile::Counter* _build_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
-    RuntimeProfile::Counter* _probe_timer = nullptr;
-    RuntimeProfile::Counter* _probe_rows_counter = nullptr;
-    RuntimeProfile::Counter* _join_filter_timer = nullptr;
-    RuntimeProfile::Counter* _build_output_block_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
-
     RuntimeProfile::Counter* _get_child_next_timer = nullptr;
 };
 
@@ -194,9 +170,6 @@ private:
             PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
-
-    void _update_profile_from_internal_states(
-            PartitionedHashJoinProbeLocalState& local_state) const;
 
     const TJoinDistributionType::type _join_distribution;
 
