@@ -97,15 +97,6 @@ public abstract class Planner {
         return str.toString();
     }
 
-    public Map<Integer, String> getExplainStringMap() {
-        Map<Integer, String> planNodeMap = new HashMap<Integer, String>();
-        for (int i = 0; i < fragments.size(); ++i) {
-            PlanFragment fragment = fragments.get(i);
-            fragment.getExplainStringMap(planNodeMap);
-        }
-        return planNodeMap;
-    }
-
     public void appendTupleInfo(StringBuilder stringBuilder) {}
 
     public void appendHintInfo(StringBuilder stringBuilder) {}

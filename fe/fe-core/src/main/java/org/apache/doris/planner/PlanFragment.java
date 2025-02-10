@@ -372,13 +372,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return str.toString();
     }
 
-    public void getExplainStringMap(Map<Integer, String> planNodeMap) {
-        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
-        if (planRoot != null) {
-            planRoot.getExplainStringMap(explainLevel, planNodeMap);
-        }
-    }
-
     /**
      * Returns true if this fragment is partitioned.
      */

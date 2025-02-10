@@ -101,7 +101,7 @@ public class Profile {
     // further report will be ignored.
     // why MAX_VALUE? So that we can use PriorityQueue to sort profile by finish time decreasing order.
     private long queryFinishTimestamp = Long.MAX_VALUE;
-    private Map<Integer, String> planNodeMap = Maps.newHashMap();
+
     private int profileLevel = MergedProfileLevel;
     private long autoProfileDurationMs = -1;
     // Profile size is the size of profile file
@@ -296,10 +296,7 @@ public class Profile {
             if (isFinished) {
                 this.markQueryFinished(System.currentTimeMillis());
             }
-            // Nereids native insert not set planner, so it is null
-            if (planner != null) {
-                this.planNodeMap = planner.getExplainStringMap();
-            }
+
             ProfileManager.getInstance().pushProfile(this);
         } catch (Throwable t) {
             LOG.warn("update profile {} failed", getId(), t);
@@ -375,7 +372,7 @@ public class Profile {
         RuntimeProfile mergedProfile = null;
         if (this.executionProfiles.size() == 1) {
             try {
-                mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
+                mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile();
                 this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
                 if (physicalPlan != null) {
                     updateActualRowCountOnPhysicalPlan(physicalPlan);

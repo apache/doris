@@ -154,7 +154,7 @@ public class ExecutionProfile {
         }
     }
 
-    private RuntimeProfile getPipelineAggregatedProfile(Map<Integer, String> planNodeMap) {
+    private RuntimeProfile getPipelineAggregatedProfile() {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
@@ -175,7 +175,7 @@ public class ExecutionProfile {
                             "Pipeline : " + pipelineIdx + "(instance_num="
                                     + allPipelineTask.size() + ")",
                             allPipelineTask.get(0).nodeId());
-                    RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
+                    RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile);
                 }
                 newFragmentProfile.addChild(mergedpipelineProfile);
                 pipelineIdx++;
@@ -185,7 +185,7 @@ public class ExecutionProfile {
         return fragmentsProfile;
     }
 
-    public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
+    public RuntimeProfile getAggregatedFragmentsProfile() {
         for (RuntimeProfile fragmentProfile : fragmentProfiles.values()) {
             fragmentProfile.sortChildren();
         }
@@ -209,7 +209,7 @@ public class ExecutionProfile {
             * ------......
             * ......
             */
-        return getPipelineAggregatedProfile(planNodeMap);
+        return getPipelineAggregatedProfile();
     }
 
     public RuntimeProfile getRoot() {
