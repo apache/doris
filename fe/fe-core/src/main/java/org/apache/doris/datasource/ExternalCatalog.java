@@ -734,8 +734,12 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
-        // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
+        // If the remote name is missing during upgrade, or
+        // the refresh db's remote name is empty,
+        // all databases in the Map will be reinitialized.
+        if ((log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()))
+                || (log.getRefreshCount() > 0
+                && (log.getRefreshRemoteDbNames() == null || log.getRefreshRemoteDbNames().isEmpty()))) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -755,6 +759,7 @@ public abstract class ExternalCatalog
                         log.getRefreshDbIds().get(i), name);
                 continue;
             }
+            // db.get().setRemoteName(log.getRemoteDbNames().get(i));
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
