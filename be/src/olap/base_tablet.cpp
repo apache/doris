@@ -541,10 +541,7 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
                                       DeleteBitmapPtr tablet_delete_bitmap) {
-    auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
-        LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet->tablet_id()
-                  << " rowset: " << rowset_id;
         return Status::OK();
     }
 
@@ -808,22 +805,29 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     partial_update_info->partial_update_mode_str(), new_generated_rows,
                     rowset_writer->num_rows(), rids_be_overwritten.size(), tablet_id());
         }
-        LOG(INFO) << "calc segment delete bitmap for "
-                  << partial_update_info->partial_update_mode_str() << ", tablet: " << tablet_id()
+        auto cost_us = watch.get_elapse_time_us();
+        if (cost_us > 10 * 1000) {
+            LOG(INFO) << "calc segment delete bitmap for "
+                      << partial_update_info->partial_update_mode_str()
+                      << ", tablet: " << tablet_id() << " rowset: " << rowset_id
+                      << " seg_id: " << seg->id() << " dummy_version: " << end_version + 1
+                      << " rows: " << seg->num_rows() << " conflict rows: " << conflict_rows
+                      << " filtered rows: " << rids_be_overwritten.size()
+                      << " new generated rows: " << new_generated_rows
+                      << " bimap num: " << delete_bitmap->delete_bitmap.size()
+                      << " cost: " << cost_us << "(us)";
+        }
+        return Status::OK();
+    }
+    auto cost_us = watch.get_elapse_time_us();
+    if (cost_us > 10 * 1000) {
+        LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
-                  << " filtered rows: " << rids_be_overwritten.size()
-                  << " new generated rows: " << new_generated_rows
-                  << " bimap num: " << delete_bitmap->delete_bitmap.size()
-                  << " cost: " << watch.get_elapse_time_us() << "(us)";
-        return Status::OK();
+                  << " bitmap num: " << delete_bitmap->delete_bitmap.size() << " cost: " << cost_us
+                  << "(us)";
     }
-    LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id() << " rowset: " << rowset_id
-              << " seg_id: " << seg->id() << " dummy_version: " << end_version + 1
-              << " rows: " << seg->num_rows() << " conflict rows: " << conflict_rows
-              << " bitmap num: " << delete_bitmap->delete_bitmap.size()
-              << " cost: " << watch.get_elapse_time_us() << "(us)";
     return Status::OK();
 }
 
