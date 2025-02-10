@@ -3327,6 +3327,10 @@ public class Config extends ConfigBase {
             "Max retry times when schema change failed in cloud model, default is 3."})
     public static int schema_change_max_retry_time = 3;
 
+    @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
+            "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
+    public static boolean enable_show_file_cache_hotspot_stmt = false;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
