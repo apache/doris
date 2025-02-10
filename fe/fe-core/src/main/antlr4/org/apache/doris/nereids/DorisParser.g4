@@ -227,6 +227,8 @@ supportedAlterStatement
     | ALTER DATABASE name=identifier SET (DATA | REPLICA | TRANSACTION)
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
+    | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+
     ;
 
 supportedDropStatement
@@ -608,7 +610,6 @@ unsupportedAlterStatement
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
-    | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
     ;
 
 alterSystemClause
