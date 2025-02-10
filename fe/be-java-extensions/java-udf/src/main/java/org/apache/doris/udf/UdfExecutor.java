@@ -149,6 +149,7 @@ public class UdfExecutor extends BaseExecutor {
             cache.allMethods.put(UDF_FUNCTION_NAME, m);
             cache.methodIndex = cache.methodAccess.getIndex(UDF_FUNCTION_NAME, cache.argClass);
             Pair<Boolean, JavaUdfDataType> returnType;
+            cache.retClass = m.getReturnType();
             if (cache.argClass.length == 0 && parameterTypes.length == 0) {
                 // Special case where the UDF doesn't take any input args
                 returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
@@ -172,7 +173,6 @@ public class UdfExecutor extends BaseExecutor {
             } else {
                 cache.argTypes = inputType.second;
             }
-            cache.retClass = m.getReturnType();
             return;
         }
         StringBuilder sb = new StringBuilder();
