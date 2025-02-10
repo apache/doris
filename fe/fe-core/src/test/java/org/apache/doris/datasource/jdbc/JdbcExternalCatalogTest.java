@@ -54,13 +54,13 @@ public class JdbcExternalCatalogTest {
 
         // Assert that lower_case_meta_names is present and has the correct value
         Assert.assertTrue(
-                jdbcExternalCatalog.getCatalogProperty().getProperties().containsKey("lower_case_meta_names"));
+                jdbcExternalCatalog.getCatalogProperty().containsProperty("lower_case_meta_names"));
         Assert.assertEquals("true",
-                jdbcExternalCatalog.getCatalogProperty().getProperties().get("lower_case_meta_names"));
+                jdbcExternalCatalog.getCatalogProperty().getOrDefault("lower_case_meta_names", "false"));
 
         // Assert that lower_case_table_names is not present
         Assert.assertFalse(
-                jdbcExternalCatalog.getCatalogProperty().getProperties().containsKey("lower_case_table_names"));
+                jdbcExternalCatalog.getCatalogProperty().containsProperty("lower_case_table_names"));
 
         jdbcExternalCatalog.getCatalogProperty().addProperty("lower_case_table_names", "true");
         IllegalArgumentException exceptione = Assert.assertThrows(IllegalArgumentException.class,

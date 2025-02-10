@@ -3031,6 +3031,11 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_feature_data_sync_job = false;
 
+    @ConfField(description = {
+            "存放 hadoop conf 配置文件的默认目录。",
+            "The default directory for storing hadoop conf configuration files."})
+    public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

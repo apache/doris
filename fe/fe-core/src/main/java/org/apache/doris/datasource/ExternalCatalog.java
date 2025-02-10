@@ -325,11 +325,10 @@ public abstract class ExternalCatalog
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
-        Map<String, String> properties = getCatalogProperty().getProperties();
-        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
+        if (catalogProperty.containsProperty(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 Integer metadataRefreshIntervalSec = Integer.valueOf(
-                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                        catalogProperty.getOrDefault(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC, "-1"));
                 if (metadataRefreshIntervalSec < 0) {
                     throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
                 }
@@ -337,12 +336,6 @@ public abstract class ExternalCatalog
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
         }
-
-        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-        //     useMetaCache = Optional.of(true);
-        // }
     }
 
     /**
@@ -799,7 +792,8 @@ public abstract class ExternalCatalog
      * @return
      */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
-            long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+                                                                       long dbId, InitCatalogLog.Type logType,
+                                                                       boolean checkExists) {
         // Step 1: Map local database name if not already provided
         if (localDbName == null && remoteDbName != null) {
             localDbName = fromRemoteDatabaseName(remoteDbName);
@@ -1072,7 +1066,11 @@ public abstract class ExternalCatalog
     }
 
     public String bindBrokerName() {
-        return catalogProperty.getProperties().get(HMSExternalCatalog.BIND_BROKER_NAME);
+        // Do not set the default value to an empty string ("").
+        // If BIND_BROKER_NAME is an empty string, it will result in using BrokerFileSystem,
+        // @See org.apache.doris.common.util.LocationPath#getFSIdentity
+        // which may lead to unexpected behavior or errors.
+        return catalogProperty.getOrDefault(HMSExternalCatalog.BIND_BROKER_NAME, null);
     }
 
     // ATTN: this method only return all cached databases.
@@ -1099,13 +1097,8 @@ public abstract class ExternalCatalog
     public boolean enableAutoAnalyze() {
         // By default, external catalog disables auto analyze, users could set catalog property to enable it:
         // "enable.auto.analyze" = "true"
-        Map<String, String> properties = catalogProperty.getProperties();
-        boolean ret = false;
-        if (properties.containsKey(ENABLE_AUTO_ANALYZE)
-                && properties.get(ENABLE_AUTO_ANALYZE).equalsIgnoreCase("true")) {
-            ret = true;
-        }
-        return ret;
+        return catalogProperty.getOrDefault(ENABLE_AUTO_ANALYZE, "false")
+                .equalsIgnoreCase("true");
     }
 
     @Override
@@ -1150,5 +1143,9 @@ public abstract class ExternalCatalog
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
         return preExecutionAuthenticator;
+    }
+
+    public void removeResource() {
+        catalogProperty.removeResource(this.name);
     }
 }

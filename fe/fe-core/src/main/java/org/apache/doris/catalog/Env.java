@@ -1798,6 +1798,9 @@ public class Env {
         } catch (Throwable t) {
             LOG.warn("compatibleMTMV failed", t);
         }
+
+        // handle catalog resource
+        catalogMgr.removeCatalogResource();
         return true;
     }
 
