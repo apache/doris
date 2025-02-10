@@ -545,7 +545,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init hdfs accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name()
+                      << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         } else if (vault.has_obj_info()) {
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
@@ -564,7 +566,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " s3_vault=" << vault.obj_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
+                      << " s3_vault=" << vault.obj_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
     }
@@ -1524,6 +1528,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             InvertedIndexInfo index_info;
             inverted_index_get_ret =
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
+            TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
+                                     &inverted_index_get_ret);
             if (inverted_index_get_ret == 0) {
                 index_format = index_info.first;
                 index_ids = index_info.second;

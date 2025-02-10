@@ -113,6 +113,11 @@ public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParse
             whereExpr.add(String.format("%s = '%s' ", whereExprVariables.get(i - 1), whereExprValues.get(i)));
         }
         metaDataPos = whereExpr.size();
+        if (!Config.enable_show_file_cache_hotspot_stmt) {
+            LOG.info("show cache hotspot stmt is deprecated, use select stmt instead: " + generateQueryString());
+            throw new UserException("show cache hotspot stmt is deprecated, please use select stmt instead: "
+                    + generateQueryString());
+        }
     }
 
     @Override
