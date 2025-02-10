@@ -15,33 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef _SCHEMA_SCANNER_HELPER_H_
+#pragma once
 
-#include <stdint.h>
-
-#include <string>
 #include <vector>
 
 #include "cctz/time_zone.h"
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
-// this is a util class which can be used by all shema scanner
-// all common functions are added in this class.
 namespace doris {
-
+class RuntimeState;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-class SchemaScannerHelper {
+
+class SchemaBackendKerberosTicketCacheScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaBackendKerberosTicketCacheScanner);
+
 public:
-    static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
-    static void insert_datetime_value(int col_index, const std::vector<void*>& datas,
-                                      vectorized::Block* block);
-    static void insert_datetime_value(int col_index, int64_t timestamp, const cctz::time_zone& ctz,
-                                      vectorized::Block* block);
+    SchemaBackendKerberosTicketCacheScanner();
+    ~SchemaBackendKerberosTicketCacheScanner() override;
 
-    static void insert_int64_value(int col_index, int64_t int_val, vectorized::Block* block);
-    static void insert_double_value(int col_index, double double_val, vectorized::Block* block);
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+
+private:
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    std::unique_ptr<vectorized::Block> _info_block = nullptr;
+    cctz::time_zone _timezone_obj;
 };
-
-} // namespace doris
-#endif
+}; // namespace doris
