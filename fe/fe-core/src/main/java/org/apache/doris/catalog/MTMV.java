@@ -201,7 +201,8 @@ public class MTMV extends OlapTable {
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true, true);
+                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                            true);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -323,7 +324,8 @@ public class MTMV extends OlapTable {
         MTMVCache mtmvCache;
         try {
             // Should new context with ADMIN user
-            mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true, false);
+            mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                    false);
         } finally {
             connectionContext.setThreadLocalInfo();
         }

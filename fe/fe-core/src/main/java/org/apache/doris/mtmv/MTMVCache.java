@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -87,16 +86,23 @@ public class MTMVCache {
         return structInfo;
     }
 
-    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost, boolean needLock) {
+    /**
+     * @param defSql the def sql of materialization
+     * @param connectContext should create new connectContext use MTMVPlanUtil createMTMVContext
+     *         or createBasicMvContext
+     * @param needCost the plan from def sql should calc cost or not
+     * @param needLock should skip lock when create mtmv cache
+     */
+    public static MTMVCache from(String defSql, ConnectContext connectContext, boolean needCost, boolean needLock) {
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
-                new OriginStatement(mtmv.getQuerySql(), 0));
-        if (needLock) {
+                new OriginStatement(defSql, 0));
+        if (!needLock) {
             mvSqlStatementContext.setNeedLockTables(false);
         }
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         boolean originalRewriteFlag = connectContext.getSessionVariable().enableMaterializedViewRewrite;
         connectContext.getSessionVariable().enableMaterializedViewRewrite = false;

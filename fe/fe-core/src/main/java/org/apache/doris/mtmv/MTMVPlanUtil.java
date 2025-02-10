@@ -43,10 +43,24 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
 
     public static ConnectContext createMTMVContext(MTMV mtmv) {
+        ConnectContext ctx = createMTMVContext(null);
+        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+        if (workloadGroup.isPresent()) {
+            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        }
+        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
+        // After https://github.com/apache/doris/pull/36543,
+        // After 1, this logic is no longer needed. This is to be compatible with older versions
+        setCatalogAndDb(ctx, mtmv);
+        return ctx;
+    }
+
+    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(Auth.ADMIN_USER);
@@ -65,17 +79,14 @@ public class MTMVPlanUtil {
                 String.join(",", ImmutableSet.of(
                         "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
                         RuleType.ADD_DEFAULT_LIMIT.name())));
-        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
-        if (workloadGroup.isPresent()) {
-            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
-        }
         ctx.setStartTime();
-        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
-        // After https://github.com/apache/doris/pull/36543,
-        // After 1, this logic is no longer needed. This is to be compatible with older versions
-        setCatalogAndDb(ctx, mtmv);
+        if (parentContext != null) {
+            ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
+            ctx.setDatabase(parentContext.getDatabase());
+        }
         return ctx;
     }
+
 
     private static void setCatalogAndDb(ConnectContext ctx, MTMV mtmv) {
         EnvInfo envInfo = mtmv.getEnvInfo();
