@@ -64,13 +64,13 @@ statementBase
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
+    | supportedKillStatement            #supportedKillStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
-    | unsupportedKillStatement
     | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
@@ -321,7 +321,12 @@ supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
     ;
 
-unsupportedOtherStatement
+supportedKillStatement
+    : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
+    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
+    ;
+
+unsupportedOtherStatement 
     : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
@@ -895,11 +900,6 @@ unsupportedDmlStatement
 stageAndPattern
     : ATSIGN (stage=identifier | TILDE)
         (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
-    ;
-
-unsupportedKillStatement
-    : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
-    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
     ;
 
 unsupportedDescribeStatement

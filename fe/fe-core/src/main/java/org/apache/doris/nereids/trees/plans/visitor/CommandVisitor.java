@@ -77,6 +77,8 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -761,6 +763,14 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterDatabaseRenameCommand, context);
     }
 
+    default R visitKillQueryCommand(KillQueryCommand killQueryCommand, C context) {
+        return visitCommand(killQueryCommand, context);
+    }
+
+    default R visitKillConnectionCommand(KillConnectionCommand killConnectionCommand, C context) {
+        return visitCommand(killConnectionCommand, context);
+    }
+ 
     default R visitAlterDatabaseSetQuotaCommand(AlterDatabaseSetQuotaCommand alterDatabaseSetQuotaCommand, C context) {
         return visitCommand(alterDatabaseSetQuotaCommand, context);
     }
