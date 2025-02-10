@@ -25,6 +25,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/status.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
@@ -39,6 +40,35 @@ class THdfsParams;
 
 namespace io {
 
+class HdfsHandler {
+public:
+    hdfsFS hdfs_fs;
+    bool is_kerberos_auth;
+    std::string principal;
+    std::string keytab_path;
+    std::string fs_name;
+    std::atomic<uint64_t> last_access_time;
+    std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;
+
+    HdfsHandler(hdfsFS fs, bool is_kerberos, const std::string& principal_,
+                const std::string& keytab_path_, const std::string& fs_name_,
+                std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache_)
+            : hdfs_fs(fs),
+              is_kerberos_auth(is_kerberos),
+              principal(principal_),
+              keytab_path(keytab_path_),
+              fs_name(fs_name_),
+              last_access_time(std::time(nullptr)),
+              ticket_cache(ticket_cache_) {}
+
+    ~HdfsHandler() {
+        // The ticket_cache will be automatically released when the last reference is gone
+        // No need to explicitly cleanup kerberos ticket
+    }
+
+    void update_access_time() { last_access_time = std::time(nullptr); }
+};
+
 namespace hdfs_bvar {
 extern bvar::LatencyRecorder hdfs_read_latency;
 extern bvar::LatencyRecorder hdfs_write_latency;
@@ -49,82 +79,6 @@ extern bvar::LatencyRecorder hdfs_flush_latency;
 extern bvar::LatencyRecorder hdfs_hflush_latency;
 extern bvar::LatencyRecorder hdfs_hsync_latency;
 }; // namespace hdfs_bvar
-
-class HdfsHandler {
-public:
-    HdfsHandler(hdfsFS fs, bool cached)
-            : hdfs_fs(fs),
-              from_cache(cached),
-              _create_time(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   std::chrono::system_clock::now().time_since_epoch())
-                                   .count()),
-              _last_access_time(0),
-              _invalid(false) {}
-
-    ~HdfsHandler() {
-        if (hdfs_fs != nullptr) {
-            // DO NOT call hdfsDisconnect(), or we will meet "Filesystem closed"
-            // even if we create a new one
-            // hdfsDisconnect(hdfs_fs);
-        }
-        hdfs_fs = nullptr;
-    }
-
-    int64_t last_access_time() { return _last_access_time; }
-
-    void update_last_access_time() {
-        if (from_cache) {
-            _last_access_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::system_clock::now().time_since_epoch())
-                                        .count();
-        }
-    }
-
-    bool invalid() { return _invalid; }
-
-    void set_invalid() { _invalid = true; }
-
-    hdfsFS hdfs_fs;
-    // When cache is full, and all handlers are in use, HdfsFileSystemCache will return an uncached handler.
-    // Client should delete the handler in such case.
-    const bool from_cache;
-
-private:
-    // For kerberos authentication, we need to save create time so that
-    // we can know if the kerberos ticket is expired.
-    std::atomic<uint64_t> _create_time;
-    // HdfsFileSystemCache try to remove the oldest handler when the cache is full
-    std::atomic<uint64_t> _last_access_time;
-    // Client will set invalid if error thrown, and HdfsFileSystemCache will not reuse this handler
-    std::atomic<bool> _invalid;
-};
-
-// Cache for HdfsHandler
-class HdfsHandlerCache {
-public:
-    static HdfsHandlerCache* instance() {
-        static HdfsHandlerCache s_instance;
-        return &s_instance;
-    }
-
-    HdfsHandlerCache(const HdfsHandlerCache&) = delete;
-    const HdfsHandlerCache& operator=(const HdfsHandlerCache&) = delete;
-
-    // This function is thread-safe
-    Status get_connection(const THdfsParams& hdfs_params, const std::string& fs_name,
-                          std::shared_ptr<HdfsHandler>* fs_handle);
-
-private:
-    static constexpr int MAX_CACHE_HANDLE = 64;
-
-    std::mutex _lock;
-    std::unordered_map<uint64_t, std::shared_ptr<HdfsHandler>> _cache;
-
-    HdfsHandlerCache() = default;
-
-    void _clean_invalid();
-    void _clean_oldest();
-};
 
 // if the format of path is hdfs://ip:port/path, replace it to /path.
 // path like hdfs://ip:port/path can't be used by libhdfs3.

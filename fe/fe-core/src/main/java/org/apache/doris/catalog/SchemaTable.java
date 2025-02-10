@@ -575,6 +575,22 @@ public class SchemaTable extends Table {
                                     .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
+            .put("backend_kerberos_ticket_cache",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_kerberos_ticket_cache", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BE_IP", ScalarType.createStringType())
+                                    .column("PRINCIPAL", ScalarType.createStringType())
+                                    .column("KEYTAB", ScalarType.createStringType())
+                                    .column("SERVICE_PRINCIPAL", ScalarType.createStringType())
+                                    .column("TICKET_CACHE_PATH", ScalarType.createStringType())
+                                    .column("HASH_CODE", ScalarType.createStringType())
+                                    .column("START_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("EXPIRE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("AUTH_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("REF_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REFRESH_INTERVAL_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;

@@ -59,12 +59,17 @@ class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
+class HdfsMgr;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class TmpFileDirs;
 } // namespace segment_v2
+
+namespace kerberos {
+class KerberosTicketMgr;
+}
 
 class QueryCache;
 class WorkloadSchedPolicyMgr;
@@ -262,6 +267,9 @@ public:
     WriteCooldownMetaExecutors* write_cooldown_meta_executors() {
         return _write_cooldown_meta_executors.get();
     }
+
+    kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
+    io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -487,6 +495,9 @@ private:
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;
+
+    kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
+    io::HdfsMgr* _hdfs_mgr = nullptr;
 };
 
 template <>

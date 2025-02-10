@@ -33,7 +33,14 @@ const std::string FS_KEY = "fs.defaultFS";
 const std::string USER = "hadoop.username";
 const std::string KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
 const std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-const std::string TICKET_CACHE_PATH = "/tmp/krb5cc_doris_";
+const std::string HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
+const std::string FALLBACK_TO_SIMPLE_AUTH_ALLOWED = "ipc.client.fallback-to-simple-auth-allowed";
+const std::string TRUE_VALUE = "true";
+
+namespace kerberos {
+class KerberosTicketCache;
+class KerberosConfig;
+}; // namespace kerberos
 
 class HDFSCommonBuilder {
     friend Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
@@ -59,11 +66,26 @@ public:
     bool is_kerberos() const { return kerberos_login; }
     Status check_krb_params();
 
+    Status set_kerberos_ticket_cache();
+    void set_hdfs_conf(const std::string& key, const std::string& val);
+    std::string get_hdfs_conf_value(const std::string& key, const std::string& default_val) const;
+    void set_hdfs_conf_to_hdfs_builder();
+
+    std::shared_ptr<kerberos::KerberosTicketCache> get_ticket_cache() { return ticket_cache; }
+
 private:
     hdfsBuilder* hdfs_builder = nullptr;
     bool kerberos_login {false};
+
+    // We should save these info from thrift,
+    // so that the lifecycle of these will same as hdfs_builder
+    std::string fs_name;
+    std::string hadoop_user;
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
+    std::string kerberos_ticket_path;
+    std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;
+    std::unordered_map<std::string, std::string> hdfs_conf;
 };
 
 THdfsParams parse_properties(const std::map<std::string, std::string>& properties);
