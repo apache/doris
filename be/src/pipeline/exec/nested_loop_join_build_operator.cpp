@@ -19,8 +19,8 @@
 
 #include <memory>
 
-#include "exprs/runtime_filter/runtime_filter_slots_cross.h"
 #include "pipeline/exec/operator.h"
+#include "runtime_filter/runtime_filter_slots_cross.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"

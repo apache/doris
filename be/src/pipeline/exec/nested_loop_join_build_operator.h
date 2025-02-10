@@ -19,9 +19,9 @@
 
 #include <stdint.h>
 
-#include "exprs/runtime_filter/runtime_filter_slots_cross.h"
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
+#include "runtime_filter/runtime_filter_slots_cross.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"

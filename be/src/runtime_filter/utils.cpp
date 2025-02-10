@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/runtime_filter/utils.h"
+#include "runtime_filter/utils.h"
 
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vliteral.h"

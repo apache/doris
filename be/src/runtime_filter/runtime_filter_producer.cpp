@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/runtime_filter/runtime_filter_producer.h"
+#include "runtime_filter/runtime_filter_producer.h"
 
-#include "exprs/runtime_filter/runtime_filter_consumer.h"
-#include "exprs/runtime_filter/runtime_filter_merger.h"
+#include "runtime_filter/runtime_filter_consumer.h"
+#include "runtime_filter/runtime_filter_merger.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
 

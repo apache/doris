@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/runtime_filter/runtime_filter_slots.h"
+#include "runtime_filter/runtime_filter_slots.h"
 
 #include "pipeline/pipeline_task.h"
 

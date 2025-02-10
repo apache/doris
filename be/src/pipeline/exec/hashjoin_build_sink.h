@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "exprs/runtime_filter/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
+#include "runtime_filter/runtime_filter_slots.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
