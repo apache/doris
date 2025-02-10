@@ -28,7 +28,8 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     DCHECK(mem_tracker);
     CHECK(init());
     flush_untracked_mem();
-    _last_attach_snapshots_stack.push_back({_reserved_mem, _consumer_tracker_stack});
+    _last_attach_snapshots_stack.push_back(
+            {_limiter_tracker, _wg_wptr, _reserved_mem, _consumer_tracker_stack});
     if (_reserved_mem != 0) {
         // _untracked_mem temporary store bytes that not synchronized to process reserved memory,
         // but bytes have been subtracted from thread _reserved_mem.
@@ -41,16 +42,23 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     _limiter_tracker = mem_tracker;
 }
 
-void ThreadMemTrackerMgr::detach_limiter_tracker(
-        const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
+void ThreadMemTrackerMgr::attach_limiter_tracker(
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+        const std::weak_ptr<WorkloadGroup>& wg_wptr) {
+    attach_limiter_tracker(mem_tracker);
+    _wg_wptr = wg_wptr;
+}
+
+void ThreadMemTrackerMgr::detach_limiter_tracker() {
     CHECK(init());
     flush_untracked_mem();
     shrink_reserved();
     DCHECK(!_last_attach_snapshots_stack.empty());
+    _limiter_tracker = _last_attach_snapshots_stack.back().limiter_tracker;
+    _wg_wptr = _last_attach_snapshots_stack.back().wg_wptr;
     _reserved_mem = _last_attach_snapshots_stack.back().reserved_mem;
     _consumer_tracker_stack = _last_attach_snapshots_stack.back().consumer_tracker_stack;
     _last_attach_snapshots_stack.pop_back();
-    _limiter_tracker = old_mem_tracker;
 }
 
 } // namespace doris
