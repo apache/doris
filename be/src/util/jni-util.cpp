@@ -32,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "gutil/strings/substitute.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
