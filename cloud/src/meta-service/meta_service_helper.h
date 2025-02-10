@@ -52,6 +52,30 @@ inline std::string md5(const std::string& str) {
     return ss.str();
 }
 
+inline std::string encryt_sk(std::string debug_string) {
+    // Start position for searching "sk" fields
+    size_t pos = 0;
+    // Iterate through the string and find all occurrences of "sk: "
+    while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
+        // Find the start and end of the "sk" value (assumed to be within quotes)
+        // Start after the quote
+        size_t sk_value_start = debug_string.find('\"', pos) + 1;
+        // End at the next quote
+        size_t sk_value_end = debug_string.find('\"', sk_value_start);
+
+        // Extract the "sk" value
+        std::string sk_value = debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
+        // Encrypt the "sk" value with MD5
+        std::string encrypted_sk = "md5: " + md5(sk_value);
+
+        // Replace the original "sk" value with the encrypted MD5 value
+        debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
+        // Move the position to the end of the current "sk" field and continue searching
+        pos = sk_value_end;
+    }
+    return debug_string;
+}
+
 template <class Request>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
     if constexpr (std::is_same_v<Request, CreateRowsetRequest>) {
