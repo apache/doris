@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/runtime_filter/runtime_filter_wrapper.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>

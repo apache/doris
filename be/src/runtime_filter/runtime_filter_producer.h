@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "exprs/runtime_filter/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 
 namespace doris {
 

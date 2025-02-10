@@ -20,11 +20,11 @@
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include "common/status.h"
-#include "exprs/runtime_filter/runtime_filter_definitions.h"
-#include "exprs/runtime_filter/runtime_filter_wrapper.h"
-#include "exprs/runtime_filter/utils.h"
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
+#include "runtime_filter/runtime_filter_definitions.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
+#include "runtime_filter/utils.h"
 
 namespace doris {
 class RuntimePredicateWrapper;

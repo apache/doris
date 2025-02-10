@@ -20,8 +20,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
-#include "exprs/runtime_filter/runtime_filter_definitions.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
+#include "runtime_filter/runtime_filter_definitions.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"

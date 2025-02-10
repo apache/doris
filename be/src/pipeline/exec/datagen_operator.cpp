@@ -19,10 +19,10 @@
 
 #include <memory>
 
-#include "exprs/runtime_filter/runtime_filter_consumer.h"
 #include "pipeline/common/data_gen_functions/vdata_gen_function_inf.h"
 #include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

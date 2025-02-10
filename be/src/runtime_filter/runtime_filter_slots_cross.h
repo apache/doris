@@ -20,10 +20,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/runtime_filter/runtime_filter.h"
-#include "exprs/runtime_filter/runtime_filter_slots.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/runtime_filter_slots.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
