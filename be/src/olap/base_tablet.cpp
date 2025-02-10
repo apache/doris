@@ -541,7 +541,6 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
                                       DeleteBitmapPtr tablet_delete_bitmap) {
-    auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
         return Status::OK();
     }
