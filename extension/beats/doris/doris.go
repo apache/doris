@@ -27,6 +27,7 @@ import (
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/codec"
+	"github.com/elastic/beats/v7/libbeat/outputs/outil"
 )
 
 const logSelector = "doris"
@@ -67,17 +68,28 @@ func makeDoris(
 			return outputs.Fail(err)
 		}
 
-		streamLoadPath := fmt.Sprintf("/api/%s/%s/_stream_load", config.Database, config.Table)
-		hostURL, err := common.MakeURL(url.Scheme, streamLoadPath, host, 8030)
+		dbPath := fmt.Sprintf("/api/%s", config.Database)
+		dbURL, err := common.MakeURL(url.Scheme, dbPath, host, 8030)
 		if err != nil {
 			logger.Errorf("Invalid host param set: %s, Error: %+v", host, err)
 			return outputs.Fail(err)
 		}
-		logger.Infof("Final http connection endpoint: %s", hostURL)
+		logger.Infof("http connection endpoint: %s/{table}/_stream_load", dbURL)
+		if len(config.Tables) > 0 {
+			logger.Infof("tables: %+v", config.Tables)
+		}
+		if len(config.Table) > 0 {
+			logger.Infof("table: %s", config.Table)
+		}
+
+		tableSelector, err := buildTableSelector(cfg)
+		if err != nil {
+			return outputs.Fail(err)
+		}
 
 		var client outputs.NetworkClient
 		client, err = NewDorisClient(clientSettings{
-			URL:           hostURL,
+			DBURL:         dbURL,
 			Timeout:       config.Timeout,
 			Observer:      observer,
 			Headers:       config.createHeaders(),
@@ -85,9 +97,9 @@ func makeDoris(
 			LineDelimiter: config.LineDelimiter,
 			LogRequest:    config.LogRequest,
 
-			LabelPrefix: config.LabelPrefix,
-			Database:    config.Database,
-			Table:       config.Table,
+			LabelPrefix:   config.LabelPrefix,
+			Database:      config.Database,
+			TableSelector: tableSelector,
 
 			Reporter: reporter,
 			Logger:   logger,
@@ -124,4 +136,26 @@ func loadCodecConfig(config config) codec.Config {
 		panic(err)
 	}
 	return codecConfig
+}
+
+type fmtSelector struct {
+	Sel outil.Selector
+}
+
+func buildTableSelector(cfg *common.Config) (*fmtSelector, error) {
+	selector, err := outil.BuildSelectorFromConfig(cfg, outil.Settings{
+		Key:              "table",
+		MultiKey:         "tables",
+		EnableSingleOnly: true,
+		FailEmpty:        true,
+		Case:             outil.SelectorKeepCase,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &fmtSelector{
+		Sel: selector,
+	}, nil
 }
