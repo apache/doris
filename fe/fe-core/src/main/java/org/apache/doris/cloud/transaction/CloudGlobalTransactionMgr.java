@@ -864,6 +864,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         stopWatch.start();
         getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
         int totalRetryTime = 0;
+        String retryMsg = "";
         for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
@@ -911,9 +912,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         break;
                     }
                 } catch (Exception e) {
-                    LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}", transactionId,
-                            retryTime, e);
+                    LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}, tableIds={}",
+                            transactionId,
+                            retryTime, mowTableList.stream().map(Table::getId).collect(Collectors.toList()), e);
                 }
+                retryMsg = response.toString();
                 // sleep random millis [20, 300] ms, avoid txn conflict
                 int randomMillis = 20 + (int) (Math.random() * (300 - 20));
                 if (LOG.isDebugEnabled()) {
@@ -963,8 +966,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         stopWatch.stop();
         LOG.info("get delete bitmap lock successfully. txnId: {}. totalRetryTime: {}. "
-                        + "tableSize: {}. cost: {} ms.", transactionId, totalRetryTime,
-                lockContext.getTableToPartitions().size(), stopWatch.getTime());
+                        + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", transactionId, totalRetryTime,
+                lockContext.getTableToPartitions().size(), stopWatch.getTime(),
+                mowTableList.stream().map(Table::getId).collect(Collectors.toList()), retryMsg);
     }
 
     private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
@@ -1236,6 +1240,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         List<Table> tablesToLock = getTablesNeedCommitLock(tableList);
+        StopWatch stopWatch = null;
+        if (!tablesToLock.isEmpty()) {
+            stopWatch = new StopWatch();
+            stopWatch.start();
+        }
         increaseWaitingLockCount(tablesToLock);
         if (!MetaLockUtils.tryCommitLockTables(tablesToLock, timeoutMillis, TimeUnit.MILLISECONDS)) {
             decreaseWaitingLockCount(tablesToLock);
@@ -1243,6 +1252,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
                             + StringUtils.join(tablesToLock, ",") + ")");
+        }
+        if (stopWatch != null) {
+            stopWatch.stop();
+            LOG.info("get table cloud commit lock, tableList=(" + StringUtils.join(tablesToLock, ",") + ")"
+                    + ", transactionId=" + transactionId + ", cost=" + stopWatch.getTime() + " ms");
         }
     }
 
