@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <memory>
 #include <type_traits>
 #include <vector>
 
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -50,6 +52,14 @@ public:
             }
         }
         return true;
+    }
+
+    template <typename DataType>
+    static Block create_block(const std::vector<typename DataType::FieldType>& datas) {
+        auto column = create_column<DataType>(datas);
+        auto data_type = std::make_shared<DataType>();
+        Block block({ColumnWithTypeAndName(column, data_type, "column")});
+        return block;
     }
 };
 } // namespace doris::vectorized
