@@ -20,7 +20,6 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/sort_sink_operator.h"
-#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "vec/runtime/partitioner.h"
@@ -396,7 +395,14 @@ void LocalMergeSortExchanger::finalize() {
 
 Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                                              LocalExchangeSourceLocalState* local_state) {
-    RETURN_IF_ERROR(_sort_source->build_merger(state, _merger, local_state->profile()));
+    vectorized::VExprContextSPtrs ordering_expr_ctxs;
+    ordering_expr_ctxs.resize(_merge_info.ordering_expr_ctxs.size());
+    for (size_t i = 0; i < ordering_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(_merge_info.ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
+    }
+    _merger = std::make_unique<vectorized::VSortedRunMerger>(
+            ordering_expr_ctxs, _merge_info.is_asc_order, _merge_info.nulls_first,
+            state->batch_size(), _merge_info.limit, _merge_info.offset, local_state->profile());
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
         vectorized::BlockSupplier block_supplier = [&, local_state, id = channel_id](
