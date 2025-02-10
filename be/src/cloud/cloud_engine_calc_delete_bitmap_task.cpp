@@ -262,7 +262,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         return status;
     }
 
-    int64_t t3 = MonotonicMicros();
     rowset->set_version(Version(version, version));
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
