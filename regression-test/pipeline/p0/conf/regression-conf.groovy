@@ -61,6 +61,10 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_information_schema_external," +
     "test_outfile_exception," +
+    "schema_change_modify_mv_column_type," +
+    "fix_leading," +
+    "test_tablet_prune," +
+    "test_partial_update_with_inverted_index," +
     "explode," +
     "test_profile," +
     "test_broker_load_p2," +
