@@ -19,9 +19,7 @@
 ################################################################
 # This script will restart all thirdparty containers
 ################################################################
-
-# Wait for MySQL becomes available
-sleep 30
+set -ex
 
 cd $RANGER_HOME
 ./setup.sh

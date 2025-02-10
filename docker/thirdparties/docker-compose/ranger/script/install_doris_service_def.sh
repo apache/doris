@@ -12,8 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#!/bin/bash
+set -ex
 
-curl -O https://doris-regression-bj.oss-cn-beijing.aliyuncs.com/regression/docker/ranger-plugins/ranger-servicedef-doris.json
+curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/ranger-servicedef-doris.json
 until curl -f http://localhost:6080; do
     echo "Waiting for service to be healthy..."
     sleep 30

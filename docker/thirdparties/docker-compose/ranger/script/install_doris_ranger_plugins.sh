@@ -14,9 +14,11 @@
 # limitations under the License.
 
 #!/bin/bash
+set -ex
+
 if [ ! -d "${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris" ]; then
     mkdir -p "${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris"
 fi
 cd "${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris"
-curl -O https://doris-regression-bj.oss-cn-beijing.aliyuncs.com/regression/docker/ranger-plugins/mysql-connector-java-8.0.25.jar
-curl -O https://doris-regression-bj.oss-cn-beijing.aliyuncs.com/regression/docker/ranger-plugins/ranger-doris-plugin-3.0.0-SNAPSHOT.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/mysql-connector-java-8.0.25.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/ranger-doris-plugin-3.0.0-SNAPSHOT.jar

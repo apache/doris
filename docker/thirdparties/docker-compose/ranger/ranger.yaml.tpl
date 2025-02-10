@@ -29,8 +29,10 @@ services:
     networks:
       - doris--ranger
     depends_on:
-      - ranger-mysql
-      - ranger-solr
+      ranger-mysql:
+        condition: service_healthy
+      ranger-solr:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6080"]
       interval: 30s
@@ -48,6 +50,11 @@ services:
     container_name: ranger-mysql
     ports:
       - ${RANGER_MYSQL_PORT}:3306
+    healthcheck:
+      test: mysqladmin ping -h 127.0.0.1 -u root --password=root && mysql -h 127.0.0.1 -u root --password=root -e "SELECT 1 FROM mysql.innodb_table_stats;"
+      interval: 5s
+      timeout: 60s
+      retries: 120
     networks:
       - doris--ranger
     volumes:
