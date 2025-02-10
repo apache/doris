@@ -98,18 +98,19 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
         "20241114152334111",
     ]
 
+    sql """set force_jni_scanner=true;"""
+    sql """set hudi_jni_scanner='spark';"""
     test_hudi_timetravel_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
     test_hudi_timetravel_querys("user_activity_log_cow_partition", timestamps_cow_partition)
     test_hudi_timetravel_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
     test_hudi_timetravel_querys("user_activity_log_mor_partition", timestamps_mor_partition)
 
-    // disable jni scanner because the old hudi jni reader based on spark can't read the emr hudi data
-    // sql """set force_jni_scanner=true;"""
-    // test_hudi_timetravel_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
-    // test_hudi_timetravel_querys("user_activity_log_cow_partition", timestamps_cow_partition)
-    // test_hudi_timetravel_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
-    // test_hudi_timetravel_querys("user_activity_log_mor_partition", timestamps_mor_partition)
-    // sql """set force_jni_scanner=false;"""
+    sql """set force_jni_scanner=false;"""
+    test_hudi_timetravel_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
+    test_hudi_timetravel_querys("user_activity_log_cow_partition", timestamps_cow_partition)
+    test_hudi_timetravel_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
+    test_hudi_timetravel_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+
 
     sql """drop catalog if exists ${catalog_name};"""
 }
