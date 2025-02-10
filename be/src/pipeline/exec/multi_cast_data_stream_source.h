@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/common/runtime_filter_consumer_operator.h"
+#include "runtime_filter/runtime_filter_helper.h"
 
 namespace doris {
 class RuntimeState;
@@ -37,8 +37,7 @@ namespace pipeline {
 class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
-class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState>,
-                                                  public RuntimeFilterConsumerOperator {
+class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
     using Base = PipelineXLocalState<MultiCastSharedState>;
@@ -71,6 +70,8 @@ private:
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _materialize_data_timer = nullptr;
+
+    RuntimeFilterHelper _helper;
 };
 
 class MultiCastDataStreamerSourceOperatorX final

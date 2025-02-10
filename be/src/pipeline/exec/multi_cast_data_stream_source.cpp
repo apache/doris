@@ -28,13 +28,12 @@ namespace doris::pipeline {
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          RuntimeFilterConsumerOperator(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                        parent->runtime_filter_descs(),
-                                        static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
+          _helper(static_cast<Parent*>(parent)->dest_id_from_sink(), parent->runtime_filter_descs(),
+                  static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    RETURN_IF_ERROR(RuntimeFilterConsumerOperator::init(state));
+    RETURN_IF_ERROR(_helper.init(state, profile(), false));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
@@ -44,9 +43,8 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
     _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
     // init profile for runtime filter
-    RuntimeFilterConsumerOperator::_init_profile(profile());
-    init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
-                                   p.get_name() + "_FILTER_DEPENDENCY");
+    _helper.init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
+                                           p.get_name() + "_FILTER_DEPENDENCY");
     return Status::OK();
 }
 
@@ -54,7 +52,7 @@ Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter());
     auto& p = _parent->cast<Parent>();
     _output_expr_contexts.resize(p._output_expr_contexts.size());
     for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {

@@ -24,15 +24,15 @@
 
 namespace doris::pipeline {
 
-class RuntimeFilterConsumerOperator {
+class RuntimeFilterHelper {
 public:
-    RuntimeFilterConsumerOperator(const int32_t filter_id,
-                                  const std::vector<TRuntimeFilterDesc>& runtime_filters,
-                                  const RowDescriptor& row_descriptor,
-                                  vectorized::VExprContextSPtrs& conjuncts);
-    ~RuntimeFilterConsumerOperator() = default;
+    RuntimeFilterHelper(const int32_t node_id,
+                        const std::vector<TRuntimeFilterDesc>& runtime_filters,
+                        const RowDescriptor& row_descriptor,
+                        vectorized::VExprContextSPtrs& conjuncts);
+    ~RuntimeFilterHelper() = default;
 
-    Status init(RuntimeState* state, bool need_local_merge = false);
+    Status init(RuntimeState* state, RuntimeProfile* profile, bool need_local_merge);
 
     // Try to append late arrived runtime filters.
     // Return num of filters which are applied already.
@@ -43,17 +43,19 @@ public:
                     runtime_filter_dependencies,
             const int id, const int node_id, const std::string& name);
 
-protected:
-    // Register and get all runtime filters at Init phase.
-    Status _register_runtime_filter(bool need_local_merge);
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter();
-    // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
+    Status acquire_runtime_filter();
 
+    bool is_all_rf_applied() const { return _is_all_rf_applied; }
+
+private:
     void _init_profile(RuntimeProfile* profile);
 
-    void _prepare_rf_timer(RuntimeProfile* profile);
+    // Register and get all runtime filters at Init phase.
+    Status _register_runtime_filter(bool need_local_merge);
+
+    // Append late-arrival runtime filters to the vconjunct_ctx.
+    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
     // For runtime filters
     struct RuntimeFilterContext {
@@ -70,9 +72,7 @@ protected:
     std::mutex _rf_locks;
     RuntimeState* _state = nullptr;
 
-private:
-    int32_t _filter_id;
-
+    int32_t _node_id;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::list<vectorized::VExprContextSPtr> _probe_ctxs;
 
