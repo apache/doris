@@ -264,7 +264,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -288,9 +287,16 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
+                            bool need_set_mark_runtime_filter_predicate =
+                                    value_range.is_whole_value_range() &&
+                                    conjunct_expr_root->is_rf_wrapper();
                             Defer mark_runtime_filter_flag {[&]() {
-                                value_range.mark_runtime_filter_predicate(
-                                        _is_runtime_filter_predicate);
+                                // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
+                                // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
+                                // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
+                                if (need_set_mark_runtime_filter_predicate) {
+                                    value_range.mark_runtime_filter_predicate(true);
+                                }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
@@ -1043,7 +1049,6 @@ Status ScanLocalState<Derived>::_init_profile() {
     _total_throughput_counter =
             profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _scanner_peak_memory_usage = _peak_memory_usage_counter;
     //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners

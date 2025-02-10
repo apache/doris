@@ -128,7 +128,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         TFileType fileType = locationPath.getTFileTypeForBE();
         if (fileType == TFileType.FILE_S3) {
             locationParams.setWritePath(storageLocation);
-            locationParams.setOriginalWritePath(location);
+            locationParams.setOriginalWritePath(sd.getLocation());
             locationParams.setTargetPath(location);
             if (insertCtx.isPresent()) {
                 HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();

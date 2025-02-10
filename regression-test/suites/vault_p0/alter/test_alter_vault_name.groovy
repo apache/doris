@@ -33,9 +33,9 @@ suite("test_alter_vault_name", "nonConcurrent") {
         CREATE STORAGE VAULT ${hdfsVaultName}
         PROPERTIES (
             "type" = "HDFS",
-            "fs.defaultFS" = "${getHdfsFs()}",
+            "fs.defaultFS" = "${getHmsHdfsFs()}",
             "path_prefix" = "${hdfsVaultName}",
-            "hadoop.username" = "${getHdfsUser()}"
+            "hadoop.username" = "${getHmsUser()}"
         );
     """
 
@@ -65,7 +65,7 @@ suite("test_alter_vault_name", "nonConcurrent") {
                 "VAULT_NAME" = "${hdfsVaultName}"
             );
         """
-    }, "vault name no change")
+    }, "Vault name has not been changed")
 
     // case2
     expectExceptionLike({
@@ -87,7 +87,7 @@ suite("test_alter_vault_name", "nonConcurrent") {
                 "VAULT_NAME" = "${s3VaultName}"
             );
         """
-    }, "vault name no change")
+    }, "Vault name has not been changed")
 
     // case4
     expectExceptionLike({

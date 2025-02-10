@@ -17,6 +17,8 @@
 
 #include "hashjoin_probe_operator.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <string>
 
 #include "common/logging.h"
@@ -54,7 +56,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
     _probe_arena_memory_usage =
-            profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            profile()->AddHighWaterMarkCounter("MemoryUsageProbeKeyArena", TUnit::BYTES, "", 1);
     // Probe phase
     _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
     _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
@@ -241,7 +243,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         // If we use a short-circuit strategy, should return block directly by add additional null data.
         auto block_rows = local_state._probe_block.rows();
         if (local_state._probe_eos && block_rows == 0) {
-            *eos = local_state._probe_eos;
+            *eos = true;
             return Status::OK();
         }
 
@@ -301,8 +303,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                                  mutable_join_block, &temp_block,
                                                  local_state._probe_block.rows(), _is_mark_join,
                                                  _have_other_join_conjunct);
-                            local_state._mem_tracker->set_consumption(
-                                    arg.serialized_keys_size(false));
                         } else {
                             st = Status::InternalError("uninited hash table");
                         }
@@ -498,6 +498,8 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
 
         if (&local_state._probe_block != input_block) {
             input_block->swap(local_state._probe_block);
+            COUNTER_SET(local_state._memory_used_counter,
+                        (int64_t)local_state._probe_block.allocated_bytes());
         }
     }
     return Status::OK();
@@ -645,21 +647,34 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
         auto data_type = slot->get_data_type_ptr();
-        auto target_data_type = idx < right_col_idx ? _left_table_data_types[idx]
-                                                    : _right_table_data_types[idx - right_col_idx];
+        const auto slot_on_left = idx < right_col_idx;
+        auto target_data_type = slot_on_left ? _left_table_data_types[idx]
+                                             : _right_table_data_types[idx - right_col_idx];
         ++idx;
         if (data_type->equals(*target_data_type)) {
             continue;
         }
 
-        auto data_type_non_nullable = vectorized::remove_nullable(data_type);
-        if (data_type_non_nullable->equals(*target_data_type)) {
+        /// For outer join(left/right/full), the non-nullable columns may be converted to nullable.
+        const auto accept_nullable_not_match =
+                _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                (slot_on_left ? _join_op == TJoinOp::RIGHT_OUTER_JOIN
+                              : _join_op == TJoinOp::LEFT_OUTER_JOIN);
+
+        if (accept_nullable_not_match) {
+            auto data_type_non_nullable = vectorized::remove_nullable(data_type);
+            if (data_type_non_nullable->equals(*target_data_type)) {
+                continue;
+            }
+        } else if (data_type->equals(*target_data_type)) {
             continue;
         }
 
-        return Status::InternalError("intermediate slot({}) data type not match: '{}' vs '{}'",
-                                     slot->id(), data_type->get_name(),
-                                     _left_table_data_types[idx]->get_name());
+        return Status::InternalError(
+                "Join node(id={}, OP={}) intermediate slot({}, #{})'s on {} table data type not "
+                "match: '{}' vs '{}'",
+                _node_id, _join_op, slot->col_name(), slot->id(), (slot_on_left ? "left" : "right"),
+                data_type->get_name(), target_data_type->get_name());
     }
 
     _build_side_child.reset();

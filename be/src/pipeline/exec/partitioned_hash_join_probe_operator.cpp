@@ -557,8 +557,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
     }
     {
         SCOPED_TIMER(local_state._partition_timer);
-        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, input_block,
-                                                                  local_state._mem_tracker.get()));
+        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, input_block));
     }
 
     std::vector<std::vector<uint32_t>> partition_indexes(_partition_count);

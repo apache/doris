@@ -45,6 +45,8 @@ suite ("MVMultiUsage") {
     sql """insert into MVMultiUsage values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table MVMultiUsage with sync;"
+    sql """alter table MVMultiUsage modify column time_col set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from MVMultiUsage order by empid;", "MVMultiUsage_mv")
@@ -59,7 +61,6 @@ suite ("MVMultiUsage") {
     order_qt_select_mv "select * from (select deptno, empid from MVMultiUsage where deptno>100) A join (select deptno, empid from MVMultiUsage where deptno >200) B using (deptno) order by 1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table MVMultiUsage modify column time_col set stats ('row_count'='4');"""
 
     mv_rewrite_fail("select * from MVMultiUsage order by empid;", "MVMultiUsage_mv")
     explain {

@@ -41,6 +41,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -333,10 +334,8 @@ public:
     void shawdow_copy_without_columns(const TabletSchema& tablet_schema);
     void update_index_info_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
-    // Don't use.
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // In some places, temporarily use num_columns() as TabletSchema size.
-    int64_t mem_size() const { return _mem_size; }
+    // get_metadata_size is only the memory of the TabletSchema itself, not include child objects.
+    int64_t mem_size() const { return get_metadata_size(); }
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
     int32_t field_index(const vectorized::PathInData& path) const;
@@ -345,6 +344,7 @@ public:
     Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
     bool exist_column(const std::string& field_name) const;
+    bool has_column_unique_id(int32_t col_unique_id) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
     TabletColumn& mutable_column(size_t ordinal);
@@ -407,8 +407,17 @@ public:
     }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
+            DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
+                if (index.col_unique_ids().empty()) {
+                    throw Exception(Status::InternalError("col unique ids cannot be empty"));
+                }
+            });
+
             if (index.index_type() == IndexType::INVERTED) {
-                return true;
+                //if index_id == -1, ignore it.
+                if (!index.col_unique_ids().empty() && index.col_unique_ids()[0] >= 0) {
+                    return true;
+                }
             }
         }
         return false;
@@ -572,7 +581,6 @@ private:
     int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _enable_single_replica_compaction = false;
-    int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;

@@ -81,10 +81,10 @@ Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_stat
 void PartitionedAggSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
@@ -110,8 +110,8 @@ void PartitionedAggSinkLocalState::_init_counters() {
     } while (false)
 
 void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_hash_table_memory_usage, "HashTable");
-    UPDATE_PROFILE(_serialize_key_arena_memory_usage, "SerializeKeyArena");
+    UPDATE_PROFILE(_hash_table_memory_usage, "MemoryUsageHashTable");
+    UPDATE_PROFILE(_serialize_key_arena_memory_usage, "MemoryUsageSerializeKeyArena");
     UPDATE_PROFILE(_build_timer, "BuildTime");
     UPDATE_PROFILE(_serialize_key_timer, "SerializeKeyTime");
     UPDATE_PROFILE(_merge_timer, "MergeTime");

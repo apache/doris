@@ -17,12 +17,21 @@
 
 #include "runtime/workload_group/workload_group_metrics.h"
 
+#include "io/fs/local_file_reader.h"
+#include "olap/olap_common.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 
 namespace doris {
+
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(workload_group_cpu_time_sec, doris::MetricUnit::SECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_mem_used_bytes, doris::MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(workload_group_remote_scan_bytes, doris::MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(workload_group_total_local_scan_bytes,
+                                     doris::MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(workload_group_local_scan_bytes, doris::MetricUnit::BYTES);
 
 #include "common/compile_check_begin.h"
 
@@ -31,38 +40,27 @@ WorkloadGroupMetrics::~WorkloadGroupMetrics() {
 }
 
 WorkloadGroupMetrics::WorkloadGroupMetrics(WorkloadGroup* wg) {
+    std::string wg_id_prefix = "workload_group_" + std::to_string(wg->id());
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            "workload_group." + wg->name(), {{"name", wg->name()}});
+            wg_id_prefix, {{"workload_group", wg->name()}, {"id", std::to_string(wg->id())}});
 
-    _cpu_time_metric = std::make_unique<doris::MetricPrototype>(
-            doris::MetricType::COUNTER, doris::MetricUnit::SECONDS, "workload_group_cpu_time_sec");
-    _cpu_time_counter =
-            (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(_cpu_time_metric.get()));
+    INT_COUNTER_METRIC_REGISTER(_entity, workload_group_cpu_time_sec);
+    INT_GAUGE_METRIC_REGISTER(_entity, workload_group_mem_used_bytes);
+    INT_COUNTER_METRIC_REGISTER(_entity, workload_group_remote_scan_bytes);
+    INT_COUNTER_METRIC_REGISTER(_entity, workload_group_total_local_scan_bytes);
 
-    _mem_used_bytes_metric = std::make_unique<doris::MetricPrototype>(
-            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "workload_group_mem_used_bytes");
-    _mem_used_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-            _mem_used_bytes_metric.get()));
-
-    _local_scan_bytes_metric = std::make_unique<doris::MetricPrototype>(
-            doris::MetricType::COUNTER, doris::MetricUnit::BYTES,
-            "workload_group_local_scan_bytes");
-    _local_scan_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-            _local_scan_bytes_metric.get()));
-
-    _remote_scan_bytes_metric = std::make_unique<doris::MetricPrototype>(
-            doris::MetricType::COUNTER, doris::MetricUnit::BYTES,
-            "workload_group_remote_scan_bytes");
-    _remote_scan_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
-            _remote_scan_bytes_metric.get()));
-
-    for (const auto& [key, io_throttle] : wg->_scan_io_throttle_map) {
-        std::unique_ptr<doris::MetricPrototype> metric = std::make_unique<doris::MetricPrototype>(
-                doris::MetricType::COUNTER, doris::MetricUnit::BYTES,
-                "workload_group_local_scan_bytes_" + io_throttle->metric_name());
-        _local_scan_bytes_counter_map[key] =
-                (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(metric.get()));
-        _local_scan_bytes_metric_map[key] = std::move(metric);
+    std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
+    for (const auto& data_dir : data_dir_list) {
+        std::string data_dir_metric_name = wg_id_prefix + "_io_" + data_dir.metric_name;
+        std::shared_ptr<MetricEntity> io_entity =
+                DorisMetrics::instance()->metric_registry()->register_entity(
+                        data_dir_metric_name, {{"workload_group", wg->name()},
+                                               {"path", data_dir.metric_name},
+                                               {"id", std::to_string(wg->id())}});
+        IntCounter* workload_group_local_scan_bytes = nullptr;
+        INT_COUNTER_METRIC_REGISTER(io_entity, workload_group_local_scan_bytes);
+        _local_scan_bytes_counter_map.insert({data_dir.path, workload_group_local_scan_bytes});
+        _io_entity_list.push_back(io_entity);
     }
 }
 
@@ -75,12 +73,15 @@ void WorkloadGroupMetrics::update_memory_used_bytes(int64_t memory_used) {
 }
 
 void WorkloadGroupMetrics::update_local_scan_io_bytes(std::string path, uint64_t delta_io_bytes) {
-    _local_scan_bytes_counter->increment(delta_io_bytes);
-    _local_scan_bytes_counter_map[path]->increment((int64_t)delta_io_bytes);
+    workload_group_total_local_scan_bytes->increment(delta_io_bytes);
+    auto range = _local_scan_bytes_counter_map.equal_range(path);
+    for (auto it = range.first; it != range.second; ++it) {
+        it->second->increment((int64_t)delta_io_bytes);
+    }
 }
 
 void WorkloadGroupMetrics::update_remote_scan_io_bytes(uint64_t delta_io_bytes) {
-    _remote_scan_bytes_counter->increment(delta_io_bytes);
+    workload_group_remote_scan_bytes->increment(delta_io_bytes);
 }
 
 void WorkloadGroupMetrics::refresh_metrics() {
@@ -89,21 +90,21 @@ void WorkloadGroupMetrics::refresh_metrics() {
     // cpu
     uint64_t _current_cpu_time_nanos = _cpu_time_nanos.load();
     uint64_t _cpu_time_sec = _current_cpu_time_nanos / (1000L * 1000L * 1000L);
-    _cpu_time_counter->set_value(_cpu_time_sec);
+    workload_group_cpu_time_sec->set_value(_cpu_time_sec);
     _per_sec_cpu_time_nanos = (_current_cpu_time_nanos - _last_cpu_time_nanos) / interval_second;
     _last_cpu_time_nanos = _current_cpu_time_nanos;
 
     // memory
-    _mem_used_bytes_counter->set_value(_memory_used);
+    workload_group_mem_used_bytes->set_value(_memory_used);
 
     // local scan
-    int64_t current_local_scan_bytes = _local_scan_bytes_counter->value();
+    int64_t current_local_scan_bytes = workload_group_total_local_scan_bytes->value();
     _per_sec_local_scan_bytes =
             (current_local_scan_bytes - _last_local_scan_bytes) / interval_second;
     _last_local_scan_bytes = current_local_scan_bytes;
 
     // remote scan
-    int64_t current_remote_scan_bytes = _remote_scan_bytes_counter->value();
+    int64_t current_remote_scan_bytes = workload_group_remote_scan_bytes->value();
     _per_sec_remote_scan_bytes =
             (current_remote_scan_bytes - _last_remote_scan_bytes) / interval_second;
     _last_remote_scan_bytes = current_remote_scan_bytes;
@@ -122,7 +123,7 @@ int64_t WorkloadGroupMetrics::get_remote_scan_bytes_per_second() {
 }
 
 int64_t WorkloadGroupMetrics::get_memory_used() {
-    return _mem_used_bytes_counter->value();
+    return workload_group_mem_used_bytes->value();
 }
 
 } // namespace doris

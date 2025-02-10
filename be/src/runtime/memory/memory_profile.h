@@ -33,31 +33,27 @@ public:
     void make_memory_profile(RuntimeProfile* profile) const;
 
     std::string print_memory_overview_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _memory_overview_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_memory_overview_profile.get());
     }
 
     std::string print_global_memory_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _global_memory_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_global_memory_profile.get().get());
+    }
+
+    std::string print_metadata_memory_profile() const {
+        return return_memory_profile_str(_metadata_memory_profile.get().get());
+    }
+
+    std::string print_cache_memory_profile() const {
+        return return_memory_profile_str(_cache_memory_profile.get().get());
     }
 
     std::string print_top_memory_tasks_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _top_memory_tasks_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_top_memory_tasks_profile.get().get());
     }
 
     std::string print_tasks_memory_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _tasks_memory_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_tasks_memory_profile.get().get());
     }
 
     static int64_t query_current_usage();
@@ -71,10 +67,49 @@ public:
     void print_log_process_usage();
 
 private:
-    MultiVersion<RuntimeProfile> _memory_overview_profile;
+    std::string return_memory_profile_str(const RuntimeProfile* profile) const {
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        return ss.str();
+    }
+
+    void init_memory_overview_counter();
+
+    std::unique_ptr<RuntimeProfile> _memory_overview_profile;
     MultiVersion<RuntimeProfile> _global_memory_profile;
+    MultiVersion<RuntimeProfile> _metadata_memory_profile;
+    MultiVersion<RuntimeProfile> _cache_memory_profile;
     MultiVersion<RuntimeProfile> _top_memory_tasks_profile;
     MultiVersion<RuntimeProfile> _tasks_memory_profile;
+
+    // process memory counter
+    RuntimeProfile::HighWaterMarkCounter* _process_physical_memory_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _process_virtual_memory_usage_counter;
+
+    // untracked/tracked memory counter
+    RuntimeProfile::HighWaterMarkCounter* _untracked_memory_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _tracked_memory_usage_counter;
+
+    // Jemalloc memory counter
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_memory_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_cache_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_metadata_usage_counter;
+
+    // global/metadata/cache memory counter
+    RuntimeProfile::HighWaterMarkCounter* _global_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _metadata_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _cache_usage_counter;
+
+    // tasks memory counter
+    RuntimeProfile::HighWaterMarkCounter* _tasks_memory_usage_counter;
+    // reserved memory is the sum of all task reserved memory, is duplicated with all task memory counter.
+    RuntimeProfile::HighWaterMarkCounter* _reserved_memory_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _query_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _load_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _load_all_memtables_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _compaction_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _schema_change_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _other_usage_counter;
 
     std::atomic<bool> _enable_print_log_process_usage {true};
 };

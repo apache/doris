@@ -376,8 +376,7 @@ public class CreateTableInfo {
                                 }
                                 break;
                             }
-                            if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                                    || catalogType.isComplexType() || catalogType.isVariantType()) {
+                            if (!catalogType.couldBeShortKey()) {
                                 break;
                             }
                             keys.add(column.getName());

@@ -443,7 +443,7 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
 fi
 
 if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='OFF'
+    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
@@ -552,7 +552,7 @@ FE_MODULES="$(
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
     update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene-3.0.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -632,6 +632,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+        -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \

@@ -42,6 +42,7 @@ import java.nio.file.Paths;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -58,19 +59,20 @@ public class AzureObjStorageTest {
     }
 
     public static List<I> genInputs() {
+        // refer genObjectKeys
         List<I> inputs = new ArrayList<I>();
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/*/tmp*", 8196L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/tmp*", 4098L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/*tmp*", 4098L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/**/tmp*", 20490L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/**/tmp*", 32784L));
-        inputs.add(new I("s3://gavin-test-jp/azure-test/*", 0L)); // no files at 1st level
+        inputs.add(new I("s3://gavin-test-jp/azure-test/*", 3L)); // no files at 1st level
         inputs.add(new I("s3://gavin-test-jp/azure-test/2/*", 4098L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/2*/*", 4098L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/2/*I*", 591L));
-        inputs.add(new I("s3://gavin-test-jp/azure-test/1", 0L));
-        inputs.add(new I("s3://gavin-test-jp/azure-test/2", 0L));
-        inputs.add(new I("s3://gavin-test-jp/azure-test/3", 0L));
+        inputs.add(new I("s3://gavin-test-jp/azure-test/1", 1L));
+        inputs.add(new I("s3://gavin-test-jp/azure-test/2", 1L));
+        inputs.add(new I("s3://gavin-test-jp/azure-test/3", 1L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/tmp.k*", 61L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/1/tmp.[a-z]*", 1722L));
         inputs.add(new I("s3://gavin-test-jp/azure-test/[12]/tmp.[a-z]*", 3444L));
@@ -120,13 +122,13 @@ public class AzureObjStorageTest {
             boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
             Status st = azs.globList(i.pattern, result, fileNameOnly);
+            System.out.println("testGlobListWithMockedAzureStorage pattern: " + i.pattern + " matched " + result.size());
             Assertions.assertTrue(st.ok());
             Assertions.assertEquals(i.expectedMatchSize, result.size());
             for (int j = 0; j < result.size() && j < 10; ++j) {
                 System.out.println(result.get(j).getName());
             }
-            System.out.println("pattern: " + i.pattern + " matched " + result.size());
-            System.out.println("====================");
+
         });
     }
 
@@ -136,13 +138,20 @@ public class AzureObjStorageTest {
             String pattern = i.pattern.substring(19); // remove prefix s3://gavin-test-jp/
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
             List<String> matchedPaths = new ArrayList<>();
+            HashSet<String> directories = new HashSet<>();
             for (String p : genObjectKeys()) {
                 java.nio.file.Path blobPath = Paths.get(p);
-                if (!matcher.matches(blobPath)) {
-                    continue;
+
+                while (blobPath != null) {
+                    if (matcher.matches(blobPath) && !directories.contains(blobPath.toString())) {
+                        matchedPaths.add(blobPath.toString());
+                        directories.add(blobPath.toString());
+                    }
+                    blobPath = blobPath.getParent();
                 }
-                matchedPaths.add(p);
             }
+            System.out.println("pattern: " + i.pattern + " matched " + matchedPaths.size());
+            System.out.println("====================");
             Assertions.assertEquals(i.expectedMatchSize, matchedPaths.size());
         }
     }

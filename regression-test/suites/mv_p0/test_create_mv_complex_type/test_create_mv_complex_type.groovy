@@ -47,7 +47,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_jsonb, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
     }
     assertFalse(success)
 
@@ -65,7 +65,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_array, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
     }
     assertFalse(success)
 
@@ -83,7 +83,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_map, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
     }
     assertFalse(success)
 
@@ -101,7 +101,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_struct, c_int from base_table;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
     }
     assertFalse(success)
 

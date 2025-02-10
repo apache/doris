@@ -49,8 +49,8 @@ struct CpuNumberMetrics {
         INT_COUNTER_METRIC_REGISTER(entity, avail_cpu_num);
     }
 
-    IntAtomicCounter* host_cpu_num {nullptr};
-    IntAtomicCounter* avail_cpu_num {nullptr};
+    IntCounter* host_cpu_num {nullptr};
+    IntCounter* avail_cpu_num {nullptr};
     MetricEntity* entity = nullptr;
 };
 

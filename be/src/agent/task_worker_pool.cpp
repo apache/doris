@@ -454,6 +454,7 @@ bvar::Adder<uint64_t> CLONE_count("task", "CLONE");
 bvar::Adder<uint64_t> STORAGE_MEDIUM_MIGRATE_count("task", "STORAGE_MEDIUM_MIGRATE");
 bvar::Adder<uint64_t> GC_BINLOG_count("task", "GC_BINLOG");
 bvar::Adder<uint64_t> UPDATE_VISIBLE_VERSION_count("task", "UPDATE_VISIBLE_VERSION");
+bvar::Adder<uint64_t> CALCULATE_DELETE_BITMAP_count("task", "CALCULATE_DELETE_BITMAP");
 
 void add_task_count(const TAgentTaskRequest& task, int n) {
     // clang-format off
@@ -481,6 +482,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
     ADD_TASK_COUNT(UPDATE_VISIBLE_VERSION)
+    ADD_TASK_COUNT(CALCULATE_DELETE_BITMAP)
     #undef ADD_TASK_COUNT
     case TTaskType::REALTIME_PUSH:
     case TTaskType::PUSH:
@@ -1667,11 +1669,46 @@ void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& r
                 .tag("tablet_id", drop_tablet_req.tablet_id);
         return;
     });
-    // 1. erase lru from tablet mgr
-    // TODO(dx) clean tablet file cache
-    // get tablet's info(such as cachekey, tablet id, rsid)
+    MonotonicStopWatch watch;
+    watch.start();
+    auto weak_tablets = engine.tablet_mgr().get_weak_tablets();
+    std::ostringstream rowset_ids_stream;
+    bool found = false;
+    for (auto& weak_tablet : weak_tablets) {
+        auto tablet = weak_tablet.lock();
+        if (tablet == nullptr) {
+            continue;
+        }
+        if (tablet->tablet_id() != drop_tablet_req.tablet_id) {
+            continue;
+        }
+        found = true;
+        auto clean_rowsets = tablet->get_snapshot_rowset(true);
+        // Get first 10 rowset IDs as comma-separated string, just for log
+        int count = 0;
+        for (const auto& rowset : clean_rowsets) {
+            if (count >= 10) break;
+            if (count > 0) {
+                rowset_ids_stream << ",";
+            }
+            rowset_ids_stream << rowset->rowset_id().to_string();
+            count++;
+        }
+
+        CloudTablet::recycle_cached_data(std::move(clean_rowsets));
+        break;
+    }
+
+    if (!found) {
+        LOG(WARNING) << "tablet not found when dropping tablet_id=" << drop_tablet_req.tablet_id
+                     << ", cost " << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
+        return;
+    }
+
     engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
-    // 2. gen clean file cache task
+    LOG(INFO) << "drop cloud tablet_id=" << drop_tablet_req.tablet_id
+              << " and clean file cache first 10 rowsets {" << rowset_ids_stream.str() << "}, cost "
+              << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
     return;
 }
 

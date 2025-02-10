@@ -209,11 +209,11 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
 

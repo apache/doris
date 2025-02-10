@@ -628,7 +628,7 @@ public abstract class ExternalCatalog
         if (useMetaCache.get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 catalogs have the same db name, the id will be the same.
-            return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
+            return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));
@@ -723,7 +723,7 @@ public abstract class ExternalCatalog
 
     public void replayInitCatalog(InitCatalogLog log) {
         // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()) {
+        if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -1079,10 +1079,6 @@ public abstract class ExternalCatalog
             LOG.warn("Failed to drop a table", e);
             throw e;
         }
-    }
-
-    public String getQualifiedName(String dbName) {
-        return String.join(".", name, dbName);
     }
 
     public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {

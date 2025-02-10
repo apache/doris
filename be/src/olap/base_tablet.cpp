@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
+#include "olap/iterators.h"
 #include "olap/memtable.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
@@ -74,7 +75,9 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                             rowset->rowset_id().to_string(), segid));
     }
     segment_v2::SegmentSharedPtr segment = *it;
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
+    StorageReadOptions opts;
+    opts.stats = stats;
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
@@ -931,7 +934,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
     // read current rowset first, if a row in the current rowset has delete sign mark
     // we don't need to read values from old block
     RETURN_IF_ERROR(read_plan_update.read_columns_by_plan(
-            *rowset_schema, update_cids, rsid_to_rowset, update_block, &read_index_update));
+            *rowset_schema, update_cids, rsid_to_rowset, update_block, &read_index_update, false));
     size_t update_rows = read_index_update.size();
     for (auto i = 0; i < update_cids.size(); ++i) {
         for (auto idx = 0; idx < update_rows; ++idx) {
@@ -951,19 +954,17 @@ Status BaseTablet::generate_new_block_for_partial_update(
     // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
     std::map<uint32_t, uint32_t> read_index_old;
     RETURN_IF_ERROR(read_plan_ori.read_columns_by_plan(*rowset_schema, missing_cids, rsid_to_rowset,
-                                                       old_block, &read_index_old,
+                                                       old_block, &read_index_old, true,
                                                        new_block_delete_signs));
     size_t old_rows = read_index_old.size();
     const auto* __restrict old_block_delete_signs =
             get_delete_sign_column_data(old_block, old_rows);
-
+    DCHECK(old_block_delete_signs != nullptr);
     // build default value block
     auto default_value_block = old_block.clone_empty();
-    if (old_block_delete_signs != nullptr || new_block_delete_signs != nullptr) {
-        RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                *rowset_schema, missing_cids, partial_update_info->default_values, old_block,
-                default_value_block));
-    }
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(*rowset_schema, missing_cids,
+                                                             partial_update_info->default_values,
+                                                             old_block, default_value_block));
     auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     CHECK(update_rows >= old_rows);
@@ -1648,6 +1649,40 @@ Status BaseTablet::show_nested_index_file(std::string* json_meta) {
     *json_meta = std::string(buffer.GetString());
 
     return Status::OK();
+}
+
+void BaseTablet::get_base_rowset_delete_bitmap_count(
+        uint64_t* max_base_rowset_delete_bitmap_score,
+        int64_t* max_base_rowset_delete_bitmap_score_tablet_id) {
+    std::vector<RowsetSharedPtr> rowsets_;
+    std::string base_rowset_id_str;
+    {
+        std::shared_lock rowset_ldlock(this->get_header_lock());
+        for (const auto& it : _rs_version_map) {
+            rowsets_.emplace_back(it.second);
+        }
+    }
+    std::sort(rowsets_.begin(), rowsets_.end(), Rowset::comparator);
+    if (!rowsets_.empty()) {
+        bool base_found = false;
+        for (auto& rowset : rowsets_) {
+            if (rowset->start_version() > 2) {
+                break;
+            }
+            base_found = true;
+            uint64_t base_rowset_delete_bitmap_count =
+                    this->tablet_meta()->delete_bitmap().get_count_with_range(
+                            {rowset->rowset_id(), 0, 0},
+                            {rowset->rowset_id(), UINT32_MAX, UINT64_MAX});
+            if (base_rowset_delete_bitmap_count > *max_base_rowset_delete_bitmap_score) {
+                *max_base_rowset_delete_bitmap_score = base_rowset_delete_bitmap_count;
+                *max_base_rowset_delete_bitmap_score_tablet_id = this->tablet_id();
+            }
+        }
+        if (!base_found) {
+            LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
+        }
+    }
 }
 
 } // namespace doris

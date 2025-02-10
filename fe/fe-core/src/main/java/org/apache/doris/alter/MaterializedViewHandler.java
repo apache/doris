@@ -795,10 +795,9 @@ public class MaterializedViewHandler extends AlterHandler {
                             break;
                         }
                     }
-                    if (column.getType().isFloatingPointType()) {
+                    if (!column.getType().couldBeShortKey()) {
                         break;
                     }
-
                     column.setIsKey(true);
 
                     if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {

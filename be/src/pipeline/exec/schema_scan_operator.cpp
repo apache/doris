@@ -70,7 +70,9 @@ SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnod
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),
           _tuple_idx(0),
-          _slot_num(0) {}
+          _slot_num(0) {
+    Base::_is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));

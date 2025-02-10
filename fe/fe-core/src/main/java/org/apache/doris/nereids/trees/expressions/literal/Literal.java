@@ -361,7 +361,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    public int hashCode() {
+    protected int computeHashCode() {
         return Objects.hashCode(getValue());
     }
 

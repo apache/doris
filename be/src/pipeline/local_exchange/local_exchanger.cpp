@@ -42,7 +42,7 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         block->ref(1);
         allocated_bytes = block->data_block.allocated_bytes();
     }
-    std::unique_lock l(_m);
+    std::unique_lock l(*_m[channel_id]);
     local_state._shared_state->add_mem_usage(channel_id, allocated_bytes,
                                              !std::is_same_v<PartitionedBlock, BlockType> &&
                                                      !std::is_same_v<BroadcastBlock, BlockType>);
@@ -90,7 +90,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
     } else if (all_finished) {
         *eos = true;
     } else {
-        std::unique_lock l(_m);
+        std::unique_lock l(*_m[channel_id]);
         if (_data_queue[channel_id].try_dequeue(block)) {
             if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
                           std::is_same_v<BroadcastBlock, BlockType>) {
@@ -118,8 +118,7 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     }
     {
         SCOPED_TIMER(local_state._compute_hash_value_timer);
-        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, in_block,
-                                                                  local_state.mem_tracker()));
+        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, in_block));
     }
     {
         SCOPED_TIMER(local_state._distribute_timer);
@@ -151,9 +150,11 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
             auto block_wrapper = partitioned_block.first;
+            Defer defer {[&]() {
+                block_wrapper->unref(local_state._shared_state, local_state._channel_id);
+            }};
             RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->data_block, offset_start,
                                                    offset_start + partitioned_block.second.length));
-            block_wrapper->unref(local_state._shared_state, local_state._channel_id);
         } while (mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(local_state, partitioned_block, eos, block));
         return Status::OK();

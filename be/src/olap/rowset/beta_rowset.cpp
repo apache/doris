@@ -74,7 +74,7 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
-Status BetaRowset::get_inverted_index_size(size_t* index_size) {
+Status BetaRowset::get_inverted_index_size(int64_t* index_size) {
     const auto& fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed, resource_id={}",

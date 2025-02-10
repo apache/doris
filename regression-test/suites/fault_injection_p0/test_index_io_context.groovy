@@ -79,7 +79,7 @@ suite("test_index_io_context", "nonConcurrent") {
         sql """ set enable_common_expr_pushdown = true; """
 
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexInput::readInternal")
+            GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
@@ -105,7 +105,7 @@ suite("test_index_io_context", "nonConcurrent") {
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexInput::readInternal")
+            GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
         }
     } finally {
     }

@@ -199,7 +199,7 @@ void LocalExchangeSharedState::sub_running_source_operators(
 
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
-    mem_trackers.resize(num_instances, nullptr);
+    mem_counters.resize(num_instances, nullptr);
 }
 
 vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {

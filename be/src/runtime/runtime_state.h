@@ -472,11 +472,6 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
-    bool enable_scan_node_run_serial() const {
-        return _query_options.__isset.enable_scan_node_run_serial &&
-               _query_options.enable_scan_node_run_serial;
-    }
-
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
@@ -566,8 +561,7 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
-                                            bool build_bf_exactly);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
@@ -596,6 +590,11 @@ public:
     bool enable_local_merge_sort() const {
         return _query_options.__isset.enable_local_merge_sort &&
                _query_options.enable_local_merge_sort;
+    }
+
+    bool fuzzy_disable_runtime_filter_in_be() const {
+        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
+               _query_options.fuzzy_disable_runtime_filter_in_be;
     }
 
     int64_t min_revocable_mem() const {

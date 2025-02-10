@@ -186,6 +186,8 @@ import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.proc.TrashProcDir;
 import org.apache.doris.common.proc.TrashProcNode;
+import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
@@ -2619,21 +2621,17 @@ public class ShowExecutor {
     }
 
     private void handleShowQueryProfile() throws AnalysisException {
-        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
-        int httpPort = Config.http_port;
-        String terminalMsg = String.format(
-                "try visit http://%s:%d/QueryProfile, show query/load profile syntax is a deprecated feature",
-                selfHost, httpPort);
-        throw new AnalysisException(terminalMsg);
+        ShowQueryProfileStmt showStmt = (ShowQueryProfileStmt) stmt;
+        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(
+                                                                ProfileType.QUERY, showStmt.getLimit());
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowLoadProfile() throws AnalysisException {
-        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
-        int httpPort = Config.http_port;
-        String terminalMsg = String.format(
-                "try visit http://%s:%d/QueryProfile, show query/load profile syntax is a deprecated feature",
-                selfHost, httpPort);
-        throw new AnalysisException(terminalMsg);
+        ShowLoadProfileStmt showStmt = (ShowLoadProfileStmt) stmt;
+        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(
+                                                                ProfileType.LOAD, showStmt.getLimit());
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowCreateRepository() throws AnalysisException {

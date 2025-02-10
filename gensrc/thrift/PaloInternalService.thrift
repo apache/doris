@@ -226,8 +226,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-
-  74: optional bool enable_scan_node_run_serial = false; 
+  // deprecated
+  74: optional bool enable_scan_node_run_serial = false;
 
   75: optional bool enable_insert_strict = false;
 
@@ -355,6 +355,8 @@ struct TQueryOptions {
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
   141: optional bool ignore_runtime_filter_error = false;
+
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false;
 
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;

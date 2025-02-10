@@ -104,20 +104,26 @@ public:
         return _mem_tracker->consumption();
     }
 
+    int64_t value_mem_consumption() {
+        DCHECK(_value_mem_tracker != nullptr);
+        return _value_mem_tracker->consumption();
+    }
+
     // Insert will consume tracking_bytes to _mem_tracker and cache value destroy will release tracking_bytes.
-    // If LRUCacheType::SIZE, tracking_bytes usually equal to charge.
-    // If LRUCacheType::NUMBER, tracking_bytes usually not equal to charge, at this time charge is an weight.
-    // If LRUCacheType::SIZE and tracking_bytes equals 0, memory must be tracked in Doris Allocator,
+    // If LRUCacheType::SIZE, value_tracking_bytes usually equal to charge.
+    // If LRUCacheType::NUMBER, value_tracking_bytes usually not equal to charge, at this time charge is an weight.
+    // If LRUCacheType::SIZE and value_tracking_bytes equals 0, memory must be tracked in Doris Allocator,
     //    cache value is allocated using Alloctor.
-    // If LRUCacheType::NUMBER and tracking_bytes equals 0, usually currently cannot accurately tracking memory size,
+    // If LRUCacheType::NUMBER and value_tracking_bytes equals 0, usually currently cannot accurately tracking memory size,
     //    only tracking handle_size(106).
-    Cache::Handle* insert(const CacheKey& key, void* value, size_t charge, size_t tracking_bytes,
+    Cache::Handle* insert(const CacheKey& key, void* value, size_t charge,
+                          size_t value_tracking_bytes,
                           CachePriority priority = CachePriority::NORMAL) {
-        size_t tracking_bytes_with_handle = sizeof(LRUHandle) - 1 + key.size() + tracking_bytes;
+        size_t tracking_bytes = sizeof(LRUHandle) - 1 + key.size() + value_tracking_bytes;
         if (value != nullptr) {
-            mem_tracker()->consume(tracking_bytes_with_handle);
             ((LRUCacheValueBase*)value)
-                    ->set_tracking_bytes(tracking_bytes_with_handle, _mem_tracker);
+                    ->set_tracking_bytes(tracking_bytes, _mem_tracker, value_tracking_bytes,
+                                         _value_mem_tracker);
         }
         return _cache->insert(key, value, charge, priority);
     }
@@ -265,9 +271,18 @@ public:
 
 protected:
     void _init_mem_tracker(const std::string& type_name) {
-        _mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::GLOBAL,
-                fmt::format("{}[{}]", type_string(_type), type_name));
+        if (std::find(CachePolicy::MetadataCache.begin(), CachePolicy::MetadataCache.end(),
+                      _type) == CachePolicy::MetadataCache.end()) {
+            _mem_tracker = MemTrackerLimiter::create_shared(
+                    MemTrackerLimiter::Type::CACHE,
+                    fmt::format("{}[{}]", type_string(_type), type_name));
+        } else {
+            _mem_tracker = MemTrackerLimiter::create_shared(
+                    MemTrackerLimiter::Type::METADATA,
+                    fmt::format("{}[{}]", type_string(_type), type_name));
+        }
+        _value_mem_tracker = std::make_shared<MemTracker>(
+                fmt::format("{}::Value[{}]", type_string(_type), type_name));
     }
 
     // if check_capacity failed, will return dummy lru cache,
@@ -277,6 +292,7 @@ protected:
     LRUCacheType _lru_cache_type;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::shared_ptr<MemTracker> _value_mem_tracker;
 };
 
 } // namespace doris

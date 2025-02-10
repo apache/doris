@@ -542,7 +542,15 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             );
         """
 
-        qt_sql_show_db_from_lower_case "show databases from mysql_lower_case_catalog;"
+        test {
+            sql """ show databases from mysql_lower_case_catalog; """
+            check { result, ex, startTime, endTime ->
+                def expectedDatabases = ["doris_1", "doris_2", "doris_3"]
+                expectedDatabases.each { dbName ->
+                    assertTrue(result.collect { it[0] }.contains(dbName), "Expected database '${dbName}' not found in result")
+                }
+            }
+        }
         qt_sql_show_tbl_from_lower_case "show tables from mysql_lower_case_catalog.doris_2;"
         qt_sql1_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
         qt_sql2_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"

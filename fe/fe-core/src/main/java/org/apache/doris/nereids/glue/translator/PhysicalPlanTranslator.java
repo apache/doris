@@ -887,9 +887,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         SchemaScanNode scanNode = null;
         if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                 table.getName())) {
-            scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
+            scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                schemaScan.getSchemaTable().orElse(null));
         } else {
-            scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
+            scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                schemaScan.getSchemaTable().orElse(null));
         }
         scanNode.setNereidsId(schemaScan.getId());
         SchemaScanNode finalScanNode = scanNode;
