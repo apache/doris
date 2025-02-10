@@ -262,7 +262,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         return status;
     }
 
-    int64_t t3 = MonotonicMicros();
     rowset->set_version(Version(version, version));
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
@@ -274,7 +273,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    int64_t update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
@@ -304,7 +302,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
                                                        txn_expiration, tablet_delete_bitmap);
         }
-        update_delete_bitmap_time_us = MonotonicMicros() - t3;
     }
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to calculate delete bitmap. rowset_id=" << rowset->rowset_id()
@@ -314,11 +311,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     }
 
     _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
-    LOG(INFO) << "calculate delete bitmap successfully on tablet"
-              << ", table_id=" << tablet->table_id() << ", " << txn_str
-              << ", tablet_id=" << tablet->tablet_id() << ", num_rows=" << rowset->num_rows()
-              << ", update_delete_bitmap_time_us=" << update_delete_bitmap_time_us
-              << ", res=" << status;
     if (invisible_rowsets != nullptr) {
         invisible_rowsets->push_back(rowset);
         // see CloudTablet::save_delete_bitmap
