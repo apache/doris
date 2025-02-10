@@ -56,19 +56,19 @@
 {"id":1,"level":{"name":"a","age":1.1}}
 
 -- !sql_json --
-{"id":1,"level":"{\\"a\\":\\"b\\"}"}
+{"id":1,"level":{"a":"b"}}
 
 -- !sql_json --
-{"id":1,"level":"{\\"a\\":1}"}
+{"id":1,"level":{"a":1}}
 
 -- !sql_json --
-{"id":1,"level":"{\\"a\\":1.1}"}
+{"id":1,"level":{"a":1.1}}
 
 -- !sql_json --
-{"id":1,"level":"{\\"a\\":1.1}"}
+{"id":1,"level":{"a":1.1}}
 
 -- !sql_json --
-{"id":1,"level":"{\\"a\\":1.1}"}
+{"id":1,"level":{"a":1.1}}
 
 -- !sql2 --
 {"k0":1,"k1":null,"k2":null,"k3":null,"k4":null}

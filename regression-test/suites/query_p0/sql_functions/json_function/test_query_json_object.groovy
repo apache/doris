@@ -70,11 +70,11 @@ suite("test_query_json_object", "query") {
     qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1)); """
     qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1.1)); """
     // json
-    qt_sql_json """ SELECT json_object('id', 1, 'level', '{\"a\":\"b\"}'); """
-    qt_sql_json """ SELECT json_object('id', 1, 'level', '{\"a\":1}'); """
-    qt_sql_json """ SELECT json_object('id', 1, 'level', '{\"a\":1.1}'); """
-    qt_sql_json """ SELECT json_object('id', 1, 'level', '{\"a\":1.1}'); """
-    qt_sql_json """ SELECT json_object('id', 1, 'level', '{\"a\":1.1}'); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":\"b\"}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1.1}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1.1}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1.1}' as JSON)); """
 
 
 
