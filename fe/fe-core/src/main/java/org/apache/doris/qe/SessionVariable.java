@@ -74,6 +74,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -4734,6 +4735,15 @@ public class SessionVariable implements Serializable, Writable {
             }
             bitSet.set(ruleType.type());
         }
+
+        Optional.ofNullable(ConnectContext.get())
+                .ifPresent(context -> {
+                    if ("presto".equals(context.getSessionVariable().getSqlDialect())) {
+                        bitSet.set(RuleType.ELIMINATE_ORDER_BY_UNDER_SUBQUERY.type());
+                        bitSet.set(RuleType.ELIMINATE_SORT.type());
+                        bitSet.set(RuleType.ELIMINATE_ORDER_BY_UNDER_VIEW.type());
+                    }
+                });
         return bitSet;
     }
 
