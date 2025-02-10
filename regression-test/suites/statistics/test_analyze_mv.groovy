@@ -792,6 +792,25 @@ suite("test_analyze_mv") {
     assertEquals("1", result[0][7])
     assertEquals("5", result[0][8])
 
+    sql """drop table if exists testMvDirectSelect"""
+    sql """
+        CREATE TABLE testMvDirectSelect (
+            key1      int NOT NULL,
+            key2      int NOT NULL,
+            value     int SUM
+        )ENGINE=OLAP
+        AGGREGATE KEY(key1, key2)
+        COMMENT "OLAP"
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    createMV("CREATE MATERIALIZED VIEW aggMv as select key1, SUM(value) from testMvDirectSelect group by key1;")
+    sql """insert into testMvDirectSelect values (1, 1, 1), (1, 2, 2), (1, 3, 3), (2, 1, 4), (2, 2, 5), (3, 2, 6)"""
+    qt_test_agg """select * from testMvDirectSelect index aggMv order by mv_key1"""
+
     sql """drop database if exists test_analyze_mv"""
 }
 
