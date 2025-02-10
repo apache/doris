@@ -148,7 +148,7 @@ void Block::initialize_index_by_name() {
 void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
     if (position > data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
 
@@ -165,7 +165,7 @@ void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
 void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
     if (position > data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
 

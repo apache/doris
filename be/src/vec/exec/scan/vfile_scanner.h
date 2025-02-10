@@ -38,6 +38,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RuntimeState;
@@ -167,6 +168,8 @@ protected:
     Block _src_block;
 
     VExprContextSPtrs _push_down_conjuncts;
+    VExprContextSPtrs _runtime_filter_partition_prune_ctxs;
+    Block _runtime_filter_partition_prune_block;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
@@ -183,10 +186,12 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_partition_prune_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_partition_pruned_range_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -214,8 +219,13 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
-    Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
+    Status _generate_parititon_columns();
+    Status _generate_missing_columns();
+    bool _check_partition_prune_expr(const VExprSPtr& expr);
+    void _init_runtime_filter_partition_prune_ctxs();
+    void _init_runtime_filter_partition_prune_block();
+    Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);

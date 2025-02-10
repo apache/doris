@@ -332,6 +332,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
+    public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
+            "enable_runtime_filter_partition_prune";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -1395,6 +1398,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
     public boolean enableRuntimeFilterPrune = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    public boolean enableRuntimeFilterPartitionPrune = true;
+
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
      * For example, trace_id can be passed to trace the query request sent by the user.
@@ -2357,6 +2363,8 @@ public class SessionVariable implements Serializable, Writable {
 
             this.runtimeFilterType = 1 << randomInt;
             this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
+            this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
+            this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
             switch (randomInt) {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
@@ -3488,6 +3496,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
     }
 
+    public boolean isEnableRuntimeFilterPartitionPrune() {
+        return enableRuntimeFilterPartitionPrune;
+    }
+
+    public void setEnableRuntimeFilterPartitionPrune(boolean enableRuntimeFilterPartitionPrune) {
+        this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
+    }
+
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }
@@ -3813,6 +3829,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
 
         tResult.setNewIsIpAddressInRange(newIsIpAddressInRange);
+        tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         return tResult;
     }
