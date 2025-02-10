@@ -263,6 +263,9 @@ private:
     // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
     const bool _dest_is_merge;
     const std::vector<TUniqueId>& _fragment_instance_ids;
+
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
+    size_t _partition_count = 0;
 };
 
 } // namespace pipeline
