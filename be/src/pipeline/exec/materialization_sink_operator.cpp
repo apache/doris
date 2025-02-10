@@ -17,11 +17,18 @@
 
 #include "pipeline/exec/materialization_sink_operator.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/types.pb.h>
+
 #include <utility>
 
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
+#include "util/brpc_client_cache.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 
@@ -44,7 +51,37 @@ Status MaterializationSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
+                                          doris::RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
+    DCHECK(tnode.__isset.materialization_node);
+    {
+        // Create result_expr_ctx_lists_ from thrift exprs.
+        auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
+        vectorized::VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(fetch_expr_lists, ctxs));
+        _rowid_expr = ctxs;
+    }
+
+    for (const auto& node_info : tnode.materialization_node.nodes_info.nodes) {
+        auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                node_info.host, node_info.async_internal_port);
+        if (!client) {
+            LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
+                         << ", port=" << node_info.async_internal_port;
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.async_internal_port);
+        }
+        _stubs.emplace(node_info.id, std::move(client));
+    }
+
+    return Status::OK();
+}
+
 Status MaterializationSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_rowid_expr, state, _child->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::open(_rowid_expr, state));
     return Status::OK();
 }
 

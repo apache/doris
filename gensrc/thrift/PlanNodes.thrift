@@ -58,7 +58,8 @@ enum TPlanNodeType {
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
   PARTITION_SORT_NODE,
-  GROUP_COMMIT_SCAN_NODE
+  GROUP_COMMIT_SCAN_NODE,
+  MATERIALIZATION_NODE
 }
 
 struct TKeyRange {
@@ -966,6 +967,19 @@ struct TRepeatNode {
   6: required list<Exprs.TExpr> exprs
 }
 
+struct TMaterializationNode {
+    // A Materialization materializes all tuple
+    1: optional Types.TTupleId tuple_id
+    // Nodes in this cluster, used for second phase fetch
+    2: optional Descriptors.TPaloNodesInfo nodes_info
+    // Separate list of expr for fetch data
+    3: optional list<Exprs.TExpr> fetch_expr_lists
+    // Fetch schema
+    4: optional list<list<Descriptors.TColumn>> column_descs_lists; 
+    // Whether fetch row store
+    5: optional list<bool> fetch_row_stores
+}
+
 struct TPreAggregationNode {
   1: required list<Exprs.TExpr> group_exprs
   2: required list<Exprs.TExpr> aggregate_exprs
@@ -1355,6 +1369,7 @@ struct TPlanNode {
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
   37: optional TGroupCommitScanNode group_commit_scan_node
+  38: optional TMaterializationNode materialization_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct

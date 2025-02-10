@@ -50,26 +50,22 @@ public:
     using Base = DataSinkOperatorX<MaterializationSinkLocalState>;
 
     friend class MaterializationSinkLocalState;
-    MaterializationSinkOperatorX(int sink_id, int child_id, const std::vector<int>& column_mapping,
-                                 const std::vector<bool>& need_materialize)
-            : Base(sink_id, child_id, child_id) {
+    MaterializationSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
+                                 const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, child_id) {
         _name = "MATERIALIZATION_SINK_OPERATOR";
     }
     ~MaterializationSinkOperatorX() override = default;
 
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    //    std::shared_ptr<BasicSharedState> create_shared_state() const override {
-    //        std::shared_ptr<BasicSharedState> ss = std::make_shared<MaterializationSharedState>();
-    //        ss->id = operator_id();
-    //        for (auto& dest : dests_id()) {
-    //            ss->related_op_ids.insert(dest);
-    //        }
-    //        return ss;
-    //    }
-    //
 private:
+    std::map<int64_t, std::shared_ptr<PBackendService_Stub>> _stubs;
+
+    /// Materialized slot by this node. The i-th result expr list refers to a slot of RowId
+    vectorized::VExprContextSPtrs _rowid_expr;
 };
 
 } // namespace pipeline
