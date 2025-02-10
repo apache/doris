@@ -96,7 +96,7 @@ public class ExportMgrTest {
 
         // Assertions: Check the number of jobs remaining
         List<ExportJob> remainingJobs = exportMgr.getJobs();
-        Assert.assertTrue(remainingJobs.size() <= Config.maximum_history_job_num);
+        Assert.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
         Assert.assertEquals(7, remainingJobs.size()); // Expecting 8 jobs to remain
 
 
@@ -112,7 +112,7 @@ public class ExportMgrTest {
         exportMgr.removeOldExportJobs();
         // Assertions: Check the number of jobs remaining
         remainingJobs = exportMgr.getJobs();
-        Assert.assertTrue(remainingJobs.size() <= Config.maximum_history_job_num);
+        Assert.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
         Assert.assertEquals(1000, remainingJobs.size()); // Expecting 1000 jobs to remain
 
         // check the created time
