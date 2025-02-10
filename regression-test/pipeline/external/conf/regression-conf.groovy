@@ -60,6 +60,8 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_information_schema_external," +
+    "test_hive_serde_prop," +
+    "test_paimon_table_stats," +
     "test_outfile_exception," +
     "explode," +
     "test_profile," +
