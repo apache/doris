@@ -830,7 +830,7 @@ public class NumericArithmetic {
         if (first.getValue().equals(1.0d)) {
             throw new NotSupportedException("the first input of function log can not be 1.0");
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue()) / Math.log(second.getValue())));
+        return checkOutputBoundary(new DoubleLiteral(Math.log(second.getValue()) / Math.log(first.getValue())));
     }
 
     /**
@@ -1084,7 +1084,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(first.getValue() / second.getValue()));
+        return checkOutputBoundary(new DoubleLiteral(first.getValue() % second.getValue()));
     }
 
     /**
@@ -1092,7 +1092,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(FloatLiteral first, FloatLiteral second) {
-        return new FloatLiteral(first.getValue() / second.getValue());
+        return new FloatLiteral(first.getValue() % second.getValue());
     }
 
     /**
