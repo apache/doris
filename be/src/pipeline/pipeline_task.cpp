@@ -311,9 +311,6 @@ Status PipelineTask::execute(bool* eos) {
         query_context()->update_cpu_time(delta_cpu_time);
     }};
     if (_wait_to_start()) {
-        if (config::enable_prefetch_tablet) {
-            RETURN_IF_ERROR(_source->hold_tablets(_state));
-        }
         return Status::OK();
     }
 

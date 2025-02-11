@@ -647,8 +647,6 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
 
-    // Tablets should be hold before open phase.
-    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status open(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
