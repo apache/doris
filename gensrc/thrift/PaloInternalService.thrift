@@ -384,6 +384,7 @@ struct TQueryOptions {
   155: optional i32 spill_aggregation_partition_count = 32
   156: optional i32 spill_hash_join_partition_count = 32
   157: optional i64 low_memory_mode_buffer_limit = 33554432
+  158: optional bool dump_heap_profile_when_mem_limit_exceeded = false
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
