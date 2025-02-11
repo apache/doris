@@ -134,7 +134,7 @@ public class ProxyProtocolHandler {
                         throw new ProtocolException("Invalid proxy protocol v1. '\\r' is not found before '\\n'",
                                 debugInfo.toString());
                     }
-                    result.pType = ProtocolType.PROTOCOL_WITH_IP;
+                    result.pType = ProtocolType.PROTOCOL_WITHOUT_IP;
                     return result;
                 } else if (carriageFound) {
                     throw new ProtocolException("Invalid proxy protocol v1. "

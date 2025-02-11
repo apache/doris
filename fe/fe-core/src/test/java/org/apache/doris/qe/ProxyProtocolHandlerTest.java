@@ -25,16 +25,22 @@ import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 public class ProxyProtocolHandlerTest {
 
     public static class TestChannel implements BytesChannel {
         private byte[] data;
         private int pos;
+        private int testReadReturn = 1;
 
         public TestChannel(byte[] data) {
             this.data = data;
             this.pos = 0;
+        }
+
+        public void setTestReadReturn(int testReadReturn) {
+            this.testReadReturn = testReadReturn;
         }
 
         @Override
@@ -45,6 +51,15 @@ public class ProxyProtocolHandlerTest {
                 pos += len;
             }
             return len;
+        }
+
+        @Override
+        public int testReadWithTimeout(ByteBuffer buffer, long timeoutMs) {
+            if (testReadReturn == 1) {
+                return read(buffer);
+            } else {
+                return testReadReturn;
+            }
         }
     }
 
@@ -111,6 +126,15 @@ public class ProxyProtocolHandlerTest {
         Assertions.assertEquals(12345, result.sourcePort);
         Assertions.assertEquals("2001:db8:0:1:1:1:1:2", result.destIp);
         Assertions.assertEquals(54321, result.destPort);
+    }
+
+    @Test
+    public void handleNotProxyProtocol() throws IOException {
+        byte[] data = new byte[] {};
+        testChannel = new TestChannel(data);
+        testChannel.setTestReadReturn(0);
+        ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertEquals(ProtocolType.NOT_PROXY_PROTOCOL, result.pType);
     }
 
     @Test(expected = IOException.class)
