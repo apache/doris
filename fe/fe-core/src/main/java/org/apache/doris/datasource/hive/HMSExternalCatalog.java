@@ -55,6 +55,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
@@ -117,33 +119,34 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
         }
+        Configuration hdfsConf = loadHdfsConfiguration();
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
         // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
         // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
         // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
-        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        String dfsNameservices = hdfsConf.get(HdfsResource.DSF_NAMESERVICES, "");
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
 
         String[] nameservices = dfsNameservices.split(",");
         for (String dfsservice : nameservices) {
-            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
+            String namenodes = hdfsConf.get("dfs.ha.namenodes." + dfsservice, "");
             if (Strings.isNullOrEmpty(namenodes)) {
                 throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
             }
             String[] names = namenodes.split(",");
             for (String name : names) {
-                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
+                String address = hdfsConf.get("dfs.namenode.rpc-address." + dfsservice + "." + name,
                         "");
                 if (Strings.isNullOrEmpty(address)) {
                     throw new DdlException(
                             "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
                 }
             }
-            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
+            String failoverProvider = hdfsConf.get("dfs.client.failover.proxy.provider." + dfsservice,
                     "");
             if (Strings.isNullOrEmpty(failoverProvider)) {
                 throw new DdlException(
@@ -172,12 +175,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
             jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
         } else {
-            hiveConf = new HiveConf();
-            for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-                hiveConf.set(kv.getKey(), kv.getValue());
-            }
-            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                    String.valueOf(Config.hive_metastore_client_timeout_second));
+            hiveConf = loadHiveConf();
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
@@ -187,6 +185,24 @@ public class HMSExternalCatalog extends ExternalCatalog {
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
                 fileSystemExecutor);
         metadataOps = hiveOps;
+    }
+
+    private Configuration loadHdfsConfiguration() {
+        Configuration hdfsConf = new HdfsConfiguration();
+        for (Map.Entry<String, String> propEntry : catalogProperty.getHadoopProperties().entrySet()) {
+            hdfsConf.set(propEntry.getKey(), propEntry.getValue());
+        }
+        return hdfsConf;
+    }
+
+    private HiveConf loadHiveConf() {
+        HiveConf hiveConf = new HiveConf();
+        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
+            hiveConf.set(kv.getKey(), kv.getValue());
+        }
+        hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                String.valueOf(Config.hive_metastore_client_timeout_second));
+        return hiveConf;
     }
 
     @Override
