@@ -605,7 +605,8 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
     if (small_num == 0 && canceling_task.empty() && query_consumption.size() == 1) {
         auto iter = query_consumption.begin();
         LOG(INFO) << log_prefix << "finished, only one overcommit task: " << iter->first
-                  << ", memory consumption: " << iter->second << ", no other tasks, so no cancel.";
+                  << ", memory consumption: " << PrettyPrinter::print_bytes(iter->second)
+                  << ", no other tasks, so no cancel.";
         return 0;
     }
 

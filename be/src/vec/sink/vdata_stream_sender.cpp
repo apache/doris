@@ -273,9 +273,10 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
         }
     }
 
-    if (_mutable_block->rows() >= _batch_size || eos) {
+    if (_mutable_block->rows() >= _batch_size || eos ||
+        (_mutable_block->rows() > 0 && _mutable_block->allocated_bytes() > _buffer_mem_limit)) {
         if (!_is_local) {
-            RETURN_IF_ERROR(serialize_block(dest, num_receivers));
+            RETURN_IF_ERROR(_serialize_block(dest, num_receivers));
         }
         *serialized = true;
         return Status::OK();
@@ -284,12 +285,16 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(PBlock* dest, size_t num_receivers) {
+Status BlockSerializer::_serialize_block(PBlock* dest, size_t num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
-        block.clear_column_data();
-        _mutable_block->set_mutable_columns(block.mutate_columns());
+        if (_parent->state()->get_query_ctx()->low_memory_mode()) {
+            reset_block();
+        } else {
+            block.clear_column_data();
+            _mutable_block->set_mutable_columns(block.mutate_columns());
+        }
     }
 
     return Status::OK();

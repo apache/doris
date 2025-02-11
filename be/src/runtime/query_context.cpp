@@ -37,6 +37,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/heap_profiler.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -253,6 +254,34 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
 void QueryContext::cancel(Status new_status, int fragment_id) {
     if (!_exec_status.update(new_status)) {
         return;
+    }
+    if (_query_options.__isset.dump_heap_profile_when_mem_limit_exceeded &&
+        _query_options.dump_heap_profile_when_mem_limit_exceeded &&
+        (new_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
+         new_status.is<ErrorCode::MEM_ALLOC_FAILED>())) {
+        std::string dot = HeapProfiler::instance()->dump_heap_profile_to_dot();
+        if (!dot.empty()) {
+            dot += "\n-------------------------------------------------------\n";
+            dot += "Copy the text after `digraph` in the above output to "
+                   "http://www.webgraphviz.com to generate a dot graph.\n"
+                   "after start heap profiler, if there is no operation, will print `No nodes "
+                   "to "
+                   "print`."
+                   "If there are many errors: `addr2line: Dwarf Error`,"
+                   "or other FAQ, reference doc: "
+                   "https://doris.apache.org/community/developer-guide/debug-tool/#4-qa\n";
+            auto log_str =
+                    fmt::format("Query {}, dump heap profile to dot: {}", print_id(_query_id), dot);
+            constexpr size_t max_log_size = 30000 - 100;
+            size_t pos = 0;
+            size_t total_size = log_str.size();
+            size_t tmp_size = std::min(max_log_size, total_size);
+            while (pos < total_size) {
+                tmp_size = std::min(max_log_size, total_size - pos);
+                LOG_INFO(std::string(log_str.data() + pos, tmp_size));
+                pos += tmp_size;
+            }
+        }
     }
 
     set_ready_to_execute(new_status);
