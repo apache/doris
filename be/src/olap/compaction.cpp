@@ -1434,17 +1434,7 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
-    auto st = modify_rowsets();
-    if (!st.ok()) {
-        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-            _tablet->enable_unique_key_merge_on_write() &&
-            initiator() != INVALID_COMPACTION_INITIATOR_ID) {
-            //release delete bitmap lock
-            _engine.meta_mgr().remove_delete_bitmap_update_lock(
-                    _tablet->tablet_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator());
-        }
-        return st;
-    }
+    RETURN_IF_ERROR(modify_rowsets());
 
     return Status::OK();
 }
@@ -1458,7 +1448,8 @@ Status CloudCompactionMixin::execute_compact() {
                 if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
                     // release delete bitmap lock
                     _engine.meta_mgr().remove_delete_bitmap_update_lock(
-                            _tablet->tablet_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator());
+                            _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
+                            _tablet->tablet_id());
                 }
             });
     _load_segment_to_cache();

@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite("test_compaction_fail_release_lock", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -120,10 +118,15 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
         } while (running)
     }
 
-    def testTable = "test_compaction_fail_release_lock"
-    def timeout = 10000
-    sql """ DROP TABLE IF EXISTS ${testTable}"""
-    def testTableDDL = """
+    // store the original value
+    get_be_param("delete_bitmap_lock_expiration_seconds")
+    set_be_param("delete_bitmap_lock_expiration_seconds", "60")
+
+    try {
+        def testTable = "test_compaction_fail_release_lock"
+        def timeout = 10000
+        sql """ DROP TABLE IF EXISTS ${testTable}"""
+        def testTableDDL = """
         create table ${testTable}
             (
             `plan_id` bigint(20) NOT NULL,
@@ -140,15 +143,8 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
                 "disable_auto_compaction" = "true"
             );
     """
-    sql testTableDDL
-    sql "sync"
+        sql testTableDDL
 
-    // store the original value
-    get_be_param("compaction_promotion_version_count")
-    set_be_param("compaction_promotion_version_count", "5")
-
-    try {
-        // 1. test normal
         sql "sync"
         sql """ INSERT INTO ${testTable} VALUES (0,0,'1'),(1,1,'1'); """
         sql """ INSERT INTO ${testTable} VALUES (0,0,'2'),(2,2,'2'); """
@@ -161,7 +157,7 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
 
         qt_sql "select * from ${testTable} order by plan_id"
 
-        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.commit_job_failed")
+        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed")
 
         // trigger cu compaction, compaction will commit fail
         def tablets = sql_return_maparray """ show tablets from ${testTable}; """
@@ -194,47 +190,9 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
 
         qt_sql "select * from ${testTable} order by plan_id"
 
-        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.commit_job_failed")
-
-        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.throw_exception")
-
-        // trigger cu compaction, compaction will abort
-        tablets = sql_return_maparray """ show tablets from ${testTable}; """
-        logger.info("tablets: " + tablets)
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-            logger.info("tablet: " + tablet_info)
-            String trigger_backend_id = tablet.BackendId
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
-
-            assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"));
-            waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
-        }
-
-        // insert will done before timeout
-
-        now = System.currentTimeMillis()
-
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'14'),(1,19,'19'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'15'),(1,20,'20'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'16'),(1,21,'21'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'17'),(1,22,'22'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'18'),(1,23,'23'); """
-
-        time_diff = System.currentTimeMillis() - now
-        logger.info("time_diff:" + time_diff)
-        assertTrue(time_diff <= timeout, "wait_for_insert_into_values timeout")
-
-        qt_sql "select * from ${testTable} order by plan_id"
-
-        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.throw_exception")
     } finally {
-        reset_be_param("compaction_promotion_version_count")
-        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.commit_job_failed")
-        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.throw_exception")
+        reset_be_param("delete_bitmap_lock_expiration_seconds")
+        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed")
     }
 
 }

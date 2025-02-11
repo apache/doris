@@ -304,6 +304,13 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
+        LOG(INFO) << "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id"
+                  << cloud_tablet()->tablet_id();
+        return Status::InternalError(
+                "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
+                cloud_tablet()->tablet_id());
+    });
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (resp.has_alter_version()) {
@@ -436,6 +443,13 @@ Status CloudCumulativeCompaction::garbage_collection() {
         _tablet->enable_unique_key_merge_on_write()) {
         compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
+        LOG(INFO) << "CumulativeCompaction.modify_rowsets.abort_job_failed for tablet_id"
+                  << cloud_tablet()->tablet_id();
+        return Status::InternalError(
+                "CumulativeCompaction.modify_rowsets.abort_job_failed for tablet_id {}",
+                cloud_tablet()->tablet_id());
+    });
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
         LOG_WARNING("failed to abort compaction job")
