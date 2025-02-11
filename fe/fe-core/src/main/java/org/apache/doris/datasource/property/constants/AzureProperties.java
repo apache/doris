@@ -39,7 +39,7 @@ public class AzureProperties extends BaseProperties {
     public static final String SESSION_TOKEN = "azure.session_token";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
 
-    public static final String AZURE_ENDPOINT_TEMPLATE = "%s.blob.core.windows.net/%s";
+    public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
     public static class FS {
         public static final String SESSION_TOKEN = "fs.azure.session.token";
