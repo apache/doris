@@ -96,6 +96,10 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         Dictionary dictionary;
         try {
             dictionary = dicMgr.getDictionary(dbName, dictName);
+            if (dictionary.getStatus() != Dictionary.DictionaryStatus.NORMAL) {
+                throw new AnalysisException("Dictionary " + dictName + " now ready to accept query. Its status is "
+                        + dictionary.getStatus().toString());
+            }
             // check is not key column
             for (Literal colName : colNames) {
                 if (dictionary.getDicColumns().stream()
@@ -134,7 +138,7 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
             } else { // IP_TRIE
                 if (!queryType.isIPType()) {
                     // we CAN'T CAST it because we dont know which one of ipv4 or ipv6 is the target.
-                    throw new AnalysisException("dict_get() only support IP type for IP_TRIE");
+                    throw new AnalysisException("dict_get_many() only support IP type for IP_TRIE");
                 }
             }
             // TypeCoercionUtils could deal inner type individually.

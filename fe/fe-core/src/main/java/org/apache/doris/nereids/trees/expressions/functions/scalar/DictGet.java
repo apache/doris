@@ -91,6 +91,10 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
         Dictionary dictionary;
         try {
             dictionary = dicMgr.getDictionary(dbName, dictName);
+            if (dictionary.getStatus() != Dictionary.DictionaryStatus.NORMAL) {
+                throw new AnalysisException("Dictionary " + dictName + " now ready to accept query. Its status is "
+                        + dictionary.getStatus().toString());
+            }
             // check is not key column
             if (dictionary.getDicColumns().stream().anyMatch(col -> col.getName().equals(colName) && col.isKey())) {
                 throw new AnalysisException("Can't ask for key " + colName + " by dict_get()");
