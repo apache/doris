@@ -133,7 +133,7 @@ public class AzureRemote extends RemoteBase {
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
             String uri = AzureProperties.formatAzureUri(obj.getEndpoint(), containerName, obj.getAk());
-            String err = AzureProperties.checkAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String err = AzureProperties.checkAzureEndpoint(uri, obj.getAk());
             if (err != null) {
                 throw new DdlException(err);
             }

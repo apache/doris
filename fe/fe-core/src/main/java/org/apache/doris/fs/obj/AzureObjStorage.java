@@ -116,14 +116,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public BlobServiceClient getClient() throws UserException {
         if (client == null) {
-            String endpoint = AzureProperties.formatAzureEndpoint(
-                    properties.get(S3Properties.ENDPOINT), properties.get(S3Properties.ACCESS_KEY));
-            String err = AzureProperties.checkAzureEndpoint(
-                    properties.get(S3Properties.ENDPOINT), properties.get(S3Properties.ACCESS_KEY));
+            final String accountName = properties.get(S3Properties.ACCESS_KEY);
+            final String endpoint = AzureProperties.formatAzureEndpoint(
+                    properties.get(S3Properties.ENDPOINT), accountName);
+            String err = AzureProperties.checkAzureEndpoint(endpoint, accountName);
             if (err != null) {
                 throw new UserException(err);
             }
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(properties.get(S3Properties.ACCESS_KEY),
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(accountName,
                     properties.get(S3Properties.SECRET_KEY));
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
             builder.credential(cred);
