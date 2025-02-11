@@ -98,7 +98,6 @@ public class TableNameInfo implements Writable {
      */
     public TableNameInfo(String ctl, String db, String tbl) {
         Objects.requireNonNull(tbl, "require tbl object");
-        Objects.requireNonNull(db, "require db object");
         this.ctl = ctl;
         this.tbl = tbl;
         if (Env.isStoredTableNamesLowerCase()) {
