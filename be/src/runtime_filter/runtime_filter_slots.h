@@ -22,6 +22,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter.h"
 #include "runtime_filter/runtime_filter_producer.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -48,15 +49,15 @@ public:
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
                             std::shared_ptr<pipeline::CountedFinishDependency> dependency);
 
-    Status disable_all_filters(
+    Status skip_runtime_filters_process(
             RuntimeState* state,
             std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency) {
         RETURN_IF_ERROR(send_filter_size(state, 0, finish_dependency));
         for (auto filter : _runtime_filters) {
-            filter->set_disabled();
+            filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
         }
         RETURN_IF_ERROR(_publish(state));
-        _runtime_filters_disabled = true;
+        _skip_runtime_filters_process = true;
         return Status::OK();
     }
 
@@ -65,7 +66,7 @@ public:
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
         for (auto& filter : _runtime_filters) {
-            context->runtime_filters[filter->filter_id()] = filter->get_shared_context_ref();
+            context->runtime_filters[filter->filter_id()] = filter->get_wrapper_ref();
         }
     }
 
@@ -76,7 +77,7 @@ public:
             if (ret == context->runtime_filters.end()) {
                 return Status::Aborted("invalid runtime filter id: {}", filter_id);
             }
-            filter->get_shared_context_ref() = ret->second;
+            filter->get_wrapper_ref() = ret->second;
         }
         return Status::OK();
     }
@@ -86,7 +87,7 @@ protected:
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
     void _insert(const vectorized::Block* block, size_t start);
     Status _publish(RuntimeState* state) {
-        if (_runtime_filters_disabled) {
+        if (_skip_runtime_filters_process) {
             return Status::OK();
         }
         SCOPED_TIMER(_publish_runtime_filter_timer);
@@ -104,7 +105,7 @@ protected:
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
     std::unique_ptr<RuntimeProfile> _runtime_filters_profile;
 
-    bool _runtime_filters_disabled = false;
+    bool _skip_runtime_filters_process = false;
 };
 
 } // namespace doris

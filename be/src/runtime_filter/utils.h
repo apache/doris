@@ -78,8 +78,6 @@ auto get_convertor() {
     }
 }
 
-std::string to_string(RuntimeFilterState type);
-
 std::string to_string(RuntimeFilterType type);
 
 RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc);

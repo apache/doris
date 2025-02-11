@@ -26,7 +26,12 @@ public:
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterMerger>* res) {
         *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(state, desc));
-        return (*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options());
+        vectorized::VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+        (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
+                build_ctx->root()->type().type, (*res)->_runtime_filter_type, desc->filter_id,
+                RuntimeFilterWrapper::State::IGNORED);
+        return Status::OK();
     }
 
     std::string debug_string() const {
@@ -42,9 +47,34 @@ public:
         return Status::OK();
     }
 
+    enum class State {
+        PUBLISHED,
+        IGNORED,
+        DISABLED,
+        WAITING_FOR_PRODUCT,
+    };
+
 private:
     RuntimeFilterMerger(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
             : RuntimeFilter(state, desc) {}
+
+    static std::string _to_string(const State& state) {
+        switch (state) {
+        case State::PUBLISHED:
+            return "PUBLISHED";
+        case State::IGNORED:
+            return "IGNORED";
+        case State::DISABLED:
+            return "DISABLED";
+        case State::WAITING_FOR_PRODUCT:
+            return "WAITING_FOR_PRODUCT";
+        default:
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid State {}",
+                                   int(state));
+        }
+    }
+
+    std::atomic<State> _rf_state;
 
     friend class RuntimeFilterProducer;
 };

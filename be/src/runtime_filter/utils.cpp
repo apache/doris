@@ -22,38 +22,6 @@
 
 namespace doris {
 
-std::string to_string(RuntimeFilterState state) {
-    switch (state) {
-    case RuntimeFilterState::WAITING_FOR_SEND_SIZE:
-        return "WAITING_FOR_SEND_SIZE";
-    case RuntimeFilterState::WAITING_FOR_SYNCED_SIZE:
-        return "WAITING_FOR_SYNCED_SIZE";
-    case RuntimeFilterState::WAITING_FOR_DATA:
-        return "WAITING_FOR_DATA";
-    case RuntimeFilterState::READY_TO_PUBLISH:
-        return "READY_TO_PUBLISH";
-    case RuntimeFilterState::PUBLISHED:
-        return "PUBLISHED";
-    case RuntimeFilterState::IGNORED:
-        return "IGNORED";
-    case RuntimeFilterState::DISABLED:
-        return "DISABLED";
-    case RuntimeFilterState::NOT_READY:
-        return "NOT_READY";
-    case RuntimeFilterState::READY:
-        return "READY";
-    case RuntimeFilterState::TIMEOUT:
-        return "TIMEOUT";
-    case RuntimeFilterState::APPLIED:
-        return "APPLIED";
-    case RuntimeFilterState::WAITING_FOR_PRODUCT:
-        return "WAITING_FOR_PRODUCT";
-    default:
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid RuntimeFilterState {}",
-                               int(state));
-    }
-}
-
 std::string to_string(RuntimeFilterType type) {
     switch (type) {
     case RuntimeFilterType::IN_FILTER: {

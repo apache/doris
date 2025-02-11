@@ -57,16 +57,7 @@ private:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
-    // For runtime filters
-    struct RuntimeFilterContext {
-        RuntimeFilterContext(std::shared_ptr<RuntimeFilterConsumer> rf)
-                : runtime_filter(std::move(rf)) {}
-        // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
-        bool apply_mark = false;
-        std::shared_ptr<RuntimeFilterConsumer> runtime_filter;
-    };
-
-    std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     std::mutex _rf_locks;

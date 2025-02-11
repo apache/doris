@@ -108,7 +108,8 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 #ifndef NDEBUG
     if (state->fuzzy_disable_runtime_filter_in_be()) {
         if ((_parent->operator_id() + random()) % 2 == 0) {
-            RETURN_IF_ERROR(_runtime_filter_slots->disable_all_filters(state, _finish_dependency));
+            RETURN_IF_ERROR(
+                    _runtime_filter_slots->skip_runtime_filters_process(state, _finish_dependency));
         }
     }
 #endif

@@ -32,9 +32,10 @@ public:
 
     int node_id() const { return _node_id; }
 
-    Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                              std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
-                              bool is_late_arrival);
+    Status apply_ready_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                            std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
+                            bool is_late_arrival);
+
     std::string formatted_state() const;
 
     void init_profile(RuntimeProfile* parent_profile);
@@ -59,6 +60,19 @@ public:
                                   std::to_string((double)local_merge_time / NANOS_PER_SEC) + " s");
     }
 
+    bool is_ready() { return _rf_state == State::READY; }
+    bool is_applied() { return _rf_state == State::APPLIED; }
+
+    enum class State {
+        IGNORED,
+        DISABLED,
+        NOT_READY,
+        READY,
+        TIMEOUT,
+        APPLIED,
+        LATE_APPLIED,
+    };
+
 private:
     RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                           int node_id)
@@ -68,7 +82,8 @@ private:
               _profile(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
                                                       desc->filter_id,
                                                       to_string(_runtime_filter_type)))),
-              _registration_time(MonotonicMillis()) {
+              _registration_time(MonotonicMillis()),
+              _rf_state(State::NOT_READY) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
         bool wait_infinitely = _state->get_query_ctx()->runtime_filter_wait_infinitely() ||
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
@@ -76,8 +91,29 @@ private:
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
     }
 
+    static std::string _to_string(const State& state) {
+        switch (state) {
+        case State::IGNORED:
+            return "IGNORED";
+        case State::DISABLED:
+            return "DISABLED";
+        case State::NOT_READY:
+            return "NOT_READY";
+        case State::READY:
+            return "READY";
+        case State::TIMEOUT:
+            return "TIMEOUT";
+        case State::APPLIED:
+            return "APPLIED";
+        case State::LATE_APPLIED:
+            return "LATE_APPLIED";
+        default:
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid State {}",
+                                   int(state));
+        }
+    }
+
     int _node_id;
-    bool _is_push_down = false;
 
     TExpr _probe_expr;
 
@@ -91,6 +127,8 @@ private:
 
     int32_t _rf_wait_time_ms;
     const int64_t _registration_time;
+
+    std::atomic<State> _rf_state;
 
     friend class RuntimeFilterProducer;
 };

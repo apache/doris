@@ -21,12 +21,11 @@
 
 namespace doris {
 
-Status RuntimeFilterConsumer::get_push_expr_ctxs(
+Status RuntimeFilterConsumer::apply_ready_expr(
         std::list<vectorized::VExprContextSPtr>& probe_ctxs,
         std::vector<vectorized::VRuntimeFilterPtr>& push_exprs, bool is_late_arrival) {
     auto origin_size = push_exprs.size();
-    if (!_wrapper->is_ignored() && !_wrapper->is_disabled()) {
-        _is_push_down = !is_late_arrival;
+    if (_wrapper->get_state() == RuntimeFilterWrapper::State::READY) {
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
     _profile->add_info_string("Info", formatted_state());
@@ -38,16 +37,20 @@ Status RuntimeFilterConsumer::get_push_expr_ctxs(
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
     }
+    if (is_late_arrival) {
+        _rf_state = State::LATE_APPLIED;
+    } else {
+        _rf_state = State::APPLIED;
+    }
     return Status::OK();
 }
 
 std::string RuntimeFilterConsumer::formatted_state() const {
     return fmt::format(
-            "[Id = {}, IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
-            "HasLocalTarget = {}, Ignored = {}, Disabled = {}, Type = {}, WaitTimeMS = {}]",
-            filter_id(), _is_push_down, to_string(_rf_state), _has_remote_target, _has_local_target,
-            _wrapper->_context->ignored, _wrapper->_context->disabled, _wrapper->get_real_type(),
-            _rf_wait_time_ms);
+            "[Id = {}, State = {}, HasRemoteTarget = {}, "
+            "HasLocalTarget = {}, Wrapper = [{}], WaitTimeMS = {}]",
+            filter_id(), _to_string(_rf_state), _has_remote_target, _has_local_target,
+            _wrapper->debug_string(), _rf_wait_time_ms);
 }
 
 void RuntimeFilterConsumer::init_profile(RuntimeProfile* parent_profile) {
@@ -62,14 +65,8 @@ void RuntimeFilterConsumer::init_profile(RuntimeProfile* parent_profile) {
 }
 
 void RuntimeFilterConsumer::signal() {
-    if (!_wrapper->is_ignored() && !_wrapper->is_disabled() && _wrapper->is_bloomfilter() &&
-        !_wrapper->get_bloomfilter()->inited()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored/disabled, rf: {}",
-                        debug_string());
-    }
-
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-    _rf_state.store(RuntimeFilterState::READY);
+    _rf_state = State::READY;
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
             timer->call_ready();
@@ -116,13 +113,12 @@ void RuntimeFilterConsumer::update_state() {
     int64_t wait_times_ms = _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout
                                     : runtime_filter_wait_time_ms;
-    auto expected = _rf_state.load(std::memory_order_acquire);
-    // In pipelineX, runtime filters will be ready or timeout before open phase.
-    if (expected == RuntimeFilterState::NOT_READY) {
+
+    if (!is_applied()) {
         DCHECK(MonotonicMillis() - _registration_time >= wait_times_ms);
         COUNTER_SET(_wait_timer,
                     int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-        _rf_state = RuntimeFilterState::TIMEOUT;
+        _rf_state = State::TIMEOUT;
     }
 }
 

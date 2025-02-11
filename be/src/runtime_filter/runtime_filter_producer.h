@@ -26,7 +26,10 @@ public:
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterProducer>* res) {
         *res = std::shared_ptr<RuntimeFilterProducer>(new RuntimeFilterProducer(state, desc));
-        return (*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options());
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
+        (*res)->_rf_state = (*res)->need_sync_filter_size() ? State::WAITING_FOR_SEND_SIZE
+                                                            : State::WAITING_FOR_DATA;
+        return Status::OK();
     }
 
     // insert data to build filter
@@ -59,12 +62,32 @@ public:
         return _synced_size;
     }
 
-    RuntimeFilterContextSPtr& get_shared_context_ref() { return _wrapper->_context; }
+    std::shared_ptr<RuntimeFilterWrapper>& get_wrapper_ref() { return _wrapper; }
 
     std::string debug_string() const {
-        return fmt::format("RuntimeFilterProducer: ({}, dependency: {}, synced_size: {}]",
-                           _debug_string(), _dependency ? _dependency->debug_string() : "none",
-                           _synced_size);
+        return fmt::format(
+                "RuntimeFilterProducer: ({}, state: {}, dependency: {}, synced_size: {}]",
+                _debug_string(), _to_string(_rf_state),
+                _dependency ? _dependency->debug_string() : "none", _synced_size);
+    }
+
+    enum class State {
+        WAITING_FOR_SEND_SIZE = 0,
+        WAITING_FOR_SYNCED_SIZE = 1,
+        WAITING_FOR_DATA = 2,
+        READY_TO_PUBLISH = 3,
+        PUBLISHED = 4
+    };
+
+    void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state) {
+        DCHECK(state == RuntimeFilterWrapper::State::IGNORED ||
+               state == RuntimeFilterWrapper::State::DISABLED);
+        _wrapper->set_state(state);
+        _rf_state = State::READY_TO_PUBLISH;
+    }
+
+    bool is_ready_to_publish_or_published() {
+        return _rf_state == State::READY_TO_PUBLISH || _rf_state == State::PUBLISHED;
     }
 
 private:
@@ -75,14 +98,34 @@ private:
 
     Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* filter,
                                    uint64_t local_merge_time);
-    Status _send_to_local_targets(std::shared_ptr<RuntimePredicateWrapper> wrapper, bool global,
+    Status _send_to_local_targets(std::shared_ptr<RuntimeFilterWrapper> wrapper, bool global,
                                   uint64_t local_merge_time);
+
+    static std::string _to_string(const State& state) {
+        switch (state) {
+        case State::WAITING_FOR_SEND_SIZE:
+            return "WAITING_FOR_SEND_SIZE";
+        case State::WAITING_FOR_SYNCED_SIZE:
+            return "WAITING_FOR_SYNCED_SIZE";
+        case State::WAITING_FOR_DATA:
+            return "WAITING_FOR_DATA";
+        case State::READY_TO_PUBLISH:
+            return "READY_TO_PUBLISH";
+        case State::PUBLISHED:
+            return "PUBLISHED";
+        default:
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid state {}",
+                                   int(state));
+        }
+    }
 
     bool _is_broadcast_join;
     int _expr_order;
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
+
+    std::atomic<State> _rf_state;
 };
 
 } // namespace doris
