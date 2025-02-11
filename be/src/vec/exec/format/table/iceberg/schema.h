@@ -19,8 +19,8 @@
 
 #include "vec/exec/format/table/iceberg/types.h"
 
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 class Type;
 class StructType;
@@ -51,5 +51,5 @@ private:
     std::unordered_map<int, const NestedField*> _id_to_field;
 };
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg

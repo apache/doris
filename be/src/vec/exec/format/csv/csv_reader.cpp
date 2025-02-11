@@ -26,7 +26,6 @@
 #include <cstddef>
 #include <map>
 #include <memory>
-#include <new>
 #include <ostream>
 #include <utility>
 
@@ -44,7 +43,6 @@
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -57,7 +55,6 @@ class RuntimeProfile;
 namespace vectorized {
 class IColumn;
 } // namespace vectorized
-
 namespace io {
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
@@ -290,7 +287,7 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         // For load task, the column order is same as file column order
         int i = 0;
-        for (auto& desc [[maybe_unused]] : _file_slot_descs) {
+        for (const auto& desc [[maybe_unused]] : _file_slot_descs) {
             _col_idxs.push_back(i++);
         }
     }
@@ -390,7 +387,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
 Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
-    for (auto& slot : _file_slot_descs) {
+    for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
     return Status::OK();
@@ -769,8 +766,8 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     }
     ptr = _remove_bom(ptr, size);
     _split_line(Slice(ptr, size));
-    for (size_t idx = 0; idx < _split_values.size(); ++idx) {
-        col_names->emplace_back(_split_values[idx].to_string());
+    for (auto _split_value : _split_values) {
+        col_names->emplace_back(_split_value.to_string());
     }
     return Status::OK();
 }

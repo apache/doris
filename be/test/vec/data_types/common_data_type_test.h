@@ -22,9 +22,7 @@
 #include <fstream>
 #include <iostream>
 
-#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
-#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"

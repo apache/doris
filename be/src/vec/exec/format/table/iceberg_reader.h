@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -43,6 +42,7 @@ class KeyValue;
 } // namespace tparquet
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class SlotDescriptor;
@@ -96,8 +96,7 @@ protected:
     };
     using DeleteRows = std::vector<int64_t>;
     using DeleteFile = phmap::parallel_flat_hash_map<
-            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>,
-            std::equal_to<std::string>,
+            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>, std::equal_to<>,
             std::allocator<std::pair<const std::string, std::unique_ptr<DeleteRows>>>, 8,
             std::mutex>;
     /**
@@ -169,8 +168,8 @@ public:
                                  kv_cache, io_ctx) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int32_t, std::string>& col_id_name_map,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<uint64_t, std::string>& col_id_name_map,
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -216,8 +215,8 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int32_t, std::string>& col_id_name_map,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<uint64_t, std::string>& col_id_name_map,
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -239,4 +238,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

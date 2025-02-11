@@ -150,7 +150,7 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     return Status::OK();
 }
 
-const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
+const doris::Slice FieldDescriptor::get_column_name_from_field_id(uint64_t id) const {
     auto const it = _field_id_name_mapping.find(id);
     if (it == _field_id_name_mapping.end()) {
         return {};

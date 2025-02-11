@@ -60,7 +60,7 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -185,8 +185,9 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int start,
-                                                     int end, const cctz::time_zone& ctz) const {
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
@@ -196,7 +197,7 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                 static_cast<const arrow::DecimalType*>(arrow_array->type().get());
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
@@ -309,7 +310,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
 template <typename T>
 
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -326,7 +327,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
-                                                                      int times) const {
+                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }
