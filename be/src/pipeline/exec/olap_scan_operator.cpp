@@ -372,6 +372,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                 std::max(1, (int)ranges->size() /
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
         int64_t num_ranges = ranges->size();
+        std::vector<RowSetSplits> splits = _read_sources[scan_range_idx].rs_splits;
+        _read_sources[scan_range_idx].rs_splits.clear();
         for (int64_t i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
             scanner_ranges.push_back((*ranges)[i].get());
@@ -383,6 +385,10 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             }
 
             COUNTER_UPDATE(_key_range_counter, scanner_ranges.size());
+            for (auto& split : splits) {
+                _read_sources[scan_range_idx].rs_splits.emplace_back(
+                        RowSetSplits(split.rs_reader->clone()));
+            }
             auto scanner = vectorized::NewOlapScanner::create_shared(
                     this, vectorized::NewOlapScanner::Params {
                                   state(),
@@ -452,7 +458,7 @@ Status OlapScanLocalState::hold_tablets() {
     }
     timer.stop();
     double cost_secs = static_cast<double>(timer.elapsed_time()) / NANOS_PER_SEC;
-    if (cost_secs > 5) {
+    if (cost_secs > 1) {
         LOG_WARNING(
                 "Try to hold tablets costs {} seconds, it costs too much. (Query-ID={}, NodeId={}, "
                 "ScanRangeNum={})",
