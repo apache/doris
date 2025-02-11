@@ -3221,6 +3221,26 @@ public class Config extends ConfigBase {
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
 
+    @ConfField(mutable = true, description = {"指定 Azure endpoint 白名单，未设置时使用默认白名单，"
+            + "举例: azure_endpoint_white_list=a,b,c",
+            "the white list for the Azure s3 load endpoint, default white list will be used if it's not set, "
+            + "for example: azure_endpoint_white_list=a,b,c"})
+    public static String[] azure_endpoint_white_list = {
+            "blob.core.windows.net",
+            "blob.core.chinacloudapi.cn",
+            "blob.core.usgovcloudapi.net",
+    };
+
+    @ConfField(mutable = true, description = {
+            "此配置参数用于忽略用户指定的 Azure endpoint，默认为 `true`，以保持对旧版本的兼容性。"
+            + "若需要使用诸如 `blob.core.chinacloudapi.cn` 等其他 endpoint，需将该参数设置为 `false`。",
+            "This parameter is used to ignore the user-specified Azure endpoint, "
+            + "with the default set to `true` for backward compatibility. "
+            + "If you need to use other endpoints such as `blob.core.chinacloudapi.cn`, "
+            + "you must set this parameter to `false`."
+    })
+    public static boolean ignore_azure_endpoint = true;
+
     @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
             + "for example: jdbc_driver_url_white_list=a,b,c"

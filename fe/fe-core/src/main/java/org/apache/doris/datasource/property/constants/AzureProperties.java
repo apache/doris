@@ -18,8 +18,11 @@
 package org.apache.doris.datasource.property.constants;
 
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.credentials.CloudCredential;
 
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +50,7 @@ public class AzureProperties extends BaseProperties {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }
 
-    public static Boolean checkAzureProviderPropertyExist(Map<String, String> properties) {
+    public static boolean checkAzureProviderPropertyExist(Map<String, String> properties) {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().toLowerCase().contains(S3Properties.PROVIDER)
                     && entry.getValue().toUpperCase().equals(AzureProperties.AZURE_NAME)) {
@@ -55,5 +58,47 @@ public class AzureProperties extends BaseProperties {
             }
         }
         return false;
+    }
+
+    public static String formatAzureEndpoint(String endpoint, String accountName) {
+        if (Config.ignore_azure_endpoint) {
+            return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
+        }
+        if (endpoint.contains("://")) {
+            return endpoint;
+        }
+        return "https://" + endpoint;
+    }
+
+    public static String formatAzureUri(String endpoint, String bucket, String accountName) {
+        return formatAzureEndpoint(endpoint, accountName) + "/" + bucket;
+    }
+
+    public static String checkAzureEndpoint(String endpoint, String accountName) {
+        URL url;
+        try {
+            url = new URL(endpoint);
+        } catch (MalformedURLException e) {
+            return "Azure endpoint URL: " + e.getMessage();
+        }
+        String hostname = url.getHost();
+
+        // example: https://accountName.blob.core.windows.net
+        if (!hostname.startsWith(accountName)) {
+            return String.format("Azure endpoint URL: hostname must start with storage account name '%s':",
+                    accountName, endpoint);
+        }
+
+        // default whitelist, see https://learn.microsoft.com/en-us/azure/storage/common/storage-explorer-network
+        // - "blob.core.windows.net"
+        // - "blob.core.chinacloudapi.cn"
+        // - "blob.core.usgovcloudapi.net"
+        for (String whitelist : Config.azure_endpoint_white_list) {
+            if (hostname.endsWith(whitelist)) {
+                return null;
+            }
+        }
+        return String.format("Azure endpoint URL: hostname is not in the 'azure_endpoint_white_list': %s",
+                hostname);
     }
 }

@@ -118,21 +118,23 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     private String constructEndpoint(Map<String, String> properties, S3URI s3uri) throws AnalysisException {
-        String endpoint;
-        if (!AzureProperties.checkAzureProviderPropertyExist(properties)) {
-            // get endpoint first from properties, if not present, get it from s3 uri.
-            // If endpoint is missing, exception will be thrown.
-            endpoint = getOrDefaultAndRemove(properties, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
-            if (Strings.isNullOrEmpty(endpoint)) {
-                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
-            }
-        } else {
+        // get endpoint first from properties, if not present, get it from s3 uri.
+        // If endpoint is missing, exception will be thrown.
+        String endpoint = getOrDefaultAndRemove(properties, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
+        if (Strings.isNullOrEmpty(endpoint)) {
+            throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
+        }
+        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
             String bucket = s3uri.getBucket();
             String accountName = properties.getOrDefault(S3Properties.ACCESS_KEY, "");
             if (accountName.isEmpty()) {
                 throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
             }
-            endpoint = String.format(AzureProperties.AZURE_ENDPOINT_TEMPLATE, accountName, bucket);
+            endpoint = AzureProperties.formatAzureUri(endpoint, bucket, accountName);
+            String err = AzureProperties.checkAzureEndpoint(endpoint, accountName);
+            if (err != null) {
+                throw new AnalysisException(err);
+            }
         }
         return endpoint;
     }

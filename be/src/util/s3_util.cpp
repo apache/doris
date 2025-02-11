@@ -255,8 +255,15 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
     const std::string container_name = s3_conf.bucket;
-    const std::string uri =
-            fmt::format("{}://{}.blob.core.windows.net/{}", "https", s3_conf.ak, container_name);
+    std::string uri;
+    if (config::ignore_azure_endpoint) {
+        uri = fmt::format("https://{}.blob.core.windows.net/{}", s3_conf.ak, container_name);
+    } else {
+        uri = fmt::format("{}/{}", s3_conf.endpoint, container_name);
+        if (s3_conf.endpoint.find("://") == std::string::npos) {
+            uri = "https://" + uri;
+        }
+    }
 
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
