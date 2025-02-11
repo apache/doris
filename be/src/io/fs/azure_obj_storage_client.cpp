@@ -80,8 +80,7 @@ auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
     return s3_rate_limit(doris::S3RateLimitType::PUT, std::move(callback));
 }
 
-constexpr char SAS_TOKEN_URL_TEMPLATE[] = "https://{}.blob.core.windows.net/{}/{}{}";
-constexpr char SAS_TOKEN_URL_TEMPL[] = "{}/{}/{}{}";
+constexpr char SAS_TOKEN_URL_TEMPLATE[] = "{}/{}/{}{}";
 constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
@@ -417,10 +416,7 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePat
     std::string sasToken = sas_builder.GenerateSasToken(
             Azure::Storage::StorageSharedKeyCredential(conf.ak, conf.sk));
 
-    if (doris::config::ignore_azure_endpoint) {
-        return fmt::format(SAS_TOKEN_URL_TEMPLATE, conf.ak, conf.bucket, opts.key, sasToken);
-    }
-    auto sasURL = fmt::format(SAS_TOKEN_URL_TEMPL, conf.endpoint, conf.bucket, opts.key, sasToken);
+    auto sasURL = fmt::format(SAS_TOKEN_URL_TEMPLATE, conf.endpoint, conf.bucket, opts.key, sasToken);
     if (sasURL.find("://") == std::string::npos) {
         sasURL = "https://" + sasURL;
     }
