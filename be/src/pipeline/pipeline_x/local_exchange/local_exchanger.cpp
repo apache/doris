@@ -157,12 +157,14 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         const auto& map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
                                   ._shuffle_idx_to_instance_idx;
         new_block_wrapper->ref(map.size());
+        uint32_t enqueue_rows = 0;
         for (const auto& it : map) {
             DCHECK(it.second >= 0 && it.second < _num_partitions)
                     << it.first << " : " << it.second << " " << _num_partitions;
             uint32_t start = local_state._partition_rows_histogram[it.first];
             uint32_t size = local_state._partition_rows_histogram[it.first + 1] - start;
             if (size > 0) {
+                enqueue_rows += size;
                 local_state._shared_state->add_mem_usage(
                         it.second, new_block_wrapper->data_block.allocated_bytes(), false);
 
@@ -175,6 +177,18 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
+        }
+        if (enqueue_rows != rows) [[unlikely]] {
+            fmt::memory_buffer debug_string_buffer;
+            fmt::format_to(debug_string_buffer, "Type: {}, Local Exchange Id: {}, Shuffled Map: ",
+                           get_exchange_type_name(get_type()), local_state.parent()->node_id());
+            for (const auto& it : map) {
+                fmt::format_to(debug_string_buffer, "[{}:{}], ", it.first, it.second);
+            }
+            return Status::InternalError(
+                    "Rows mismatched! Data may be lost. [Expected enqueue rows={}, Real enqueue "
+                    "rows={}, Detail: {}]",
+                    rows, enqueue_rows, fmt::to_string(debug_string_buffer));
         }
     } else if (_num_senders != _num_sources || _ignore_source_data_distribution) {
         // In this branch, data just should be distributed equally into all instances.
