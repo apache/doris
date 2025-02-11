@@ -142,6 +142,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getVisibleVersion();
     }
 
+    @Override
+    public long getPartitionMetaLoadTimeMillis(CatalogRelation scan) {
+        return getVisibleVersionTime();
+    }
+
     public enum OlapTableState {
         NORMAL,
         ROLLUP,

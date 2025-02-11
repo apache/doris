@@ -37,4 +37,10 @@ public interface SupportBinarySearchFilteringPartitions extends TableIf {
      * partitions and reload it.
      */
     Object getPartitionMetaVersion(CatalogRelation scan);
+
+    /**
+     * when the partition meta loaded? if the partition meta load too frequently, we will skip sort partitions meta
+     * and will not use binary search to filtering partitions
+     */
+    long getPartitionMetaLoadTimeMillis(CatalogRelation scan);
 }

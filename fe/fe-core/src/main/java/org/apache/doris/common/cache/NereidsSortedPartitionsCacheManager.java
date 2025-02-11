@@ -77,18 +77,26 @@ public class NereidsSortedPartitionsCacheManager {
                 catalog.getName(), database.getFullName(), table.getName());
         PartitionCacheContext partitionCacheContext = partitionCaches.getIfPresent(key);
         if (partitionCacheContext == null) {
-            return Optional.of(loadCache(key, table, scan));
+            return Optional.ofNullable(loadCache(key, table, scan));
         }
         if (table.getId() != partitionCacheContext.tableId
                 || !Objects.equals(table.getPartitionMetaVersion(scan), partitionCacheContext.partitionMetaVersion)) {
             partitionCaches.invalidate(key);
-            return Optional.of(loadCache(key, table, scan));
+            return Optional.ofNullable(loadCache(key, table, scan));
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
     }
 
     private SortedPartitionRanges<?> loadCache(
             TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
+        long now = System.currentTimeMillis();
+        long partitionMetaLoadTime = table.getPartitionMetaLoadTimeMillis(scan);
+
+        // if insert too frequently, we will skip sort partitions
+        if (now <= partitionMetaLoadTime || (now - partitionMetaLoadTime) <= (10 * 1000)) {
+            return null;
+        }
+
         Map<?, PartitionItem> unsortedMap = table.getOriginPartitions(scan);
         List<Entry<?, PartitionItem>> unsortedList = Lists.newArrayList(unsortedMap.entrySet());
         List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsortedMap.size());
