@@ -19,9 +19,9 @@ package org.apache.doris.common.cache;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.datasource.CatalogIf;
@@ -43,6 +43,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -62,7 +63,7 @@ public class NereidsSortedPartitionsCacheManager {
         );
     }
 
-    public Optional<SortedPartitionRanges<?>> get(OlapTable table) {
+    public Optional<SortedPartitionRanges<?>> get(SupportBinarySearchFilteringPartitions table) {
         DatabaseIf<?> database = table.getDatabase();
         if (database == null) {
             return Optional.empty();
@@ -78,16 +79,17 @@ public class NereidsSortedPartitionsCacheManager {
             return Optional.of(loadCache(key, table));
         }
         if (table.getId() != partitionCacheContext.tableId
-                || table.getVisibleVersion() != partitionCacheContext.tableVersion) {
+                || Objects.equals(table.getPartitionMetaVersion(), partitionCacheContext.partitionMetaVersion)) {
             partitionCaches.invalidate(key);
             return Optional.of(loadCache(key, table));
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
     }
 
-    private SortedPartitionRanges<?> loadCache(TableIdentifier key, OlapTable olapTable) {
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        Map<Long, PartitionItem> allPartitions = partitionInfo.getIdToItem(false);
+    private SortedPartitionRanges<?> loadCache(
+            TableIdentifier key, SupportBinarySearchFilteringPartitions table) {
+        PartitionInfo unsortedPartitions = table.getOriginPartitionInfo();
+        Map<Long, PartitionItem> allPartitions = unsortedPartitions.getIdToItem(false);
         List<Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(allPartitions.entrySet());
         List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(allPartitions.size());
         List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
@@ -118,7 +120,7 @@ public class NereidsSortedPartitionsCacheManager {
                 sortedRanges, defaultPartitions
         );
         PartitionCacheContext context = new PartitionCacheContext(
-                olapTable.getId(), olapTable.getVisibleVersion(), sortedPartitionRanges);
+                table.getId(), table.getPartitionMetaVersion(), sortedPartitionRanges);
         partitionCaches.put(key, context);
         return sortedPartitionRanges;
     }
@@ -166,20 +168,21 @@ public class NereidsSortedPartitionsCacheManager {
 
     private static class PartitionCacheContext {
         private final long tableId;
-        private final long tableVersion;
+        private final Object partitionMetaVersion;
         private final SortedPartitionRanges sortedPartitionRanges;
 
         public PartitionCacheContext(
-                long tableId, long tableVersion, SortedPartitionRanges sortedPartitionRanges) {
+                long tableId, Object partitionMetaVersion, SortedPartitionRanges sortedPartitionRanges) {
             this.tableId = tableId;
-            this.tableVersion = tableVersion;
+            this.partitionMetaVersion
+                    = Objects.requireNonNull(partitionMetaVersion, "partitionMetaVersion cannot be null");
             this.sortedPartitionRanges = sortedPartitionRanges;
         }
 
         @Override
         public String toString() {
             return "PartitionCacheContext(tableId="
-                    + tableId + ", tableVersion=" + tableVersion
+                    + tableId + ", tableVersion=" + partitionMetaVersion
                     + ", partitionNum=" + sortedPartitionRanges.sortedPartitions.size() + ")";
         }
     }

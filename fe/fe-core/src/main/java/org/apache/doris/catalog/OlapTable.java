@@ -127,8 +127,19 @@ import java.util.stream.Collectors;
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
  * Note: when you add a new olap table property, you should modify TableProperty class
  */
-public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProcessable {
+public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProcessable,
+        SupportBinarySearchFilteringPartitions {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
+
+    @Override
+    public PartitionInfo getOriginPartitionInfo() {
+        return getPartitionInfo();
+    }
+
+    @Override
+    public Object getPartitionMetaVersion() {
+        return getVisibleVersion();
+    }
 
     public enum OlapTableState {
         NORMAL,
