@@ -20,8 +20,8 @@
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 const char* ArrowSchemaUtil::PARQUET_FIELD_ID = "PARQUET:field_id";
 const char* ArrowSchemaUtil::ORIGINAL_TYPE = "originalType";
@@ -82,7 +82,7 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         break;
 
     case iceberg::TypeID::DECIMAL: {
-        auto dt = dynamic_cast<DecimalType*>(field.field_type());
+        auto* dt = dynamic_cast<DecimalType*>(field.field_type());
         arrow_type = arrow::decimal(dt->get_precision(), dt->get_scale());
         break;
     }
@@ -130,5 +130,5 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
     return Status::OK();
 }
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg
