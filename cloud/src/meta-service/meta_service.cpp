@@ -68,6 +68,9 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+// static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
+
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
                                  std::shared_ptr<RateLimiter> rate_limiter) {
@@ -1777,17 +1780,39 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    bool found = false;
-    for (auto initiator : lock_info.initiators()) {
-        if (lock_initiator == initiator) {
-            found = true;
-            break;
+    if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+        std::string tablet_compaction_key =
+                mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
+        std::string tablet_compaction_val;
+        err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "tablet compaction key not found, table_id=" << table_id
+               << " lock_id" << lock_id << " initiator=" << lock_initiator;
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return false;
         }
-    }
-    if (!found) {
-        msg = "lock initiator not exist";
-        code = MetaServiceCode::LOCK_EXPIRED;
-        return false;
+        if (err != TxnErrorCode::TXN_OK) {
+            ss << "failed to get tablet compaction info, err=" << err;
+            msg = ss.str();
+            code = cast_as<ErrCategory::READ>(err);
+            return false;
+        }
+        // TODO does we need check expired time
+        return true;
+    } else {
+        bool found = false;
+        for (auto initiator : lock_info.initiators()) {
+            if (lock_initiator == initiator) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            msg = "lock initiator not exist";
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return false;
+        }
     }
     return true;
 }
@@ -2196,6 +2221,67 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     }
 }
 
+static bool put_mow_tablet_compaction_key(MetaServiceCode& code, std::string& msg,
+                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
+                                          std::string& instance_id, int64_t table_id,
+                                          int64_t lock_id, int64_t initiator, int64_t expiration) {
+    std::string tablet_compaction_key =
+            mow_tablet_compaction_key({instance_id, table_id, initiator});
+    std::string tablet_compaction_val;
+    MowTabletCompactionPB mow_tablet_compaction;
+    mow_tablet_compaction.set_expiration(expiration);
+    mow_tablet_compaction.SerializeToString(&tablet_compaction_val);
+    if (tablet_compaction_val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "MowTabletCompactionPB serialization error";
+        return false;
+    }
+    txn->put(tablet_compaction_key, tablet_compaction_val);
+    LOG(INFO) << "xxx put tablet compaction key=" << hex(tablet_compaction_key)
+              << " table_id=" << table_id << " lock_id=" << lock_id << " initiator=" << initiator;
+    return true;
+}
+
+static bool put_delete_bitmap_update_lock_key(MetaServiceCode& code, std::string& msg,
+                                              std::stringstream& ss,
+                                              std::unique_ptr<Transaction>& txn, int64_t table_id,
+                                              int64_t lock_id, int64_t initiator,
+                                              std::string& lock_key,
+                                              DeleteBitmapUpdateLockPB& lock_info) {
+    std::string lock_val;
+    lock_info.SerializeToString(&lock_val);
+    if (lock_val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "DeleteBitmapUpdateLockPB serialization error";
+        return false;
+    }
+    txn->put(lock_key, lock_val);
+    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
+              << " lock_id=" << lock_id << " initiator=" << initiator
+              << " initiators_size=" << lock_info.initiators_size();
+    return true;
+}
+
+/*static bool get_delete_bitmap_update_lock_id(std::shared_ptr<TxnKv> txn_kv,
+                                             std::string& instance_id, int64_t table_id) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return false;
+    }
+    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    std::string lock_val;
+    err = txn->get(lock_key, &lock_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        return false;
+    }
+    DeleteBitmapUpdateLockPB lock_info;
+    if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+        return false;
+    }
+    return lock_info.lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID;
+}*/
+
 void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
@@ -2215,78 +2301,197 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
         return;
     }
-
-    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to init txn";
-        return;
-    }
     auto table_id = request->table_id();
-    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
-    std::string lock_val;
-    DeleteBitmapUpdateLockPB lock_info;
-    err = txn->get(lock_key, &lock_val);
-    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        ss << "failed to get delete bitmap update lock, instance_id=" << instance_id
-           << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
-        msg = ss.str();
-        code = MetaServiceCode::KV_TXN_GET_ERR;
-        return;
-    }
-    using namespace std::chrono;
-    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (err == TxnErrorCode::TXN_OK) {
-        if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "failed to parse DeleteBitmapUpdateLockPB";
+    bool first_retry = true;
+    while (true) {
+        response->Clear();
+        RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
             return;
         }
-        if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
-            LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
-                      << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
-            lock_info.clear_initiators();
-        } else if (lock_info.lock_id() != request->lock_id()) {
-            ss << "already be locked. request lock_id=" << request->lock_id()
-               << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
-               << " now=" << now << " expiration=" << lock_info.expiration();
+        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+        std::string lock_val;
+        DeleteBitmapUpdateLockPB lock_info;
+        err = txn->get(lock_key, &lock_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "failed to get delete bitmap update lock, instance_id=" << instance_id
+               << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
             msg = ss.str();
-            code = MetaServiceCode::LOCK_CONFLICT;
+            code = MetaServiceCode::KV_TXN_GET_ERR;
             return;
         }
-    }
+        using namespace std::chrono;
+        int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        int64_t expiration = now + request->expiration();
+        bool lock_key_not_found = false;
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            lock_key_not_found = true;
+            lock_info.set_lock_id(request->lock_id());
+            if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                lock_info.set_expiration(expiration);
+                lock_info.add_initiators(request->initiator());
+            } else {
+                if (!put_mow_tablet_compaction_key(code, msg, ss, txn, instance_id, table_id,
+                                                   request->lock_id(), request->initiator(),
+                                                   expiration)) {
+                    return;
+                }
+            }
+            if (!put_delete_bitmap_update_lock_key(code, msg, ss, txn, table_id, request->lock_id(),
+                                                   request->initiator(), lock_key, lock_info)) {
+                return;
+            }
+            LOG(INFO) << "xxx put lock_key 0=" << hex(lock_key) << " table_id=" << table_id
+                      << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                      << " initiators_size=" << lock_info.initiators_size();
+        } else if (err == TxnErrorCode::TXN_OK) {
+            if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse DeleteBitmapUpdateLockPB";
+                return;
+            }
+            if (lock_info.lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
+                    LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
+                              << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
+                    lock_info.clear_initiators();
+                } else if (lock_info.lock_id() != request->lock_id()) {
+                    ss << "already be locked. request lock_id=" << request->lock_id()
+                       << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
+                       << " now=" << now << " expiration=" << lock_info.expiration();
+                    msg = ss.str();
+                    code = MetaServiceCode::LOCK_CONFLICT;
+                    return;
+                }
 
-    lock_info.set_lock_id(request->lock_id());
-    lock_info.set_expiration(now + request->expiration());
-    bool found = false;
-    for (auto initiator : lock_info.initiators()) {
-        if (request->initiator() == initiator) {
-            found = true;
-            break;
+                lock_info.set_lock_id(request->lock_id());
+                if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                    lock_info.set_expiration(expiration);
+                    bool found = false;
+                    for (auto initiator : lock_info.initiators()) {
+                        if (request->initiator() == initiator) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        lock_info.add_initiators(request->initiator());
+                    }
+                } else {
+                    if (!put_mow_tablet_compaction_key(code, msg, ss, txn, instance_id, table_id,
+                                                       request->lock_id(), request->initiator(),
+                                                       expiration)) {
+                        return;
+                    }
+                }
+                if (!put_delete_bitmap_update_lock_key(code, msg, ss, txn, table_id,
+                                                       request->lock_id(), request->initiator(),
+                                                       lock_key, lock_info)) {
+                    return;
+                }
+                LOG(INFO) << "xxx put lock_key 1=" << hex(lock_key) << " table_id=" << table_id
+                          << " lock_id=" << request->lock_id()
+                          << " initiator=" << request->initiator()
+                          << " initiators_size=" << lock_info.initiators_size();
+            } else {
+                if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                    if (!put_mow_tablet_compaction_key(code, msg, ss, txn, instance_id, table_id,
+                                                       request->lock_id(), request->initiator(),
+                                                       expiration)) {
+                        return;
+                    }
+                } else {
+                    // check if compaction key is expired
+                    bool has_unexpired_compaction = false;
+                    // TODO range?
+                    std::string key0 = mow_tablet_compaction_key({instance_id, table_id, 0});
+                    std::string key1 = mow_tablet_compaction_key({instance_id, table_id + 1, 0});
+                    MowTabletCompactionPB mow_tablet_compaction;
+                    std::unique_ptr<RangeGetIterator> it;
+                    do {
+                        err = txn->get(key0, key1, &it);
+                        if (err != TxnErrorCode::TXN_OK) {
+                            code = cast_as<ErrCategory::READ>(err);
+                            ss << "internal error, failed to get tablet compaction, err=" << err;
+                            msg = ss.str();
+                            LOG(WARNING) << msg;
+                            return;
+                        }
+
+                        while (it->has_next() && !has_unexpired_compaction) {
+                            auto [k, v] = it->next();
+                            if (!mow_tablet_compaction.ParseFromArray(v.data(), v.size()))
+                                    [[unlikely]] {
+                                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                                msg = "failed to parse MowTabletCompactionPB";
+                                return;
+                            }
+                            if (mow_tablet_compaction.expiration() > 0 &&
+                                mow_tablet_compaction.expiration() < now) {
+                                LOG(INFO) << "delete bitmap lock expired, continue to process. "
+                                             "lock_id="
+                                          << lock_info.lock_id() << " table_id=" << table_id
+                                          << " initiator="
+                                          << "" // TODO decode from key
+                                          << " now=" << now;
+                                txn->remove(k);
+                            } else {
+                                has_unexpired_compaction = true;
+                            }
+                        }
+                        key0.push_back('\x00'); // Update to next smallest key for iteration
+                    } while (it->more() && !has_unexpired_compaction);
+                    if (has_unexpired_compaction) {
+                        ss << "already be locked. request lock_id=" << request->lock_id()
+                           << " locked by lock_id=" << lock_info.lock_id()
+                           << " table_id=" << table_id << " now=" << now << " expiration="
+                           << "";
+                        // TODO print initiator and expiration
+                        msg = ss.str();
+                        code = MetaServiceCode::LOCK_CONFLICT;
+                        return;
+                    }
+                    // all compaction is expired
+                    lock_info.set_lock_id(request->lock_id());
+                    lock_info.set_expiration(expiration);
+                    lock_info.clear_initiators();
+                    lock_info.add_initiators(request->initiator());
+                    if (!put_delete_bitmap_update_lock_key(code, msg, ss, txn, table_id,
+                                                           request->lock_id(), request->initiator(),
+                                                           lock_key, lock_info)) {
+                        return;
+                    }
+                    LOG(INFO) << "xxx put lock_key 2=" << hex(lock_key) << " table_id=" << table_id
+                              << " lock_id=" << request->lock_id()
+                              << " initiator=" << request->initiator()
+                              << " initiators_size=" << lock_info.initiators_size();
+                }
+            }
         }
-    }
-    if (!found) {
-        lock_info.add_initiators(request->initiator());
-    }
-    lock_info.SerializeToString(&lock_val);
-    if (lock_val.empty()) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "pb serialization error";
-        return;
-    }
-    txn->put(lock_key, lock_val);
-    LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " table_id=" << table_id
-              << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
-              << " initiators_size=" << lock_info.initiators_size();
 
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to get_delete_bitmap_update_lock, err=" << err;
-        msg = ss.str();
-        return;
+        err = txn->commit();
+        if (err == TxnErrorCode::TXN_OK) {
+            break;
+        } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
+            request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
+            config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
+            // if err is TXN_CONFLICT, and the lock id is -1, do a fast retry
+            LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, lock_id="
+                      << request->lock_id() << ", initiator=" << request->initiator()
+                      << ", err=" << err;
+            first_retry = false;
+            continue;
+        } else {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to get_delete_bitmap_update_lock, lock_id=" << request->lock_id()
+               << ", initiator=" << request->initiator() << ", err=" << err;
+            msg = ss.str();
+            return;
+        }
     }
 
     bool require_tablet_stats =
@@ -2302,7 +2507,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     // these steps can be done in different fdb txns
 
     StopWatch read_stats_sw;
-    err = txn_kv_->create_txn(&txn);
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to init txn";
@@ -2315,7 +2521,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                 stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
                                   tablet_idx.partition_id(), tablet_idx.tablet_id()});
         std::string stats_val;
-        TxnErrorCode err = txn->get(stats_key, &stats_val);
+        err = txn->get(stats_key, &stats_val);
         TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
                                  &err);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
