@@ -146,6 +146,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT CEIL(-0.1)") // Small negative decimal
     testFoldConst("SELECT CEIL(9.99999999)") // Close to next integer
     testFoldConst("SELECT CEIL(-9.99999999)") // Negative close to next integer
+    testFoldConst("SELECT CEIL(3, 2)") // Integer second argument
+    testFoldConst("SELECT CEIL(5.5, 1)") // Decimal first, integer second
+    testFoldConst("SELECT CEIL(-3.7, 0)") // Negative first, zero second
+    testFoldConst("SELECT CEIL(10.123, 2)") // Decimal with precision
+    testFoldConst("SELECT CEIL(-10.123, 1)") // Negative with precision
 
 //Coalesce function cases
     testFoldConst("SELECT COALESCE(NULL, 5) AS coalesce_case_1")
@@ -259,6 +264,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT FLOOR(-9.99999999)") // Negative close to next integer
     testFoldConst("SELECT FLOOR(1E-308)") // Very small number
     testFoldConst("SELECT FLOOR(-1E-308)") // Very small negative number
+    testFoldConst("SELECT FLOOR(3, 2)") // Integer second argument
+    testFoldConst("SELECT FLOOR(5.5, 1)") // Decimal first, integer second
+    testFoldConst("SELECT FLOOR(-3.7, 0)") // Negative first, zero second
+    testFoldConst("SELECT FLOOR(10.123, 2)") // Decimal with precision
+    testFoldConst("SELECT FLOOR(-10.123, 1)") // Negative with precision
 
 //Fmod function cases
     testFoldConst("SELECT MOD(10.5, 3.2) AS fmod_case_1") //fmod(10.5 % 3.2)
@@ -347,7 +357,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG2(1024)") // Larger power of 2
 
 //Money_format function cases
-    testFoldConst("SELECT money_format(1234.56), money_format(-1234.56), money_format(0.99)")
+    testFoldConst("SELECT money_format(1234.56), money_format(-1234.56), money_format(0.99), money_format(1234.5678)")
     testFoldConst("SELECT money_format(NULL)") // NULL handling
     testFoldConst("SELECT money_format(0)") // Zero case
     testFoldConst("SELECT money_format(1000000)") // Large number
