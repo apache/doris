@@ -199,9 +199,9 @@ void HeapSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows
 }
 
 Status HeapSorter::_prepare_sort_descs(Block* block) {
-    _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    _sort_description.resize(_vsort_exec_exprs.ordering_expr_ctxs().size());
     for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
+        const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
         RETURN_IF_ERROR(ordering_expr->execute(block, &_sort_description[i].column_number));
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;

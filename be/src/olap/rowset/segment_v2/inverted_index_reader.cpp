@@ -127,7 +127,7 @@ Status InvertedIndexReader::read_null_bitmap(const io::IOContext* io_ctx,
                 LOG(WARNING) << st;
                 return st;
             }
-            auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
+            auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta, io_ctx));
             dir = directory.release();
             owned_dir = true;
         }
@@ -218,14 +218,35 @@ Status InvertedIndexReader::handle_searcher_cache(
             LOG(WARNING) << st;
             return st;
         }
-        auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
+        auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta, io_ctx));
+
+        DBUG_EXECUTE_IF("InvertedIndexReader.handle_searcher_cache.io_ctx", ({
+                            if (dir) {
+                                auto* stream = dir->getDorisIndexInput();
+                                const auto* cur_io_ctx =
+                                        (const io::IOContext*)stream->getIoContext();
+                                if (cur_io_ctx->file_cache_stats) {
+                                    if (cur_io_ctx->file_cache_stats != &stats->file_cache_stats) {
+                                        LOG(FATAL) << "io context file cache stats is not equal to "
+                                                      "stats file cache "
+                                                      "stats: "
+                                                   << cur_io_ctx->file_cache_stats << ", "
+                                                   << &stats->file_cache_stats;
+                                    }
+                                }
+                            }
+                        }));
+
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
         // TODO: handle null bitmap procedure in new format.
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         static_cast<void>(read_null_bitmap(io_ctx, stats, &null_bitmap_cache_handle, dir.get()));
         size_t reader_size = 0;
-        RETURN_IF_ERROR(create_index_searcher(dir.release(), &searcher, type(), reader_size));
+        auto index_searcher_builder =
+                DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(type()));
+        RETURN_IF_ERROR(create_index_searcher(index_searcher_builder.get(), dir.release(),
+                                              &searcher, reader_size));
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
                                                                        reader_size, UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
@@ -234,13 +255,9 @@ Status InvertedIndexReader::handle_searcher_cache(
     }
 }
 
-Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
-                                                  IndexSearcherPtr* searcher,
-                                                  InvertedIndexReaderType reader_type,
-                                                  size_t& reader_size) {
-    auto index_searcher_builder =
-            DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(reader_type));
-
+Status InvertedIndexReader::create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
+                                                  lucene::store::Directory* dir,
+                                                  IndexSearcherPtr* searcher, size_t& reader_size) {
     auto searcher_result = DORIS_TRY(index_searcher_builder->get_index_searcher(dir));
     *searcher = searcher_result;
 

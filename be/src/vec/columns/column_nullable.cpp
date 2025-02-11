@@ -547,6 +547,12 @@ size_t ColumnNullable::allocated_bytes() const {
     return get_nested_column().allocated_bytes() + get_null_map_column().allocated_bytes();
 }
 
+bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
+    return get_nested_column().has_enough_capacity(src_concrete.get_nested_column()) &&
+           get_null_map_column().has_enough_capacity(src_concrete.get_null_map_column());
+}
+
 ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
     ColumnPtr replicated_data = get_nested_column().replicate(offsets);
     ColumnPtr replicated_null_map = get_null_map_column().replicate(offsets);

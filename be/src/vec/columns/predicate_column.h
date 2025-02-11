@@ -317,6 +317,11 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "has_enough_capacity not supported in PredicateColumnType");
+    }
+
     void reserve(size_t n) override { data.reserve(n); }
 
     std::string get_name() const override { return TypeName<T>::get(); }

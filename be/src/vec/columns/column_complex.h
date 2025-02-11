@@ -113,6 +113,11 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        return data.capacity() - data.size() > src_vec.size();
+    }
+
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 
     void reserve(size_t n) override { data.reserve(n); }

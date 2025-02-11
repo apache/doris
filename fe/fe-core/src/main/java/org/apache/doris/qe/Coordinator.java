@@ -1443,7 +1443,6 @@ public class Coordinator implements CoordInterface {
                         } else {
                             destHosts.put(param.host, param);
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                            param.recvrId = params.destinations.size();
                             dest.fragment_instance_id = param.instanceId;
                             try {
                                 dest.server = toRpcHost(param.host);
@@ -1589,7 +1588,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.put(param.host, param);
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
-                            param.recvrId = params.destinations.size();
                             try {
                                 dest.server = toRpcHost(param.host);
                                 dest.setBrpcServer(toBrpcHost(param.host));
@@ -3435,6 +3433,11 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentId = id;
             this.targetFragmentInstanceAddr = host;
         }
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
 

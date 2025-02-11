@@ -514,4 +514,9 @@ public class NereidsCoordinator extends Coordinator {
             return new LoadProcessor(coordinatorContext, -1L);
         }
     }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        coordinatorContext.queryOptions.setEnableProfile(isSafe && coordinatorContext.queryOptions.isEnableProfile());
+    }
 }

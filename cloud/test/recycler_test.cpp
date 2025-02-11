@@ -191,7 +191,8 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
 }
 
 static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
-                             const doris::RowsetMetaCloudPB& rowset, bool write_schema_kv) {
+                             const doris::RowsetMetaCloudPB& rowset, bool write_schema_kv,
+                             bool is_inverted_idx_v2 = false) {
     std::string key, val;
     meta_rowset_tmp_key({instance_id, rowset.txn_id(), rowset.tablet_id()}, &key);
     if (write_schema_kv) {
@@ -220,8 +221,13 @@ static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
         accessor->put_file(path, path);
         for (auto& index : rowset.tablet_schema().index()) {
-            auto path = inverted_index_path_v1(rowset.tablet_id(), rowset.rowset_id_v2(), i,
-                                               index.index_id(), index.index_suffix_name());
+            std::string path;
+            if (!is_inverted_idx_v2) {
+                path = inverted_index_path_v1(rowset.tablet_id(), rowset.rowset_id_v2(), i,
+                                              index.index_id(), index.index_suffix_name());
+            } else {
+                path = inverted_index_path_v2(rowset.tablet_id(), rowset.rowset_id_v2(), i);
+            }
             accessor->put_file(path, path);
         }
     }
@@ -1129,6 +1135,7 @@ TEST(RecyclerTest, recycle_indexes) {
                                   j & 1);
             auto tmp_rowset = create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5,
                                             schemas[j % 5], txn_id_base + j);
+            tmp_rowset.set_resource_id("recycle_indexes");
             create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1);
         }
         for (int j = 0; j < 10; ++j) {
@@ -3132,7 +3139,7 @@ TEST(RecyclerTest, delete_rowset_data) {
 
             rowset_pbs.emplace_back(std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3237,7 +3244,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 
             rowset_pbs.emplace_back(std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
@@ -3352,6 +3359,11 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         rs = resp->add_rowset_meta();
         rs->set_resource_id("success_vault");
     });
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     // succeed to init MockAccessor
@@ -3392,6 +3404,163 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     EXPECT_EQ(recycler.recycle_tablet(0), -1);
     // however, useful mock accessor can recycle tablet
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 1);
+}
+
+TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    });
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("delete_tmp_rowset_data_with_idx_v1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v1");
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    sp->set_call_back("InstanceRecycler::delete_rowset_data.tmp_rowset", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 1;
+    });
+    sp->enable_processing();
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("1");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(10000);
+        rowset.set_index_id(10001);
+        rowset.set_resource_id("delete_tmp_rowset_data_with_idx_v1");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1);
+        rowset.clear_tablet_schema();
+        rowset_pbs.emplace_back(rowset);
+
+        std::unordered_set<std::string> list_files;
+        std::unique_ptr<ListIterator> iter;
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        list_files.clear();
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 2);
+        // before delete tmp rowset, segment file and idx v1 exist
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/10000/1_0_1.idx"));
+
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        list_files.clear();
+        iter.reset();
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 1);
+        // after delete tmp rowset, idx v1 exists
+        EXPECT_TRUE(list_files.contains("data/10000/1_0_1.idx"));
+    }
+}
+
+TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    });
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("delete_tmp_rowset_data_with_idx_v2");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v2");
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    sp->set_call_back("InstanceRecycler::delete_rowset_data.tmp_rowset", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 1;
+    });
+    sp->enable_processing();
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("1");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(10000);
+        rowset.set_index_id(10001);
+        rowset.set_resource_id("delete_tmp_rowset_data_with_idx_v2");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
+        rowset.clear_tablet_schema();
+        rowset_pbs.emplace_back(rowset);
+
+        std::unordered_set<std::string> list_files;
+        std::unique_ptr<ListIterator> iter;
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        list_files.clear();
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 2);
+        // before delete tmp rowset, segment file and idx v2 exist
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.idx"));
+
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET));
+        list_files.clear();
+        iter.reset();
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_FALSE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        // after delete tmp rowset, both file and idx v2 are removed
+        EXPECT_EQ(list_files.size(), 0);
+    }
 }
 
 } // namespace doris::cloud

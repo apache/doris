@@ -219,8 +219,9 @@ public:
                                          InvertedIndexCacheHandle* inverted_index_cache_handle,
                                          const io::IOContext* io_ctx, OlapReaderStatistics* stats);
     std::string get_index_file_path();
-    static Status create_index_searcher(lucene::store::Directory* dir, IndexSearcherPtr* searcher,
-                                        InvertedIndexReaderType reader_type, size_t& reader_size);
+    static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
+                                        lucene::store::Directory* dir, IndexSearcherPtr* searcher,
+                                        size_t& reader_size);
 
 protected:
     Status match_index_search(const io::IOContext* io_ctx, OlapReaderStatistics* stats,

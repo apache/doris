@@ -53,6 +53,9 @@ class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
 public:
     DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
+#ifdef BE_TEST
+    DataGenSourceOperatorX() = default;
+#endif
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status open(RuntimeState* state) override;

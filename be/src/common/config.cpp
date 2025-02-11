@@ -51,7 +51,7 @@ namespace doris::config {
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 
 // Dir of jdbc drivers
-DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
@@ -253,6 +253,10 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to check md5sum when download
+DEFINE_mBool(enable_download_md5sum_check, "true");
+// download binlog meta timeout, default 30s
+DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -678,7 +682,7 @@ DEFINE_mBool(sync_file_on_close, "true");
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "180000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
@@ -1011,6 +1015,9 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// enable prefetch tablets before opening
+DEFINE_mBool(enable_prefetch_tablet, "true");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
@@ -1048,6 +1055,12 @@ DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
+DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
+DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
+
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 // If true, evict the ttl cache using LRU when full.
@@ -1056,12 +1069,14 @@ DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 DEFINE_mBool(enbale_dump_error_file, "false");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
-DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
+DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
+DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
@@ -1136,8 +1151,9 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
+DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1285,7 +1301,7 @@ DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_mInt64(s3_put_token_limit, "0");
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -1405,6 +1421,10 @@ DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 DEFINE_mInt32(compaction_num_per_round, "1");
+
+DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
+DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
+DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 
 // clang-format off
 #ifdef BE_TEST

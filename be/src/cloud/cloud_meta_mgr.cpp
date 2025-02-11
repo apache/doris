@@ -1123,6 +1123,24 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         bitmap.write(bitmap_data.data());
         *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
     }
+    DBUG_EXECUTE_IF("CloudMetaMgr::test_update_big_delete_bitmap", {
+        LOG(INFO) << "test_update_big_delete_bitmap for tablet " << tablet.tablet_id();
+        auto count = dp->param<int>("count", 30000);
+        if (!delete_bitmap->delete_bitmap.empty()) {
+            auto& key = delete_bitmap->delete_bitmap.begin()->first;
+            auto& bitmap = delete_bitmap->delete_bitmap.begin()->second;
+            for (int i = 1000; i < (1000 + count); i++) {
+                req.add_rowset_ids(std::get<0>(key).to_string());
+                req.add_segment_ids(std::get<1>(key));
+                req.add_versions(i);
+                // To save space, convert array and bitmap containers to run containers
+                bitmap.runOptimize();
+                std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+                bitmap.write(bitmap_data.data());
+                *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+            }
+        }
+    });
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
