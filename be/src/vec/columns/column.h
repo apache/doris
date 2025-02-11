@@ -207,8 +207,6 @@ public:
     }
 
     /// Appends one element from other column with the same type multiple times.
-    /// we should make sure position is less than src's size and length is less than src's size,
-    /// and position + length is less than src's size
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);

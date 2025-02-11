@@ -468,8 +468,7 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
         size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data()[row_id];
-            int res = 0;
-            res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
             if (res * direction < 0) {
                 filter[row_id] = 1;
                 cmp_res[row_id] = 1;
