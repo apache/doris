@@ -17,6 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+
+import java.util.Map;
+
 /**
  * SupportBinarySearchFilteringPartitions: this interface is used to support binary search filtering partitions
  */
@@ -25,11 +29,11 @@ public interface SupportBinarySearchFilteringPartitions extends TableIf {
      * get the origin partition info which maybe not sorted, the NereidsSortedPartitionsCacheManager will
      * sort this partitions and cache in frontend
      */
-    PartitionInfo getOriginPartitionInfo();
+    Map<?, PartitionItem> getOriginPartitions();
 
     /**
      * return the version of the partitions meta, is the version changed, we should skip the legacy sorted
      * partitions and reload it.
      */
-    Object getPartitionMetaVersion();
+    Object getPartitionMetaVersion(CatalogRelation scan);
 }

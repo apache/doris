@@ -98,8 +98,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         if (externalTable instanceof SupportBinarySearchFilteringPartitions) {
             NereidsSortedPartitionsCacheManager partitionsCacheManager = Env.getCurrentEnv()
                     .getSortedPartitionsCacheManager();
-            sortedPartitionRanges
-                    = (Optional) partitionsCacheManager.get((SupportBinarySearchFilteringPartitions) externalTable);
+            sortedPartitionRanges = (Optional) partitionsCacheManager.get(
+                            (SupportBinarySearchFilteringPartitions) externalTable, scan);
         }
 
         List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(

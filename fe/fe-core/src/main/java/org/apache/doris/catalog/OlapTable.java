@@ -59,6 +59,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -132,12 +133,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
     @Override
-    public PartitionInfo getOriginPartitionInfo() {
-        return getPartitionInfo();
+    public Map<Long, PartitionItem> getOriginPartitions() {
+        return getPartitionInfo().getIdToItem(false);
     }
 
     @Override
-    public Object getPartitionMetaVersion() {
+    public Object getPartitionMetaVersion(CatalogRelation scan) {
         return getVisibleVersion();
     }
 

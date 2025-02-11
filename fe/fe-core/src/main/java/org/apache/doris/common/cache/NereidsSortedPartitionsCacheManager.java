@@ -19,7 +19,6 @@ package org.apache.doris.common.cache;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.common.Config;
@@ -30,6 +29,7 @@ import org.apache.doris.nereids.rules.expression.rules.PartitionItemToRange;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -63,7 +63,8 @@ public class NereidsSortedPartitionsCacheManager {
         );
     }
 
-    public Optional<SortedPartitionRanges<?>> get(SupportBinarySearchFilteringPartitions table) {
+    public Optional<SortedPartitionRanges<?>> get(
+            SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
         DatabaseIf<?> database = table.getDatabase();
         if (database == null) {
             return Optional.empty();
@@ -76,26 +77,25 @@ public class NereidsSortedPartitionsCacheManager {
                 catalog.getName(), database.getFullName(), table.getName());
         PartitionCacheContext partitionCacheContext = partitionCaches.getIfPresent(key);
         if (partitionCacheContext == null) {
-            return Optional.of(loadCache(key, table));
+            return Optional.of(loadCache(key, table, scan));
         }
         if (table.getId() != partitionCacheContext.tableId
-                || Objects.equals(table.getPartitionMetaVersion(), partitionCacheContext.partitionMetaVersion)) {
+                || !Objects.equals(table.getPartitionMetaVersion(scan), partitionCacheContext.partitionMetaVersion)) {
             partitionCaches.invalidate(key);
-            return Optional.of(loadCache(key, table));
+            return Optional.of(loadCache(key, table, scan));
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
     }
 
     private SortedPartitionRanges<?> loadCache(
-            TableIdentifier key, SupportBinarySearchFilteringPartitions table) {
-        PartitionInfo unsortedPartitions = table.getOriginPartitionInfo();
-        Map<Long, PartitionItem> allPartitions = unsortedPartitions.getIdToItem(false);
-        List<Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(allPartitions.entrySet());
-        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(allPartitions.size());
+            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
+        Map<?, PartitionItem> unsorted = table.getOriginPartitions();
+        List<Entry<?, PartitionItem>> sortedList = Lists.newArrayList(unsorted.entrySet());
+        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsorted.size());
         List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
-        for (Entry<Long, PartitionItem> entry : sortedList) {
+        for (Entry<?, PartitionItem> entry : sortedList) {
             PartitionItem partitionItem = entry.getValue();
-            Long id = entry.getKey();
+            Object id = entry.getKey();
             if (!partitionItem.isDefaultPartition()) {
                 List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
                 for (Range<MultiColumnBound> range : ranges) {
@@ -120,7 +120,7 @@ public class NereidsSortedPartitionsCacheManager {
                 sortedRanges, defaultPartitions
         );
         PartitionCacheContext context = new PartitionCacheContext(
-                table.getId(), table.getPartitionMetaVersion(), sortedPartitionRanges);
+                table.getId(), table.getPartitionMetaVersion(scan), sortedPartitionRanges);
         partitionCaches.put(key, context);
         return sortedPartitionRanges;
     }
