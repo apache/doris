@@ -205,6 +205,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                                                    local_state._channel_id);
     auto bucket_seq_to_instance_idx =
             local_state._parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
+    int32_t enqueue_rows = 0;
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
         /**
          * If type is `HASH_SHUFFLE`, data are hash-shuffled and distributed to all instances of
@@ -221,11 +222,24 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t start = local_state._partition_rows_histogram[it.first];
             uint32_t size = local_state._partition_rows_histogram[it.first + 1] - start;
             if (size > 0) {
+                enqueue_rows += enqueue_rows;
                 _enqueue_data_and_set_ready(it.second, local_state,
                                             {new_block_wrapper, {row_idx, start, size}});
             } else {
                 new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
             }
+        }
+        if (enqueue_rows != rows) [[unlikely]] {
+            fmt::memory_buffer debug_string_buffer;
+            fmt::format_to(debug_string_buffer, "Type: {}, Local Exchange Id: {}, Shuffled Map: ",
+                           get_exchange_type_name(get_type()), local_state.parent()->node_id());
+            for (const auto& it : map) {
+                fmt::format_to(debug_string_buffer, "[{}:{}], ", it.first, it.second);
+            }
+            return Status::InternalError(
+                    "Rows mismatched! Data may be lost. [Expected enqueue rows={}, Real enqueue "
+                    "rows={}, Detail: {}]",
+                    rows, enqueue_rows, fmt::to_string(debug_string_buffer));
         }
     } else {
         DCHECK(!bucket_seq_to_instance_idx.empty());
