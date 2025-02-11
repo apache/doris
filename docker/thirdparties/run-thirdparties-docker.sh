@@ -33,20 +33,28 @@ Usage: $0 <options>
      [no option]        start all components
      --help,-h          show this usage
      -c mysql           start MySQL
-     -c mysql,hive3      start MySQL and Hive3
+     -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
+     --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,kerberos,oceanbase
   "
     exit 1
 }
+DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul"
+COMPONENTS=$2
+HELP=0
+STOP=0
+NEED_RESERVE_PORTS=0
 
 if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -l 'help' \
     -l 'stop' \
+    -l 'reserve-ports' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -54,13 +62,9 @@ fi
 
 eval set -- "${OPTS}"
 
-COMPONENTS=""
-HELP=0
-STOP=0
-
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos"
+    COMPONENTS="${DEFAULT_COMPONENTS}"
 else
     while true; do
         case "$1" in
@@ -80,6 +84,10 @@ else
             COMPONENTS=$2
             shift 2
             ;;
+        --reserve-ports)
+            NEED_RESERVE_PORTS=1
+            shift
+            ;;
         --)
             shift
             break
@@ -92,7 +100,10 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,kerberos,lakesoul"
+            COMPONENTS="${ALL_COMPONENTS}"
+        fi
+        if [[ "${NEED_RESERVE_PORTS}" -eq 1 ]]; then
+            COMPONENTS="${DEFAULT_COMPONENTS}"
         fi
     fi
 fi
@@ -138,6 +149,8 @@ RUN_DB2=0
 RUN_KERBEROS=0
 RUN_OCENABASE=0
 
+RESERVED_PORTS="65535"
+
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -153,6 +166,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive2"x ]]; then
         RUN_HIVE2=1
+        RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
     elif [[ "${element}"x == "kafka"x ]]; then
@@ -178,6 +192,17 @@ for element in "${COMPONENTS_ARR[@]}"; do
         usage
     fi
 done
+
+reserve_ports() {
+    if [[ "${NEED_RESERVE_PORTS}" -eq 0 ]]; then
+        return
+    fi
+
+    if [[ "${RESERVED_PORTS}"x != ""x ]]; then
+        echo "Reserve ports: ${RESERVED_PORTS}"
+        sudo sysctl -w net.ipv4.ip_local_reserved_ports="${RESERVED_PORTS}"
+    fi
+}
 
 start_es() {
     # elasticsearch
@@ -212,7 +237,7 @@ start_mysql() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d --wait
     fi
 }
 
@@ -224,7 +249,7 @@ start_pg() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-        sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d --wait
     fi
 }
 
@@ -236,7 +261,7 @@ start_oracle() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d --wait
     fi
 }
 
@@ -248,7 +273,7 @@ start_db2() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/db2/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/db2/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/db2/db2.yaml --env-file "${ROOT}"/docker-compose/db2/db2.env up -d --wait
     fi
 }
 
@@ -260,7 +285,7 @@ start_oceanbase() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/oceanbase/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/oceanbase/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/oceanbase/oceanbase.yaml --env-file "${ROOT}"/docker-compose/oceanbase/oceanbase.env up -d --wait
     fi
 }
 
@@ -272,7 +297,7 @@ start_sqlserver() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d --wait
     fi
 }
 
@@ -284,7 +309,7 @@ start_clickhouse() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
         sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
-        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d --wait
     fi
 }
 
@@ -353,7 +378,7 @@ start_hive2() {
     envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
     sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive2 -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-2x.env up --build --remove-orphans -d --wait
     fi
 }
 
@@ -392,7 +417,7 @@ start_hive3() {
     envsubst < "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
     sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d
+        sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d --wait
     fi
 }
 
@@ -426,7 +451,7 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
-        sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi
 }
 
@@ -537,7 +562,7 @@ start_mariadb() {
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
-        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d --wait
     fi
 }
 
@@ -591,7 +616,6 @@ start_kerberos() {
     sudo chmod a+w /etc/hosts
     sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
     sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
-    sudo cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
     if [[ "${STOP}" -ne 1 ]]; then
@@ -599,7 +623,7 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d --wait
+        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
         sudo rm -f /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
@@ -609,6 +633,8 @@ start_kerberos() {
 }
 
 echo "starting dockers in parrallel"
+
+reserve_ports
 
 declare -A pids
 
@@ -702,11 +728,6 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     pids["kerberos"]=$!
 fi
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
-    start_kerberos > start_kerberos.log 2>&1 &
-    pids["kerberos"]=$!
-fi
-
 echo "waiting all dockers starting done"
 
 for compose in "${!pids[@]}"; do
@@ -716,7 +737,12 @@ for compose in "${!pids[@]}"; do
     if [ $status -ne 0 ] && [ $compose != "db2" ]; then
         echo "docker $compose started failed with status $status"
         echo "print start_${compose}.log"
-        cat start_${compose}.log
+        cat start_${compose}.log || true
+
+        echo ""
+        echo "print last 100 logs of the latest unhealthy container"
+        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+
         exit 1
     fi
 done

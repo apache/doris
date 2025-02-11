@@ -120,6 +120,7 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     _predicate_arena.reset(new vectorized::Arena());
 
     Status res = _init_params(read_params);
@@ -159,6 +160,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_capture_rs_readers_timer_ns);
     if (read_params.rs_splits.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->tablet_id());
@@ -330,6 +332,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_return_columns_timer_ns);
     if (read_params.reader_type == ReaderType::READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
@@ -386,6 +389,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_keys_param_timer_ns);
     if (read_params.start_key.empty()) {
         return Status::OK();
     }
@@ -460,6 +464,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_orderby_keys_param_timer_ns);
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
@@ -486,6 +491,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     for (auto& condition : read_params.conditions) {
         TCondition tmp_cond = condition;
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
@@ -612,6 +618,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_delete_condition_param_timer_ns);
     // If it's cumu and not allow do delete when cumu
     if (read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
         (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&

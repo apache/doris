@@ -2725,7 +2725,9 @@ Status Tablet::_get_segment_column_iterator(
                                             rowset->rowset_id().to_string(), segid));
     }
     segment_v2::SegmentSharedPtr segment = *it;
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
+    StorageReadOptions opts;
+    opts.stats = stats;
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),

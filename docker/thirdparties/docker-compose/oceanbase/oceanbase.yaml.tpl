@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--oceanbase:
-    image: oceanbase/oceanbase-ce:4.2.1
+    image: oceanbase/oceanbase-ce:4.2.1-lts
     restart: always
     environment:
       MODE: slim
@@ -36,13 +36,7 @@ services:
       - ./init:/root/boot/init.d
     networks:
       - doris--oceanbase
-  doris--oceanbase-hello-world:
-    image: hello-world
-    depends_on:
-      doris--oceanbase:
-        condition: service_healthy
-    networks:
-      - doris--oceanbase
+
 networks:
   doris--oceanbase:
     ipam:

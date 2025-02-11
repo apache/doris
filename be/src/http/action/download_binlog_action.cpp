@@ -21,11 +21,9 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
-#include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -34,7 +32,6 @@
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/exec_env.h"
 

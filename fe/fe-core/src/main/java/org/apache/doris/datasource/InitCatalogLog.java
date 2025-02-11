@@ -103,4 +103,19 @@ public class InitCatalogLog implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, InitCatalogLog.class);
     }
+
+    @Override
+    public String toString() {
+        return "InitCatalogLog{"
+                + "catalogId=" + catalogId
+                + ", refreshCount=" + refreshCount
+                + ", createCount=" + createCount
+                + ", refreshDbIds=" + refreshDbIds
+                + ", createDbIds=" + createDbIds
+                + ", createDbNames=" + createDbNames
+                + ", remoteDbNames=" + remoteDbNames
+                + ", type=" + type
+                + ", lastUpdateTime=" + lastUpdateTime
+                + '}';
+    }
 }

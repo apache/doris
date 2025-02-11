@@ -217,22 +217,22 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateLiteral date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateTimeLiteral date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateV2Literal date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateTimeV2Literal date) {
-        return new SmallIntLiteral((short) date.toJavaDateType().getDayOfYear());
+        return new SmallIntLiteral((short) date.getDayOfYear());
     }
 
     /**
@@ -263,22 +263,22 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateLiteral date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateV2Literal date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateTimeV2Literal date) {
-        return new TinyIntLiteral((byte) (date.toJavaDateType().getDayOfWeek().getValue() % 7 + 1));
+        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
     }
 
     private static int distanceToFirstDayOfWeek(LocalDateTime dateTime) {
@@ -728,6 +728,15 @@ public class DateTimeExtractAndTransform {
      * the impl of function week(date/datetime, mode)
      */
     public static Expression week(LocalDateTime localDateTime, int mode) {
+        final byte[] resultOfFirstDayBC1 = new byte[] { 1, 0, 1, 52, 1, 0, 1, 52 };
+        if (isSpecificDate(localDateTime) && mode >= 0 && mode <= 7) { // 0000-01-01/02
+            if (localDateTime.getDayOfMonth() == 1) {
+                return new TinyIntLiteral(resultOfFirstDayBC1[mode]);
+            } else { // 0001-01-02
+                return new TinyIntLiteral((byte) 1);
+            }
+        }
+
         switch (mode) {
             case 0: {
                 return new TinyIntLiteral(
@@ -737,13 +746,6 @@ public class DateTimeExtractAndTransform {
                 return new TinyIntLiteral((byte) localDateTime.get(WeekFields.ISO.weekOfYear()));
             }
             case 2: {
-                // https://dev.mysql.com/doc/refman/8.4/en/date-and-time-functions.html#function_week
-                // mode 2 is start with a Sunday day as first week in this year.
-                // and special case for 0000-01-01, as it's SATURDAY, calculate result of 52 is
-                // last year, so it's meaningless.
-                if (checkIsSpecificDate(localDateTime)) {
-                    return new TinyIntLiteral((byte) 1);
-                }
                 return new TinyIntLiteral(
                         (byte) localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
@@ -816,11 +818,12 @@ public class DateTimeExtractAndTransform {
      * the impl of function yearWeek(date/datetime, mode)
      */
     public static Expression yearWeek(LocalDateTime localDateTime, int mode) {
+        if (localDateTime.getYear() == 0) {
+            return week(localDateTime, mode);
+        }
+
         switch (mode) {
             case 0: {
-                if (checkIsSpecificDate(localDateTime)) {
-                    return new IntegerLiteral(1);
-                }
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
@@ -831,9 +834,6 @@ public class DateTimeExtractAndTransform {
                         + localDateTime.get(WeekFields.ISO.weekOfWeekBasedYear()));
             }
             case 2: {
-                if (checkIsSpecificDate(localDateTime)) {
-                    return new IntegerLiteral(1);
-                }
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
@@ -869,20 +869,23 @@ public class DateTimeExtractAndTransform {
             }
             default: {
                 throw new AnalysisException(
-                        String.format("unknown mode %d in week function", mode));
+                        String.format("unknown mode %d in yearweek function", mode));
             }
         }
     }
 
     /**
-     * 0000-01-01 is specific date, sometime need handle it alone.
+     * weekofyear
      */
-    private static boolean checkIsSpecificDate(LocalDateTime localDateTime) {
-        return localDateTime.getYear() == 0 && localDateTime.getMonthValue() == 1 && localDateTime.getDayOfMonth() == 1;
-    }
-
     @ExecFunction(name = "weekofyear")
     public static Expression weekOfYear(DateTimeV2Literal dateTime) {
+        if (dateTime.getYear() == 0 && dateTime.getDayOfWeek() == 1) {
+            if (dateTime.getMonth() == 1 && dateTime.getDay() == 2) {
+                return new TinyIntLiteral((byte) 1);
+            }
+            return new TinyIntLiteral(
+                    (byte) (dateTime.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()) + 1));
+        }
         return new TinyIntLiteral((byte) dateTime.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
@@ -891,6 +894,13 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "weekofyear")
     public static Expression weekOfYear(DateTimeLiteral dateTime) {
+        if (dateTime.getYear() == 0 && dateTime.getDayOfWeek() == 1) {
+            if (dateTime.getMonth() == 1 && dateTime.getDay() == 2) {
+                return new TinyIntLiteral((byte) 1);
+            }
+            return new TinyIntLiteral(
+                    (byte) (dateTime.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()) + 1));
+        }
         return new TinyIntLiteral((byte) dateTime.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
@@ -899,6 +909,12 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "weekofyear")
     public static Expression weekOfYear(DateV2Literal date) {
+        if (date.getYear() == 0 && date.getDayOfWeek() == 1) {
+            if (date.getMonth() == 1 && date.getDay() == 2) {
+                return new TinyIntLiteral((byte) 1);
+            }
+            return new TinyIntLiteral((byte) (date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()) + 1));
+        }
         return new TinyIntLiteral((byte) date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 

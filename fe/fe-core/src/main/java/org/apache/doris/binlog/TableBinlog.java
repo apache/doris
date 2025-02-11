@@ -197,8 +197,11 @@ public class TableBinlog {
     public BinlogTombstone gc() {
         // step 1: get expire time
         BinlogConfig tableBinlogConfig = binlogConfigCache.getTableBinlogConfig(dbId, tableId);
+        Boolean isCleanFullBinlog = false;
         if (tableBinlogConfig == null) {
             return null;
+        } else if (!tableBinlogConfig.isEnable()) {
+            isCleanFullBinlog = true;
         }
 
         long ttlSeconds = tableBinlogConfig.getTtlSeconds();
@@ -208,22 +211,27 @@ public class TableBinlog {
 
         LOG.info(
                 "gc table binlog. dbId: {}, tableId: {}, expiredMs: {}, ttlSecond: {}, maxBytes: {}, "
-                        + "maxHistoryNums: {}, now: {}",
-                dbId, tableId, expiredMs, ttlSeconds, maxBytes, maxHistoryNums, System.currentTimeMillis());
+                        + "maxHistoryNums: {}, now: {}, isCleanFullBinlog: {}",
+                dbId, tableId, expiredMs, ttlSeconds, maxBytes, maxHistoryNums, System.currentTimeMillis(),
+                isCleanFullBinlog);
 
         // step 2: get tombstoneUpsertBinlog and dummyBinlog
         Pair<TBinlog, Long> tombstoneInfo;
         lock.writeLock().lock();
         try {
-            // find the last expired commit seq.
             long expiredCommitSeq = -1;
-            Iterator<Pair<Long, Long>> timeIterator = timestamps.iterator();
-            while (timeIterator.hasNext()) {
-                Pair<Long, Long> entry = timeIterator.next();
-                if (expiredMs < entry.second) {
-                    break;
+            if (isCleanFullBinlog) {
+                expiredCommitSeq = binlogs.last().getCommitSeq();
+            } else {
+                // find the last expired commit seq.
+                Iterator<Pair<Long, Long>> timeIterator = timestamps.iterator();
+                while (timeIterator.hasNext()) {
+                    Pair<Long, Long> entry = timeIterator.next();
+                    if (expiredMs < entry.second) {
+                        break;
+                    }
+                    expiredCommitSeq = entry.first;
                 }
-                expiredCommitSeq = entry.first;
             }
 
             final long lastExpiredCommitSeq = expiredCommitSeq;

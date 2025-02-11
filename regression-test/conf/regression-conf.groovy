@@ -177,6 +177,7 @@ dfsNamenodeRpcAddress3=""
 hadoopSecurityAuthentication = ""
 hadoopKerberosKeytabPath = ""
 hadoopKerberosPrincipal = ""
+hadoopSecurityAutoToLocal = ""
 
 
 //paimon catalog test config for bigdata

@@ -1016,12 +1016,20 @@ public class EditLog {
                 }
                 case OperationType.OP_ADD_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().replayAddConstraint(log.getConstraint());
+                    try {
+                        log.getTableIf().replayAddConstraint(log.getConstraint());
+                    } catch (Exception e) {
+                        LOG.error("Failed to replay add constraint", e);
+                    }
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().replayDropConstraint(log.getConstraint().getName());
+                    try {
+                        log.getTableIf().replayDropConstraint(log.getConstraint().getName());
+                    } catch (Exception e) {
+                        LOG.error("Failed to replay drop constraint", e);
+                    }
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
