@@ -242,7 +242,7 @@ Status VFileScanner::_process_runtime_filters_partition_prune(bool& can_filter_a
         auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
         auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
         Slice slice(partition_value.data(), partition_value.size());
-        int num_deserialized = 0;
+        uint64_t num_deserialized = 0;
         RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
                 *col_ptr, slice, partition_value_column_size, &num_deserialized, {}));
         parititon_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
