@@ -304,7 +304,8 @@ public class ExternalCatalogTest extends TestWithFeService {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
 
-        TestExternalCatalog ctl2 = (TestExternalCatalog) ExternalCatalog.read(dis);
+        String json = Text.readString(dis);
+        TestExternalCatalog ctl2 = GsonUtils.GSON.fromJson(json, TestExternalCatalog.class);
         Configuration conf = ctl2.getConfiguration();
         Assertions.assertNotNull(conf);
 
