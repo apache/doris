@@ -284,8 +284,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     });
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
-    int64_t initiator =
-            HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
+    int64_t initiator = this->initiator();
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
@@ -420,8 +419,8 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     return Status::OK();
 }
 
-void CloudCumulativeCompaction::garbage_collection() {
-    CloudCompactionMixin::garbage_collection();
+Status CloudCumulativeCompaction::garbage_collection() {
+    RETURN_IF_ERROR(CloudCompactionMixin::garbage_collection());
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -435,9 +434,7 @@ void CloudCumulativeCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -446,6 +443,7 @@ void CloudCumulativeCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
@@ -608,6 +606,10 @@ void CloudCumulativeCompaction::do_lease() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+}
+
+int64_t CloudCumulativeCompaction::initiator() const {
+    return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
 }
 
 #include "common/compile_check_end.h"

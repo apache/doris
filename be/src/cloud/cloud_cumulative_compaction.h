@@ -44,13 +44,15 @@ private:
 
     Status modify_rowsets() override;
 
-    void garbage_collection() override;
+    Status garbage_collection() override;
 
     void update_cumulative_point();
 
     Status process_old_version_delete_bitmap();
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
+
+    int64_t initiator() const override;
 
     std::string _uuid;
     int64_t _input_segments = 0;

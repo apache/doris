@@ -47,6 +47,8 @@ protected:
                        : ReaderType::READER_BASE_COMPACTION;
     }
 
+    int64_t initiator() const override { return INVALID_COMPACTION_INITIATOR_ID; }
+
 private:
     Status _do_single_replica_compaction();
     Status _do_single_replica_compaction_impl();

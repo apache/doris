@@ -41,6 +41,8 @@ struct RowsetWriterContext;
 class StorageEngine;
 class CloudStorageEngine;
 
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int64_t INVALID_COMPACTION_INITIATOR_ID = -100;
 // This class is a base class for compaction.
 // The entrance of this class is compact()
 // Any compaction should go through four procedures.
@@ -63,6 +65,7 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
+    virtual int64_t initiator() const = 0;
 
 protected:
     Status merge_input_rowsets();
@@ -195,7 +198,7 @@ protected:
 
     Status update_delete_bitmap() override;
 
-    virtual void garbage_collection();
+    virtual Status garbage_collection();
 
     CloudStorageEngine& _engine;
 

@@ -42,7 +42,8 @@ protected:
     std::string_view compaction_name() const override { return "CloudFullCompaction"; }
 
     Status modify_rowsets() override;
-    void garbage_collection() override;
+    Status garbage_collection() override;
+    int64_t initiator() const override;
 
 private:
     Status _cloud_full_compaction_update_delete_bitmap(int64_t initiator);

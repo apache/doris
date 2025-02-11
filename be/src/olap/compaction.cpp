@@ -1434,7 +1434,17 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
-    RETURN_IF_ERROR(modify_rowsets());
+    auto st = modify_rowsets();
+    if (!st.ok()) {
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write() &&
+            initiator() != INVALID_COMPACTION_INITIATOR_ID) {
+            //release delete bitmap lock
+            _engine.meta_mgr().remove_delete_bitmap_update_lock(
+                    _tablet->tablet_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator());
+        }
+        return st;
+    }
 
     return Status::OK();
 }
@@ -1442,8 +1452,15 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
-                                        [&](const doris::Exception& ex) { garbage_collection(); });
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
+            execute_compact_impl(permits), [&](const doris::Exception& ex) {
+                auto st = garbage_collection();
+                if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
+                    // release delete bitmap lock
+                    _engine.meta_mgr().remove_delete_bitmap_update_lock(
+                            _tablet->tablet_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator());
+                }
+            });
     _load_segment_to_cache();
     return Status::OK();
 }
@@ -1488,9 +1505,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     return Status::OK();
 }
 
-void CloudCompactionMixin::garbage_collection() {
+Status CloudCompactionMixin::garbage_collection() {
     if (!config::enable_file_cache) {
-        return;
+        return Status::OK();
     }
     if (_output_rs_writer) {
         auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
@@ -1501,6 +1518,7 @@ void CloudCompactionMixin::garbage_collection() {
             file_cache->remove_if_cached_async(file_key);
         }
     }
+    return Status::OK();
 }
 
 void CloudCompactionMixin::update_compaction_level() {

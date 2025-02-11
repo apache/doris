@@ -36,6 +36,7 @@ public:
 private:
     std::string_view compaction_name() const override { return "cold data compaction"; }
     ReaderType compaction_type() const override { return ReaderType::READER_COLD_DATA_COMPACTION; }
+    int64_t initiator() const override { return INVALID_COMPACTION_INITIATOR_ID; }
 
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
 
