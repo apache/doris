@@ -435,6 +435,9 @@ public:
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
+#endif
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -537,6 +540,9 @@ public:
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorX() = default;
+#endif
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
