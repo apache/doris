@@ -202,11 +202,6 @@ Status CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transact
     // must call release handle to reduce the reference count,
     // otherwise there will be memory leak
     release(handle);
-    LOG_INFO("update txn related delete bitmap")
-            .tag("txn_id", transaction_id)
-            .tag("tablt_id", tablet_id)
-            .tag("delete_bitmap_size", charge)
-            .tag("publish_status", static_cast<int>(publish_status));
     return Status::OK();
 }
 
