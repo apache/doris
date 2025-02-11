@@ -214,15 +214,29 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
      */
     DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
     const auto& map = *shuffle_idx_to_instance_idx;
+    int32_t enqueue_rows = 0;
     for (const auto& it : map) {
         DCHECK(it.second >= 0 && it.second < _num_partitions)
                 << it.first << " : " << it.second << " " << _num_partitions;
         uint32_t start = partition_rows_histogram[it.first];
         uint32_t size = partition_rows_histogram[it.first + 1] - start;
         if (size > 0) {
+            enqueue_rows += size;
             _enqueue_data_and_set_ready(it.second, local_state,
                                         {new_block_wrapper, {row_idx, start, size}});
         }
+    }
+    if (enqueue_rows != rows) [[unlikely]] {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "Type: {}, Local Exchange Id: {}, Shuffled Map: ",
+                       get_exchange_type_name(get_type()), local_state->parent()->node_id());
+        for (const auto& it : map) {
+            fmt::format_to(debug_string_buffer, "[{}:{}], ", it.first, it.second);
+        }
+        return Status::InternalError(
+                "Rows mismatched! Data may be lost. [Expected enqueue rows={}, Real enqueue "
+                "rows={}, Detail: {}]",
+                rows, enqueue_rows, fmt::to_string(debug_string_buffer));
     }
 
     return Status::OK();

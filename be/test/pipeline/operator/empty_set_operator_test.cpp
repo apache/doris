@@ -15,11 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "table_format_reader.h"
+#include "pipeline/exec/empty_set_operator.h"
 
-namespace doris::vectorized {
+#include <gtest/gtest.h>
 
-TableFormatReader::TableFormatReader(std::unique_ptr<GenericReader> file_format_reader)
-        : _file_format_reader(std::move(file_format_reader)) {}
+#include "pipeline/operator/operator_helper.h"
+#include "vec/core/block.h"
+namespace doris::pipeline {
 
-} // namespace doris::vectorized
+TEST(EmptySetSourceOperatorTest, test) {
+    OperatorContext ctx;
+    EmptySetSourceOperatorX op;
+    OperatorHelper::init_local_state(ctx, op);
+
+    bool eos = false;
+    vectorized::Block block;
+    EXPECT_TRUE(op.get_block(&ctx.state, &block, &eos).ok());
+    EXPECT_EQ(eos, true);
+    EXPECT_EQ(block.empty(), true);
+}
+
+} // namespace doris::pipeline
