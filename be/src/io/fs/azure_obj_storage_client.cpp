@@ -416,7 +416,8 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePat
     std::string sasToken = sas_builder.GenerateSasToken(
             Azure::Storage::StorageSharedKeyCredential(conf.ak, conf.sk));
 
-    auto sasURL = fmt::format(SAS_TOKEN_URL_TEMPLATE, conf.endpoint, conf.bucket, opts.key, sasToken);
+    auto sasURL =
+            fmt::format(SAS_TOKEN_URL_TEMPLATE, conf.endpoint, conf.bucket, opts.key, sasToken);
     if (sasURL.find("://") == std::string::npos) {
         sasURL = "https://" + sasURL;
     }
