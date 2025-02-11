@@ -19,7 +19,6 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "vec/runtime/partitioner.h"
@@ -423,6 +422,12 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                                                            vectorized::Block* block, bool* eos) {
             BlockWrapperSPtr next_block;
             _dequeue_data(local_state, next_block, eos, block, id);
+            if (!*eos && block->empty()) {
+                return Status::InternalError(
+                        "LocalMergeSortExchanger{} meet error! Block should not be empty when eos "
+                        "is false",
+                        local_state->debug_string(0));
+            }
             return Status::OK();
         };
         child_block_suppliers.push_back(block_supplier);

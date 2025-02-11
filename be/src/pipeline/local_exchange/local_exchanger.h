@@ -87,7 +87,10 @@ public:
         ~BlockWrapper() {
             if (_shared_state != nullptr) {
                 DCHECK_GT(_allocated_bytes, 0);
-                _shared_state->sub_total_mem_usage(_allocated_bytes, _channel_ids.front());
+                // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
+                // not used by `sub_total_mem_usage`. So we just pass -1 here.
+                _shared_state->sub_total_mem_usage(
+                        _allocated_bytes, _channel_ids.empty() ? -1 : _channel_ids.front());
                 if (_shared_state->exchanger->_free_block_limit == 0 ||
                     _shared_state->exchanger->_free_blocks.size_approx() <
                             _shared_state->exchanger->_free_block_limit *
