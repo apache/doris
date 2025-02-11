@@ -72,7 +72,9 @@ public class UdafExecutor extends BaseExecutor {
      */
     @Override
     public void close() {
-        super.close();
+        if (!isStaticLoad) {
+            super.close();
+        }
         stateObjMap = null;
     }
 

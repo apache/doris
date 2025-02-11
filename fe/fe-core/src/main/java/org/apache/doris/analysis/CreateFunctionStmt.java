@@ -360,6 +360,8 @@ public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
                 location, symbol, null, null);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
         function.setUDTFunction(true);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
@@ -426,6 +428,8 @@ public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
     }
 
     private void analyzeUdf() throws AnalysisException {
