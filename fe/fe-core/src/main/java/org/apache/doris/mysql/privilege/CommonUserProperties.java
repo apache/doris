@@ -67,9 +67,6 @@ public class CommonUserProperties implements Writable {
     @SerializedName("workloadGroup")
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
 
-    @SerializedName(value = "ard", alternate = {"AllowResourceTagDowngrade"})
-    private boolean allowResourceTagDowngrade = false;
-
     private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
@@ -163,14 +160,6 @@ public class CommonUserProperties implements Writable {
 
     public void setWorkloadGroup(String workloadGroup) {
         this.workloadGroup = workloadGroup;
-    }
-
-    public void setAllowResourceTagDowngrade(boolean allowResourceTagDowngrade) {
-        this.allowResourceTagDowngrade = allowResourceTagDowngrade;
-    }
-
-    public boolean isAllowResourceTagDowngrade() {
-        return this.allowResourceTagDowngrade;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {
