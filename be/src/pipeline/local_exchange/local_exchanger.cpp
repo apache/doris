@@ -221,7 +221,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         uint32_t start = partition_rows_histogram[it.first];
         uint32_t size = partition_rows_histogram[it.first + 1] - start;
         if (size > 0) {
-            enqueue_rows += enqueue_rows;
+            enqueue_rows += size;
             _enqueue_data_and_set_ready(it.second, local_state,
                                         {new_block_wrapper, {row_idx, start, size}});
         }
