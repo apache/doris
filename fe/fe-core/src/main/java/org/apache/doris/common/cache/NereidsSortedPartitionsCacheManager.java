@@ -89,11 +89,11 @@ public class NereidsSortedPartitionsCacheManager {
 
     private SortedPartitionRanges<?> loadCache(
             TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
-        Map<?, PartitionItem> unsorted = table.getOriginPartitions();
-        List<Entry<?, PartitionItem>> sortedList = Lists.newArrayList(unsorted.entrySet());
-        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsorted.size());
+        Map<?, PartitionItem> unsortedMap = table.getOriginPartitions();
+        List<Entry<?, PartitionItem>> unsortedList = Lists.newArrayList(unsortedMap.entrySet());
+        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsortedMap.size());
         List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
-        for (Entry<?, PartitionItem> entry : sortedList) {
+        for (Entry<?, PartitionItem> entry : unsortedList) {
             PartitionItem partitionItem = entry.getValue();
             Object id = entry.getKey();
             if (!partitionItem.isDefaultPartition()) {
