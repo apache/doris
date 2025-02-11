@@ -280,9 +280,9 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
             RETURN_IF_ERROR(serialize_block(dest, num_receivers));
         }
         *serialized = true;
-        return Status::OK();
+    } else {
+        *serialized = false;
     }
-    *serialized = false;
     return Status::OK();
 }
 

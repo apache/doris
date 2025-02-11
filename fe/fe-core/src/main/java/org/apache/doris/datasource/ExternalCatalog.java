@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -35,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -59,6 +59,11 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.DropDbInfo;
+import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -92,6 +97,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 
 /**
@@ -139,6 +145,9 @@ public abstract class ExternalCatalog
     // <db name, table name> to tableAutoAnalyzePolicy
     @SerializedName(value = "taap")
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
+    @SerializedName(value = "comment")
+    private String comment;
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -147,7 +156,6 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
-    private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
     private byte[] propLock = new byte[0];
@@ -156,6 +164,7 @@ public abstract class ExternalCatalog
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected PreExecutionAuthenticator preExecutionAuthenticator;
+    protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -714,6 +723,9 @@ public abstract class ExternalCatalog
     @Override
     public void onClose() {
         removeAccessController();
+        if (threadPoolWithPreAuth != null) {
+            ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
+        }
         CatalogIf.super.onClose();
     }
 
@@ -926,15 +938,18 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.createDb(stmt);
+            CreateDbInfo info = new CreateDbInfo(getName(), stmt.getFullDbName(), null);
+            Env.getCurrentEnv().getEditLog().logCreateDb(info);
         } catch (Exception e) {
-            LOG.warn("Failed to create a database.", e);
+            LOG.warn("Failed to create database {} in catalog {}.", stmt.getFullDbName(), getName(), e);
             throw e;
         }
     }
 
-    @Override
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    public void replayCreateDb(String dbName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateDb(dbName);
+        }
     }
 
     @Override
@@ -945,10 +960,18 @@ public abstract class ExternalCatalog
             return;
         }
         try {
-            metadataOps.dropDb(dbName, ifExists, force);
+            metadataOps.dropDb(getName(), dbName, ifExists, force);
+            DropDbInfo info = new DropDbInfo(getName(), dbName);
+            Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
-            LOG.warn("Failed to drop a database.", e);
+            LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
             throw e;
+        }
+    }
+
+    public void replayDropDb(String dbName) {
+        if (metadataOps != null) {
+            metadataOps.afterDropDb(dbName);
         }
     }
 
@@ -960,10 +983,22 @@ public abstract class ExternalCatalog
             return false;
         }
         try {
-            return metadataOps.createTable(stmt);
+            boolean res = metadataOps.createTable(stmt);
+            if (!res) {
+                // res == false means the table does not exist before, and we create it.
+                CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
+                Env.getCurrentEnv().getEditLog().logCreateTable(info);
+            }
+            return res;
         } catch (Exception e) {
             LOG.warn("Failed to create a table.", e);
             throw e;
+        }
+    }
+
+    public void replayCreateTable(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateTable(dbName, tblName);
         }
     }
 
@@ -976,9 +1011,17 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.dropTable(stmt);
+            DropInfo info = new DropInfo(getName(), stmt.getDbName(), stmt.getTableName());
+            Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
             throw e;
+        }
+    }
+
+    public void replayDropTable(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterDropTable(dbName, tblName);
         }
     }
 
@@ -1080,9 +1123,19 @@ public abstract class ExternalCatalog
                 partitions = tableRef.getPartitionNames().getPartitionNames();
             }
             metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), tableName.getDb(), tableName.getTbl(),
+                    partitions);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (Exception e) {
-            LOG.warn("Failed to drop a table", e);
+            LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
+                    stmt.getTblRef().getName().getTbl(), getName(), e);
             throw e;
+        }
+    }
+
+    public void replayTruncateTable(TruncateTableInfo info) {
+        if (metadataOps != null) {
+            metadataOps.afterTruncateTable(info.getDb(), info.getTable());
         }
     }
 

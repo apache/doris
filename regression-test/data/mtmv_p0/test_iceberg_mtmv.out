@@ -58,6 +58,12 @@
 2024-10-28T01:22:03	7
 \N	8
 
+-- !test_iceberg_table_partition_ts --
+ts_day=20022	types: [DATETIMEV2]; keys: [2024-10-26 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-10-27 00:00:00]; 
+ts_day=20023	types: [DATETIMEV2]; keys: [2024-10-27 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-10-28 00:00:00]; 
+ts_day=20024	types: [DATETIMEV2]; keys: [2024-10-28 00:00:00]; 	types: [DATETIMEV2]; keys: [2024-10-29 00:00:00]; 
+ts_day=null	types: [DATETIMEV2]; keys: [0000-01-01 00:00:00]; 	types: [DATETIMEV2]; keys: [0000-01-01 00:00:01]; 
+
 -- !unpartition --
 2024-10-26T01:02:03	1
 2024-10-27T01:02:03	2
@@ -102,6 +108,11 @@
 2024-08-22	5
 2024-09-30	6
 2024-10-28	7
+
+-- !test_iceberg_table_partition_d --
+d_month=655	types: [DATEV2]; keys: [2024-08-01]; 	types: [DATEV2]; keys: [2024-09-01]; 
+d_month=656	types: [DATEV2]; keys: [2024-09-01]; 	types: [DATEV2]; keys: [2024-10-01]; 
+d_month=657	types: [DATEV2]; keys: [2024-10-01]; 	types: [DATEV2]; keys: [2024-11-01]; 
 
 -- !refresh_one_partition --
 2024-01-01T00:00	4

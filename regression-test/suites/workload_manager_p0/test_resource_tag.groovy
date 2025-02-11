@@ -25,7 +25,7 @@ suite("test_resource_tag") {
                 def clusters = sql " SHOW CLUSTERS; "
                 assertTrue(!clusters.isEmpty())
                 def validCluster = clusters[0][0]
-                sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_rg""";
+                sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_rg""";
         }
 
         // test query
@@ -79,7 +79,7 @@ suite("test_resource_tag") {
         def code1 = process.waitFor()
         def out1 = process.text
         log.info("stream load skip_rg_test_table failed test result, ${out1}".toString())
-        assertTrue("${out1}".toString().contains("No backend load available") || "${out1}".toString().contains("No available backends"))
+        assertTrue("${out1}".toString().contains("No backend available for load") || "${out1}".toString().contains("No available backends"))
 
         sql "set property for test_rg 'allow_resource_tag_downgrade' = 'true';"
 
@@ -89,7 +89,7 @@ suite("test_resource_tag") {
         def out2 = process2.text
         def jsonRet = parseJson(out2)
         log.info("stream load skip_rg_test_table succ test result, ${out2}".toString())
-        assertFalse("${out2}".toString().contains("No backend load available"))
+        assertFalse("${out2}".toString().contains("No backend available for load"))
         assertTrue(jsonRet['Status'] == 'Success')
 
 

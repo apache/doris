@@ -360,9 +360,16 @@ struct TQueryOptions {
   142: optional bool enable_fixed_len_to_uint32_v2 = false;
   143: optional bool enable_shared_exchange_sink_buffer = true;
 
+
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
   146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+
+  147: optional i32 profile_level = 1;
+
+  148: optional i32 min_scanner_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0;
+  150: optional bool enable_runtime_filter_partition_prune = true;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -392,18 +399,21 @@ struct TRuntimeFilterTargetParamsV2 {
 }
 
 struct TRuntimeFilterParams {
-  // Runtime filter merge instance address
+  // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
   // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
+  // Used if this filter has a remote target
   3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
 
   // Number of Runtime filter producers
+  // Used if this filter has a remote target
   4: optional map<i32, i32> runtime_filter_builder_num
 
+  // Used if this filter has a remote target
   5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 

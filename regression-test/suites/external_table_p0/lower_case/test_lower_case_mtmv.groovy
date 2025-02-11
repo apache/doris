@@ -32,7 +32,7 @@ suite("test_lower_case_mtmv", "p0,external,doris,external_docker,external_docker
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${jdbcUser}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${jdbcUser}""";
     }
 
     sql """grant all on *.*.* to ${jdbcUser}"""

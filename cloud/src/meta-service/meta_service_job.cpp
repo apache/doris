@@ -474,7 +474,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         return false;
     }
     if (lock_info.lock_id() != lock_id) {
-        msg = "lock id not match";
+        ss << "lock id not match, locked by lock_id=" << lock_info.lock_id();
+        msg = ss.str();
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
@@ -488,13 +489,14 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         }
     }
     if (!found) {
-        msg = "lock initiator not exist";
+        ss << "lock initiator " << lock_initiator << " not exist";
+        msg = ss.str();
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
     if (initiators->empty()) {
         INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                           << " key=" << hex(lock_key);
+                           << " lock_id=" << lock_id << " key=" << hex(lock_key);
         txn->remove(lock_key);
         return true;
     }
@@ -505,7 +507,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         return false;
     }
     INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                       << ", key=" << hex(lock_key) << ", initiator=" << lock_initiator
+                       << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                       << " initiator=" << lock_initiator
                        << " initiators_size=" << lock_info.initiators_size();
     txn->put(lock_key, lock_val);
     return true;
@@ -547,7 +550,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
     if (initiators->empty()) {
         INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                           << " key=" << hex(lock_key);
+                           << " lock_id=" << lock_id << " key=" << hex(lock_key);
         txn->remove(lock_key);
         return;
     }
@@ -558,7 +561,8 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
         return;
     }
     INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                       << ", key=" << hex(lock_key) << ", initiator=" << lock_initiator
+                       << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                       << " initiator=" << lock_initiator
                        << " initiators_size=" << lock_info.initiators_size();
     txn->put(lock_key, lock_val);
 }

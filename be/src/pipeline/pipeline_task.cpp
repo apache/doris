@@ -303,6 +303,9 @@ Status PipelineTask::execute(bool* eos) {
         query_context()->update_cpu_time(delta_cpu_time);
     }};
     if (_wait_to_start()) {
+        if (config::enable_prefetch_tablet) {
+            RETURN_IF_ERROR(_source->hold_tablets(_state));
+        }
         return Status::OK();
     }
 
@@ -422,7 +425,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         return false;
     } else if (is_wg_mem_low_water_mark) {
         int64_t spill_threshold = query_ctx->spill_threshold();
-        int64_t memory_usage = query_ctx->query_mem_tracker->consumption();
+        int64_t memory_usage = query_ctx->query_mem_tracker()->consumption();
         if (spill_threshold == 0 || memory_usage < spill_threshold) {
             return false;
         }

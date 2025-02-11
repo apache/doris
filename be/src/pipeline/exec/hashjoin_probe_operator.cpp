@@ -252,7 +252,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            st = process_hashtable_ctx.template process(
+                            st = process_hashtable_ctx.process(
                                     arg,
                                     local_state._null_map_column
                                             ? &local_state._null_map_column->get_data()
@@ -385,7 +385,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                                temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block));
     reached_limit(output_block, eos);
     return Status::OK();
 }

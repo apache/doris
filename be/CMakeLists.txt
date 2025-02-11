@@ -267,6 +267,8 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
+                    $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
+                    -Wno-deprecated-declarations
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -534,6 +536,9 @@ if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
+    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
@@ -713,6 +718,9 @@ endif ()
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
 if (BUILD_BENCHMARK)
     add_definitions(-DBE_TEST)
+# The separate BENCHMARK marker is introduced here because 
+# some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
+    add_definitions(-DBE_BENCHMARK)
 endif()
 
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)

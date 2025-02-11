@@ -26,7 +26,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         beNums++;
         logger.info(item.toString())
     }
-    if (beNums >= 3){
+    if (!isCloudMode() && beNums >= 3){
         sql """ set enable_memtable_on_sink_node=true """
         sql """
             CREATE TABLE IF NOT EXISTS `baseall` (
@@ -75,7 +75,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
             file "baseall.txt"
         }
 
-        def load_with_injection = { injection, error_msg, success=false->
+        def load_with_injection = { injection, error_msg, success=false, alt_error_msg=null->
             try {
                 sql "truncate table test"
                 GetDebugPoint().enableDebugPointForAllBEs(injection)
@@ -83,7 +83,8 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
                 assertTrue(success, String.format("Expected Exception '%s', actual success", error_msg))
             } catch(Exception e) {
                 logger.info(e.getMessage())
-                assertTrue(e.getMessage().contains(error_msg), e.toString())
+                boolean e_contains_alt_error_msg = (alt_error_msg != null && e.getMessage().contains(alt_error_msg))
+                assertTrue(e.getMessage().contains(error_msg) || e_contains_alt_error_msg, e.toString())
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs(injection)
             }
@@ -101,7 +102,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         // test one backend open failure
         load_with_injection("VTabletWriterV2._open_streams.skip_one_backend", "success", true)
         // test two backend open failure
-        load_with_injection("VTabletWriterV2._open_streams.skip_two_backends", "not enough streams 1/3")
+        load_with_injection("VTabletWriterV2._open_streams.skip_two_backends", "failed to write enough replicas 1/3 for tablet", false, "succ replica num 1 < load required replica num 2")
         sql """ set enable_memtable_on_sink_node=false """
     }
 }

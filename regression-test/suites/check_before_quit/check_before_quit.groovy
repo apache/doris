@@ -259,7 +259,16 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 logger.info("create table sql: ${createTableSql}")
             } catch (Exception e) {
                 if (e.getMessage().contains("not support async materialized view")) {
-                    createTableSql = sql "show create materialized view ${tbl}"
+                    try {
+                        createTableSql = sql "show create materialized view ${tbl}"
+                    } catch (Exception e2) {
+                        if (e2.getMessage().contains("table not found")) {
+                            continue
+                        } else {
+                            logger.info(e2.getMessage())
+                            throw e2
+                        }
+                    } 
                     logger.info("create materialized view sql: ${createTableSql}")
                 }
             }
@@ -269,11 +278,13 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 sql "drop materialized view if exists ${tbl}"
             } else {
                 sql "drop table if exists ${tbl}"
+                // only re create table, because the table which view depends may be dropped,
+                // so recreate view may fail
+                sql(createTableSql[0][1])
+                def createTableSqlResult = sql "show create table ${tbl}"
+                logger.info("create table/view sql result info: ${createTableSqlResult}")
+                assertEquals(createTableSqlResult, createTableSql)
             }
-            sql(createTableSql[0][1])
-            def createTableSqlResult = sql "show create table ${tbl}"
-            logger.info("create table/view sql result info: ${createTableSqlResult}")
-            assertEquals(createTableSqlResult, createTableSql)
         }
     }
 

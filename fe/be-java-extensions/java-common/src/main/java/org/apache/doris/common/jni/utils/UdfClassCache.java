@@ -38,4 +38,6 @@ public class UdfClassCache {
     public JavaUdfDataType retType;
     // the class type of the arguments in evaluate() method
     public Class[] argClass;
+    // The return type class of evaluate() method
+    public Class retClass;
 }

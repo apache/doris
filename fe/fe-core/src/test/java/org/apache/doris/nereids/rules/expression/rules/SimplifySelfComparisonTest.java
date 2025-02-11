@@ -32,12 +32,20 @@ class SimplifySelfComparisonTest extends ExpressionRewriteTestHelper {
                 ExpressionRewrite.bottomUp(SimplifySelfComparison.INSTANCE)
         ));
 
+        // foldable, cast
         assertRewriteAfterTypeCoercion("TA + TB = TA + TB", "NOT ((TA + TB) IS NULL) OR NULL");
         assertRewriteAfterTypeCoercion("TA + TB >= TA + TB", "NOT ((TA + TB) IS NULL) OR NULL");
         assertRewriteAfterTypeCoercion("TA + TB <= TA + TB", "NOT ((TA + TB) IS NULL) OR NULL");
         assertRewriteAfterTypeCoercion("TA + TB <=> TA + TB", "TRUE");
         assertRewriteAfterTypeCoercion("TA + TB > TA + TB", "(TA + TB) IS NULL AND NULL");
         assertRewriteAfterTypeCoercion("TA + TB < TA + TB", "(TA + TB) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("DAYS_ADD(CA, 7) <=> DAYS_ADD(CA, 7)", "TRUE");
+        assertRewriteAfterTypeCoercion("USER() = USER()", "TRUE");
+        assertRewriteAfterTypeCoercion("CURRENT_TIMESTAMP() = CURRENT_TIMESTAMP()", "TRUE");
+
+        // not foldable, not cast
+        assertRewriteAfterTypeCoercion("random(5, 10) = random(5, 10)", "random(5, 10) = random(5, 10)");
+        assertRewriteAfterTypeCoercion("random(5, 10) + 100 = random(5, 10) + 100", "random(5, 10) + 100 = random(5, 10) + 100");
     }
 
 }
