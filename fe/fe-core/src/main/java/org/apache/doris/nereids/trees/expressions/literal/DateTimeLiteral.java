@@ -117,13 +117,6 @@ public class DateTimeLiteral extends DateLiteral {
             }
             scale++;
         }
-        // trim the tailing zero
-        for (int i = 19 + scale; i >= 19; i--) {
-            if (s.charAt(i) != '0') {
-                break;
-            }
-            scale--;
-        }
         return scale;
     }
 
