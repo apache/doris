@@ -599,7 +599,7 @@ TEST_F(ColumnArrayTest, ConvertToPredicateColumnIfDictionaryTest) {
 // test assert_convert_dict_codes_if_necessary_callback
 TEST_F(ColumnArrayTest, ConvertDictCodesIfNecessaryTest) {
     auto callback = [&](IColumn* col, size_t index) {
-        checkColumn(*col->get_ptr(), *array_columns[index], *array_types[index], col->size());
+        checkColumn(*col->get_ptr(), *array_columns[index], col->size());
     };
     assert_convert_dict_codes_if_necessary_callback(array_columns, callback);
 }

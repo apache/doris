@@ -127,11 +127,22 @@ public:
               original_scale(arg_original_scale) {
         check_type_precision(precision);
         check_type_scale(scale);
-        if (UINT32_MAX != original_precision) {
-            check_type_precision(original_precision);
+        if (scale > precision) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "scale({}) is greater than precision({})",
+                            scale, precision);
         }
-        if (UINT32_MAX != original_scale) {
-            check_type_scale(scale);
+        if constexpr (IsDecimalV2<T>) {
+            if (UINT32_MAX != original_precision) {
+                check_type_precision(original_precision);
+            }
+            if (UINT32_MAX != original_scale) {
+                check_type_scale(scale);
+            }
+            if (original_scale > original_precision) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "original_scale({}) is greater than original_precision({})",
+                                original_scale, original_precision);
+            }
         }
     }
 
@@ -252,7 +263,6 @@ public:
         if (get_scale() < x.get_scale()) {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "Decimal result's scale is less then argument's one");
-            __builtin_unreachable();
         }
 
         UInt32 scale_delta = get_scale() - x.get_scale(); /// scale_delta >= 0
