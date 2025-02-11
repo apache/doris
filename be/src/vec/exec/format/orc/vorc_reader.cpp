@@ -391,9 +391,6 @@ Status OrcReader::_init_read_columns() {
             }
 
             _col_name_to_file_col_name[col_name] = read_col;
-            // TODO: refactor this
-            std::transform(read_col.begin(), read_col.end(), read_col.begin(), ::tolower);
-            _col_name_to_file_col_name_low_case[col_name] = read_col;
         }
     }
     return Status::OK();
@@ -410,9 +407,9 @@ void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& 
         if (hive1_orc) {
             hive1_orc = _is_hive1_col_name(filed_name_lower_case);
         }
-        auto filed_name_lower_case_copy = filed_name_lower_case;
         orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
-        type_map.emplace(std::move(filed_name_lower_case_copy), type.getSubtype(i));
+        auto file_name = type.getFieldName(i);
+        type_map.emplace(std::move(file_name), type.getSubtype(i));
         if (_is_acid) {
             const orc::Type* sub_type = type.getSubtype(i);
             if (sub_type->getKind() == orc::TypeKind::STRUCT) {
@@ -569,15 +566,14 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    DCHECK(_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name()));
-    auto file_col_name_low_case = _col_name_to_file_col_name_low_case[slot_ref->expr_name()];
-    if (!_type_map.contains(file_col_name_low_case)) {
-        // TODO: this is for acid table
+    DCHECK(_col_name_to_file_col_name.contains(slot_ref->expr_name()));
+    auto file_col_name = _col_name_to_file_col_name[slot_ref->expr_name()];
+    if (!_type_map.contains(file_col_name)) {
         LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
-    DCHECK(_type_map.contains(file_col_name_low_case));
-    const auto* orc_type = _type_map[file_col_name_low_case];
+    DCHECK(_type_map.contains(file_col_name));
+    const auto* orc_type = _type_map[file_col_name];
     if (!TYPEKIND_TO_PREDICATE_TYPE.contains(orc_type->getKind())) {
         LOG(WARNING) << "Unsupported Push Down Orc Type [TypeKind=" << orc_type->getKind() << "]";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
