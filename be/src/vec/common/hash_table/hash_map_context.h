@@ -287,7 +287,7 @@ struct MethodSerialized : public MethodBase<TData> {
     void insert_keys_into_columns(std::vector<StringRef>& input_keys, MutableColumns& key_columns,
                                   const size_t num_rows) override {
         for (auto& column : key_columns) {
-            column->deserialize_vec(input_keys, num_rows);
+            column->deserialize_vec(input_keys.data(), num_rows);
         }
     }
 };
