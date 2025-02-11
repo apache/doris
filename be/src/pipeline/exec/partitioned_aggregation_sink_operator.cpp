@@ -17,6 +17,8 @@
 
 #include "partitioned_aggregation_sink_operator.h"
 
+#include <gen_cpp/Types_types.h>
+
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -89,55 +91,29 @@ Status PartitionedAggSinkLocalState::close(RuntimeState* state, Status exec_stat
 void PartitionedAggSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
-    _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
-    _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
-
-    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
-    _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
-    _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
-    _serialize_data_timer = ADD_TIMER(Base::profile(), "SerializeDataTime");
-    _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
-    _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
-    _memory_usage_container =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageContainer", TUnit::BYTES, 1);
-    _memory_usage_arena =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageArena", TUnit::BYTES, 1);
     _memory_usage_reserved =
             ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
-    COUNTER_SET(_max_row_size_counter, (int64_t)0);
 
     _spill_serialize_hash_table_timer =
             ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeHashTableTime", 1);
 }
-#define UPDATE_PROFILE(counter, name)                           \
-    do {                                                        \
-        auto* child_counter = child_profile->get_counter(name); \
-        if (child_counter != nullptr) {                         \
-            COUNTER_SET(counter, child_counter->value());       \
-        }                                                       \
-    } while (false)
+#define UPDATE_PROFILE(name) \
+    update_profile_from_inner_profile<spilled>(name, _profile, child_profile)
 
+template <bool spilled>
 void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_hash_table_memory_usage, "MemoryUsageHashTable");
-    UPDATE_PROFILE(_serialize_key_arena_memory_usage, "MemoryUsageSerializeKeyArena");
-    UPDATE_PROFILE(_build_timer, "BuildTime");
-    UPDATE_PROFILE(_serialize_key_timer, "SerializeKeyTime");
-    UPDATE_PROFILE(_merge_timer, "MergeTime");
-    UPDATE_PROFILE(_expr_timer, "MergeTime");
-    UPDATE_PROFILE(_serialize_data_timer, "SerializeDataTime");
-    UPDATE_PROFILE(_deserialize_data_timer, "DeserializeAndMergeTime");
-    UPDATE_PROFILE(_hash_table_compute_timer, "HashTableComputeTime");
-    UPDATE_PROFILE(_hash_table_emplace_timer, "HashTableEmplaceTime");
-    UPDATE_PROFILE(_hash_table_input_counter, "HashTableInputCount");
-    UPDATE_PROFILE(_max_row_size_counter, "MaxRowSizeInBytes");
-    UPDATE_PROFILE(_memory_usage_container, "MemoryUsageContainer");
-    UPDATE_PROFILE(_memory_usage_arena, "MemoryUsageArena");
+    UPDATE_PROFILE("MemoryUsageHashTable");
+    UPDATE_PROFILE("MemoryUsageSerializeKeyArena");
+    UPDATE_PROFILE("BuildTime");
+    UPDATE_PROFILE("SerializeKeyTime");
+    UPDATE_PROFILE("MergeTime");
+    UPDATE_PROFILE("SerializeDataTime");
+    UPDATE_PROFILE("DeserializeAndMergeTime");
+    UPDATE_PROFILE("HashTableComputeTime");
+    UPDATE_PROFILE("HashTableEmplaceTime");
+    UPDATE_PROFILE("HashTableInputCount");
+    UPDATE_PROFILE("MemoryUsageContainer");
+    UPDATE_PROFILE("MemoryUsageArena");
 
     update_max_min_rows_counter();
 }
@@ -208,10 +184,12 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
             return revoke_memory(state, nullptr);
         }
     }
-    if (local_state._runtime_state) {
+
+    if (!local_state._shared_state->is_spilled) {
         auto* sink_local_state = local_state._runtime_state->get_sink_local_state();
-        local_state.update_profile(sink_local_state->profile());
+        local_state.update_profile<false>(sink_local_state->profile());
     }
+
     return Status::OK();
 }
 Status PartitionedAggSinkOperatorX::revoke_memory(
@@ -272,9 +250,13 @@ Status PartitionedAggSinkLocalState::revoke_memory(
             print_id(state->query_id()), _parent->node_id(), state->task_id(), _eos,
             _shared_state->is_spilled,
             PrettyPrinter::print_bytes(_parent->revocable_mem_size(state)));
+    auto* sink_local_state = _runtime_state->get_sink_local_state();
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
         profile()->add_info_string("Spilled", "true");
+        update_profile<false>(sink_local_state->profile());
+    } else {
+        update_profile<true>(sink_local_state->profile());
     }
 
     // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state

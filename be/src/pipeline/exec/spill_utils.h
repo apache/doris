@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
@@ -262,6 +263,32 @@ private:
     RuntimeProfile::Counter* _read_wait_in_queue_task_count = nullptr;
     RuntimeProfile::Counter* _reading_task_count = nullptr;
 };
+
+template <bool accumulating>
+inline void update_profile_from_inner_profile(const std::string& name,
+                                              RuntimeProfile* runtime_profile,
+                                              RuntimeProfile* inner_profile) {
+    auto* inner_counter = inner_profile->get_counter(name);
+    DCHECK(inner_counter != nullptr) << "inner counter " << name << " not found";
+    if (inner_counter == nullptr) [[unlikely]] {
+        return;
+    }
+    auto* counter = runtime_profile->get_counter(name);
+    if (counter == nullptr) [[unlikely]] {
+        counter = runtime_profile->add_counter(name, inner_counter->type(), "",
+                                               inner_counter->level());
+    }
+    if constexpr (accumulating) {
+        // Memory usage should not be accumulated.
+        if (counter->type() == TUnit::BYTES) {
+            counter->set(inner_counter->value());
+        } else {
+            counter->update(inner_counter->value());
+        }
+    } else {
+        counter->set(inner_counter->value());
+    }
+}
 
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

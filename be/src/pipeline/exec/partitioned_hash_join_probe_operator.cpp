@@ -74,88 +74,64 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     _recovery_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillRecoveryProbeTime", 1);
     _get_child_next_timer = ADD_TIMER_WITH_LEVEL(profile(), "GetChildNextTime", 1);
 
+    _probe_blocks_bytes =
+            ADD_COUNTER_WITH_LEVEL(profile(), "ProbeBloksBytesInMem", TUnit::BYTES, 1);
     _memory_usage_reserved =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::UNIT, 1);
-
-    _probe_blocks_bytes = ADD_COUNTER_WITH_LEVEL(profile(), "ProbeBlocksBytes", TUnit::BYTES, 1);
-
-    // Build phase
-    _build_phase_label = ADD_LABEL_COUNTER(profile(), "BuildPhase");
-    _build_rows_counter = ADD_CHILD_COUNTER(profile(), "BuildRows", TUnit::UNIT, "BuildPhase");
-    _publish_runtime_filter_timer =
-            ADD_CHILD_TIMER(profile(), "PublishRuntimeFilterTime", "BuildPhase");
-    _runtime_filter_compute_timer =
-            ADD_CHILD_TIMER(profile(), "RuntimeFilterComputeTime", "BuildPhase");
-    _build_table_timer = ADD_CHILD_TIMER(profile(), "BuildTableTime", "BuildPhase");
-    _build_side_merge_block_timer =
-            ADD_CHILD_TIMER(profile(), "BuildSideMergeBlockTime", "BuildPhase");
-    _build_table_insert_timer = ADD_CHILD_TIMER(profile(), "BuildTableInsertTime", "BuildPhase");
-    _build_expr_call_timer = ADD_CHILD_TIMER(profile(), "BuildExprCallTime", "BuildPhase");
-    _build_side_compute_hash_timer =
-            ADD_CHILD_TIMER(profile(), "BuildSideHashComputingTime", "BuildPhase");
-
-    _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
-
-    _allocate_resource_timer = ADD_CHILD_TIMER(profile(), "AllocateResourceTime", "BuildPhase");
-
-    // Probe phase
-    _probe_phase_label = ADD_LABEL_COUNTER(profile(), "ProbePhase");
-    _probe_next_timer = ADD_CHILD_TIMER(profile(), "ProbeFindNextTime", "ProbePhase");
-    _probe_expr_call_timer = ADD_CHILD_TIMER(profile(), "ProbeExprCallTime", "ProbePhase");
-    _search_hashtable_timer =
-            ADD_CHILD_TIMER(profile(), "ProbeWhenSearchHashTableTime", "ProbePhase");
-    _build_side_output_timer =
-            ADD_CHILD_TIMER(profile(), "ProbeWhenBuildSideOutputTime", "ProbePhase");
-    _probe_side_output_timer =
-            ADD_CHILD_TIMER(profile(), "ProbeWhenProbeSideOutputTime", "ProbePhase");
-    _probe_process_hashtable_timer =
-            ADD_CHILD_TIMER(profile(), "ProbeWhenProcessHashTableTime", "ProbePhase");
-    _process_other_join_conjunct_timer =
-            ADD_CHILD_TIMER(profile(), "OtherJoinConjunctTime", "ProbePhase");
-    _init_probe_side_timer = ADD_CHILD_TIMER(profile(), "InitProbeSideTime", "ProbePhase");
-    _probe_timer = ADD_CHILD_TIMER(profile(), "ProbeTime", "ProbePhase");
-    _join_filter_timer = ADD_CHILD_TIMER(profile(), "JoinFilterTimer", "ProbePhase");
-    _build_output_block_timer = ADD_CHILD_TIMER(profile(), "BuildOutputBlock", "ProbePhase");
-    _probe_rows_counter = ADD_CHILD_COUNTER(profile(), "ProbeRows", TUnit::UNIT, "ProbePhase");
+            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
     return Status::OK();
 }
-#define UPDATE_PROFILE(counter, name)                           \
-    do {                                                        \
-        auto* child_counter = child_profile->get_counter(name); \
-        if (child_counter != nullptr) {                         \
-            COUNTER_UPDATE(counter, child_counter->value());    \
-        }                                                       \
-    } while (false)
 
+#define UPDATE_COUNTER_FROM_INNER(name) \
+    update_profile_from_inner_profile<spilled>(name, _runtime_profile.get(), child_profile)
+
+template <bool spilled>
 void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_build_rows_counter, "BuildRows");
-    UPDATE_PROFILE(_publish_runtime_filter_timer, "PublishRuntimeFilterTime");
-    UPDATE_PROFILE(_runtime_filter_compute_timer, "RuntimeFilterComputeTime");
-    UPDATE_PROFILE(_build_table_timer, "BuildTableTime");
-    UPDATE_PROFILE(_build_side_merge_block_timer, "BuildSideMergeBlockTime");
-    UPDATE_PROFILE(_build_table_insert_timer, "BuildTableInsertTime");
-    UPDATE_PROFILE(_build_expr_call_timer, "BuildExprCallTime");
-    UPDATE_PROFILE(_build_side_compute_hash_timer, "BuildSideHashComputingTime");
-    UPDATE_PROFILE(_allocate_resource_timer, "AllocateResourceTime");
+    UPDATE_COUNTER_FROM_INNER("PublishRuntimeFilterTime");
+    UPDATE_COUNTER_FROM_INNER("BuildRuntimeFilterTime");
+    UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
+    UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
+    UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
+    UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
+    UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");
 }
 
+template <bool spilled>
 void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_probe_timer, "ProbeTime");
-    UPDATE_PROFILE(_join_filter_timer, "JoinFilterTimer");
-    UPDATE_PROFILE(_build_output_block_timer, "BuildOutputBlock");
-    UPDATE_PROFILE(_probe_rows_counter, "ProbeRows");
-    UPDATE_PROFILE(_probe_next_timer, "ProbeFindNextTime");
-    UPDATE_PROFILE(_probe_expr_call_timer, "ProbeExprCallTime");
-    UPDATE_PROFILE(_search_hashtable_timer, "ProbeWhenSearchHashTableTime");
-    UPDATE_PROFILE(_build_side_output_timer, "ProbeWhenBuildSideOutputTime");
-    UPDATE_PROFILE(_probe_side_output_timer, "ProbeWhenProbeSideOutputTime");
-    UPDATE_PROFILE(_probe_process_hashtable_timer, "ProbeWhenProcessHashTableTime");
-    UPDATE_PROFILE(_process_other_join_conjunct_timer, "OtherJoinConjunctTime");
-    UPDATE_PROFILE(_init_probe_side_timer, "InitProbeSideTime");
+    UPDATE_COUNTER_FROM_INNER("ProbeTime");
+    UPDATE_COUNTER_FROM_INNER("JoinFilterTimer");
+    UPDATE_COUNTER_FROM_INNER("BuildOutputBlock");
+    UPDATE_COUNTER_FROM_INNER("ProbeRows");
+    UPDATE_COUNTER_FROM_INNER("ProbeFindNextTime");
+    UPDATE_COUNTER_FROM_INNER("ProbeExprCallTime");
+    UPDATE_COUNTER_FROM_INNER("ProbeWhenSearchHashTableTime");
+    UPDATE_COUNTER_FROM_INNER("ProbeWhenBuildSideOutputTime");
+    UPDATE_COUNTER_FROM_INNER("ProbeWhenProbeSideOutputTime");
+    UPDATE_COUNTER_FROM_INNER("ProbeWhenProcessHashTableTime");
+    UPDATE_COUNTER_FROM_INNER("OtherJoinConjunctTime");
+    UPDATE_COUNTER_FROM_INNER("InitProbeSideTime");
 }
 
 #undef UPDATE_PROFILE
+
+void PartitionedHashJoinProbeLocalState::update_profile_from_inner() {
+    auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
+    if (_shared_state->inner_runtime_state) {
+        auto* sink_local_state = _shared_state->inner_runtime_state->get_sink_local_state();
+        auto* probe_local_state = _shared_state->inner_runtime_state->get_local_state(
+                p._inner_probe_operator->operator_id());
+
+        if (_shared_state->need_to_spill) {
+            update_build_profile<true>(sink_local_state->profile());
+            update_probe_profile<true>(probe_local_state->profile());
+        } else {
+            update_build_profile<false>(sink_local_state->profile());
+            update_probe_profile<false>(probe_local_state->profile());
+        }
+    }
+}
 
 Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::open(state));
@@ -607,21 +583,11 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operator_for_non_spill
     DCHECK(local_state._shared_state->inner_runtime_state);
     local_state._in_mem_shared_state_sptr =
             std::move(local_state._shared_state->inner_shared_state);
-
-    auto* sink_state = local_state._shared_state->inner_runtime_state->get_sink_local_state();
-    if (sink_state != nullptr) {
-        COUNTER_SET(local_state._hash_table_memory_usage,
-                    sink_state->profile()->get_counter("MemoryUsageHashTable")->value());
-    }
     return Status::OK();
 }
 
 Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
         PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state) const {
-    if (local_state._shared_state->inner_runtime_state) {
-        _update_profile_from_internal_states(local_state);
-    }
-
     local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
             state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
@@ -682,9 +648,6 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
             block.rows(),
             _inner_sink_operator->get_memory_usage(
                     local_state._shared_state->inner_runtime_state.get()));
-
-    COUNTER_SET(local_state._hash_table_memory_usage,
-                sink_local_state->profile()->get_counter("MemoryUsageHashTable")->value());
     return Status::OK();
 }
 
@@ -762,6 +725,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
                 print_id(state->query_id()), node_id(), state->task_id(),
                 local_state._partition_cursor);
         local_state._partition_cursor++;
+        local_state.update_profile_from_inner();
         if (local_state._partition_cursor == _partition_count) {
             *eos = true;
         } else {
@@ -876,18 +840,6 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
     return false;
 }
 
-void PartitionedHashJoinProbeOperatorX::_update_profile_from_internal_states(
-        PartitionedHashJoinProbeLocalState& local_state) const {
-    if (local_state._shared_state->inner_runtime_state) {
-        auto* sink_local_state =
-                local_state._shared_state->inner_runtime_state->get_sink_local_state();
-        local_state.update_build_profile(sink_local_state->profile());
-        auto* probe_local_state = local_state._shared_state->inner_runtime_state->get_local_state(
-                _inner_probe_operator->operator_id());
-        local_state.update_probe_profile(probe_local_state->profile());
-    }
-}
-
 Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                     bool* eos) {
     *eos = false;
@@ -946,16 +898,11 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
         } else {
             RETURN_IF_ERROR(_inner_probe_operator->pull(
                     local_state._shared_state->inner_runtime_state.get(), block, eos));
-            if (*eos) {
-                _update_profile_from_internal_states(local_state);
-            }
+            local_state.update_profile_from_inner();
         }
 
         local_state.add_num_rows_returned(block->rows());
         COUNTER_UPDATE(local_state._blocks_returned_counter, 1);
-        if (*eos) {
-            _update_profile_from_internal_states(local_state);
-        }
     }
     return Status::OK();
 }

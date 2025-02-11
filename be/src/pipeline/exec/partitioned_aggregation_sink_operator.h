@@ -51,6 +51,7 @@ public:
 
     Status setup_in_memory_agg_op(RuntimeState* state);
 
+    template <bool spilled>
     void update_profile(RuntimeProfile* child_profile);
 
     template <typename KeyType>
@@ -280,21 +281,7 @@ public:
     vectorized::Block value_block_;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _build_timer = nullptr;
-    RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::Counter* _memory_usage_container = nullptr;
-    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;
 };

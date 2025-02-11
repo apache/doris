@@ -43,7 +43,7 @@ Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info)
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _init_counters();
+    _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "AggSourceSpillDependency", true);
     state->get_task()->add_spill_dependency(_spill_dependency.get());
@@ -62,48 +62,27 @@ Status PartitionedAggLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void PartitionedAggLocalState::_init_counters() {
-    _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
-    _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
-    _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
-    _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
-    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
-    _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
-    _hash_table_size_counter = ADD_COUNTER_WITH_LEVEL(profile(), "HashTableSize", TUnit::UNIT, 1);
+#define UPDATE_COUNTER_FROM_INNER(name) \
+    update_profile_from_inner_profile<spilled>(name, _runtime_profile.get(), child_profile)
 
-    _merge_timer = ADD_TIMER(profile(), "MergeTime");
-    _deserialize_data_timer = ADD_TIMER(profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter =
-            ADD_COUNTER_WITH_LEVEL(profile(), "HashTableInputCount", TUnit::UNIT, 1);
-    _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "HashTableMemoryUsage", TUnit::BYTES, 1);
-
-    _memory_usage_container =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageContainer", TUnit::BYTES, 1);
-    _memory_usage_arena = ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageArena", TUnit::BYTES, 1);
-}
-
-#define UPDATE_PROFILE(counter, name)                           \
-    do {                                                        \
-        auto* child_counter = child_profile->get_counter(name); \
-        if (child_counter != nullptr) {                         \
-            COUNTER_SET(counter, child_counter->value());       \
-        }                                                       \
-    } while (false)
-
+template <bool spilled>
 void PartitionedAggLocalState::update_profile(RuntimeProfile* child_profile) {
-    UPDATE_PROFILE(_get_results_timer, "GetResultsTime");
-    UPDATE_PROFILE(_serialize_result_timer, "SerializeResultTime");
-    UPDATE_PROFILE(_hash_table_iterate_timer, "HashTableIterateTime");
-    UPDATE_PROFILE(_insert_keys_to_column_timer, "InsertKeysToColumnTime");
-    UPDATE_PROFILE(_serialize_data_timer, "SerializeDataTime");
-    UPDATE_PROFILE(_hash_table_size_counter, "HashTableSize");
-    UPDATE_PROFILE(_hash_table_memory_usage, "HashTableMemoryUsage");
-    UPDATE_PROFILE(_memory_usage_container, "MemoryUsageContainer");
-    UPDATE_PROFILE(_memory_usage_arena, "MemoryUsageArena");
+    UPDATE_COUNTER_FROM_INNER("GetResultsTime");
+    UPDATE_COUNTER_FROM_INNER("HashTableIterateTime");
+    UPDATE_COUNTER_FROM_INNER("InsertKeysToColumnTime");
+    UPDATE_COUNTER_FROM_INNER("InsertValuesToColumnTime");
+    UPDATE_COUNTER_FROM_INNER("MergeTime");
+    UPDATE_COUNTER_FROM_INNER("DeserializeAndMergeTime");
+    UPDATE_COUNTER_FROM_INNER("HashTableComputeTime");
+    UPDATE_COUNTER_FROM_INNER("HashTableEmplaceTime");
+    UPDATE_COUNTER_FROM_INNER("HashTableInputCount");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
+    UPDATE_COUNTER_FROM_INNER("HashTableSize");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsageContainer");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsageArena");
 }
+
+#undef UPDATE_COUNTER_FROM_INNER
 
 Status PartitionedAggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
@@ -188,20 +167,26 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
     auto* runtime_state = local_state._runtime_state.get();
     local_state._shared_state->in_mem_shared_state->aggregate_data_container->init_once();
     status = _agg_source_operator->get_block(runtime_state, block, eos);
-    RETURN_IF_ERROR(status);
-    if (local_state._runtime_state) {
+    if (!local_state._shared_state->is_spilled) {
         auto* source_local_state =
                 local_state._runtime_state->get_local_state(_agg_source_operator->operator_id());
-        local_state.update_profile(source_local_state->profile());
+        local_state.update_profile<false>(source_local_state->profile());
     }
+
+    RETURN_IF_ERROR(status);
     if (*eos) {
-        if (local_state._shared_state->is_spilled &&
-            !local_state._shared_state->spill_partitions.empty()) {
-            local_state._current_partition_eos = false;
-            local_state._need_to_merge_data_for_current_partition = true;
-            status = local_state._shared_state->in_mem_shared_state->reset_hash_table();
-            RETURN_IF_ERROR(status);
-            *eos = false;
+        if (local_state._shared_state->is_spilled) {
+            auto* source_local_state = local_state._runtime_state->get_local_state(
+                    _agg_source_operator->operator_id());
+            local_state.update_profile<true>(source_local_state->profile());
+
+            if (!local_state._shared_state->spill_partitions.empty()) {
+                local_state._current_partition_eos = false;
+                local_state._need_to_merge_data_for_current_partition = true;
+                status = local_state._shared_state->in_mem_shared_state->reset_hash_table();
+                RETURN_IF_ERROR(status);
+                *eos = false;
+            }
         }
     }
     local_state.reached_limit(block, eos);
