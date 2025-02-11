@@ -27,13 +27,14 @@ import java.util.Map;
 public interface SupportBinarySearchFilteringPartitions extends TableIf {
     /**
      * get the origin partition info which maybe not sorted, the NereidsSortedPartitionsCacheManager will
-     * sort this partitions and cache in frontend
+     * sort this partitions and cache in frontend. you can save the partition's meta snapshot id in the
+     * CatalogRelation and get the partitions by the snapshot id.
      */
-    Map<?, PartitionItem> getOriginPartitions();
+    Map<?, PartitionItem> getOriginPartitions(CatalogRelation scan);
 
     /**
      * return the version of the partitions meta, if the version changed, we should skip the legacy sorted
-     * partitions and reload it. you can extract the snapshot if exists in the CatalogRelation
+     * partitions and reload it.
      */
     Object getPartitionMetaVersion(CatalogRelation scan);
 }

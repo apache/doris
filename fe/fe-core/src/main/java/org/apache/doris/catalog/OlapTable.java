@@ -133,7 +133,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
     @Override
-    public Map<Long, PartitionItem> getOriginPartitions() {
+    public Map<Long, PartitionItem> getOriginPartitions(CatalogRelation scan) {
         return getPartitionInfo().getIdToItem(false);
     }
 
