@@ -187,6 +187,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
+    register_table_function_expand_outer_default<DataTypeObject, false>(factory,
+                                                                        "explode_variant_array");
 }
 
 } // namespace doris::vectorized

@@ -64,7 +64,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<vectorized::DataTypeObject>(-2),
+        return {std::make_shared<vectorized::DataTypeObject>(0),
                 std::make_shared<DataTypeString>()};
     }
 
@@ -75,7 +75,7 @@ public:
         DCHECK(is_string(arguments[1]))
                 << "Second argument for function: " << name << " should be String but it has type "
                 << arguments[1]->get_name() << ".";
-        return make_nullable(std::make_shared<DataTypeObject>(-2));
+        return make_nullable(std::make_shared<DataTypeObject>(0));
     }
 
     // wrap variant column with nullable

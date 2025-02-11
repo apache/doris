@@ -66,7 +66,7 @@ struct TypeDescriptor {
     std::vector<bool> contains_nulls;
 
     // Only set if type == TYPE_VARIANT
-    int variant_max_subcolumns_count = -5;
+    int variant_max_subcolumns_count = 0;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 

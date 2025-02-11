@@ -138,11 +138,6 @@ public class SlotReference extends Slot {
                 () -> Optional.of(column.getName()), ImmutableList.of(), Optional.empty());
     }
 
-    /**
-     * get SlotReference from a column
-     * @param column the column which contains type info
-     * @param qualifier the qualifier of SlotReference
-     */
     public static SlotReference fromColumn(TableIf table, Column column, String name, List<String> qualifier) {
         DataType dataType = DataType.fromCatalogType(column.getType());
         return new SlotReference(StatementScopeIdGenerator.newExprId(), name, dataType,

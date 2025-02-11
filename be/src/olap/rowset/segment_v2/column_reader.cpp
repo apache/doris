@@ -331,6 +331,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
     for (const ColumnMetaPB& column_pb : footer.columns()) {
+        // Find all subcolumns belonging to the current variant column
         if (column_pb.unique_id() != self_column_pb.unique_id() &&
             !column_pb.has_column_path_info() &&
             column_pb.column_path_info().parrent_column_unique_id() != self_column_pb.unique_id()) {

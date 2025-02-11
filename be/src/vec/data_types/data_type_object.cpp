@@ -50,7 +50,14 @@ namespace doris::vectorized {
 DataTypeObject::DataTypeObject(int32_t max_subcolumns_count)
         : _max_subcolumns_count(max_subcolumns_count) {}
 bool DataTypeObject::equals(const IDataType& rhs) const {
-    return typeid_cast<const DataTypeObject*>(&rhs) != nullptr;
+    auto rhs_type = typeid_cast<const DataTypeObject*>(&rhs);
+    if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
+        LOG(INFO) << "_max_subcolumns_count is" << _max_subcolumns_count
+                  << "rhs_type->variant_max_subcolumns_count()"
+                  << rhs_type->variant_max_subcolumns_count();
+        return false;
+    }
+    return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count();
 }
 
 int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,

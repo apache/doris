@@ -268,7 +268,7 @@ private:
     WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
-    int32_t _max_subcolumns_count = -14;
+    int32_t _max_subcolumns_count = 0;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";

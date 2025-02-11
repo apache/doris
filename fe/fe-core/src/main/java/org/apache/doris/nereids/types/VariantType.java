@@ -32,11 +32,11 @@ import java.util.Objects;
 @Developing
 public class VariantType extends PrimitiveType {
 
-    public static final VariantType INSTANCE = new VariantType(1000000);
+    public static final VariantType INSTANCE = new VariantType(0);
 
     public static final int WIDTH = 24;
 
-    private int variantMaxSubcolumnsCount = -10;
+    private int variantMaxSubcolumnsCount = 0;
 
     // public static createVariantType(int variantMaxSubcolumnsCount) {
     //     return new VariantType(variantMaxSubcolumnsCount);

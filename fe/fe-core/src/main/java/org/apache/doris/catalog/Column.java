@@ -629,7 +629,9 @@ public class Column implements GsonPostProcessable {
         toChildrenThrift(this, tColumn);
 
         tColumn.setColUniqueId(uniqueId);
-        tColumn.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        if (type.isVariantType()) {
+            tColumn.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        }
 
         if (type.isAggStateType()) {
             AggStateType aggState = (AggStateType) type;
@@ -763,8 +765,7 @@ public class Column implements GsonPostProcessable {
         }
     }
 
-    public OlapFile.ColumnPB toPb(Set<String> bfColumns, List<Index> indexes,
-                                        int variantMaxSubcolumnsCount) throws DdlException {
+    public OlapFile.ColumnPB toPb(Set<String> bfColumns, List<Index> indexes) throws DdlException {
         OlapFile.ColumnPB.Builder builder = OlapFile.ColumnPB.newBuilder();
 
         // when doing schema change, some modified column has a prefix in name.
@@ -782,8 +783,7 @@ public class Column implements GsonPostProcessable {
                 builder.setResultIsNullable(aggState.getResultIsNullable());
                 builder.setBeExecVersion(Config.be_exec_version);
                 for (Column column : children) {
-                    builder.addChildrenColumns(column.toPb(Sets.newHashSet(),
-                                                Lists.newArrayList(), variantMaxSubcolumnsCount));
+                    builder.addChildrenColumns(column.toPb(Sets.newHashSet(), Lists.newArrayList()));
                 }
             } else {
                 builder.setAggregation(this.aggregationType.toString());
@@ -828,20 +828,21 @@ public class Column implements GsonPostProcessable {
 
         if (this.type.isArrayType()) {
             Column child = this.getChildren().get(0);
-            builder.addChildrenColumns(child.toPb(Sets.newHashSet(), Lists.newArrayList(), variantMaxSubcolumnsCount));
+            builder.addChildrenColumns(child.toPb(Sets.newHashSet(), Lists.newArrayList()));
         } else if (this.type.isMapType()) {
             Column k = this.getChildren().get(0);
-            builder.addChildrenColumns(k.toPb(Sets.newHashSet(), Lists.newArrayList(), variantMaxSubcolumnsCount));
+            builder.addChildrenColumns(k.toPb(Sets.newHashSet(), Lists.newArrayList()));
             Column v = this.getChildren().get(1);
-            builder.addChildrenColumns(v.toPb(Sets.newHashSet(), Lists.newArrayList(), variantMaxSubcolumnsCount));
+            builder.addChildrenColumns(v.toPb(Sets.newHashSet(), Lists.newArrayList()));
         } else if (this.type.isStructType()) {
             List<Column> childrenColumns = this.getChildren();
             for (Column c : childrenColumns) {
-                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList(), variantMaxSubcolumnsCount));
+                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
             }
+        } else if (this.type.isVariantType()) {
+            builder.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         }
 
-        builder.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         OlapFile.ColumnPB col = builder.build();
         return col;
     }

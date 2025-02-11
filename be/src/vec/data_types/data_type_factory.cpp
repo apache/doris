@@ -165,11 +165,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case TYPE_VARIANT:
-        if (col_desc.variant_max_subcolumns_count < 0) {
-            LOG(INFO) << "invalid max subcolumn count: " << col_desc.variant_max_subcolumns_count;
-            throw Exception(ErrorCode::INTERNAL_ERROR, "invalid max subcolumn count: {}",
-                            col_desc.variant_max_subcolumns_count);
-        }
         nested =
                 std::make_shared<vectorized::DataTypeObject>(col_desc.variant_max_subcolumns_count);
         break;

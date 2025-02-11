@@ -131,7 +131,7 @@ public class CreateReplicaTask extends AgentTask {
     private List<Integer> rowStoreColumnUniqueIds;
 
     private boolean variantEnableFlattenNested;
-    private int variantMaxSubcolumnsCount = -19;
+    private int variantMaxSubcolumnsCount = 0;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -375,7 +375,6 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);
         tSchema.setStoragePageSize(storagePageSize);
-        tSchema.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);

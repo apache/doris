@@ -1321,7 +1321,7 @@ bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
     if (subcolumns.get_root() == nullptr || path.empty()) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
-    if (_max_subcolumns_count == 0 || subcolumns.size() < _max_subcolumns_count + 1) {
+    if (!_max_subcolumns_count || subcolumns.size() < _max_subcolumns_count + 1) {
         return add_sub_column(path, num_rows);
     }
 
@@ -1987,7 +1987,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     // 2. root column must be exsit in subcolumns
     bool need_pick_subcolumn_to_sparse_column =
             mode == FinalizeMode::WRITE_MODE &&
-            (_max_subcolumns_count != 0 && subcolumns.size() > _max_subcolumns_count + 1);
+            (_max_subcolumns_count && subcolumns.size() > _max_subcolumns_count + 1);
 
     // finalize all subcolumns
     for (auto&& entry : subcolumns) {

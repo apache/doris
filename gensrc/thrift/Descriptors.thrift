@@ -67,7 +67,6 @@ struct TSlotDescriptor {
   15: optional list<string> column_paths
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
-  18: optional i32 variant_max_subcolumns_count = 0
 }
 
 struct TTupleDescriptor {

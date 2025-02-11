@@ -319,10 +319,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_variant_enable_flatten_nested(tablet_schema.variant_enable_flatten_nested);
     }
 
-    if (tablet_schema.__isset.variant_max_subcolumns_count) {
-        schema->set_variant_max_subcolumns_count(tablet_schema.variant_max_subcolumns_count);
-    }
-
     if (tablet_schema.__isset.enable_single_replica_compaction) {
         schema->set_enable_single_replica_compaction(
                 tablet_schema.enable_single_replica_compaction);

@@ -103,7 +103,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
     // Check if the number of all subcolumn paths exceeds the limit.
     DCHECK(_opts.variant_max_subcolumns_count >= 0)
             << "max subcolumns count is: " << _opts.variant_max_subcolumns_count;
-    if (_opts.variant_max_subcolumns_count != 0 &&
+    if (_opts.variant_max_subcolumns_count &&
         path_to_total_number_of_non_null_values.size() > _opts.variant_max_subcolumns_count) {
         // Sort paths by total number of non null values.
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
@@ -230,8 +230,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         CHECK(entry->data.is_finalized());
         int current_column_id = column_id++;
         TabletColumn tablet_column = generate_column_info(entry);
-        tablet_column.set_variant_max_subcolumns_count(
-                _tablet_column->variant_max_subcolumns_count());
+        // tablet_column.set_variant_max_subcolumns_count(
+        //         _tablet_column->variant_max_subcolumns_count());
         RETURN_IF_ERROR(_create_column_writer(current_column_id, tablet_column, *_tablet_column,
                                               _opts.rowset_ctx->tablet_schema));
         converter->add_column_data_convertor(tablet_column);

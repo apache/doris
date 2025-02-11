@@ -49,9 +49,10 @@ class IColumn;
 namespace doris::vectorized {
 class DataTypeObject : public IDataType {
 private:
-    int32_t _max_subcolumns_count = -6;
+    int32_t _max_subcolumns_count = 0;
 
 public:
+    DataTypeObject() {}
     DataTypeObject(int32_t max_subcolumns_count);
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }

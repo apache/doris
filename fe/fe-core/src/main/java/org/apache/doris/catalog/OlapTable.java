@@ -2535,9 +2535,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (type.isVariantType()) {
                 ScalarType scType = (ScalarType) type;
                 scType.setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
-                if (scType.getVariantMaxSubcolumnsCount() < 0) {
-                    LOG.info("error count: ", scType.getVariantMaxSubcolumnsCount());
-                }
             }
             column.setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
         }

@@ -139,7 +139,7 @@ struct TScalarType {
     4: optional i32 scale
 
     // Only set for VARIANT
-    5: optional i32 variant_max_subcolumns_count
+    5: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // Represents a field in a STRUCT type.
