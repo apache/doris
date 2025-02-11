@@ -20,11 +20,14 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -35,6 +38,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -42,6 +46,8 @@ import javax.annotation.Nullable;
  * Representation for group in cascades optimizer.
  */
 public class StructInfoMap {
+
+    public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     private long refreshVersion = 0;
@@ -156,11 +162,67 @@ public class StructInfoMap {
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
             Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
+            long maxCombineCount = cascadesContext.getConnectContext()
+                    .getSessionVariable().materializedViewStructInfoMaxCombineCount;
+            if (bitSetWithChildren.size() > maxCombineCount) {
+                LOG.warn("StructInfoMap refresh bitSetWithChildren is larger than threshold,"
+                                + "bitSetWithChildren size is {}, sql hash is {}, current groupExpression plan is {}",
+                        bitSetWithChildren.size(),
+                        cascadesContext.getConnectContext().getSqlHash(),
+                        groupExpression.getPlan().treeString());
+                // calc sqrt to reduce the number of combinations
+                long maxCombineCountSqrt = (long) Math.sqrt(bitSetWithChildren.size());
+                bitSetWithChildren = pruneStructInfoBitsets(bitSetWithChildren, (int) maxCombineCountSqrt,
+                        cascadesContext.getStatementContext());
+            }
             for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
                 groupExpressionMap.putIfAbsent(bitSetWithChild.first,
                         Pair.of(groupExpression, bitSetWithChild.second));
             }
+        }
+    }
 
+    // Get struct info bit set according to size
+    // The more materialized views in the structure information bitset, the easier it is to be selected
+    private static List<Pair<BitSet, List<BitSet>>> pruneStructInfoBitsets(
+            Collection<Pair<BitSet, List<BitSet>>> allBitsets, int size, StatementContext context) {
+        PriorityQueue<SortedBitSet> minHeap = new PriorityQueue<>(size);
+        allBitsets.parallelStream().forEach(bs -> {
+            int score = calculateScore(bs, context.getMvIdBitSet());
+            synchronized (minHeap) {
+                if (minHeap.size() < size || minHeap.peek() == null) {
+                    minHeap.offer(new SortedBitSet(bs, score));
+                } else if (score > minHeap.peek().score) {
+                    minHeap.poll();
+                    minHeap.offer(new SortedBitSet(bs, score));
+                }
+            }
+        });
+        List<Pair<BitSet, List<BitSet>>> prunedBitSet = new ArrayList<>();
+        for (SortedBitSet sortedBitSet : minHeap) {
+            prunedBitSet.add(sortedBitSet.bitSet);
+        }
+        return prunedBitSet;
+    }
+
+    private static int calculateScore(Pair<BitSet, List<BitSet>> currentBitSet, BitSet mvTableBitSet) {
+        BitSet clone = (BitSet) currentBitSet.key().clone();
+        clone.and(mvTableBitSet);
+        return clone.cardinality();
+    }
+
+    private static class SortedBitSet implements Comparable<SortedBitSet> {
+        final Pair<BitSet, List<BitSet>> bitSet;
+        final int score;
+
+        SortedBitSet(Pair<BitSet, List<BitSet>> bitSet, int score) {
+            this.bitSet = bitSet;
+            this.score = score;
+        }
+
+        @Override
+        public int compareTo(SortedBitSet other) {
+            return Integer.compare(this.score, other.score);
         }
     }
 
