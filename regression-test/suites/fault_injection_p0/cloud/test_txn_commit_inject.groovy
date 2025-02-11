@@ -90,14 +90,6 @@ suite("test_txn_commit_inject", "docker") {
                 "disable_auto_compaction" = "true",
                 "replication_num" = "1"); """
 
-        // set txn->commit() fault injection possibility to 100%
-
-        // curl "ms_ip:ms_port/MetaService/http/v1/injection_point?token=greedisgood9999&op=set&name=Transaction::commit.inject_random_fault.set_p&behavior=change_args&value=%5B1.0%5D"
-        inject_change_args_to_ms.call(msHttpPort, "Transaction::commit.inject_random_fault.set_p", URLEncoder.encode('[1.0]', "UTF-8")) {
-            respCode, body ->
-                log.info("inject Transaction::commit.inject_random_fault.set_p resp: ${body} ${respCode}".toString()) 
-        }
-
         // curl "ms_ip:ms_port/MetaService/http/v1/injection_point?token=greedisgood9999&op=apply_suite&name=Transaction::commit.enable_inject"
         inject_suite_to_ms.call(msHttpPort, "Transaction::commit.enable_inject") {
             respCode, body ->
@@ -107,6 +99,18 @@ suite("test_txn_commit_inject", "docker") {
         // curl "ms_ip:ms_port/MetaService/http/v1/injection_point?token=greedisgood9999&op=enable"
         enable_ms_inject_api.call(msHttpPort) { respCode, body ->
             log.info("enable inject resp: ${body} ${respCode}".toString()) 
+        }
+
+        // with default fault injection possibility 1%, insert should be successful
+        sql "insert into ${table1} values(3,3,3),(4,4,4);"
+        sql "sync;"
+        qt_sql "select * from ${table1} order by k1;"
+
+        // set txn->commit() fault injection possibility to 100%
+        // curl "ms_ip:ms_port/MetaService/http/v1/injection_point?token=greedisgood9999&op=set&name=Transaction::commit.inject_random_fault.set_p&behavior=change_args&value=%5B1.0%5D"
+        inject_change_args_to_ms.call(msHttpPort, "Transaction::commit.inject_random_fault.set_p", URLEncoder.encode('[1.0]', "UTF-8")) {
+            respCode, body ->
+                log.info("inject Transaction::commit.inject_random_fault.set_p resp: ${body} ${respCode}".toString()) 
         }
 
         test {
