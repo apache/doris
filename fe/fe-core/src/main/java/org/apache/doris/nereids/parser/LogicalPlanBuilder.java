@@ -27,12 +27,14 @@ import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
+import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TableValuedFunctionRef;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
@@ -137,6 +139,7 @@ import org.apache.doris.nereids.DorisParser.CreateSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.CreateStoragePolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CreateTableLikeContext;
+import org.apache.doris.nereids.DorisParser.CreateUserContext;
 import org.apache.doris.nereids.DorisParser.CreateUserDefineFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateViewContext;
 import org.apache.doris.nereids.DorisParser.CreateWorkloadGroupContext;
@@ -567,6 +570,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -732,6 +736,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
@@ -6467,6 +6472,111 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitKillAnalyzeJob(DorisParser.KillAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.jobId.getText());
         return new KillAnalyzeJobCommand(jobId);
+    }
+
+    /**
+     * PasswordOption
+     */
+    public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
+        int historyPolicy = PasswordOptions.UNSET;
+        long expirePolicySecond = PasswordOptions.UNSET;
+        int reusePolicy = PasswordOptions.UNSET;
+        int loginAttempts = PasswordOptions.UNSET;
+        long passwordLockSecond = PasswordOptions.UNSET;
+        int accountUnlocked = PasswordOptions.UNSET;
+
+        if (ctx.historyDefault != null) {
+            historyPolicy = -1;
+        } else if (ctx.historyValue != null) {
+            historyPolicy = Integer.parseInt(ctx.historyValue.getText());
+        }
+
+        if (ctx.expireDefault != null) {
+            expirePolicySecond = -1;
+        } else if (ctx.expireNever != null) {
+            expirePolicySecond = 0;
+        } else if (ctx.expireValue != null) {
+            long value = Long.parseLong(ctx.expireValue.getText());
+            expirePolicySecond = getSecond(value, ctx.expireTimeUnit.getText());
+        }
+
+        if (ctx.reuseValue != null) {
+            reusePolicy = Integer.parseInt(ctx.reuseValue.getText());
+        }
+
+        if (ctx.attemptsValue != null) {
+            loginAttempts = Integer.parseInt(ctx.attemptsValue.getText());
+        }
+
+        if (ctx.lockUnbounded != null) {
+            passwordLockSecond = -1;
+        } else if (ctx.lockValue != null) {
+            long value = Long.parseLong(ctx.lockValue.getText());
+            passwordLockSecond = getSecond(value, ctx.lockTimeUint.getText());
+        }
+
+        if (ctx.ACCOUNT_LOCK() != null) {
+            accountUnlocked = -1;
+        } else if (ctx.ACCOUNT_UNLOCK() != null) {
+            accountUnlocked = 1;
+        }
+
+        return new PasswordOptions(expirePolicySecond,
+            historyPolicy,
+            reusePolicy,
+            loginAttempts,
+            passwordLockSecond,
+            accountUnlocked);
+    }
+
+    private long getSecond(long value, String s) {
+        long ans = 0;
+
+        switch (s) {
+            case "DAY":
+                ans = value * 24 * 60 * 60;
+                break;
+            case "HOUR":
+                ans = value * 60 * 60;
+                break;
+            default:
+                ans = value;
+        }
+        return ans;
+    }
+
+    @Override
+    public LogicalPlan visitCreateUser(CreateUserContext ctx) {
+        String comment = visitCommentSpec(ctx.commentSpec());
+        PasswordOptions passwordOptions = (PasswordOptions) ctx.passwordOption().accept(this);
+        UserDesc userDesc = (UserDesc) ctx.grantUserIdentify().accept(this);
+
+        String role = null;
+        if (ctx.role != null) {
+            role = stripQuotes(ctx.role.getText());
+        }
+
+        CreateUserInfo userInfo = new CreateUserInfo(ctx.IF() != null,
+                userDesc,
+                role,
+                passwordOptions,
+                comment);
+
+        return new CreateUserCommand(userInfo);
+    }
+
+    @Override
+    public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
+        UserIdentity userIdentity = (UserIdentity) ctx.userIdentify().accept(this);
+
+        if (ctx.IDENTIFIED() == null) {
+            return new UserDesc(userIdentity);
+        }
+
+        String password = stripQuotes(ctx.STRING_LITERAL().getText());
+        boolean isPlain = !(ctx.PASSWORD() != null);
+
+        return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }
 }
 
