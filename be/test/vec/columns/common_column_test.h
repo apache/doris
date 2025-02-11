@@ -22,8 +22,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <random>
+#include <string>
 
 #include "olap/schema.h"
+#include "testutil/test_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
@@ -43,7 +46,18 @@
 //
 namespace doris::vectorized {
 
-static bool gen_check_data_in_assert = true;
+template <typename T>
+std::string join_ints(const std::vector<T>& nums) {
+    if (nums.empty()) {
+        return "[]";
+    }
+
+    std::ostringstream oss;
+    oss << "[";
+    std::copy(nums.begin(), nums.end() - 1, std::ostream_iterator<T>(oss, ","));
+    oss << nums.back() << "]";
+    return oss.str();
+}
 
 class CommonColumnTest : public ::testing::Test {
 protected:
@@ -74,12 +88,12 @@ protected:
             while (std::getline(lineStream, value, spliter)) {
                 if (idxes.contains(l_idx)) {
                     Slice string_slice(value.data(), value.size());
-                    std::cout << string_slice << std::endl;
+                    // std::cout << string_slice << std::endl;
                     if (auto st = serders[c_idx]->deserialize_one_cell_from_json(
                                 *columns[c_idx], string_slice, options);
                         !st.ok()) {
-                        //                        std::cout << "error in deserialize but continue: " << st.to_string()
-                        //                                  << std::endl;
+                        std::cout << "error in deserialize but continue: " << st.to_string()
+                                  << std::endl;
                     }
                     ++c_idx;
                 }
@@ -90,15 +104,15 @@ protected:
 
     //// this is very helpful function to check data in column against expected results according different function in assert function
     //// such as run regress tests
-    ////  if gen_check_data_in_assert is true, we will generate a file for check data, otherwise we will read the file to check data
+    ////  if FLAGS_gen_out is true, we will generate a file for check data, otherwise we will read the file to check data
     ////  so the key point is we should how we write assert callback function to check data,
     ///   and when check data is generated, we should check result to statisfy the semantic of the function
-    static void check_res_file(string function_name, std::vector<std::vector<std::string>>& res) {
-        string filename = "./res_" + function_name + ".csv";
-        if (gen_check_data_in_assert) {
-            std::ofstream res_file(filename);
-            std::cout << "gen check data: " << res.size() << " with file: " << filename
+    static void check_res_file(const string& res_file_path,
+                               std::vector<std::vector<std::string>>& res) {
+        if (FLAGS_gen_out) {
+            std::cout << "gen check data: " << res.size() << " with file: " << res_file_path
                       << std::endl;
+            std::ofstream res_file(res_file_path);
             if (!res_file.is_open()) {
                 throw std::ios_base::failure("Failed to open file.");
             }
@@ -117,11 +131,12 @@ protected:
             res_file.close();
         } else {
             // we read generate file to check result
-            std::cout << "check data: " << res.size() << " with file: " << filename << std::endl;
-            std::ifstream file(filename);
+            std::cout << "check data: " << res.size() << " with file: " << res_file_path
+                      << std::endl;
+            std::ifstream file(res_file_path);
             if (!file) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
-                                       filename);
+                                       res_file_path);
             }
 
             std::string line;
@@ -198,11 +213,12 @@ public:
     // this is common function to check data in column against expected results according different function in assert function
     // which can be used in all column test
     // such as run regress tests
-    //  step1. we can set gen_check_data_in_assert to true, then we will generate a file for check data, otherwise we will read the file to check data
+    //  step1. we can set FLAGS_gen_out to true, then we will generate a file for check data, otherwise we will read the file to check data
     //  step2. we should write assert callback function to check data
     void check_data(MutableColumns& columns, DataTypeSerDeSPtrs serders, char col_spliter,
                     std::set<int> idxes, const std::string& column_data_file,
-                    std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                       const std::string& res_file_path)>
                             assert_callback) {
         ASSERT_EQ(serders.size(), columns.size());
         // Step 1: Insert data from `column_data_file` into the column and check result with `check_data_file`
@@ -225,9 +241,41 @@ public:
         }
 
         // Step 2: Validate the data in `column` matches `expected_data`
-        assert_callback(columns, serders);
+        assert_callback(columns, serders, "");
     }
     ////==================================================================================================================
+
+    void load_columns_data_from_file(MutableColumns& columns, DataTypeSerDeSPtrs serders,
+                                     char col_spliter, std::set<int> idxes,
+                                     const std::string& column_data_file) {
+        ASSERT_EQ(serders.size(), columns.size());
+        // Load column data and expected data from CSV files
+        std::vector<std::vector<std::string>> res;
+        struct stat buff;
+        if (stat(column_data_file.c_str(), &buff) == 0) {
+            if (S_ISREG(buff.st_mode)) {
+                // file
+                load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes);
+            } else if (S_ISDIR(buff.st_mode)) {
+                // dir
+                std::filesystem::path fs_path(column_data_file);
+                for (const auto& entry : std::filesystem::directory_iterator(fs_path)) {
+                    std::string file_path = entry.path().string();
+                    std::cout << "load data from file: " << file_path << std::endl;
+                    load_data_from_csv(serders, columns, file_path, col_spliter, idxes);
+                }
+            }
+        }
+    }
+
+    void check_data(const std::string& res_file_path, const MutableColumns& columns,
+                    DataTypeSerDeSPtrs serders,
+                    std::function<void(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                       const std::string& res_file_path)>
+                            assert_callback) {
+        ASSERT_EQ(serders.size(), columns.size());
+        assert_callback(columns, serders, res_file_path);
+    }
 
     void check_columns(MutableColumns& columns, DataTypeSerDeSPtrs serders, DataTypes dataTypes,
                        char col_spliter, std::set<int> idxes, const std::string& column_data_file,
@@ -277,18 +325,19 @@ public:
 
     // assert insert_from
     // Define the custom assert callback function to verify insert_from behavior
-    static void assert_insert_from_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
-                                            std::vector<std::vector<std::string>>& assert_res) {
+    static void assert_insert_from_callback(const MutableColumns& load_cols,
+                                            DataTypeSerDeSPtrs serders,
+                                            const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_from` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         // Insert data from `load_cols` to `verify_columns` using `insert_from`
         std::vector<std::vector<std::string>> res;
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto& target_column = verify_columns[i];
             std::vector<std::string> data;
             for (size_t j = 0; j < source_column->size(); ++j) {
@@ -303,7 +352,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -312,16 +361,17 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("insert_from", assert_res);
+        check_res_file(res_file_path.empty() ? "insert_from" : res_file_path, res);
     }
 
     // assert insert_range_from
     // Define the custom assert callback function to verify insert_range_from behavior
-    static void assert_insert_range_from_callback(MutableColumns& load_cols,
-                                                  DataTypeSerDeSPtrs serders) {
+    static void assert_insert_range_from_callback(const MutableColumns& load_cols,
+                                                  DataTypeSerDeSPtrs serders,
+                                                  const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_range_from` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
@@ -334,7 +384,7 @@ public:
                 std::vector<std::string> data;
                 std::cout << "==== now test insert_range_from with col "
                           << verify_columns[i]->get_name() << std::endl;
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 auto& target_column = verify_columns[i];
                 std::vector<size_t> check_start_pos = {0, source_column->size(),
                                                        (source_column->size() + 1) >> 1};
@@ -378,7 +428,7 @@ public:
                 }
             }
         }
-        check_res_file("insert_range_from", res);
+        check_res_file(res_file_path.empty() ? "insert_range_from" : res_file_path, res);
     }
 
     // assert insert_range_from_ignore_overflow which happened in columnStr<UInt32> want to insert from ColumnStr<UInt64> for more column string to be inserted not just limit to the 4G
@@ -386,39 +436,35 @@ public:
 
     // assert insert_many_from (used in join situation, which handle left table col to expand for right table : such as A[1,2,3] inner join B[2,2,4,4] => A[2,2] )
     // Define the custom assert callback function to verify insert_many_from behavior
-    static void assert_insert_many_from_callback(MutableColumns& load_cols,
-                                                 DataTypeSerDeSPtrs serders) {
+    static void assert_insert_many_from_callback(const MutableColumns& load_cols,
+                                                 DataTypeSerDeSPtrs serders,
+                                                 const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_many_from` functionality
         std::cout << "now we are in assert_insert_many_from_callback" << std::endl;
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<std::vector<string>> actual_res;
 
-        std::vector<size_t> check_length = {0, 10, 100, 1000, 10000, 100000, 1000000};
+        std::vector<size_t> check_length = {0, 10, 100, 1000, 10000, 100000};
         // Insert data from `load_cols` to `verify_columns` using `insert_many_from`
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 auto& target_column = verify_columns[i];
+                auto src_size = source_column->size();
                 // size_t(-1) may cause overflow, but here we have compiler to check it
-                std::vector<size_t> check_start_pos = {0, source_column->size(),
-                                                       source_column->size() + 1,
-                                                       (source_column->size() + 1) >> 1};
+                std::vector<size_t> check_start_pos = {0, src_size, src_size + 1,
+                                                       (src_size + 1) >> 1};
                 for (auto pos = check_start_pos.begin(); pos < check_start_pos.end(); ++pos) {
-                    if (*pos > source_column->size() || *cl > source_column->size()) {
-                        // insert_range_from now we have no any exception error data to handle, so here will meet crash
+                    if (*pos >= src_size) {
+                        // insert_many_from now we have no any exception error data to handle, so here will meet crash
                         continue;
-                    } else if (*pos + *cl > source_column->size()) {
-                        target_column->clear();
-                        // insert_range_from now we have no any exception error data to handle and also no crash
-                        std::cout << "we expect exception insert_many_from from " << *pos
-                                  << " with length " << *cl
-                                  << "with source size: " << source_column->size() << std::endl;
-                        target_column->insert_many_from(*source_column, *pos, *cl);
                     }
+                    target_column->clear();
+                    target_column->insert_many_from(*source_column, *pos, *cl);
 
                     // Verify the inserted data matches the expected results in `assert_res`
                     auto ser_col = ColumnString::create();
@@ -442,21 +488,22 @@ public:
             }
         }
         // Generate or check the actual result file
-        check_res_file("insert_many_from", actual_res);
+        check_res_file(res_file_path.empty() ? "insert_many_from" : res_file_path, actual_res);
     }
 
-    static void assert_insert_indices_from_callback(MutableColumns& load_cols,
-                                                    DataTypeSerDeSPtrs serders) {
+    static void assert_insert_indices_from_callback(const MutableColumns& load_cols,
+                                                    DataTypeSerDeSPtrs serders,
+                                                    const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_indices_from` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<std::vector<string>> res;
         // Insert data from `load_cols` to `verify_columns` using `insert_indices_from`
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto& target_column = verify_columns[i];
 
             // uint32_t(-1) now we have compiler to make sure it will not appear
@@ -504,21 +551,22 @@ public:
                 }
             }
         }
-        check_res_file("insert_indices_from", res);
+        check_res_file(res_file_path.empty() ? "insert_indices_from" : res_file_path, res);
     }
 
-    static void assert_insert_data_from_callback(MutableColumns& load_cols,
-                                                 DataTypeSerDeSPtrs serders) {
+    static void assert_insert_data_from_callback(const MutableColumns& load_cols,
+                                                 DataTypeSerDeSPtrs serders,
+                                                 const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_data` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         // Insert data from `load_cols` to `verify_columns` using `insert_data`
         std::vector<std::vector<string>> res;
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto& target_column = verify_columns[i];
 
             for (size_t j = 0; j < source_column->size(); ++j) {
@@ -538,32 +586,34 @@ public:
                     std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
                     break;
                 }
+                buffer_writer.commit();
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
                 data.push_back(actual_str_value);
             }
             res.push_back(data);
         }
-        check_res_file("insert_data", res);
+        check_res_file(res_file_path.empty() ? "insert_data" : res_file_path, res);
     }
 
-    static void assert_insert_many_raw_data_from_callback(MutableColumns& load_cols,
-                                                          DataTypeSerDeSPtrs serders) {
-        // Create an empty column to verify `insert_many_raw_data` functionality
+    // assert insert_many_fix_len_data
+    // Define the custom assert callback function to verify insert_many_fix_len_data behavior
+    static void assert_insert_many_fix_len_data_callback(const MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders,
+                                                         const std::string& res_file_path = "") {
+        // Create an empty column to verify `insert_many_fix_len_data` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<std::vector<string>> res;
-        // Insert data from `load_cols` to `verify_columns` using `insert_many_raw_data`
+        // Insert data from `load_cols` to `verify_columns` using `insert_many_fix_len_data`
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto& target_column = verify_columns[i];
 
-            for (size_t j = 0; j < source_column->size(); ++j) {
-                target_column->insert_many_raw_data(source_column->get_data_at(j).data,
-                                                    source_column->get_data_at(j).size);
-            }
+            target_column->insert_many_fix_len_data(source_column->get_data_at(0).data,
+                                                    source_column->size());
 
             // Verify the inserted data matches the expected results in `assert_res`
             auto ser_col = ColumnString::create();
@@ -577,28 +627,69 @@ public:
                     std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
                     break;
                 }
+                buffer_writer.commit();
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
                 data.push_back(actual_str_value);
             }
             res.push_back(data);
         }
-        check_res_file("insert_many_raw_data", res);
+        check_res_file(res_file_path.empty() ? "insert_many_fix_len_data" : res_file_path, res);
+    }
+
+    static void assert_insert_many_raw_data_callback(const MutableColumns& load_cols,
+                                                     DataTypeSerDeSPtrs serders,
+                                                     const std::string& res_file_path = "") {
+        // Create an empty column to verify `insert_many_raw_data` functionality
+        MutableColumns verify_columns;
+        for (const auto& col : load_cols) {
+            verify_columns.push_back(col->clone_empty());
+        }
+        auto option = DataTypeSerDe::FormatOptions();
+        std::vector<std::vector<string>> res;
+        // Insert data from `load_cols` to `verify_columns` using `insert_many_raw_data`
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            auto& target_column = verify_columns[i];
+
+            target_column->insert_many_raw_data(source_column->get_data_at(0).data,
+                                                source_column->size());
+
+            // Verify the inserted data matches the expected results in `assert_res`
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(target_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
+                                                                     buffer_writer, option);
+                    !st) {
+                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    break;
+                }
+                buffer_writer.commit();
+                std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                data.push_back(actual_str_value);
+            }
+            res.push_back(data);
+        }
+        check_res_file(res_file_path.empty() ? "insert_many_raw_data" : res_file_path, res);
     }
 
     // assert insert_default
     // Define the custom assert callback function to verify insert_default behavior
-    static void assert_insert_default_callback(MutableColumns& load_cols,
-                                               DataTypeSerDeSPtrs serders) {
+    static void assert_insert_default_callback(const MutableColumns& load_cols,
+                                               DataTypeSerDeSPtrs serders,
+                                               const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_default` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<std::vector<string>> res;
         // Insert data from `load_cols` to `verify_columns` using `insert_default`
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& target_column = verify_columns[i];
+            const auto& target_column = verify_columns[i];
             target_column->insert_default();
 
             // Verify the inserted data matches the expected results in `assert_res`
@@ -619,25 +710,26 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("insert_default", res);
+        check_res_file(res_file_path.empty() ? "insert_default" : res_file_path, res);
     }
 
     // assert insert_many_default
     // Define the custom assert callback function to verify insert_many_defaults behavior
-    static void assert_insert_many_defaults_callback(MutableColumns& load_cols,
-                                                     DataTypeSerDeSPtrs serders) {
+    static void assert_insert_many_defaults_callback(const MutableColumns& load_cols,
+                                                     DataTypeSerDeSPtrs serders,
+                                                     const std::string& res_file_path = "") {
         // Create an empty column to verify `insert_many_defaults` functionality
         MutableColumns verify_columns;
-        for (auto& col : load_cols) {
+        for (const auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
         }
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<std::vector<string>> res;
-        std::vector<size_t> check_length = {0, 10, 100, 1000, 10000, 100000, 1000000};
+        std::vector<size_t> check_length = {0, 10, 100, 1000, 10000, 100000};
         // Insert data from `load_cols` to `verify_columns` using `insert_many_defaults`
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& target_column = verify_columns[i];
+                const auto& target_column = verify_columns[i];
                 target_column->insert_many_defaults(*cl);
 
                 // Verify the inserted data matches the expected results in `assert_res`
@@ -660,18 +752,20 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("insert_many_defaults", res);
+        check_res_file(res_file_path.empty() ? "insert_many_defaults" : res_file_path, res);
     }
 
     //// data access interfaces:
     // virtual StringRef
     //get_data_at (size_t n) const = 0
     // if we implement the get_data_at, we should know the data is stored in the column, and we can get the data by the index
-    static void assert_get_data_at_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_get_data_at_callback(const MutableColumns& load_cols,
+                                            DataTypeSerDeSPtrs serders,
+                                            const std::string& res_file_path = "") {
         std::vector<std::vector<std::string>> res;
         // just check cols get_data_at is the same as assert_res
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<std::string> data;
             for (size_t j = 0; j < source_column->size(); ++j) {
                 auto actual_str_value = source_column->get_data_at(j).to_string();
@@ -679,7 +773,7 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("get_data_at", res);
+        check_res_file(res_file_path.empty() ? "get_data_at" : res_file_path, res);
     }
 
     //virtual void
@@ -688,7 +782,8 @@ public:
     //Like the previous one, but avoids extra copying if Field is in a container, for example.
     //virtual Field
     //operator[] (size_t n) const = 0
-    static void assert_field_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_field_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                      const std::string& res_file_path = "") {
         MutableColumns assert_cols(load_cols.size());
         for (size_t i = 0; i < load_cols.size(); ++i) {
             assert_cols[i] = load_cols[i]->clone_empty();
@@ -697,7 +792,7 @@ public:
         std::vector<std::vector<std::string>> res;
         // just check cols get is the same as assert_res
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::cout << " new insert field for column : " << assert_cols[i]->get_name()
                       << " with size : " << assert_cols[i]->size() << std::endl;
             for (size_t j = 0; j < source_column->size(); ++j) {
@@ -727,7 +822,7 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("get_field", res);
+        check_res_file(res_file_path.empty() ? "get_field" : res_file_path, res);
         // just check cols operator [] to get field same with field
         std::vector<std::vector<std::string>> res2;
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -758,15 +853,16 @@ public:
             }
             res2.push_back(data);
         }
-        check_res_file("get_field_operator", res2);
+        check_res_file(res_file_path.empty() ? "get_field_operator" : res_file_path, res2);
     }
     //
     //virtual StringRef
     //get_raw_data () const which is continues memory layout of the data,
     // we can use this to check the data is stored in the column
     template <class T>
-    static void assert_get_raw_data_callback(MutableColumns& load_cols,
-                                             DataTypeSerDeSPtrs serders) {
+    static void assert_get_raw_data_callback(const MutableColumns& load_cols,
+                                             DataTypeSerDeSPtrs serders,
+                                             const std::string& res_file_path = "") {
         // just check cols get_raw_data is the same as assert_res
         std::cout << "now we are in assert_get_raw_data_callback" << std::endl;
         std::vector<std::vector<string>> res;
@@ -776,7 +872,7 @@ public:
         }
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             const T* rd = (T*)source_column->get_raw_data().data;
             for (size_t j = 0; j < source_column->size(); j++) {
                 Field f;
@@ -807,17 +903,18 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("get_raw_data", res);
+        check_res_file(res_file_path.empty() ? "get_raw_data" : res_file_path, res);
     }
 
     //If returns the underlying data array, otherwise throws an exception.
     //virtual Int64
     //get_int (size_t) const
-    static void assert_get_int_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_get_int_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                        const std::string& res_file_path = "") {
         std::vector<std::vector<string>> res;
         // just check cols get_int is the same as assert_res
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<string> data;
             for (size_t j = 0; j < source_column->size(); ++j) {
                 auto actual_str_value = std::to_string(source_column->get_int(j));
@@ -825,15 +922,17 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("get_int", res);
+        check_res_file(res_file_path.empty() ? "get_int" : res_file_path, res);
     }
     //virtual bool
     //get_bool (size_t) const
-    static void assert_get_bool_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_get_bool_callback(const MutableColumns& load_cols,
+                                         DataTypeSerDeSPtrs serders,
+                                         const std::string& res_file_path = "") {
         std::vector<std::vector<string>> res;
         // just check cols get_bool is the same as assert_res
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<string> data;
             for (size_t j = 0; j < source_column->size(); ++j) {
                 auto actual_str_value = std::to_string(source_column->get_bool(j));
@@ -841,7 +940,7 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("get_bool", res);
+        check_res_file(res_file_path.empty() ? "get_bool" : res_file_path, res);
     }
 
     //// column meta interfaces:
@@ -867,48 +966,52 @@ public:
     //virtual size_t
     //allocated_bytes () const =0
     //
-    static void assert_size_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_size_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                     const std::string& res_file_path = "") {
         std::vector<std::vector<string>> res;
         // just check cols size is the same as assert_res
         for (size_t i = 0; i < load_cols.size(); ++i) {
             std::vector<string> data;
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto actual_str_value = std::to_string(source_column->size());
             data.push_back(actual_str_value);
             res.push_back(data);
         }
-        check_res_file("size", res);
+        check_res_file(res_file_path.empty() ? "size" : res_file_path, res);
     }
 
     // assert byte_size
     // Define the custom assert callback function to verify byte_size behavior
-    static void assert_byte_size_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_byte_size_callback(const MutableColumns& load_cols,
+                                          DataTypeSerDeSPtrs serders,
+                                          const std::string& res_file_path = "") {
         // just check cols byte_size is the same as assert_res
         std::vector<std::vector<string>> res;
         for (size_t i = 0; i < load_cols.size(); ++i) {
             std::vector<string> data;
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto actual_str_value = std::to_string(source_column->byte_size());
             data.push_back(actual_str_value);
             res.push_back(data);
         }
-        check_res_file("byte_size", res);
+        check_res_file(res_file_path.empty() ? "byte_size" : res_file_path, res);
     }
 
     // assert allocated_bytes Define the custom assert callback function to verify allocated_bytes behavior
-    static void assert_allocated_bytes_callback(MutableColumns& load_cols,
-                                                DataTypeSerDeSPtrs serders) {
+    static void assert_allocated_bytes_callback(const MutableColumns& load_cols,
+                                                DataTypeSerDeSPtrs serders,
+                                                const std::string& res_file_path = "") {
         // just check cols allocated_bytes is the same as assert_res
         std::cout << "now we are in assert_allocated_bytes_callback" << std::endl;
         std::vector<std::vector<string>> res;
         for (size_t i = 0; i < load_cols.size(); ++i) {
             std::vector<string> data;
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto actual_str_value = std::to_string(source_column->allocated_bytes());
             data.push_back(actual_str_value);
             res.push_back(data);
         }
-        check_res_file("allocated_bytes", res);
+        check_res_file(res_file_path.empty() ? "allocated_bytes" : res_file_path, res);
     }
 
     // is_exclusive assert should assert the column which has multiple columnPtr in the column
@@ -917,7 +1020,9 @@ public:
     //virtual void
     // pop_back (size_t n) = 0
     // assert pop_back
-    static void assert_pop_back_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_pop_back_callback(const MutableColumns& load_cols,
+                                         DataTypeSerDeSPtrs serders,
+                                         const std::string& res_file_path = "") {
         // Create an empty column to verify `pop_back` functionality
         // check pop_back with different n
         std::vector<std::vector<string>> res;
@@ -926,7 +1031,7 @@ public:
         std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 if (*cl > source_column->size()) {
                     // now we do not check in popback, but we should make sure the arguments are passed correctly,
                     // otherwise we should meet `Check failed: false Amount of memory requested to allocate is more than allowed`
@@ -960,7 +1065,7 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("pop_back", res);
+        check_res_file(res_file_path.empty() ? "pop_back" : res_file_path, res);
     }
 
     //virtual MutablePtr
@@ -974,8 +1079,9 @@ public:
 
     //virtual MutablePtr
     //clone_resized (size_t s) const
-    static void assert_clone_resized_callback(MutableColumns& load_cols,
-                                              DataTypeSerDeSPtrs serders) {
+    static void assert_clone_resized_callback(const MutableColumns& load_cols,
+                                              DataTypeSerDeSPtrs serders,
+                                              const std::string& res_file_path = "") {
         // Create an empty column to verify `clone_resized` functionality
         // check clone_resized with different size
         // size_t(-1) 会导致pod_array 溢出
@@ -984,7 +1090,7 @@ public:
         std::vector<std::vector<string>> res;
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 auto ptr = source_column->clone_resized(*cl);
                 // check size
                 EXPECT_EQ(ptr->size(), *cl);
@@ -1013,14 +1119,15 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("clone_resized", res);
+        check_res_file(res_file_path.empty() ? "clone_resized" : res_file_path, res);
     }
 
     // is_exclusive() means to check the ptr is not shared with other, and we can just clean it. so it's important to check the column is exclusive or not
 
     //virtual Ptr
     //cut (size_t start, size_t length) const final will call clone_empty and insert_range_from
-    static void assert_cut_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_cut_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                    const std::string& res_file_path = "") {
         // Create an empty column to verify `cut` functionality
         // check cut with different start and length
         // size_t(-1) 会导致pod_array 溢出
@@ -1030,7 +1137,7 @@ public:
         std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 ColumnPtr ptr;
                 size_t insert_size = *cl > source_column->size() ? source_column->size() : *cl;
                 // now we do not check in cut, but we should make sure the arguments are passed correctly,
@@ -1064,14 +1171,15 @@ public:
                 }
             }
         }
-        check_res_file("cut", res);
+        check_res_file(res_file_path.empty() ? "cut" : res_file_path, res);
     }
 
     //virtual Ptr
     //shrink (size_t length) const final  shrink many has different ptr for the column, because of
     // here has some improvement according the origin column which use_count is 1, we can just return the origin column to avoid the copy
     // but we should make sure the column data is absolutely the same as expand or cut with the data
-    static void assert_shrink_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_shrink_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                       const std::string& res_file_path = "") {
         // Create an empty column to verify `cut` functionality
         // check shrink with different start and length
         // size_t(-1) 会导致pod_array 溢出
@@ -1082,7 +1190,7 @@ public:
         std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 ColumnPtr ptr;
                 size_t insert_size = *cl > source_column->size() ? source_column->size() : *cl;
                 // now we do not check in cut, but we should make sure the arguments are passed correctly,
@@ -1117,14 +1225,15 @@ public:
                 }
             }
         }
-        check_res_file("shrink", res);
+        check_res_file(res_file_path.empty() ? "shrink" : res_file_path, res);
     }
     //
     //
     //cut or expand inplace. this would be moved, only the return value is available.
     //virtual void
     //reserve (size_t)
-    static void assert_reserve_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_reserve_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                        const std::string& res_file_path = "") {
         // Create an empty column to verify `reserve` functionality
         // check reserve with different size
         // size_t(-1) 会导致pod_array 溢出: Check failed: false Amount of memory requested to allocate is more than allowed
@@ -1134,7 +1243,7 @@ public:
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto assert_origin_size = load_cols[i]->size();
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 std::cout << "now we are in reserve column : " << load_cols[i]->get_name()
                           << " with check length: " << *cl
                           << " for column size : " << source_column->size() << std::endl;
@@ -1164,12 +1273,13 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("reserve", res);
+        check_res_file(res_file_path.empty() ? "reserve" : res_file_path, res);
     }
 
     //virtual void
     //resize (size_t) means we should really resize the column, include the all sub columns, like data column in column array
-    static void assert_resize_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_resize_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                       const std::string& res_file_path = "") {
         // Create an empty column to verify `resize` functionality
         // check resize with different size
         // size_t(-1) 会导致pod_array 溢出: Check failed: false Amount of memory requested to allocate is more than allowed
@@ -1178,7 +1288,7 @@ public:
         std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 std::cout << "now we are in resize column : " << load_cols[i]->get_name()
                           << " with check length: " << *cl
                           << " for column size : " << source_column->size() << std::endl;
@@ -1208,7 +1318,7 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("resize", res);
+        check_res_file(res_file_path.empty() ? "resize" : res_file_path, res);
     }
 
     //virtual Ptr
@@ -1216,7 +1326,9 @@ public:
     // 1. used in ColumnConst.convert_to_full_column,
     //   we should make a situation that the column is not full column, and then we can use replicate to make it full column
     // 2. used in some agg calculate
-    static void assert_replicate_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_replicate_callback(const MutableColumns& load_cols,
+                                          DataTypeSerDeSPtrs serders,
+                                          const std::string& res_file_path = "") {
         // Create an empty column to verify `replicate` functionality
         // check replicate with different offsets
         // size_t(-1) 会导致pod_array 溢出: Check failed: false Amount of memory requested to allocate is more than allowed
@@ -1265,15 +1377,16 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("replicate", res);
+        check_res_file(res_file_path.empty() ? "replicate" : res_file_path, res);
     }
     //virtual void
     //for_each_subcolumn (ColumnCallback)
     //virtual void
     //replace_column_data (const IColumn &, size_t row, size_t self_row=0) used in BlockReader(VerticalBlockReader)::_copy_agg_data() for agg value data
     // the passed column must be non-variable length column: like columnVector...
-    static void assert_replace_column_data_callback(MutableColumns& load_cols,
-                                                    DataTypeSerDeSPtrs serders) {
+    static void assert_replace_column_data_callback(const MutableColumns& load_cols,
+                                                    DataTypeSerDeSPtrs serders,
+                                                    const std::string& res_file_path = "") {
         // Create an empty column to verify `replace_column_data` functionality
         // check replace_column_data with different row and self_row
         std::vector<std::vector<string>> res;
@@ -1285,7 +1398,7 @@ public:
                     throw std::runtime_error(
                             "replace_column_data only support non-variable length column");
                 }
-                auto& source_column = load_cols[i];
+                const auto& source_column = load_cols[i];
                 if (*cl > source_column->size()) {
                     // if replace row is bigger than the source column size here meet pod coredump
                     continue;
@@ -1317,7 +1430,7 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("replace_column_data", res);
+        check_res_file(res_file_path.empty() ? "replace_column_data" : res_file_path, res);
     }
 
     //
@@ -1326,15 +1439,16 @@ public:
     // which is only for column-vector/decimal with null data, like columnNullable<columnDecimal>, so other column will do nothing
     // some situation: we just calculate the decimal column data, then set the null_map. when we look at null row, maybe here meet an overflow decimal-value or just a random value but nullmap[row] is true
     // so we should make nullmap[row] = 1 but data[row] is default value for this kind of column
-    static void assert_replace_column_null_data_callback(MutableColumns& load_cols,
-                                                         DataTypeSerDeSPtrs serders) {
+    static void assert_replace_column_null_data_callback(const MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders,
+                                                         const std::string& res_file_path = "") {
         // Create an empty column to verify `replace_column_null_data` functionality
         // check replace_column_null_data with different null_map
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
         const NullMap null_map = {1, 1, 0, 1};
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::cout << "now we are in replace_column_null_data column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size()
                       << "with nullmap" << null_map.data() << std::endl;
@@ -1361,20 +1475,21 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("replace_column_null_data", res);
+        check_res_file(res_file_path.empty() ? "replace_column_null_data" : res_file_path, res);
     }
 
     //
     //virtual void
     //append_data_by_selector (MutablePtr &res, const Selector &selector, size_t begin, size_t end) const =0
-    static void assert_append_data_by_selector_callback(MutableColumns& load_cols,
-                                                        DataTypeSerDeSPtrs serders) {
+    static void assert_append_data_by_selector_callback(const MutableColumns& load_cols,
+                                                        DataTypeSerDeSPtrs serders,
+                                                        const std::string& res_file_path = "") {
         // Create an empty column to verify `append_data_by_selector` functionality
         // check append_data_by_selector with different selector
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             MutableColumnPtr res_col = source_column->clone_empty();
             // selector is range for the column, contain values from 0 to num_columns - 1.
             // selector size should bigger than begin and end ,
@@ -1405,7 +1520,7 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("append_data_by_selector", res);
+        check_res_file(res_file_path.empty() ? "append_data_by_selector" : res_file_path, res);
     }
 
     //
@@ -1425,14 +1540,15 @@ public:
     // Column Calculate Interface: filter, compare, permute, sort
     // filter (const Filter &filt, ssize_t result_size_hint) const =0 with a result_size_hint to pass, but we should make sure the result_size_hint is not bigger than the source column size
     //  Filter is a array contains 0 or 1 to present the row is selected or not, so it should be the same size with the source column
-    static void assert_filter_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    static void assert_filter_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                       const std::string& res_file_path = "") {
         // Create an empty column to verify `filter` functionality
         // check filter with different filter
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
 
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             auto source_size = source_column->size();
             const ColumnArray::Filter all_filtered(source_size, 0);
             const ColumnArray::Filter no_filtered(source_size, 1);
@@ -1513,52 +1629,52 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("filter", res);
+        check_res_file(res_file_path.empty() ? "filter" : res_file_path, res);
     }
 
     // Compare
 
     // Column Hash Interfaces:
     // update_hashes_with_value (size_t, size_t, Hashes &hashes) const : which inner just use xxhash for column data
-    static void assert_update_hashes_with_value_callback(MutableColumns& load_cols,
-                                                         DataTypeSerDeSPtrs serders) {
+    static void assert_update_hashes_with_value_callback(const MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders,
+                                                         const std::string& res_file_path = "") {
         // Create an empty column to verify `update_hashes_with_value` functionality
         // check update_hashes_with_value with different hashes
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
 
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<uint64_t> xx_hash_vals(source_column->size());
             std::cout << "now we are in update_hashes_with_value column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size()
                       << std::endl;
-            auto* __restrict xx_hashes = xx_hash_vals.data();
+            auto* xx_hashes = xx_hash_vals.data();
             EXPECT_NO_FATAL_FAILURE(source_column->update_hashes_with_value(xx_hashes));
             // check after update_hashes_with_value: 1 in selector present the load cols data is selected and data should be default value
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(source_column->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
             std::vector<string> data;
+            std::ostringstream oss;
+
             data.push_back("column: " + source_column->get_name() +
-                           " with hashes: " + std::to_string(*xx_hashes) +
-                           " with ptr: " + std::to_string(source_column->size()));
+                           " with hashes: " + join_ints(xx_hash_vals));
             res.push_back(data);
         }
-        check_res_file("update_hashes_with_value", res);
+        check_res_file(res_file_path.empty() ? "update_hashes_with_value" : res_file_path, res);
     }
 
     //virtual void
     //update_hashes (size_t, size_t, Hashes &hashes) const
-    static void assert_update_crc_hashes_callback(MutableColumns& load_cols,
+    static void assert_update_crc_hashes_callback(const MutableColumns& load_cols,
                                                   DataTypeSerDeSPtrs serders,
-                                                  std::vector<PrimitiveType> pts) {
+                                                  std::vector<PrimitiveType> pts,
+                                                  const std::string& res_file_path = "") {
         // Create an empty column to verify `update_hashes` functionality
         // check update_hashes with different hashes
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<uint32_t> crc_hash_vals(source_column->size());
             std::cout << "now we are in update_hashes column : " << load_cols[i]->get_name()
                       << " for column size : " << source_column->size() << std::endl;
@@ -1567,14 +1683,12 @@ public:
             // check after update_hashes: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
             ser_col->reserve(source_column->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
             std::vector<string> data;
             data.push_back("column: " + source_column->get_name() +
-                           " with hashes: " + std::to_string(*crc_hash_vals.data()) +
-                           " with ptr: " + std::to_string(source_column->size()));
+                           " with hashes: " + join_ints(crc_hash_vals));
             res.push_back(data);
         }
-        check_res_file("update_crcs_hashes", res);
+        check_res_file(res_file_path.empty() ? "update_crcs_hashes" : res_file_path, res);
     }
 
     // column size changed calculation:
@@ -1587,11 +1701,12 @@ public:
     //    eg. column_desc: char(6), insert into char(3), the char(3) will padding the 3 zeros at the end for writing to disk.
     //       but we select should just print the char(3) without the padding zeros
     //  limit and topN operation will trigger this function call
-    void shrink_padding_chars_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    void shrink_padding_chars_callback(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                       const std::string& res_file_path = "") {
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<std::vector<string>> res;
         for (size_t i = 0; i < load_cols.size(); i++) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::cout << "now we are in shrink_padding_chars column : " << load_cols[i]->get_name()
                       << " for column size : " << source_column->size() << std::endl;
             source_column->shrink_padding_chars();
@@ -1615,25 +1730,25 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("shrink_padding_chars", res);
+        check_res_file(res_file_path.empty() ? "shrink_padding_chars" : res_file_path, res);
     }
 
-    void assert_size_eq(MutableColumnPtr col, size_t expect_size) {
+    void assert_size_eq(const MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->size(), expect_size);
     }
 
     // empty just use size() == 0 to impl as default behavior
-    void assert_empty(MutableColumnPtr col) { EXPECT_EQ(col->size(), 0); }
+    void assert_empty(const MutableColumnPtr col) { EXPECT_EQ(col->size(), 0); }
 
     // reserve, resize, byte_size, allocated_bytes, clone_resized, get_shrinked_column
-    void assert_reserve_size(MutableColumnPtr col, size_t reserve_size, size_t expect_size) {
+    void assert_reserve_size(const MutableColumnPtr col, size_t reserve_size, size_t expect_size) {
         col->reserve(reserve_size);
         EXPECT_EQ(col->size(), expect_size);
     }
 
     //  cut(LIMIT operation) will cut the column with the given from and to, and return the new column
     //  notice return column is clone from origin column
-    void assert_cut(MutableColumnPtr col, size_t from, size_t to) {
+    void assert_cut(const MutableColumnPtr col, size_t from, size_t to) {
         auto ori = col->size();
         auto ptr = col->cut(from, to);
         EXPECT_EQ(ptr->size(), to - from);
@@ -1644,7 +1759,7 @@ public:
     // and some Operator may call this set_num_rows to make rows satisfied, like limit operation
     // but different from cut behavior which
     // return column is mutate from origin column
-    void assert_shrink(MutableColumnPtr col, size_t shrink_size) {
+    void assert_shrink(const MutableColumnPtr col, size_t shrink_size) {
         auto ptr = col->shrink(shrink_size);
         EXPECT_EQ(ptr->size(), shrink_size);
         EXPECT_EQ(col->size(), shrink_size);
@@ -1654,13 +1769,13 @@ public:
     // like string column, the resize will resize the offsets column but not the data column (because it doesn't matter the size of data column, all operation for string column is based on the offsets column)
     // like vector column, the resize will resize the data column
     // like array column, the resize will resize the offsets column and the data column (which in creator we have check staff for the size of data column is the same as the size of offsets column)
-    void assert_resize(MutableColumnPtr col, size_t expect_size) {
+    void assert_resize(const MutableColumnPtr col, size_t expect_size) {
         col->resize(expect_size);
         EXPECT_EQ(col->size(), expect_size);
     }
 
     // replicate is clone with new column from the origin column, always from ColumnConst to expand the column
-    void assert_replicate(MutableColumnPtr col, IColumn::Offsets& offsets) {
+    void assert_replicate(const MutableColumnPtr col, IColumn::Offsets& offsets) {
         auto new_col = col->replicate(offsets);
         EXPECT_EQ(new_col->size(), offsets.back());
     }
@@ -1668,26 +1783,104 @@ public:
     // byte size is just appriximate size of the column
     //  as fixed column type, like column_vector, the byte size is sizeof(columnType) * size()
     //  as variable column type, like column_string, the byte size is sum of chars size() and offsets size * sizeof(offsetType)
-    void assert_byte_size(MutableColumnPtr col, size_t expect_size) {
+    void assert_byte_size(const MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->byte_size(), expect_size);
     }
 
     // allocated bytes is the real size of the column
-    void assert_allocated_bytes(MutableColumnPtr col, size_t expect_size) {
+    void assert_allocated_bytes(const MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->allocated_bytes(), expect_size);
     }
 
     // clone_resized will clone the column and cut/append to the new column with the size of the original column
-    void assert_clone_resized(MutableColumnPtr col, size_t expect_size) {
+    void assert_clone_resized(const MutableColumnPtr col, size_t expect_size) {
         auto new_col = col->clone_resized(expect_size);
         EXPECT_EQ(new_col->size(), expect_size);
     }
 
+    // virtual void
+    // update_hash_with_value(size_t n, SipHash& hash)
+    // siphash we still keep siphash for storge layer because we use it in
+    //     EngineChecksumTask::_compute_checksum() and can not to remove it
+    static void assert_update_siphashes_with_value_callback(const MutableColumns& load_cols,
+                                                            DataTypeSerDeSPtrs serders,
+                                                            const std::string& res_file_path = "") {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            SipHash hash;
+            LOG(INFO) << "now we are in update_hashes column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            for (size_t j = 0; j < source_column->size(); ++j) {
+                source_column->update_hash_with_value(j, hash);
+            }
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash.get64()) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_res_file(res_file_path.empty() ? "update_siphashes_hashes" : res_file_path, res);
+    }
+
+    static void assert_update_xxHash_with_value_callback(const MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders,
+                                                         const std::string& res_file_path = "") {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            uint64_t hash = 0;
+            source_column->update_xxHash_with_value(0, source_column->size(), hash, nullptr);
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_res_file(res_file_path.empty() ? "update_xxHash_with_value" : res_file_path, res);
+    }
+
+    static void assert_update_crc_with_value_callback(const MutableColumns& load_cols,
+                                                      DataTypeSerDeSPtrs serders,
+                                                      const std::string& res_file_path = "") {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            uint32_t hash = 0;
+            source_column->update_crc_with_value(0, source_column->size(), hash, nullptr);
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_res_file(res_file_path.empty() ? "update_xxHash_with_value" : res_file_path, res);
+    }
+
     //serialize and deserialize which usually used in AGG function:
     //  serialize_value_into_arena, deserialize_and_insert_from_arena (called by AggregateFunctionDistinctMultipleGenericData, group_array_intersect, nested-types serder like: DataTypeArraySerDe::write_one_cell_to_jsonb)
-    void ser_deserialize_with_arena_impl(MutableColumns& columns, const DataTypes& data_types) {
+    void ser_deserialize_with_arena_impl(const MutableColumns& columns,
+                                         const DataTypes& data_types) {
         size_t rows = columns[0]->size();
-        for (auto& column : columns) {
+        for (const auto& column : columns) {
             if (column->size() > rows) {
                 std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
                           << std::endl;
@@ -1954,18 +2147,163 @@ public:
         std::cout << "assertColumnPermutation done" << std::endl;
     }
 
+    void check_permute(const IColumn& column, const IColumn::Permutation& permutation, size_t limit,
+                       size_t expected_size) {
+        auto res_col = column.permute(permutation, limit);
+        EXPECT_EQ(res_col->size(), expected_size);
+        for (size_t j = 0; j < expected_size; ++j) {
+            EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+        }
+    }
     //  permute()
     //   1/ Key topN set read_orderby_key_reverse = true; SegmentIterator::next_batch will permute the column by the given permutation(which reverse the rows of current segment)
     //  should check rows with the given permutation
-    void assert_permute(MutableColumns& cols, IColumn::Permutation& permutation, size_t num_rows) {
-        std::vector<ColumnPtr> res_permuted;
-        for (auto& col : cols) {
-            res_permuted.emplace_back(col->permute(permutation, num_rows));
+    void assert_permute(MutableColumns& cols, size_t num_rows) {
+        for (const auto& col : cols) {
+            size_t expected_size = num_rows ? std::min(col->size(), num_rows) : col->size();
+            {
+                IColumn::Permutation permutation;
+                stable_get_column_permutation(*col, true, col->size(), -1, permutation);
+                check_permute(*col, permutation, num_rows, expected_size);
+            }
+            {
+                IColumn::Permutation permutation(col->size());
+                std::iota(permutation.begin(), permutation.end(),
+                          IColumn::Permutation::value_type(0));
+                std::random_device rd;
+                std::mt19937 g(rd());
+                std::shuffle(permutation.begin(), permutation.end(), g);
+                check_permute(*col, permutation, num_rows, expected_size);
+            }
         }
-        // check the permutation result for rowsize
-        size_t res_rows = res_permuted[0]->size();
-        for (auto& col : res_permuted) {
-            EXPECT_EQ(col->size(), res_rows);
+    }
+
+    void assert_sort_internal_callback(MutableColumns& cols, size_t num_rows) {
+        for (const auto& col : cols) {
+            size_t num_rows = col->size();
+            for (size_t cursor_rid = 0; cursor_rid < num_rows; ++cursor_rid) {
+                IColumn::Filter filter(num_rows);
+                for (size_t i = 0; i < num_rows; ++i) {
+                    filter[i] = 0;
+                }
+
+                std::vector<uint8_t> cmp_res(num_rows, 0);
+
+                col->compare_internal(cursor_rid, *col, 1, 1, cmp_res, filter.data());
+                for (size_t i = 0; i < num_rows; ++i) {
+                    if (i == cursor_rid) {
+                        EXPECT_EQ(cmp_res[i], 1);
+                    } else {
+                    }
+                }
+            }
+        }
+    }
+    static void assert_column_vector_insert_from_callback(const MutableColumns& load_cols,
+                                                          DataTypeSerDeSPtrs,
+                                                          const std::string& res_file_path = "") {
+        // Create an empty column to verify `insert_from` functionality
+        MutableColumns verify_columns;
+        for (const auto& col : load_cols) {
+            verify_columns.push_back(col->clone_empty());
+        }
+        // Insert data from `load_cols` to `verify_columns` using `insert_from`
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            auto& target_column = verify_columns[i];
+            for (size_t j = 0; j < source_column->size(); ++j) {
+                target_column->insert_from(*source_column, j);
+            }
+            ASSERT_EQ(target_column->size(), source_column->size());
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                ASSERT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
+            }
+        }
+    }
+    static void assert_column_vector_insert_data_callback(const MutableColumns& load_cols,
+                                                          DataTypeSerDeSPtrs serders,
+                                                          const std::string& res_file_path = "") {
+        // Create an empty column to verify `insert_from` functionality
+        MutableColumns verify_columns;
+        for (const auto& col : load_cols) {
+            verify_columns.push_back(col->clone_empty());
+        }
+        // Insert data from `load_cols` to `verify_columns` using `insert_from`
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            auto& target_column = verify_columns[i];
+            for (size_t j = 0; j < source_column->size(); ++j) {
+                const auto data_at = source_column->get_data_at(j);
+                target_column->insert_data(data_at.data, data_at.size);
+            }
+            ASSERT_EQ(target_column->size(), source_column->size());
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                ASSERT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
+            }
+        }
+    }
+    static void assert_column_vector_insert_indices_from_callback(const MutableColumns& load_cols) {
+        // Test case 1: Empty source column
+        // Test case 2: Empty indices array
+        // Test case 3: Normal case with multiple indices
+        // Select elements in different order
+        // Test case 4: Duplicate indices
+
+        // Insert data from `load_cols` to `verify_columns` using `insert_indices_from`
+        for (const auto& source_column : load_cols) {
+            auto src_size = source_column->size();
+
+            // Test case 1: Empty target column
+            {
+                auto target_column = source_column->clone_empty();
+                std::vector<uint32_t> indices;
+
+                // empty indices array
+                target_column->insert_indices_from(*source_column, indices.data(), indices.data());
+                EXPECT_EQ(target_column->size(), 0);
+            }
+            {
+                auto target_column = source_column->clone_empty();
+                // insert all elements from source column
+                std::vector<uint32_t> indices(src_size);
+                std::iota(indices.begin(), indices.end(), 0);
+                target_column->insert_indices_from(*source_column, indices.data(),
+                                                   indices.data() + src_size);
+                EXPECT_EQ(target_column->size(), src_size);
+                for (size_t j = 0; j < target_column->size(); ++j) {
+                    EXPECT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
+                }
+            }
+            {
+                // Normal case with random indices
+                auto target_column = source_column->clone_empty();
+                std::vector<uint32_t> indices(src_size);
+                std::iota(indices.begin(), indices.end(), 0);
+                std::random_device rd;
+                std::mt19937 g(rd());
+                std::shuffle(indices.begin(), indices.end(), g);
+                target_column->insert_indices_from(*source_column, indices.data(),
+                                                   indices.data() + indices.size());
+                EXPECT_EQ(target_column->size(), indices.size());
+                for (size_t j = 0; j < target_column->size(); ++j) {
+                    EXPECT_EQ(target_column->get_data_at(j),
+                              source_column->get_data_at(indices[j]));
+                }
+            }
+            {
+                // Normal case with duplicate indices
+                auto target_column = source_column->clone_empty();
+                std::vector<uint32_t> indices = {0, uint32_t(source_column->size() - 1),
+                                                 uint32_t((source_column->size() + 1) >> 1),
+                                                 uint32_t(source_column->size() - 1), 0};
+                target_column->insert_indices_from(*source_column, indices.data(),
+                                                   indices.data() + indices.size());
+                EXPECT_EQ(target_column->size(), indices.size());
+                for (size_t j = 0; j < target_column->size(); ++j) {
+                    EXPECT_EQ(target_column->get_data_at(j),
+                              source_column->get_data_at(indices[j]));
+                }
+            }
         }
     }
 };

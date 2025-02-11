@@ -20,7 +20,10 @@
 #include <cstdlib>
 #include <string>
 
+#include "gflags/gflags.h"
 #include "gtest/gtest.h"
+
+DECLARE_bool(gen_out);
 
 struct TestCaseInfo {
     inline static int arg_const_info {};
