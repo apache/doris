@@ -197,7 +197,6 @@ public class ConnectContext {
     // the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
-    private boolean allowResourceTagDowngrade = false;
 
     private PlSqlOperation plSqlOperation = null;
 
@@ -1002,14 +1001,9 @@ public class ConnectContext {
         return resourceTags;
     }
 
-    public boolean isAllowResourceTagDowngrade() {
-        return allowResourceTagDowngrade;
-    }
-
-    public void setResourceTags(Set<Tag> resourceTags, boolean allowResourceTagDowngrade) {
+    public void setResourceTags(Set<Tag> resourceTags) {
         this.resourceTags = resourceTags;
         this.isResourceTagsSet = !this.resourceTags.isEmpty();
-        this.allowResourceTagDowngrade = allowResourceTagDowngrade;
     }
 
     public void setCurrentConnectedFEIp(String ip) {

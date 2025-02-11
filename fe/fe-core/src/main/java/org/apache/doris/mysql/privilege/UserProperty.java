@@ -80,8 +80,6 @@ public class UserProperty implements Writable {
 
     private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
-    public static final String PROP_ALLOW_RESOURCE_TAG_DOWNGRADE = "allow_resource_tag_downgrade";
-
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
@@ -124,8 +122,6 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
-        ADVANCED_PROPERTIES.add(
-                Pattern.compile("^" + PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -186,10 +182,6 @@ public class UserProperty implements Writable {
         return Sets.newHashSet(this.commonProperties.getResourceTags());
     }
 
-    public boolean isAllowResourceTagDowngrade() {
-        return this.commonProperties.isAllowResourceTagDowngrade();
-    }
-
     public long getExecMemLimit() {
         return commonProperties.getExecMemLimit();
     }
@@ -210,7 +202,6 @@ public class UserProperty implements Writable {
         int queryTimeout = this.commonProperties.getQueryTimeout();
         int insertTimeout = this.commonProperties.getInsertTimeout();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
-        boolean allowResourceTagDowngrade = this.commonProperties.isAllowResourceTagDowngrade();
 
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -350,15 +341,6 @@ public class UserProperty implements Writable {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
-            } else if (keyArr[0].equalsIgnoreCase(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE)) {
-                if (keyArr.length != 1) {
-                    throw new DdlException(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + " format error");
-                }
-                if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
-                    throw new DdlException(
-                            "allow_resource_tag_downgrade's value must be true or false");
-                }
-                allowResourceTagDowngrade = Boolean.parseBoolean(value);
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -382,7 +364,6 @@ public class UserProperty implements Writable {
         this.commonProperties.setQueryTimeout(queryTimeout);
         this.commonProperties.setInsertTimeout(insertTimeout);
         this.commonProperties.setWorkloadGroup(workloadGroup);
-        this.commonProperties.setAllowResourceTagDowngrade(allowResourceTagDowngrade);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
         } else {
@@ -518,9 +499,6 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
-
-        result.add(Lists.newArrayList(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE,
-                String.valueOf(commonProperties.isAllowResourceTagDowngrade())));
 
         // load cluster
         if (defaultLoadCluster != null) {
