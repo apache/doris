@@ -150,6 +150,7 @@ suite ("multiple_ssb") {
     qt_select_star "select * from lineorder_flat order by 1,2,LO_ORDERPRIORITY, P_MFGR;"
 
     sql """analyze table lineorder_flat with sync;"""
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
