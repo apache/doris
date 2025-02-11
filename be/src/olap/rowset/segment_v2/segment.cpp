@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -498,8 +499,13 @@ Status Segment::_load_pk_bloom_filter(OlapReaderStatistics* stats) {
 }
 
 Status Segment::load_pk_index_and_bf(OlapReaderStatistics* index_load_stats) {
-    RETURN_IF_ERROR(load_index(index_load_stats));
-    RETURN_IF_ERROR(_load_pk_bloom_filter(index_load_stats));
+    // `DorisCallOnce` may catch exception in calling stack A and re-throw it in
+    // a different calling stack B which doesn't have catch block. So we add catch block here
+    // to prevent coreudmp
+    RETURN_IF_CATCH_EXCEPTION({
+        RETURN_IF_ERROR(load_index(index_load_stats));
+        RETURN_IF_ERROR(_load_pk_bloom_filter(index_load_stats));
+    });
     return Status::OK();
 }
 
