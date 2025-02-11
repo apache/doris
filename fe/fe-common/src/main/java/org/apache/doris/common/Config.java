@@ -3232,14 +3232,14 @@ public class Config extends ConfigBase {
     };
 
     @ConfField(mutable = true, description = {
-            "此配置参数用于忽略用户指定的 Azure endpoint，默认为 `true`，以保持对旧版本的兼容性。"
-            + "若需要使用诸如 `blob.core.chinacloudapi.cn` 等其他 endpoint，需将该参数设置为 `false`。",
-            "This parameter is used to ignore the user-specified Azure endpoint, "
-            + "with the default set to `true` for backward compatibility. "
-            + "If you need to use other endpoints such as `blob.core.chinacloudapi.cn`, "
-            + "you must set this parameter to `false`."
+            "此配置参数决定是否使用用户指定的自定义 Azure endpoint。"
+            + "默认为 false，即使用基于账户名的固定 endpoint，域名是 {account}.blob.core.windows.net。"
+            + "如果设置为 true，则系统将使用用户指定的自定义 endpoint，如 {account}.blob.core.chinacloudapi.cn。",
+            "This parameter controls whether to use a custom Azure endpoint specified by the user. "
+            + "By default, it's set to false, using the fixed endpoint {account}.blob.core.windows.net. "
+            + "If set to true, the user-specified endpoint will be used, such as {account}.blob.core.chinacloudapi.cn."
     })
-    public static boolean ignore_azure_endpoint = true;
+    public static boolean use_custom_azure_endpoint = false;
 
     @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"

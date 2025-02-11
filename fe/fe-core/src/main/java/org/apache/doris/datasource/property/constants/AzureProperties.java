@@ -61,7 +61,7 @@ public class AzureProperties extends BaseProperties {
     }
 
     public static String formatAzureEndpoint(String endpoint, String accountName) {
-        if (Config.ignore_azure_endpoint) {
+        if (!Config.use_custom_azure_endpoint) {
             return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
         }
         if (endpoint.contains("://")) {
