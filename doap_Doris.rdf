@@ -28,7 +28,7 @@
     <homepage rdf:resource="https://doris.apache.org/" />
     <asfext:pmc rdf:resource="https://doris.apache.org" />
     <shortdesc>Apache Doris is a new-generation open-source real-time data warehouse based on MPP architecture, with easier use and higher performance for big data analytics.</shortdesc>
-    <description>Apache Doris is an easy-to-use, high-performance and real-time analytical database based on MPP architecture, known for its extreme speed and ease of use. It only requires a sub-second response time to return query results under massive data and can support not only high-concurrent point query scenarios but also high-throughput complex analysis scenarios.
+    <description>Apache Doris is an easy-to-use, high-performance, real-time analytical database based on MPP architecture, known for its extreme speed and ease of use. It only requires a sub-second response time to return query results under massive data and can support not only high-concurrent point query scenarios but also high-throughput complex analysis scenarios.
                  All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.</description>
     <bug-database rdf:resource="https://github.com/apache/doris/issues" />
     <mailing-list rdf:resource="https://lists.apache.org/list.html?dev@doris.apache.org" />
