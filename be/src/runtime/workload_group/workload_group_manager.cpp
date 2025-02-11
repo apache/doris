@@ -320,9 +320,13 @@ void WorkloadGroupMgr::handle_paused_queries() {
     bool has_query_exceed_process_memlimit = false;
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
+        auto query_count = queries_list.size();
         const auto& wg = it->first;
 
-        LOG_EVERY_T(INFO, 120) << "Paused queries count: " << queries_list.size();
+        if (query_count != 0) {
+            LOG_EVERY_T(INFO, 1) << "Paused queries count of wg " << wg->name() << ": "
+                                 << query_count;
+        }
 
         bool is_low_watermark = false;
         bool is_high_watermark = false;
@@ -358,6 +362,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     ++query_it;
                     continue;
                 } else {
+                    VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                               << " remove from paused list";
                     query_it = queries_list.erase(query_it);
                     continue;
                 }
@@ -430,6 +436,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         ++query_it;
                         continue;
                     } else {
+                        VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                   << " remove from paused list";
                         query_it = queries_list.erase(query_it);
                         continue;
                     }
@@ -482,6 +490,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         if (revoked_size > 0) {
                             has_revoked_from_other_group = true;
                             query_ctx->set_memory_sufficient(true);
+                            VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                       << " is resumed after revoke memory from other group.";
                             query_it = queries_list.erase(query_it);
                             // Do not care if the revoked_size > reserve size, and try to run again.
                             continue;
@@ -490,6 +500,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                     query_ctx, query_it->reserve_size_, query_it->elapsed_time(),
                                     query_ctx->paused_reason());
                             if (spill_res) {
+                                VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                           << " remove from paused list";
                                 query_it = queries_list.erase(query_it);
                                 continue;
                             } else {
@@ -501,6 +513,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         // If any query is cancelled during process limit stage, should resume other query and
                         // do not do any check now.
                         query_ctx->set_memory_sufficient(true);
+                        VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                   << " remove from paused list";
                         query_it = queries_list.erase(query_it);
                         continue;
                     }

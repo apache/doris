@@ -579,6 +579,7 @@ public class SessionVariable implements Serializable, Writable {
             "spill_revocable_memory_high_watermark_percent";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
     public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
+    public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
 
     public static final String FUZZY_DISABLE_RUNTIME_FILTER_IN_BE = "fuzzy_disable_runtime_filter_in_be";
 
@@ -2318,6 +2319,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
     public int spillRevocableMemoryHighWatermarkPercent = -1;
 
+    @VariableMgr.VarAttr(
+            name = DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED,
+            description = {"查询因为内存不足被Cancel时，是否Dump heap profile到日志文件。默认为 false。",
+                    "Whether to dump heap profile to log file when query is canceled becuase of memory not enough. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean dumpHeapProfileWhenMemLimitExceeded = false;
+
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
             "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
@@ -4028,6 +4037,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
         tResult.setSpillHashJoinPartitionCount(spillHashJoinPartitionCount);
         tResult.setRevocableMemoryHighWatermarkPercent(spillRevocableMemoryHighWatermarkPercent);
+        tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
         tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);

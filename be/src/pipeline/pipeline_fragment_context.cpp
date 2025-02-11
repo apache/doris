@@ -131,6 +131,9 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    LOG_INFO("PipelineFragmentContext::~PipelineFragmentContext")
+            .tag("query_id", print_id(_query_id))
+            .tag("fragment_id", _fragment_id);
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
     auto st = _query_ctx->exec_status();
@@ -1734,8 +1737,19 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
 
-        LOG_INFO("Query {} fragment {} {}, profile, {}", print_id(this->_query_id),
-                 this->_fragment_id, extra_info, ss.str());
+        auto profile_str =
+                fmt::format("Query {} fragment {} {}, profile, {}", print_id(this->_query_id),
+                            this->_fragment_id, extra_info, ss.str());
+        // Avoid the printed log message is truncated by the glog max log size limit
+        constexpr size_t max_log_size = 30000 - 100;
+        size_t pos = 0;
+        size_t total_size = profile_str.size();
+        size_t tmp_size = std::min(max_log_size, total_size);
+        while (pos < total_size) {
+            tmp_size = std::min(max_log_size, total_size - pos);
+            LOG_INFO(std::string(profile_str.data() + pos, tmp_size));
+            pos += tmp_size;
+        }
     }
 }
 // If all pipeline tasks binded to the fragment instance are finished, then we could
