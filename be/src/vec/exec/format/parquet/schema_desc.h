@@ -71,7 +71,7 @@ private:
     std::unordered_map<std::string, const FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
-    std::unordered_map<int, std::string> _field_id_name_mapping;
+    std::unordered_map<uint64_t, std::string> _field_id_name_mapping;
 
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
                               FieldSchema* physical_field);
@@ -135,7 +135,7 @@ public:
 
     bool has_parquet_field_id() const { return _field_id_name_mapping.size() > 0; }
 
-    const doris::Slice get_column_name_from_field_id(int32_t id) const;
+    const doris::Slice get_column_name_from_field_id(uint64_t id) const;
 };
 
 } // namespace doris::vectorized
