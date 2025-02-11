@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -39,8 +42,11 @@ import java.util.Map;
  * Show dictionaries command.
  */
 public class ShowDictionariesCommand extends ShowCommand {
-    public ShowDictionariesCommand() {
+    final String wild;
+
+    public ShowDictionariesCommand(String wild) {
         super(PlanType.SHOW_DICTIONARIES_COMMAND);
+        this.wild = wild;
     }
 
     private ShowResultSetMetaData getMetaData() {
@@ -54,15 +60,23 @@ public class ShowDictionariesCommand extends ShowCommand {
     }
 
     @Override
-    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) {
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
 
         DictionaryManager dictionaryManager = ctx.getEnv().getDictionaryManager();
         Map<String, Dictionary> dictionaries = dictionaryManager.getDictionaries(ctx.getDatabase());
         for (Map.Entry<String, Dictionary> entry : dictionaries.entrySet()) {
+            String dictionaryName = entry.getKey();
+            // Apply wild condition filtering if wild pattern is provided
+            if (wild != null) {
+                PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(wild, true);
+                if (!matcher.match(dictionaryName)) {
+                    continue;
+                }
+            }
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(entry.getValue().getId())); // id
-            row.add(entry.getKey()); // name
+            row.add(dictionaryName); // name
             row.add(String.join(".", entry.getValue().getSourceQualifiedName())); // base table name
             row.add(String.valueOf(entry.getValue().getVersion())); // version
             row.add(entry.getValue().getStatus().name()); // status

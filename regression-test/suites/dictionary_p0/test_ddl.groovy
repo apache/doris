@@ -233,7 +233,7 @@ suite("test_ddl") {
     // test drop
     sql "drop dictionary dic1"
     origin_res = sql "show dictionaries"
-    assertTrue(origin_res.size() == 1)
+    assertEquals(origin_res.size(), 1)
 
     // drop databases
     sql "use mysql"
@@ -242,7 +242,7 @@ suite("test_ddl") {
     sql "use test_dictionary_ddl"
     origin_res = sql "show dictionaries"
     log.info(origin_res.toString())
-    assertTrue(origin_res.size() == 0) // should also be removed
+    assertEquals(origin_res.size(), 0) // should also be removed
 
     // test multiple key columns
     sql """
@@ -294,4 +294,14 @@ suite("test_ddl") {
         """
         exception "Need at least one value column"
     }
+
+    // test show with conditions
+    def like_result = sql "show dictionaries like '%_multi_ke%' "
+    assertEquals(like_result.size(), 1)
+    like_result = sql "show dictionaries like '%no_key%' "
+    assertEquals(like_result.size(), 0)
+    like_result = sql "show dictionaries where dic_multi_key "
+    assertEquals(like_result.size(), 1)
+    like_result = sql "show dictionaries where 1 "
+    assertEquals(like_result.size(), 0)
 }

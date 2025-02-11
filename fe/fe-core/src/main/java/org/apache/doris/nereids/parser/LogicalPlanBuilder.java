@@ -5592,7 +5592,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Plan visitShowDictionaries(ShowDictionariesContext ctx) {
-        return new ShowDictionariesCommand();
+        String wild = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                // if like, it's a pattern
+                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else if (ctx.wildWhere().WHERE() != null) {
+                // if where, it's a expression
+                wild = ctx.wildWhere().expression().getText();
+            }
+        }
+        return new ShowDictionariesCommand(wild);
     }
 
     @Override
