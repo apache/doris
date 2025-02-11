@@ -158,7 +158,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitMultiDistinctGroupConcat(MultiDistinctGroupConcat multiDistinctGroupConcat, C context) {
-        return visitAggregateFunction(multiDistinctGroupConcat, context);
+        return visitNullableAggregateFunction(multiDistinctGroupConcat, context);
     }
 
     default R visitMultiDistinctSum(MultiDistinctSum multiDistinctSum, C context) {
@@ -274,7 +274,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitStddev(Stddev stddev, C context) {
-        return visitAggregateFunction(stddev, context);
+        return visitNullableAggregateFunction(stddev, context);
     }
 
     default R visitStddevSamp(StddevSamp stddevSamp, C context) {
