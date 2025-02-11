@@ -59,7 +59,7 @@ public:
 
         sort_exec_exprs._materialize_tuple = false;
 
-        sort_exec_exprs._lhs_ordering_expr_ctxs.push_back(
+        sort_exec_exprs._ordering_expr_ctxs.push_back(
                 VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
 
         switch (sort_type) {
