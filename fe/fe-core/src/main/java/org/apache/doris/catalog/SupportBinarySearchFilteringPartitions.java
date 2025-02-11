@@ -32,8 +32,8 @@ public interface SupportBinarySearchFilteringPartitions extends TableIf {
     Map<?, PartitionItem> getOriginPartitions();
 
     /**
-     * return the version of the partitions meta, is the version changed, we should skip the legacy sorted
-     * partitions and reload it.
+     * return the version of the partitions meta, if the version changed, we should skip the legacy sorted
+     * partitions and reload it. you can extract the snapshot if exists in the CatalogRelation
      */
     Object getPartitionMetaVersion(CatalogRelation scan);
 }
