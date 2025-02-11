@@ -77,7 +77,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
         Env.getCurrentEnv().dropTable(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), isView,
-            isMaterializedView, ifExists, forceDrop);
+                isMaterializedView, ifExists, forceDrop);
     }
 
     @Override
