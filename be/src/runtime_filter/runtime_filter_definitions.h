@@ -35,23 +35,6 @@ enum class RuntimeFilterType {
     MAX_FILTER  // only max
 };
 
-enum class RuntimeFilterRole { PRODUCER, CONSUMER, MERGER };
-
-enum class RuntimeFilterState {
-    WAITING_FOR_SEND_SIZE,
-    WAITING_FOR_SYNCED_SIZE,
-    WAITING_FOR_DATA,
-    READY_TO_PUBLISH,
-    PUBLISHED,
-    IGNORED,
-    DISABLED,
-    NOT_READY,
-    READY,
-    TIMEOUT,
-    APPLIED,
-    WAITING_FOR_PRODUCT,
-};
-
 struct RuntimeFilterParams {
     RuntimeFilterType filter_type {};
     PrimitiveType column_return_type {};
@@ -91,18 +74,6 @@ class MinMaxFuncBase;
 class HybridSetBase;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
-
-struct RuntimeFilterContext {
-    std::shared_ptr<MinMaxFuncBase> minmax_func;
-    std::shared_ptr<HybridSetBase> hybrid_set;
-    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
-    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
-    bool ignored = false;
-    bool disabled = false;
-    std::string err_msg;
-};
-
-using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
 
 class RuntimeState;
 class QueryContext;

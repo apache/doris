@@ -124,7 +124,6 @@ Status RuntimeFilterMgr::register_local_merger_filter(
         if (!iter->second.merger) {
             std::shared_ptr<RuntimeFilterMerger> merge_filter;
             RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, &desc, &merge_filter));
-            merge_filter->set_ignored();
             iter->second.merger = merge_filter;
         }
         iter->second.merge_time++;
@@ -198,7 +197,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->targetv2_info = targetv2_info;
     RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, runtime_filter_desc, &cnt_val->filter));
     auto filter_id = runtime_filter_desc->filter_id;
-    cnt_val->filter->set_ignored();
 
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     _filter_map.emplace(filter_id, cnt_val);
@@ -330,9 +328,9 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         if (cnt_val->arrive_id.size() == 1 && cnt_val->runtime_filter_desc.is_broadcast_join) {
             return Status::OK();
         }
-        std::shared_ptr<RuntimeFilterMerger> tmp_filter;
+        std::shared_ptr<RuntimeFilterProducer> tmp_filter;
         RETURN_IF_ERROR(
-                RuntimeFilterMerger::create(_state, &cnt_val->runtime_filter_desc, &tmp_filter));
+                RuntimeFilterProducer::create(_state, &cnt_val->runtime_filter_desc, &tmp_filter));
 
         RETURN_IF_ERROR(tmp_filter->assign_data_into_wrapper(*request, attach_data));
 
@@ -359,13 +357,8 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         void* data = nullptr;
         int len = 0;
         bool has_attachment = false;
-        if (!cnt_val->filter->get_ignored() && !cnt_val->filter->get_disabled()) {
-            RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
-        } else {
-            apply_request.set_ignored(cnt_val->filter->get_ignored());
-            apply_request.set_disabled(cnt_val->filter->get_disabled());
-            apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
-        }
+
+        RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
 
         if (data != nullptr && len > 0) {
             void* allocated = malloc(len);

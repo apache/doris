@@ -27,7 +27,7 @@
 #include "runtime_filter/utils.h"
 
 namespace doris {
-class RuntimePredicateWrapper;
+class RuntimeFilterWrapper;
 class RuntimeProfile;
 
 /// The runtimefilter is built in the join node.
@@ -40,15 +40,6 @@ public:
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
     bool has_local_target() const { return _has_local_target; }
-
-    RuntimeFilterState current_state() const { return _rf_state.load(std::memory_order_acquire); }
-
-    void set_ignored();
-
-    bool get_ignored();
-
-    void set_disabled();
-    bool get_disabled() const;
 
     RuntimeFilterType get_real_type();
 
@@ -65,6 +56,12 @@ public:
 
         request->set_filter_type(get_type(real_runtime_filter_type));
         request->set_contain_null(_wrapper->contain_null());
+
+        auto state = _wrapper->get_state();
+        if (state != RuntimeFilterWrapper::State::READY) {
+            request->set_ignored(state == RuntimeFilterWrapper::State::IGNORED);
+            request->set_disabled(state == RuntimeFilterWrapper::State::DISABLED);
+        }
 
         if (real_runtime_filter_type == RuntimeFilterType::IN_FILTER) {
             auto in_filter = request->mutable_in_filter();
@@ -90,7 +87,6 @@ protected:
             : _state(state),
               _has_remote_target(desc->has_remote_targets),
               _has_local_target(desc->has_local_targets),
-              _rf_state(RuntimeFilterState::NOT_READY),
               _runtime_filter_type(get_runtime_filter_type(desc)) {
         DCHECK_NE(_has_remote_target, _has_local_target);
     }
@@ -106,16 +102,16 @@ protected:
 
     std::string _debug_string() const;
 
+    RuntimeFilterWrapper::State _get_wrapper_state();
+
     RuntimeFilterParamsContext* _state = nullptr;
     // _wrapper is a runtime filter function wrapper
-    std::shared_ptr<RuntimePredicateWrapper> _wrapper;
+    std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
     // will apply to remote node
     bool _has_remote_target;
     // will apply to local node
     bool _has_local_target;
-    // filter is ready for consumer
-    std::atomic<RuntimeFilterState> _rf_state;
 
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;

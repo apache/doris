@@ -74,13 +74,7 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
         merge_filter_callback->cntl_->ignore_eovercrowded();
     }
 
-    if (get_ignored() || get_disabled()) {
-        merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
-        merge_filter_request->set_ignored(get_ignored());
-        merge_filter_request->set_disabled(get_disabled());
-    } else {
-        RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
-    }
+    RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
 
     if (len > 0) {
         DCHECK(data != nullptr);
@@ -94,20 +88,8 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     return Status::OK();
 }
 
-void RuntimeFilter::set_ignored() {
-    _wrapper->set_ignored();
-}
-
-bool RuntimeFilter::get_ignored() {
-    return _wrapper->is_ignored();
-}
-
-void RuntimeFilter::set_disabled() {
-    _wrapper->set_disabled();
-}
-
-bool RuntimeFilter::get_disabled() const {
-    return _wrapper->is_disabled();
+RuntimeFilterWrapper::State RuntimeFilter::_get_wrapper_state() {
+    return _wrapper->get_state();
 }
 
 Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
@@ -157,7 +139,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         }
     }
 
-    _wrapper = std::make_shared<RuntimePredicateWrapper>(&params);
+    _wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
     return Status::OK();
 }
 
@@ -168,12 +150,12 @@ std::string RuntimeFilter::_debug_string() const {
 
 void RuntimeFilter::_to_protobuf(PInFilter* filter) {
     filter->set_column_type(to_proto(_wrapper->column_type()));
-    _wrapper->_context->hybrid_set->to_pb(filter);
+    _wrapper->_hybrid_set->to_pb(filter);
 }
 
 void RuntimeFilter::_to_protobuf(PMinMaxFilter* filter) {
     filter->set_column_type(to_proto(_wrapper->column_type()));
-    _wrapper->_context->minmax_func->to_pb(filter);
+    _wrapper->_minmax_func->to_pb(filter);
 }
 
 RuntimeFilterType RuntimeFilter::get_real_type() {

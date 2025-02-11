@@ -17,8 +17,11 @@
 
 #include "runtime_filter/runtime_filter_producer.h"
 
+#include <glog/logging.h>
+
 #include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_merger.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
 
@@ -45,8 +48,8 @@ Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state, Runti
     return filter->_push_to_remote(state, &addr, local_merge_time);
 };
 
-Status RuntimeFilterProducer::_send_to_local_targets(
-        std::shared_ptr<RuntimePredicateWrapper> wrapper, bool global, uint64_t local_merge_time) {
+Status RuntimeFilterProducer::_send_to_local_targets(std::shared_ptr<RuntimeFilterWrapper> wrapper,
+                                                     bool global, uint64_t local_merge_time) {
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
             global ? _state->global_runtime_filter_mgr()->get_consume_filters(filter_id())
                    : _state->local_runtime_filter_mgr()->get_consume_filters(filter_id());
@@ -59,6 +62,9 @@ Status RuntimeFilterProducer::_send_to_local_targets(
 };
 
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
+    DCHECK(_rf_state == State::READY_TO_PUBLISH);
+    _rf_state = State::PUBLISHED;
+
     auto do_merge = [&]() {
         // two case we need do local merge:
         // 1. has remote target
@@ -115,7 +121,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
     // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
     // after query context because the rpc is not returned.
-    std::weak_ptr<RuntimeFilterContext> _rf_context;
+    std::weak_ptr<RuntimeFilterWrapper> _rf_context;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
@@ -127,7 +133,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
             return;
         }
 
-        ctx->err_msg = cntl_->ErrorText();
+        ctx->_err_msg = cntl_->ErrorText();
         Base::_process_if_rpc_failed();
     }
 
@@ -140,9 +146,9 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
 
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            ctx->ignored = true;
+            ctx->_state = RuntimeFilterWrapper::State::IGNORED;
         } else {
-            ctx->err_msg = status.to_string();
+            ctx->_err_msg = status.to_string();
             Base::_process_if_meet_error_status(status);
         }
     }
@@ -151,7 +157,8 @@ public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
                     std::shared_ptr<pipeline::Dependency> dependency,
-                    RuntimeFilterContextSPtr rf_context, std::weak_ptr<QueryContext> context)
+                    std::shared_ptr<RuntimeFilterWrapper> rf_context,
+                    std::weak_ptr<QueryContext> context)
             : Base(req, callback, context),
               _dependency(std::move(dependency)),
               _rf_context(rf_context) {}
@@ -200,10 +207,10 @@ Status RuntimeFilterProducer::send_filter_size(RuntimeState* state, uint64_t loc
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
     // RuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
-    auto closure = SyncSizeClosure::create_unique(
-            request, callback, _dependency, _wrapper->_context,
-            state->query_options().ignore_runtime_filter_error ? std::weak_ptr<QueryContext> {}
-                                                               : state->get_query_ctx_weak());
+    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency, _wrapper,
+                                                  state->query_options().ignore_runtime_filter_error
+                                                          ? std::weak_ptr<QueryContext> {}
+                                                          : state->get_query_ctx_weak());
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
     pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
