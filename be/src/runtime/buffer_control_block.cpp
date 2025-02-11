@@ -32,6 +32,7 @@
 
 #include "arrow/type_fwd.h"
 #include "pipeline/dependency.h"
+#include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
@@ -49,11 +50,11 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     delete this;
 }
 
-void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics) {
+void GetResultBatchCtx::on_close(int64_t packet_seq, ResourceContext* resource_ctx) {
     Status status;
     status.to_protobuf(result->mutable_status());
-    if (statistics != nullptr) {
-        statistics->to_pb(result->mutable_query_statistics());
+    if (resource_ctx != nullptr) {
+        resource_ctx->to_pb_query_statistics(result->mutable_query_statistics());
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
@@ -160,7 +161,7 @@ BufferControlBlock::BufferControlBlock(TUniqueId id, int buffer_size, RuntimeSta
           _fragement_transmission_compression_type(
                   state->fragement_transmission_compression_type()),
           _profile("BufferControlBlock " + print_id(_fragment_id)) {
-    _query_statistics = std::make_unique<QueryStatistics>();
+    _resource_ctx = state->get_query_ctx()->resource_ctx;
     _serialize_batch_ns_timer = ADD_TIMER(&_profile, "SerializeBatchNsTime");
     _uncompressed_bytes_counter = ADD_COUNTER(&_profile, "UncompressedBytes", TUnit::BYTES);
     _compressed_bytes_counter = ADD_COUNTER(&_profile, "CompressedBytes", TUnit::BYTES);
@@ -271,7 +272,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         return;
     }
     if (_is_close) {
-        ctx->on_close(_packet_num, _query_statistics.get());
+        ctx->on_close(_packet_num, _resource_ctx.get());
         return;
     }
     // no ready data, push ctx to waiting list
@@ -428,7 +429,7 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
-                ctx->on_close(_packet_num, _query_statistics.get());
+                ctx->on_close(_packet_num, _resource_ctx.get());
             }
         } else {
             for (auto& ctx : _waiting_rpc) {

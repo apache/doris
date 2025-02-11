@@ -34,6 +34,10 @@ public:
     struct Stats {
         RuntimeProfile::Counter* cpu_cost_ms_counter_;
 
+        int64_t cpu_cost_ms() const { return cpu_cost_ms_counter_->value(); }
+
+        void update_cpu_cost_ms(int64_t delta) const { cpu_cost_ms_counter_->update(delta); }
+
         RuntimeProfile* profile() { return profile_.get(); }
         void init_profile() {
             profile_ = std::make_unique<RuntimeProfile>("MemoryContext");

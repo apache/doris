@@ -22,6 +22,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -38,6 +39,8 @@ public:
     * 3. should not be operated frequently, use local variables to update Counter.
     */
     struct Stats {
+        // MemTracker that is shared by all fragment instances running on this host.
+        std::shared_ptr<MemTrackerLimiter> mem_tracker_;
         RuntimeProfile::Counter* current_memory_bytes_counter_;
         RuntimeProfile::Counter* peak_memory_bytes_counter_;
         // Maximum memory peak for all backends.
@@ -50,7 +53,17 @@ public:
         // The revoked bytes
         RuntimeProfile::Counter* revoked_bytes_counter_;
 
-        RuntimeProfile* profile() { return profile_.get(); }
+        int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
+        int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
+        int64_t max_peak_memory_bytes() const { return max_peak_memory_bytes_counter_->value(); }
+        int64_t revoke_attempts() const { return revoke_attempts_counter_->value(); }
+        int64_t revoke_wait_time_ms() const { return revoke_wait_time_ms_counter_->value(); }
+        int64_t revoked_bytes() const { return revoked_bytes_counter_->value(); }
+
+        RuntimeProfile* profile() {
+            mem_tracker_->make_profile(profile_.get());
+            return profile_.get();
+        }
         void init_profile() {
             profile_ = std::make_unique<RuntimeProfile>("MemoryContext");
             current_memory_bytes_counter_ =
@@ -63,7 +76,7 @@ public:
                     ADD_COUNTER(profile_, "RevokeWaitTimeMs", TUnit::TIME_MS);
             revoked_bytes_counter_ = ADD_COUNTER(profile_, "RevokedBytes", TUnit::BYTES);
         }
-        std::string debug_string() { return profile_->pretty_print(); }
+        std::string debug_string() { return profile()->pretty_print(); }
 
     private:
         std::unique_ptr<RuntimeProfile> profile_;
@@ -73,9 +86,9 @@ public:
     virtual ~MemoryContext() = default;
     Stats* stats() { return &stats_; }
 
-    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return mem_tracker_; }
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return stats_.mem_tracker_; }
     void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        mem_tracker_ = mem_tracker;
+        stats_.mem_tracker_ = mem_tracker;
     }
 
     // Following method is related with spill disk.
@@ -93,8 +106,6 @@ public:
 
 protected:
     Stats stats_;
-    // MemTracker that is shared by all fragment instances running on this host.
-    std::shared_ptr<MemTrackerLimiter> mem_tracker_;
 };
 
 } // namespace doris

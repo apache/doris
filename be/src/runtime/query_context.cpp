@@ -141,8 +141,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
         DCHECK_EQ(is_report_fe_addr_valid, true);
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
-    register_memory_statistics();
-    register_cpu_statistics();
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
@@ -183,6 +181,10 @@ void QueryContext::_init_resource_context() {
     resource_ctx = ResourceContext::create_shared();
     resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
+#ifndef BE_TEST
+    _exec_env->runtime_query_statistics_mgr()->register_resource_context(
+            print_id(_query_id), resource_ctx, current_connect_fe, _query_options.query_type);
+#endif
 }
 
 void QueryContext::init_query_task_controller() {
@@ -329,44 +331,6 @@ void QueryContext::set_pipeline_context(
         const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
     _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
-}
-
-void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
-#ifndef BE_TEST
-    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-            print_id(_query_id), qs, current_connect_fe, _query_options.query_type);
-#endif
-}
-
-std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
-    return _exec_env->runtime_query_statistics_mgr()->get_runtime_query_statistics(
-            print_id(_query_id));
-}
-
-void QueryContext::register_memory_statistics() {
-    if (query_mem_tracker()) {
-        std::shared_ptr<QueryStatistics> qs = query_mem_tracker()->get_query_statistics();
-        std::string query_id = print_id(_query_id);
-        if (qs) {
-#ifndef BE_TEST
-            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                    query_id, qs, current_connect_fe, _query_options.query_type);
-#endif
-        } else {
-            LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
-        }
-    }
-}
-
-void QueryContext::register_cpu_statistics() {
-    if (!_cpu_statistics) {
-        _cpu_statistics = std::make_shared<QueryStatistics>();
-#ifndef BE_TEST
-        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                print_id(_query_id), _cpu_statistics, current_connect_fe,
-                _query_options.query_type);
-#endif
-    }
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {

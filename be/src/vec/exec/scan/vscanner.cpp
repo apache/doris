@@ -136,10 +136,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                  _num_rows_read < rows_read_threshold);
     }
 
-    if (_query_statistics) {
-        _query_statistics->add_scan_rows(_num_rows_read - old_scan_rows);
-        _query_statistics->add_scan_bytes(_num_byte_read - old_scan_bytes);
-    }
+    _state->get_query_ctx()->resource_ctx->io_context()->stats()->update_scan_rows(_num_rows_read -
+                                                                                   old_scan_rows);
+    _state->get_query_ctx()->resource_ctx->io_context()->stats()->update_scan_bytes(_num_byte_read -
+                                                                                    old_scan_bytes);
 
     if (state->is_cancelled()) {
         // TODO: Should return the specific ErrorStatus instead of just Cancelled.
@@ -260,7 +260,6 @@ void VScanner::_collect_profile_before_close() {
 void VScanner::update_scan_cpu_timer() {
     int64_t cpu_time = _cpu_watch.elapsed_time();
     _scan_cpu_timer += cpu_time;
-    _query_statistics->add_cpu_nanos(cpu_time);
     if (_state && _state->get_query_ctx()) {
         _state->get_query_ctx()->update_cpu_time(cpu_time);
     }

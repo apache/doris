@@ -43,6 +43,34 @@ public:
         RuntimeProfile::Counter* shuffle_send_bytes_counter_;
         RuntimeProfile::Counter* shuffle_send_rows_counter_;
 
+        int64_t scan_rows() const { return scan_rows_counter_->value(); }
+        int64_t scan_bytes() const { return scan_bytes_counter_->value(); }
+        int64_t scan_bytes_from_local_storage() const {
+            return scan_bytes_from_local_storage_counter_->value();
+        }
+        int64_t scan_bytes_from_remote_storage() const {
+            return scan_bytes_from_remote_storage_counter_->value();
+        }
+        int64_t returned_rows() const { return returned_rows_counter_->value(); }
+        int64_t shuffle_send_bytes() const { return shuffle_send_bytes_counter_->value(); }
+        int64_t shuffle_send_rows() const { return shuffle_send_rows_counter_->value(); }
+
+        void update_scan_rows(int64_t delta) const { scan_rows_counter_->update(delta); }
+        void update_scan_bytes(int64_t delta) const { scan_bytes_counter_->update(delta); }
+        void update_scan_bytes_from_local_storage(int64_t delta) const {
+            scan_bytes_from_local_storage_counter_->update(delta);
+        }
+        void update_scan_bytes_from_remote_storage(int64_t delta) const {
+            scan_bytes_from_remote_storage_counter_->update(delta);
+        }
+        void update_returned_rows(int64_t delta) const { returned_rows_counter_->update(delta); }
+        void update_shuffle_send_bytes(int64_t delta) const {
+            shuffle_send_bytes_counter_->update(delta);
+        }
+        void update_shuffle_send_rows(int64_t delta) const {
+            shuffle_send_rows_counter_->update(delta);
+        }
+
         RuntimeProfile* profile() { return profile_.get(); }
         void init_profile() {
             profile_ = std::make_unique<RuntimeProfile>("MemoryContext");

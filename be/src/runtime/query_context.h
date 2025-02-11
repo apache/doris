@@ -33,7 +33,6 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
@@ -248,16 +247,6 @@ public:
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
-    void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
-
-    std::shared_ptr<QueryStatistics> get_query_statistics();
-
-    void register_memory_statistics();
-
-    void register_cpu_statistics();
-
-    std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
-
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
     ThreadPool* get_memtable_flush_pool();
@@ -312,6 +301,7 @@ public:
         if (workload_group() != nullptr) {
             workload_group()->update_cpu_time(delta_cpu_time);
         }
+        resource_ctx->cpu_context()->stats()->update_cpu_cost_ms(delta_cpu_time);
     }
 
     void add_using_brpc_stub(const TNetworkAddress& network_address,
@@ -368,7 +358,6 @@ private:
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
-    std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;

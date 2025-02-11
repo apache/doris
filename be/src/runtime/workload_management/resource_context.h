@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/data.pb.h>
+
 #include <memory>
 
 #include "common/factory_creator.h"
@@ -50,11 +52,11 @@ public:
     ~ResourceContext() = default;
 
     // Only return the raw pointer to the caller, so that the caller should not save it to other variables.
-    CPUContext* cpu_context() { return cpu_context_.get(); }
-    MemoryContext* memory_context() { return memory_context_.get(); }
-    IOContext* io_context() { return io_context_.get(); }
-    WorkloadGroupContext* workload_group_context() { return workload_group_context_.get(); }
-    TaskController* task_controller() { return task_controller_.get(); }
+    CPUContext* cpu_context() const { return cpu_context_.get(); }
+    MemoryContext* memory_context() const { return memory_context_.get(); }
+    IOContext* io_context() const { return io_context_.get(); }
+    WorkloadGroupContext* workload_group_context() const { return workload_group_context_.get(); }
+    TaskController* task_controller() const { return task_controller_.get(); }
 
     void set_cpu_context(std::unique_ptr<CPUContext> cpu_context) {
         cpu_context_ = std::move(cpu_context);
@@ -73,6 +75,10 @@ public:
     }
 
     RuntimeProfile* profile() { return const_cast<RuntimeProfile*>(resource_profile_.get().get()); }
+
+    void to_pb_query_statistics(PQueryStatistics* statistics) const;
+    void to_thrift_query_statistics(TQueryStatistics* statistics) const;
+
     std::string debug_string() { return resource_profile_.get()->pretty_print(); }
     void refresh_resource_profile() {
         std::unique_ptr<RuntimeProfile> resource_profile =

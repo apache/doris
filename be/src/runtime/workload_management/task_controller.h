@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -35,15 +37,35 @@ public:
     const TUniqueId& task_id() const { return task_id_; }
     void set_task_id(TUniqueId task_id) { task_id_ = task_id; }
 
-    virtual bool is_cancelled() const { return false; }
-    virtual Status cancel(const Status& reason) { return Status::OK(); }
-    virtual Status running_time(int64_t* running_time_msecs) {
-        *running_time_msecs = 0;
+    virtual bool is_cancelled() const { return is_cancelled_; }
+    virtual Status cancel(const Status& reason) {
+        is_cancelled_ = true;
         return Status::OK();
     }
+    virtual bool is_finished() const { return is_finished_; }
+    virtual void finish() {
+        is_finished_ = true;
+        finish_time_ = MonotonicMillis();
+    }
+
+    virtual int64_t start_time() { return start_time_; }
+    virtual int64_t finish_time() { return finish_time_; }
+    virtual Status running_time(int64_t* running_time_msecs) {
+        *running_time_msecs = finish_time_ - start_time_;
+        return Status::OK();
+    }
+    TNetworkAddress fe_addr() { return fe_addr_; }
+    TQueryType::type query_type() { return query_type_; }
 
 protected:
     TUniqueId task_id_;
+    bool is_cancelled_ = false;
+    bool is_finished_ = false;
+    int64_t start_time_;
+    int64_t finish_time_;
+
+    TNetworkAddress fe_addr_;
+    TQueryType::type query_type_;
 };
 
 } // namespace doris

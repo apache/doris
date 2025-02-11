@@ -187,8 +187,6 @@ public:
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
-    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
-
 protected:
     friend class OperatorXBase;
     template <typename LocalStateType>
@@ -198,8 +196,6 @@ protected:
     int64_t _num_rows_returned {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -354,8 +350,6 @@ public:
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
 
-    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
-
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
@@ -379,8 +373,6 @@ protected:
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -527,9 +519,6 @@ protected:
     int _nereids_id = -1;
     std::vector<int> _dests_id;
     std::string _name;
-
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 template <typename LocalStateType>
