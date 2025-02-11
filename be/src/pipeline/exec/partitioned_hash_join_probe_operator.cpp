@@ -93,6 +93,7 @@ void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* ch
     UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
     UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
     UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsage");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");
@@ -109,6 +110,7 @@ void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* ch
     UPDATE_COUNTER_FROM_INNER("ProbeWhenProbeSideOutputTime");
     UPDATE_COUNTER_FROM_INNER("NonEqualJoinConjunctEvaluationTime");
     UPDATE_COUNTER_FROM_INNER("InitProbeSideTime");
+    UPDATE_COUNTER_FROM_INNER("MemoryUsage");
 }
 
 #undef UPDATE_PROFILE

@@ -39,6 +39,7 @@
 #include "runtime/workload_management/io_throttle.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -88,26 +89,15 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
-    auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
-    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
-            "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
-            "total_query_slot_count = {}, "
-            "memory_limit = {}, slot_memory_policy = {}, write_buffer_ratio= {}% , " // add a blackspace after % to avoid log4j format bugs
-            "enable_memory_overcommit = {}, total_mem_used = {} (write_buffer_size={}),"
-            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, cpu_hard_limit = {}, "
-            "scan_thread_num = "
-            "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
-            "memory_low_watermark={}, memory_high_watermark={}, is_shutdown={}, query_num={}, "
+            "WorkloadGroup[id = {}, name = {}, version = {}, {}, "
+            "cpu_share = {}, cpu_hard_limit = {}, "
+            "scan_thread_num = {}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = "
+            "{}, "
+            "is_shutdown={}, query_num={}, "
             "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
-            _id, _name, _version, cpu_share(), _total_query_slot_count,
-            PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
-            _load_buffer_ratio, _enable_memory_overcommit ? "true" : "false",
-            PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
-            PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
-            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
-            mem_used_ratio, cpu_hard_limit(), _scan_thread_num, _max_remote_scan_thread_num,
-            _min_remote_scan_thread_num, _memory_low_watermark, _memory_high_watermark,
+            _id, _name, _version, _memory_debug_string(), cpu_share(), cpu_hard_limit(),
+            _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
             _is_shutdown, _query_ctxs.size(), _scan_bytes_per_second,
             _remote_scan_bytes_per_second);
 }
@@ -127,24 +117,34 @@ bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
     }
 }
 
-std::string WorkloadGroup::memory_debug_string() const {
+std::string WorkloadGroup::_memory_debug_string() const {
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
     auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
+    auto mem_used_ratio_int = (int64_t)(mem_used_ratio * 100 + 0.5);
+    mem_used_ratio = (double)mem_used_ratio_int / 100;
     return fmt::format(
-            "WorkloadGroup[id = {}, name = {}, version = {},"
+            "memory_limit = {}, enable_memory_overcommit = {}, slot_memory_policy = {}, "
             "total_query_slot_count = {}, "
-            "memory_limit = {}, slot_memory_policy = {}, write_buffer_ratio= {}% , "
-            "enable_memory_overcommit = {}, total_mem_used = {} (write_buffer_size={}),"
-            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}% , "
-            "memory_low_watermark={}% , memory_high_watermark={}% , is_shutdown={}, query_num={}]",
-            _id, _name, _version, _total_query_slot_count,
-            PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
-            _load_buffer_ratio, _enable_memory_overcommit ? "true" : "false",
+            "memory_low_watermark = {}, memory_high_watermark = {}, "
+            "enable_write_buffer_limit = {}, write_buffer_ratio = {}%, " // add a blackspace after % to avoid log4j format bugs
+            "write_buffer_limit = {}, "
+            "mem_used_ratio = {}, total_mem_used = {}(write_buffer_size = {}), "
+            "wg_refresh_interval_memory_growth = {}",
+            PrettyPrinter::print(_memory_limit, TUnit::BYTES),
+            _enable_memory_overcommit ? "true" : "false", to_string(_slot_mem_policy),
+            _total_query_slot_count, _memory_low_watermark, _memory_high_watermark,
+            _enable_write_buffer_limit, _load_buffer_ratio,
+            PrettyPrinter::print(write_buffer_limit(), TUnit::BYTES), mem_used_ratio,
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
             PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
-            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
-            std::trunc(mem_used_ratio), _memory_low_watermark, _memory_high_watermark, _is_shutdown,
-            _query_ctxs.size());
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES));
+}
+
+std::string WorkloadGroup::memory_debug_string() const {
+    return fmt::format(
+            "WorkloadGroup[id = {}, name = {}, version = {}, "
+            "{}, is_shutdown={}, query_num={}]",
+            _id, _name, _version, _memory_debug_string(), _is_shutdown, _query_ctxs.size());
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -387,13 +387,16 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
     LOG(INFO) << fmt::format(
             "[MemoryGC] work load group start gc, id:{} name:{}, memory limit: {}, used: {}, "
             "need_free_mem: {}.",
-            _id, _name, _memory_limit, used_memory, need_free_mem);
+            _id, _name, PrettyPrinter::print_bytes(_memory_limit),
+            PrettyPrinter::print_bytes(used_memory), PrettyPrinter::print_bytes(need_free_mem));
     Defer defer {[&]() {
         LOG(INFO) << fmt::format(
                 "[MemoryGC] work load group finished gc, id:{} name:{}, memory limit: {}, "
                 "used: "
                 "{}, need_free_mem: {}, freed memory: {}.",
-                _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
+                _id, _name, PrettyPrinter::print_bytes(_memory_limit),
+                PrettyPrinter::print_bytes(used_memory), PrettyPrinter::print_bytes(need_free_mem),
+                PrettyPrinter::print_bytes(freed_mem));
     }};
 
     // 1. free top overcommit query

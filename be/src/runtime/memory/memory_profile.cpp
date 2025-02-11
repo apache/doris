@@ -154,7 +154,8 @@ void MemoryProfile::refresh_memory_overview_profile() {
     ExecEnv::GetInstance()->rowsets_no_cache_mem_tracker()->set_consumption(
             MetadataAdder<RowsetMeta>::get_all_rowsets_size());
     ExecEnv::GetInstance()->segments_no_cache_mem_tracker()->set_consumption(
-            MetadataAdder<segment_v2::Segment>::get_all_segments_size());
+            MetadataAdder<segment_v2::Segment>::get_all_segments_estimate_size() -
+            SegmentLoader::instance()->cache_mem_usage());
 
     // 4 refresh tracked memory counter
     std::unordered_map<MemTrackerLimiter::Type, int64_t> type_mem_sum = {
@@ -263,9 +264,6 @@ void MemoryProfile::refresh_memory_overview_profile() {
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
     // 6 refresh additional tracker printed when memory exceeds limit.
-    COUNTER_SET(
-            _load_all_memtables_usage_counter,
-            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->peak_consumption());
     COUNTER_SET(_load_all_memtables_usage_counter,
                 ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
 
@@ -344,7 +342,8 @@ std::string MemoryProfile::process_memory_detail_str() const {
 void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
-        LOG(WARNING) << process_memory_detail_str();
+        auto log_str = process_memory_detail_str();
+        LOG_LONG_STRING(WARNING, log_str);
     }
 }
 

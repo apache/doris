@@ -325,15 +325,11 @@ void Daemon::memory_maintenance_thread() {
         // step 7: handle paused queries(caused by memory insufficient)
         doris::ExecEnv::GetInstance()->workload_group_mgr()->handle_paused_queries();
 
-        // step 8. Analyze blocking queries.
-        // TODO sort the operators that can spill, wake up the pipeline task spill
-        // or continue execution according to certain rules or cancel query.
-
-        // step 9. Flush memtable
+        // step 8. Flush memtable
         doris::GlobalMemoryArbitrator::notify_memtable_memory_refresh();
         // TODO notify flush memtable
 
-        // step 10. Reset Jemalloc dirty page decay.
+        // step 9. Reset Jemalloc dirty page decay.
         je_reset_dirty_decay();
     }
 }

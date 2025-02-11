@@ -393,6 +393,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
                 bool serialized = false;
+                int64_t old_block_mem_bytes = local_state._serializer.mem_usage();
+                Defer update_mem([&]() {
+                    COUNTER_UPDATE(local_state.memory_used_counter(),
+                                   local_state._serializer.mem_usage() - old_block_mem_bytes);
+                });
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
                         block, block_holder->get_block(), local_state._rpc_channels_num,
                         &serialized, eos));
@@ -429,7 +434,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         }
                         idx++;
                     }
-                    if (moved) {
+                    if (moved || state->get_query_ctx()->low_memory_mode()) {
                         local_state._serializer.reset_block();
                     } else {
                         cur_block.clear_column_data();
@@ -495,8 +500,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
 
     Status final_st = Status::OK();
     if (eos) {
+        int64_t block_mem_bytes = local_state._serializer.mem_usage();
+        COUNTER_UPDATE(local_state.memory_used_counter(), -block_mem_bytes);
         local_state._serializer.reset_block();
         for (auto& channel : local_state.channels) {
+            COUNTER_UPDATE(local_state.memory_used_counter(), -channel->mem_usage());
             Status st = channel->close(state);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;

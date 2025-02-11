@@ -37,6 +37,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/heap_profiler.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -314,6 +315,35 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
 void QueryContext::cancel(Status new_status, int fragment_id) {
     if (!_exec_status.update(new_status)) {
         return;
+    }
+    if ((new_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
+         new_status.is<ErrorCode::MEM_ALLOC_FAILED>()) &&
+        _query_options.__isset.dump_heap_profile_when_mem_limit_exceeded &&
+        _query_options.dump_heap_profile_when_mem_limit_exceeded) {
+        // if query is cancelled because of query mem limit exceeded, dump heap profile
+        // at the time of cancellation can get the most accurate memory usage for problem analysis
+        auto wg = workload_group();
+        auto log_str = fmt::format(
+                "Query {} canceled because of memory limit exceeded, dumping memory "
+                "detail profiles. wg: {}. {}",
+                print_id(_query_id), wg ? wg->debug_string() : "null",
+                doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str());
+        LOG_LONG_STRING(INFO, log_str);
+        std::string dot = HeapProfiler::instance()->dump_heap_profile_to_dot();
+        if (!dot.empty()) {
+            dot += "\n-------------------------------------------------------\n";
+            dot += "Copy the text after `digraph` in the above output to "
+                   "http://www.webgraphviz.com to generate a dot graph.\n"
+                   "after start heap profiler, if there is no operation, will print `No nodes "
+                   "to "
+                   "print`."
+                   "If there are many errors: `addr2line: Dwarf Error`,"
+                   "or other FAQ, reference doc: "
+                   "https://doris.apache.org/community/developer-guide/debug-tool/#4-qa\n";
+            auto log_str =
+                    fmt::format("Query {}, dump heap profile to dot: {}", print_id(_query_id), dot);
+            LOG_LONG_STRING(INFO, log_str);
+        }
     }
 
     set_ready_to_execute(new_status);

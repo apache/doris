@@ -33,6 +33,7 @@
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
+#include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 
@@ -174,7 +175,7 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
 
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
-                  << ", memsize: " << memtable->memory_usage()
+                  << ", memsize: " << PrettyPrinter::print_bytes(memtable->memory_usage())
                   << ", rows: " << memtable->stat().raw_rows;
     memtable->update_mem_type(MemType::FLUSH);
     int64_t duration_ns = 0;
@@ -205,7 +206,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
-                  << ", flushsize: " << *flush_size;
+                  << ", flushsize: " << PrettyPrinter::print_bytes(*flush_size);
     return Status::OK();
 }
 
@@ -254,11 +255,14 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
         return;
     }
 
-    VLOG_CRITICAL << "flush memtable wait time:" << flush_wait_time_ns
-                  << "(ns), flush memtable cost: " << timer.elapsed_time()
-                  << "(ns), running count: " << _stats.flush_running_count
+    VLOG_CRITICAL << "flush memtable wait time: "
+                  << PrettyPrinter::print(flush_wait_time_ns, TUnit::TIME_NS)
+                  << ", flush memtable cost: "
+                  << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                  << ", running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
-                  << ", mem size: " << memory_usage << ", disk size: " << flush_size;
+                  << ", mem size: " << PrettyPrinter::print_bytes(memory_usage)
+                  << ", disk size: " << PrettyPrinter::print_bytes(flush_size);
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_size_bytes += memtable_ptr->memory_usage();

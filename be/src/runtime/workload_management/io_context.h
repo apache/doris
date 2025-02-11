@@ -62,9 +62,9 @@ public:
             shuffle_send_rows_counter_ =
                     ADD_COUNTER(profile_, "ShuffleSendRowsCounter_", TUnit::UNIT);
             spill_write_bytes_to_local_storage_counter_ =
-                    ADD_COUNTER(profile_, "SpillWriteBytesToLocalStorage", TUnit::UNIT);
+                    ADD_COUNTER(profile_, "SpillWriteBytesToLocalStorage", TUnit::BYTES);
             spill_read_bytes_from_local_storage_counter_ =
-                    ADD_COUNTER(profile_, "SpillReadBytesFromLocalStorage", TUnit::UNIT);
+                    ADD_COUNTER(profile_, "SpillReadBytesFromLocalStorage", TUnit::BYTES);
         }
         std::string debug_string() { return profile_->pretty_print(); }
 

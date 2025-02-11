@@ -210,6 +210,11 @@ public:
         if (local_state._broadcast_pb_mem_limiter) {
             local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
         }
+        local_state._serializer.set_low_memory_mode(state);
+
+        for (auto& channel : local_state.channels) {
+            channel->set_low_memory_mode(state);
+        }
     }
 
     // For a normal shuffle scenario, if the concurrency is n,

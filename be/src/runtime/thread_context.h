@@ -237,8 +237,6 @@ public:
         return thread_mem_tracker_mgr->try_reserve(size, false);
     }
 
-    void release_reserved_memory() const { thread_mem_tracker_mgr->shrink_reserved(); }
-
     int thread_local_handle_count = 0;
 
 private:

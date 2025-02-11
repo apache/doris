@@ -238,9 +238,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    LOG(INFO) << "Query: " << print_id(state->query_id())
-              << "hashjoin sink close: " << _runtime_filter_slots << ", " << _runtime_filters.size()
-              << ", " << _eos << ", " << _runtime_filters_disabled;
+    VLOG_DEBUG << "Query: " << print_id(state->query_id())
+               << "hashjoin sink close: " << _runtime_filter_slots << ", "
+               << _runtime_filters.size() << ", " << _eos << ", " << _runtime_filters_disabled;
     if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos ||
         _runtime_filters_disabled) {
         return Base::close(state, exec_status);
