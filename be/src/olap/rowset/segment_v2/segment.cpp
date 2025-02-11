@@ -25,6 +25,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
@@ -327,8 +328,13 @@ Status Segment::_load_pk_bloom_filter() {
 }
 
 Status Segment::load_pk_index_and_bf() {
-    RETURN_IF_ERROR(load_index());
-    RETURN_IF_ERROR(_load_pk_bloom_filter());
+    // `DorisCallOnce` may catch exception in calling stack A and re-throw it in
+    // a different calling stack B which doesn't have catch block. So we add catch block here
+    // to prevent coreudmp
+    RETURN_IF_CATCH_EXCEPTION({
+        RETURN_IF_ERROR(load_index());
+        RETURN_IF_ERROR(_load_pk_bloom_filter());
+    });
     return Status::OK();
 }
 
