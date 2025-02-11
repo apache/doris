@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.mysql.BytesChannel;
 import org.apache.doris.mysql.ProxyProtocolHandler;
+import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
@@ -55,7 +56,7 @@ public class ProxyProtocolHandlerTest {
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
         Assertions.assertNotNull(result);
-        Assertions.assertFalse(result.isUnknown);
+        Assertions.assertEquals(ProtocolType.PROTOCOL_WITH_IP, result.pType);
         Assertions.assertEquals("192.168.0.1", result.sourceIP);
         Assertions.assertEquals(12345, result.sourcePort);
         Assertions.assertEquals("192.168.0.2", result.destIp);
@@ -68,7 +69,7 @@ public class ProxyProtocolHandlerTest {
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.isUnknown);
+        Assertions.assertEquals(ProtocolType.PROTOCOL_WITHOUT_IP, result.pType);
     }
 
     @Test(expected = IOException.class)
@@ -105,7 +106,7 @@ public class ProxyProtocolHandlerTest {
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
         Assertions.assertNotNull(result);
-        Assertions.assertFalse(result.isUnknown);
+        Assertions.assertEquals(ProtocolType.PROTOCOL_WITH_IP, result.pType);
         Assertions.assertEquals("2001:db8:0:1:1:1:1:1", result.sourceIP);
         Assertions.assertEquals(12345, result.sourcePort);
         Assertions.assertEquals("2001:db8:0:1:1:1:1:2", result.destIp);
