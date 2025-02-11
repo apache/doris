@@ -40,13 +40,14 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
  * Dictionary metadata, including its structure and data source information. saved in
  */
 public class Dictionary extends Table {
-    // TODO: dictionary should also be able to be created in external catalog.
+    // TODO: maybe dictionary should also be able to be created in external catalog.
     @SerializedName(value = "dbName")
     private final String dbName;
 
@@ -70,14 +71,15 @@ public class Dictionary extends Table {
     private long lastUpdateTime;
 
     public enum DictionaryStatus {
-        LOADING, // wait load task finishs
         NORMAL, // normal status
+        LOADING, // wait load task finishs
         OUT_OF_DATE, // wait load task be scheduled
-        REMOVING; // wait unload task be scheduled and finish
+        REMOVING, // wait unload task be scheduled and finish
+        REMOVED // data unloaded. wait clean item.
     }
 
-    @SerializedName(value = "status")
-    private DictionaryStatus status;
+    private final AtomicReference<DictionaryStatus> status = new AtomicReference<>();
+
     @SerializedName(value = "layout")
     private final LayoutType layout;
     @SerializedName(value = "version")
@@ -94,7 +96,7 @@ public class Dictionary extends Table {
         this.columns = null;
         this.properties = null;
         this.lastUpdateTime = 0;
-        this.status = null;
+        this.status.set(DictionaryStatus.NORMAL); // not replay by gson
         this.layout = null;
         this.version = 0;
     }
@@ -109,7 +111,7 @@ public class Dictionary extends Table {
         this.columns = info.getColumns();
         this.properties = info.getProperties();
         this.lastUpdateTime = createTime;
-        this.status = DictionaryStatus.NORMAL;
+        this.status.set(DictionaryStatus.NORMAL);
         this.layout = info.getLayout();
         this.version = 1;
     }
@@ -216,11 +218,65 @@ public class Dictionary extends Table {
     }
 
     public DictionaryStatus getStatus() {
-        return status;
+        return status.get();
     }
 
-    public void setStatus(DictionaryStatus status) {
-        this.status = status;
+    public boolean trySetStatusIf(DictionaryStatus currentStatus, DictionaryStatus newStatus) {
+        return status.compareAndSet(currentStatus, newStatus);
+    }
+
+    public boolean trySetStatus(DictionaryStatus newStatus) {
+        // use get and compare to avoid ABA problem
+        while (true) {
+            DictionaryStatus currentStatus = status.get();
+
+            if (currentStatus == DictionaryStatus.NORMAL) {
+                // can't directly move to target status.
+                if (newStatus != DictionaryStatus.REMOVED) {
+                    if (status.compareAndSet(currentStatus, newStatus)) {
+                        return true;
+                    } else {
+                        continue; // status changed, retry
+                    }
+                }
+                return false;
+            } else if (currentStatus == DictionaryStatus.LOADING) {
+                // may success or failed
+                if (newStatus == DictionaryStatus.NORMAL || newStatus == DictionaryStatus.OUT_OF_DATE) {
+                    if (status.compareAndSet(currentStatus, newStatus)) {
+                        return true;
+                    } else {
+                        continue; // status changed, retry
+                    }
+                }
+                return false;
+            } else if (currentStatus == DictionaryStatus.OUT_OF_DATE) {
+                // we could load or drop it
+                if (newStatus == DictionaryStatus.LOADING || newStatus == DictionaryStatus.REMOVING) {
+                    if (status.compareAndSet(currentStatus, newStatus)) {
+                        return true;
+                    } else {
+                        continue; // status changed, retry
+                    }
+                }
+                return false;
+            } else if (currentStatus == DictionaryStatus.REMOVING) {
+                // success to REMOVED, or failed to OUT_OF_DATE wait reload to re complete it.
+                if (newStatus == DictionaryStatus.REMOVED || newStatus == DictionaryStatus.OUT_OF_DATE) {
+                    if (status.compareAndSet(currentStatus, newStatus)) {
+                        return true;
+                    } else {
+                        continue; // status changed, retry
+                    }
+                }
+                return false;
+            } else if (currentStatus == DictionaryStatus.REMOVED) {
+                // cant do anything. only directly dropping is allowed
+                return false;
+            }
+
+            return false; // unknown status
+        }
     }
 
     public LayoutType getLayout() {

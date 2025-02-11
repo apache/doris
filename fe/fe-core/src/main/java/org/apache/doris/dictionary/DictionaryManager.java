@@ -26,6 +26,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.dictionary.Dictionary.DictionaryStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
@@ -100,6 +101,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
     }
 
+    // if lock manager and dictionary together, manager should be locked first!
     public void lockRead() {
         lock.readLock().lock();
     }
@@ -288,6 +290,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     /// and FE. So they are not private.
 
     public void scheduleDataLoad(ConnectContext ctx, Dictionary dictionary) throws Exception {
+        // use atomic status as a lock.
+        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
+            throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
+                    + dictionary.getStatus().name());
+        }
+
         if (ctx == null) { // for run with scheduler, not by command.
             // priv check is done in relative(caller) command. so use ADMIN here is ok.
             ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
@@ -303,72 +311,91 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         baseCommand.setLabelName(Optional.of(jobId + "_" + queryId.toString()));
         baseCommand.setJobId(jobId);
 
-        dictionary.setStatus(Dictionary.DictionaryStatus.LOADING);
         InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(baseCommand, dictionary);
 
-        // run with sync
+        // run with sync by status.
         try {
-            dictionary.writeLock();
             dictionary.increaseVersion();
             command.run(ctx, executor);
 
             Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
-            dictionary.setStatus(Dictionary.DictionaryStatus.NORMAL);
+            dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL); // wont fail cuz status is LOADING owned by me.
             dictionary.updateLastUpdateTime();
             LOG.info("Dictionary {} refresh succeed", dictionary.getName());
         } catch (Exception e) {
             // wait next shedule.
             LOG.warn("Dictionary {} refresh failed", dictionary.getName());
             dictionary.decreaseVersion();
-            dictionary.setStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
+            dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE); // wont fail cuz status is LOADING owned
+                                                                              // by me.
             throw e;
-        } finally {
-            dictionary.writeUnlock();
         }
     }
 
-    public void scheduleDataUnload(ConnectContext ctx, Dictionary dictionary)
-            throws AnalysisException {
+    public boolean scheduleDataUnload(Dictionary dictionary) {
+        // use atomic status as a lock.
+        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.REMOVING)) {
+            return false;
+        }
+
         List<Backend> aliveBes = new ArrayList<>();
         try {
             aliveBes = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().stream()
                     .filter(be -> be.isAlive()).collect(Collectors.toList());
         } catch (AnalysisException e) {
             // actually it wont throw.
+            return false;
         }
         // get all alive BEs and send rpc.
         List<Future<InternalService.PDeleteDictionaryResponse>> futureList = new ArrayList<>();
-        for (Backend be : aliveBes) {
-            if (!be.isAlive()) {
-                continue;
+        boolean allSucceed = true;
+        try {
+            for (Backend be : aliveBes) {
+                if (!be.isAlive()) {
+                    continue;
+                }
+                final InternalService.PDeleteDictionaryRequest request = InternalService.PDeleteDictionaryRequest
+                        .newBuilder().setDictionaryId(dictionary.getId()).build();
+                Future<InternalService.PDeleteDictionaryResponse> response = BackendServiceProxy.getInstance()
+                        .deleteDictionaryAsync(be.getBrpcAddress(), Config.dictionary_delete_rpc_timeout_ms, request);
+                futureList.add(response);
             }
-            final InternalService.PDeleteDictionaryRequest request = InternalService.PDeleteDictionaryRequest
-                    .newBuilder().setDictionaryId(dictionary.getId()).build();
-            Future<InternalService.PDeleteDictionaryResponse> response = BackendServiceProxy.getInstance()
-                    .deleteDictionaryAsync(be.getBrpcAddress(), Config.dictionary_delete_rpc_timeout_ms, request);
-            futureList.add(response);
-        }
-        // wait all responses. if succeed, delete dictionary.
-        for (Future<InternalService.PDeleteDictionaryResponse> future : futureList) {
-            if (future == null) {
-                continue;
-            }
-            try {
+            // wait all responses. if succeed, delete dictionary.
+            for (Future<InternalService.PDeleteDictionaryResponse> future : futureList) {
+                if (future == null) {
+                    continue;
+                }
                 InternalService.PDeleteDictionaryResponse response = future.get(Config.dictionary_delete_rpc_timeout_ms,
                         TimeUnit.SECONDS);
                 if (response.hasStatus()) {
                     Status status = new Status(response.getStatus());
                     if (status.getErrorCode() != TStatusCode.OK) {
-                        LOG.warn("Failed to delete dictionary " + dictionary.getName() + " on be "
+                        LOG.warn("Failed to unload dictionary " + dictionary.getName() + " on be "
                                 + status.getErrorMsg());
-                        dictionary.setStatus(Dictionary.DictionaryStatus.REMOVING);
+                        allSucceed = false;
                     }
+                } else {
+                    LOG.warn("Failed to unload dictionary " + dictionary.getName() + " on be");
+                    allSucceed = false;
                 }
-            } catch (Throwable t) {
-                LOG.warn("Failed to delete dictionary " + dictionary.getName(), t);
-                throw new AnalysisException("Failed to delete dictionary " + dictionary.getName());
             }
+        } catch (Exception e) {
+            LOG.warn("Failed to unload dictionary " + dictionary.getName(), e);
+            allSucceed = false;
         }
+
+        if (allSucceed) {
+            dictionary.trySetStatus(Dictionary.DictionaryStatus.REMOVED); // wont fail cuz status is REMOVING owned by
+                                                                          // me.
+            LOG.info("Dictionary {} unload succeed", dictionary.getName());
+            return true;
+        }
+        // maybe some of data dropped. so imcomplete. need reloading to complete it.
+        dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE); // wont fail cuz status is REMOVING owned by
+                                                                          // me.
+        return false;
+    }
+
     }
 
     public void replayCreateDictionary(CreateDictionaryPersistInfo info) {
