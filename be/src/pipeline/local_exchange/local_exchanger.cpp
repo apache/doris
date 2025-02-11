@@ -377,6 +377,7 @@ Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_
                         *sink_info.channel_id));
     }
     if (eos && sink_info.local_state) {
+        _eos[*sink_info.channel_id] = true;
         sink_info.local_state->_shared_state->source_deps[*sink_info.channel_id]
                 ->set_always_ready();
     }
@@ -422,7 +423,7 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                                                            vectorized::Block* block, bool* eos) {
             BlockWrapperSPtr next_block;
             _dequeue_data(local_state, next_block, eos, block, id);
-            if (!*eos && block->empty()) {
+            if (!*eos && block->empty() && !_eos[id]) {
                 return Status::InternalError(
                         "LocalMergeSortExchanger{} meet error! Block should not be empty when eos "
                         "is false",

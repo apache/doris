@@ -348,7 +348,9 @@ public:
     LocalMergeSortExchanger(MergeInfo&& merge_info, int running_sink_operators, int num_partitions,
                             int free_block_limit)
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit),
-              _merge_info(std::move(merge_info)) {}
+              _merge_info(std::move(merge_info)) {
+        _eos.resize(num_partitions, false);
+    }
     ~LocalMergeSortExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo&& sink_info) override;
@@ -364,6 +366,7 @@ public:
 
 private:
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
+    std::vector<bool> _eos;
     MergeInfo _merge_info;
     std::vector<std::atomic_int64_t> _queues_mem_usege;
 };
