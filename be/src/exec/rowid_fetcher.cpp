@@ -526,7 +526,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
                     RETURN_IF_ERROR(read_doris_format_row(
                             file_mapping, request_schema.row_id(j), desc, full_read_schema,
-                            request.fetch_row_store(), request_schema.row_id_size(), stats,
+                            request_schema.fetch_row_store(), request_schema.row_id_size(), stats,
                             &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
                             &lookup_row_data_ms, iterator_map, result_block, ret_block));
                 }
@@ -631,7 +631,7 @@ Status RowIdStorageReader::read_doris_format_row(
         RowLocation loc(rowset_id, segment->id(), row_id);
         string* value = ret_block->add_binary_row_data();
         RETURN_IF_ERROR(scope_timer_run(
-                [&]() { return tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value); },
+                [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
                 lookup_row_data_ms));
     } else {
         if (result_block.is_empty_column()) {

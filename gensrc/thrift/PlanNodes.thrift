@@ -976,8 +976,10 @@ struct TMaterializationNode {
     3: optional list<Exprs.TExpr> fetch_expr_lists
     // Fetch schema
     4: optional list<list<Descriptors.TColumn>> column_descs_lists; 
+    // Add column in tuple offset
+    5: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
     // Whether fetch row store
-    5: optional list<bool> fetch_row_stores
+    6: optional list<bool> fetch_row_stores
 }
 
 struct TPreAggregationNode {

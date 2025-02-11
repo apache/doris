@@ -30,6 +30,12 @@ class RuntimeState;
 namespace pipeline {
 class DataQueue;
 
+struct FetchRpcStruct {
+    std::shared_ptr<PBackendService_Stub> stub;
+    PMultiGetRequestV2 request;
+    PMultiGetResponseV2 response;
+};
+
 class MaterializationSinkOperatorX;
 class MaterializationSinkLocalState final : public PipelineXSinkLocalState<DataQueueSharedState> {
 public:
@@ -62,10 +68,16 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
-    std::map<int64_t, std::shared_ptr<PBackendService_Stub>> _stubs;
+    Status _create_muiltget_result(const vectorized::Columns& columns);
+    Status _merge_muilt_respose(std::vector<brpc::Controller>& cntls);
+
+    std::map<int64_t, FetchRpcStruct> _rpc_struct_map;
 
     /// Materialized slot by this node. The i-th result expr list refers to a slot of RowId
-    vectorized::VExprContextSPtrs _rowid_expr;
+    vectorized::VExprContextSPtrs _rowid_exprs;
+    std::vector<std::vector<uint64_t>> _block_order_results;
+
+    std::vector<bool> _fetch_row_stores;
 };
 
 } // namespace pipeline
