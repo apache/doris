@@ -23,6 +23,7 @@
 #include "util/deletion_vector.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, const TFileScanRangeParams& params)
         : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
@@ -98,4 +99,5 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
