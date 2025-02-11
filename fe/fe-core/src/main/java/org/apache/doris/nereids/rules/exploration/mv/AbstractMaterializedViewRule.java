@@ -79,6 +79,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -105,10 +106,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     public List<Plan> rewrite(Plan queryPlan, CascadesContext cascadesContext) {
         List<Plan> rewrittenPlans = new ArrayList<>();
         // if available materialization list is empty, bail out
-        if (cascadesContext.getMaterializationContexts().isEmpty()) {
+        if (cascadesContext.getMaterializationContexts().isEmpty()
+                || cascadesContext.getStatementContext().getMaterializedViewRewriteDuration() == -1) {
             return rewrittenPlans;
         }
         for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
+            cascadesContext.getStatementContext().getMaterializedViewStopwatch().reset().start();
             if (checkIfRewritten(queryPlan, context)) {
                 continue;
             }
@@ -122,10 +125,23 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
+            cascadesContext.getStatementContext().addMaterializedViewRewriteDuration(cascadesContext
+                    .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
             for (StructInfo queryStructInfo : queryStructInfos) {
+                cascadesContext.getStatementContext().getMaterializedViewStopwatch().reset().start();
+                SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+                if (cascadesContext.getStatementContext().getMaterializedViewRewriteDuration()
+                        > sessionVariable.materializedViewRewriteDurationThreshold) {
+                    cascadesContext.getStatementContext().materializedViewRewriteDurationExceeded();
+                    cascadesContext.getStatementContext().getMaterializedViewStopwatch().stop();
+                    LOG.warn("materialized view rewrite duration is exceeded, the query sql hash is {}",
+                            cascadesContext.getConnectContext().getSqlHash());
+                    MaterializationContext.makeFailWithDurationExceeded(queryStructInfo,
+                            cascadesContext.getMaterializationContexts());
+                    return rewrittenPlans;
+                }
                 try {
-                    if (rewrittenPlans.size() < cascadesContext.getConnectContext()
-                            .getSessionVariable().getMaterializedViewRewriteSuccessCandidateNum()) {
+                    if (rewrittenPlans.size() < sessionVariable.getMaterializedViewRewriteSuccessCandidateNum()) {
                         rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, context));
                     }
                 } catch (Exception exception) {
@@ -133,6 +149,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 }
+                cascadesContext.getStatementContext().addMaterializedViewRewriteDuration(cascadesContext
+                        .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS)
+                );
             }
         }
         return rewrittenPlans;
@@ -856,6 +875,18 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     // check mv plan is valid or not, this can use cache for performance
     private boolean isMaterializationValid(Plan queryPlan, CascadesContext cascadesContext,
             MaterializationContext context) {
+        if (!context.getStructInfo().isValid()) {
+            context.recordFailReason(context.getStructInfo(),
+                    "View original struct info is invalid", () -> String.format("view plan is %s",
+                            context.getStructInfo().getOriginalPlan().treeString()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
+                                + "view plan is %s",
+                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
+                        context.getStructInfo().getTopPlan().treeString()));
+            }
+            return false;
+        }
         long materializationId = context.generateMaterializationIdentifier().hashCode();
         Boolean cachedCheckResult = cascadesContext.getMemo().materializationHasChecked(this.getClass(),
                 materializationId);
@@ -886,18 +917,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                             context.getStructInfo().getOriginalPlan().treeString()));
             if (LOG.isDebugEnabled()) {
                 LOG.debug(String.format("View struct info is invalid, mv identifier is %s, query plan is %s,"
-                                + "view plan is %s",
-                        context.generateMaterializationIdentifier(), queryPlan.treeString(),
-                        context.getStructInfo().getTopPlan().treeString()));
-            }
-            return false;
-        }
-        if (!context.getStructInfo().isValid()) {
-            context.recordFailReason(context.getStructInfo(),
-                    "View original struct info is invalid", () -> String.format("view plan is %s",
-                            context.getStructInfo().getOriginalPlan().treeString()));
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(String.format("View struct info is invalid, mv identifier is %s,  query plan is %s,"
                                 + "view plan is %s",
                         context.generateMaterializationIdentifier(), queryPlan.treeString(),
                         context.getStructInfo().getTopPlan().treeString()));
