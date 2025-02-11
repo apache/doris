@@ -48,7 +48,7 @@ import javax.annotation.Nullable;
 public class MTMVPlanUtil {
 
     public static ConnectContext createMTMVContext(MTMV mtmv) {
-        ConnectContext ctx = createMTMVContext(null);
+        ConnectContext ctx = createBasicMvContext(null);
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
