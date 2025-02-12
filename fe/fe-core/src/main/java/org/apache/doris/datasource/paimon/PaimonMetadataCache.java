@@ -26,13 +26,10 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.partition.Partition;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.table.system.PartitionsTable;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -76,26 +73,15 @@ public class PaimonMetadataCache {
         if (CollectionUtils.isEmpty(partitionColumns)) {
             return new PaimonPartitionInfo();
         }
-        List<PaimonPartition> paimonPartitions = loadPartitions(key);
+        List<Partition> paimonPartitions = ((PaimonExternalCatalog) key.getCatalog())
+                .getPaimonPartitions(key.getDbName(), key.getTableName());
         return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
-    }
-
-    private List<PaimonPartition> loadPartitions(PaimonSnapshotCacheKey key)
-            throws IOException {
-        Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(),
-                key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + PartitionsTable.PARTITIONS);
-        List<InternalRow> rows = PaimonUtil.read(table, null, null);
-        List<PaimonPartition> res = Lists.newArrayListWithCapacity(rows.size());
-        for (InternalRow row : rows) {
-            res.add(PaimonUtil.rowToPartition(row));
-        }
-        return res;
     }
 
     private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
         Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(), key.getTableName());
         // snapshotId and schemaId
-        long latestSnapshotId = 0L;
+        long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
         long latestSchemaId = 0L;
         OptionalLong optionalSnapshotId = table.latestSnapshotId();
         if (optionalSnapshotId.isPresent()) {
