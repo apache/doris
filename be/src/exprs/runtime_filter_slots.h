@@ -125,6 +125,9 @@ public:
     Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto* filter : _runtime_filters) {
+            if (filter->get_ignored() || filter->get_disabled()) {
+                continue;
+            }
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                 get_real_size(filter, local_hash_table_size) > state->runtime_filter_max_in_num()) {
                 RETURN_IF_ERROR(filter->change_to_bloom_filter());
