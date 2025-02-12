@@ -1510,11 +1510,15 @@ public abstract class RoutineLoadJob
             }
         }
 
-        preCheckNeedSchedule();
+        boolean needAutoResume = needAutoResume();
+
+        if (!refreshKafkaPartitions(needAutoResume)) {
+            return;
+        }
 
         writeLock();
         try {
-            if (unprotectNeedReschedule()) {
+            if (unprotectNeedReschedule() || needAutoResume) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("msg", "Job need to be rescheduled")
                         .build());
@@ -1530,14 +1534,18 @@ public abstract class RoutineLoadJob
     // Because unprotectUpdateProgress() is protected by writelock.
     // So if there are time-consuming operations, they should be done in this method.
     // (Such as getAllKafkaPartitions() in KafkaRoutineLoad)
-    protected void preCheckNeedSchedule() throws UserException {
-
+    protected boolean refreshKafkaPartitions(boolean needAutoResume) throws UserException {
+        return false;
     }
 
     protected void unprotectUpdateProgress() throws UserException {
     }
 
     protected boolean unprotectNeedReschedule() throws UserException {
+        return false;
+    }
+
+    protected boolean needAutoResume() {
         return false;
     }
 
