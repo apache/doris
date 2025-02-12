@@ -93,7 +93,7 @@ static void register_suites() {
     });
     suite_map.emplace("Transaction::commit.enable_inject", []() {
         auto* sp = SyncPoint::get_instance();
-        sp->set_call_back("transaction:commit:get_err", [](auto&& args) {
+        sp->set_call_back("Transaction::commit.inject_random_fault", [](auto&& args) {
             std::mt19937 gen {std::random_device {}()};
             double p {-1.0};
             TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault.set_p", &p);
