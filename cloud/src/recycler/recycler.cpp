@@ -539,11 +539,12 @@ int InstanceRecycler::init_storage_vault_accessors() {
             if (auto it = std::find(config::storage_vault_white_list.begin(),
                                     config::storage_vault_white_list.end(), vault.name());
                 it == config::storage_vault_white_list.end()) {
-                std::string storage_vault_white_list = accumulate(
-                        config::storage_vault_white_list.begin(), config::storage_vault_white_list.end(),
-                        std::string(), [](std::string a, std::string b) {
-                            return a + (a.empty() ? "" : ",") + b;
-                        });
+                std::string storage_vault_white_list =
+                        accumulate(config::storage_vault_white_list.begin(),
+                                   config::storage_vault_white_list.end(), std::string(),
+                                   [](std::string a, std::string b) {
+                                       return a + (a.empty() ? "" : ",") + b;
+                                   });
                 LOG_WARNING(
                         "failed to init accessor for vault because this vault is not in "
                         "config::storage_vault_white_list. ")
