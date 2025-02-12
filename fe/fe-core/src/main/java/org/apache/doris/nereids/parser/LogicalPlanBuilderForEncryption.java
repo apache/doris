@@ -28,6 +28,7 @@ import org.antlr.v4.runtime.ParserRuleContext;
 import org.apache.commons.collections.MapUtils;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -102,10 +103,14 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // create table clause
     @Override
     public LogicalPlan visitCreateTable(DorisParser.CreateTableContext ctx) {
-        DorisParser.PropertyClauseContext context = ctx.properties;
-        if (context != null) {
-            encryptProperty(visitPropertyClause(context), context.fileProperties.start.getStartIndex(),
-                    context.fileProperties.stop.getStopIndex());
+        // property or ext property
+        if (ctx.propertyClause() != null) {
+            List<DorisParser.PropertyClauseContext> propertyClauseContexts = ctx.propertyClause();
+            for (DorisParser.PropertyClauseContext propertyClauseContext : propertyClauseContexts) {
+                encryptProperty(visitPropertyClause(propertyClauseContext),
+                        propertyClauseContext.fileProperties.start.getStartIndex(),
+                        propertyClauseContext.fileProperties.stop.getStopIndex());
+            }
         }
         return super.visitCreateTable(ctx);
     }

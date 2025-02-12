@@ -103,9 +103,9 @@ suite("test_encrypt_sql") {
                     );
             """
         } catch (Exception e) {}
-
+        // for jdbc table or es table
         try {
-            sql"""CREATE TABLE mysql_tbl (
+            sql"""CREATE TABLE mysql_${tableName} (
                     k1 DATE, 
                     k2 INT, 
                     k3 SMALLINT, 
@@ -124,6 +124,25 @@ suite("test_encrypt_sql") {
             """
         } catch (Exception e) {}
 
+        try {
+            sql"""CREATE EXTERNAL TABLE broker_${tableName}(
+                    k1 tinyint, 
+                    k2 smallint, 
+                    k3 int, 
+                    k4 bigint) 
+                ENGINE=broker 
+                PROPERTIES(
+                    "broker_name" = "hdfs",
+                    "path" = "hdfs://xxxxxxx/qe/a.txt",
+                    "column_separator" = "\\t"
+                ) 
+                BROKER PROPERTIES(
+                    "username"="root", 
+                    "password"="123"
+                );
+            """
+        } catch (Exception e) {}
+
         sql "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')"
 
         sql "SET PASSWORD FOR '${user}' = PASSWORD('123456')"
@@ -134,7 +153,7 @@ suite("test_encrypt_sql") {
 
     def dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd")
     def date = dateFormat.format(new Date())
-    qt_sql "select stmt from __internal_schema.audit_log where user = '${user}' and time > '${date}' and (stmt like '%${tableName}%' or stmt like '%PASSWORD%' order by stmt"
+    qt_sql "select stmt from __internal_schema.audit_log where user = '${user}' and time > '${date}' and (stmt like '%${tableName}%' or stmt like '%PASSWORD%') order by stmt"
 
     sql "drop table ${tableName}"
     sql "drop database ${dbName}"
