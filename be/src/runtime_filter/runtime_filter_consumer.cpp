@@ -49,6 +49,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
 
 Status RuntimeFilterConsumer::acquire_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                                            std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
+    std::unique_lock lock(_inner_mutex);
     if (_rf_state == State::APPLIED) {
         return Status::OK();
     }
