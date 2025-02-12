@@ -537,7 +537,23 @@ int InstanceRecycler::init_storage_vault_accessors() {
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
-
+        if (!config::valid_vault_name_set.empty()) {
+            if (auto it = std::find(config::valid_vault_name_set.begin(),
+                                    config::valid_vault_name_set.end(), vault.name());
+                it == config::valid_vault_name_set.end()) {
+                std::string valid_vault_name_set = accumulate(
+                        config::valid_vault_name_set.begin(), config::valid_vault_name_set.end(),
+                        std::string(), [](std::string a, std::string b) {
+                            return a + (a.empty() ? "" : ",") + b;
+                        });
+                LOG_WARNING(
+                        "failed to init accessor for vault because this vault is not in "
+                        "config::valid_vault_name_set. ")
+                        .tag(" vault name:", vault.name())
+                        .tag(" config::valid_vault_name_set:", valid_vault_name_set);
+                continue;
+            }
+        }
         if (vault.has_hdfs_info()) {
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
             int ret = accessor->init();
@@ -567,24 +583,6 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " ret=" << ret
                              << " s3_vault=" << encryt_sk(vault.obj_info().ShortDebugString());
                 continue;
-            }
-            if (!config::valid_s3_vault_endpoints.empty()) {
-                if (auto it = std::find(config::valid_s3_vault_endpoints.begin(),
-                                        config::valid_s3_vault_endpoints.end(), s3_conf->endpoint);
-                    it == config::valid_s3_vault_endpoints.end()) {
-                    std::string valid_s3_vault_endpoints =
-                            accumulate(config::valid_s3_vault_endpoints.begin(),
-                                       config::valid_s3_vault_endpoints.end(), std::string(),
-                                       [](std::string a, std::string b) {
-                                           return a + (a.empty() ? "" : " ") + b;
-                                       });
-                    LOG_WARNING(
-                            "failed to init s3 accessor because the endpoint is not in "
-                            "config::valid_s3_vault_endpoints!")
-                            .tag("[s3 accessor end point]:", s3_conf->endpoint)
-                            .tag("[config::valid_s3_vault_endpoints]:", valid_s3_vault_endpoints);
-                    continue;
-                }
             }
             LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
                       << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
