@@ -535,20 +535,20 @@ int InstanceRecycler::init_storage_vault_accessors() {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
-        if (!config::valid_vault_name_set.empty()) {
-            if (auto it = std::find(config::valid_vault_name_set.begin(),
-                                    config::valid_vault_name_set.end(), vault.name());
-                it == config::valid_vault_name_set.end()) {
-                std::string valid_vault_name_set = accumulate(
-                        config::valid_vault_name_set.begin(), config::valid_vault_name_set.end(),
+        if (!config::storage_vault_white_list.empty()) {
+            if (auto it = std::find(config::storage_vault_white_list.begin(),
+                                    config::storage_vault_white_list.end(), vault.name());
+                it == config::storage_vault_white_list.end()) {
+                std::string storage_vault_white_list = accumulate(
+                        config::storage_vault_white_list.begin(), config::storage_vault_white_list.end(),
                         std::string(), [](std::string a, std::string b) {
                             return a + (a.empty() ? "" : ",") + b;
                         });
                 LOG_WARNING(
                         "failed to init accessor for vault because this vault is not in "
-                        "config::valid_vault_name_set. ")
+                        "config::storage_vault_white_list. ")
                         .tag(" vault name:", vault.name())
-                        .tag(" config::valid_vault_name_set:", valid_vault_name_set);
+                        .tag(" config::storage_vault_white_list:", storage_vault_white_list);
                 continue;
             }
         }

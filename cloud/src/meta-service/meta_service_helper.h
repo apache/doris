@@ -52,6 +52,22 @@ inline std::string md5(const std::string& str) {
     return ss.str();
 }
 
+/**
+ * Encrypts all "sk" values in the given debug string with MD5 hashes.
+ * 
+ * Assumptions:
+ * - Input string contains one or more occurrences of "sk: " followed by a value in double quotes.
+ * - An md5() function exists that takes a std::string and returns its MD5 hash as a string.
+ * 
+ * @param debug_string Input string containing "sk: " fields to be encrypted.
+ * @return A new string with all "sk" values replaced by their MD5 hashes.
+ * 
+ * Behavior:
+ * 1. Searches for all occurrences of "sk: " in the input string.
+ * 2. For each occurrence, extracts the value between double quotes.
+ * 3. Replaces the original value with "md5: " followed by its MD5 hash.
+ * 4. Returns the modified string with all "sk" values encrypted.
+ */
 inline std::string encryt_sk(std::string debug_string) {
     // Start position for searching "sk" fields
     size_t pos = 0;

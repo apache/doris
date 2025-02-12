@@ -3616,7 +3616,7 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     EXPECT_EQ(recycler.init(), -2);
 }
 
-TEST(RecyclerTest, valid_vault_name_set_test) {
+TEST(RecyclerTest, storage_vault_white_list_test) {
     auto* sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
         sp->clear_all_call_backs();
@@ -3724,7 +3724,7 @@ TEST(RecyclerTest, valid_vault_name_set_test) {
     EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
 
     {
-        config::valid_vault_name_set = {};
+        config::storage_vault_white_list = {};
         InstanceRecycler recycler(txn_kv, instance, thread_group,
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         EXPECT_EQ(recycler.init(), 0);
@@ -3732,7 +3732,7 @@ TEST(RecyclerTest, valid_vault_name_set_test) {
     }
 
     {
-        config::valid_vault_name_set = {"s3_1", "s3_2", "hdfs_1", "hdfs_2"};
+        config::storage_vault_white_list = {"s3_1", "s3_2", "hdfs_1", "hdfs_2"};
         InstanceRecycler recycler(txn_kv, instance, thread_group,
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         EXPECT_EQ(recycler.init(), 0);
@@ -3740,7 +3740,7 @@ TEST(RecyclerTest, valid_vault_name_set_test) {
     }
 
     {
-        config::valid_vault_name_set = {"s3_1", "hdfs_1"};
+        config::storage_vault_white_list = {"s3_1", "hdfs_1"};
         InstanceRecycler recycler(txn_kv, instance, thread_group,
                                   std::make_shared<TxnLazyCommitter>(txn_kv));
         EXPECT_EQ(recycler.init(), 0);
