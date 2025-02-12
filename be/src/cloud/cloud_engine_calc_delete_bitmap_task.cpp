@@ -196,6 +196,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     int64_t t3 = MonotonicMicros();
     DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", {
         auto p = dp->param("percent", 0.01);
+        // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
         auto sleep_time = dp->param("sleep", 100);
         std::mt19937 gen {std::random_device {}()};
         std::bernoulli_distribution inject_fault {p};
