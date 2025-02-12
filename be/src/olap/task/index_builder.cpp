@@ -628,6 +628,13 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         auto offset_data = *(data_ptr + 1);
         const auto* offsets_ptr = (const uint8_t*)offset_data;
         try {
+            // we should refresh nullmap for array
+            for (int row_id = 0; row_id < num_rows; row_id++) {
+                if (null_map && null_map[row_id] == 1) {
+                    RETURN_IF_ERROR(
+                            _inverted_index_builders[index_writer_sign]->add_array_nulls(row_id));
+                }
+            }
             if (element_cnt > 0) {
                 auto data = *(data_ptr + 2);
                 auto nested_null_map = *(data_ptr + 3);
@@ -642,13 +649,7 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occured: {}", e.what());
         }
-        // we should refresh nullmap for array
-        for (int row_id = 0; row_id < num_rows; row_id++) {
-            if (null_map && null_map[row_id] == 1) {
-                RETURN_IF_ERROR(
-                        _inverted_index_builders[index_writer_sign]->add_array_nulls(row_id));
-            }
-        }
+
         return Status::OK();
     }
 
