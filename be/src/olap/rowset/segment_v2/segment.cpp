@@ -209,14 +209,6 @@ Status Segment::_open() {
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
 
-    // for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
-    //     const auto& column = _tablet_schema->column(ordinal);
-    //     if (column.is_variant_type()) {
-    //         _variant_max_subcolumns_count = column.variant_max_subcolumns_count();
-    //         break;
-    //     }
-    // }
-
     update_metadata_size();
 
     return Status::OK();

@@ -288,7 +288,6 @@ private:
     InvertedIndexFileInfo _idx_file_info;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
-    // int32_t _variant_max_subcolumns_count = 0;
 };
 
 } // namespace segment_v2
