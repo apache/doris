@@ -74,31 +74,4 @@ public class AzureProperties extends BaseProperties {
         return formatAzureEndpoint(endpoint, accountName) + "/" + bucket;
     }
 
-    public static String checkAzureEndpoint(String endpoint, String accountName) {
-        URL url;
-        try {
-            url = new URL(endpoint);
-        } catch (MalformedURLException e) {
-            return "Azure endpoint URL: " + e.getMessage();
-        }
-        String hostname = url.getHost();
-
-        // example: https://accountName.blob.core.windows.net
-        if (!hostname.startsWith(accountName)) {
-            return String.format("Azure endpoint URL: hostname must start with storage account name '%s':",
-                    accountName, endpoint);
-        }
-
-        // default whitelist, see https://learn.microsoft.com/en-us/azure/storage/common/storage-explorer-network
-        // - "blob.core.windows.net"
-        // - "blob.core.chinacloudapi.cn"
-        // - "blob.core.usgovcloudapi.net"
-        for (String whitelist : Config.azure_endpoint_white_list) {
-            if (hostname.endsWith(whitelist)) {
-                return null;
-            }
-        }
-        return String.format("Azure endpoint URL: hostname is not in the 'azure_endpoint_white_list': %s",
-                hostname);
-    }
 }

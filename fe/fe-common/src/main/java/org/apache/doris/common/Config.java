@@ -3221,16 +3221,6 @@ public class Config extends ConfigBase {
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
 
-    @ConfField(mutable = true, description = {"指定 Azure endpoint 白名单，未设置时使用默认白名单，"
-            + "举例: azure_endpoint_white_list=a,b,c",
-            "the white list for the Azure s3 load endpoint, default white list will be used if it's not set, "
-            + "for example: azure_endpoint_white_list=a,b,c"})
-    public static String[] azure_endpoint_white_list = {
-            "blob.core.windows.net",
-            "blob.core.chinacloudapi.cn",
-            "blob.core.usgovcloudapi.net",
-    };
-
     @ConfField(mutable = true, description = {
             "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
             + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",

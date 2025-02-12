@@ -127,10 +127,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                 throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
             }
             endpoint = AzureProperties.formatAzureUri(endpoint, bucket, accountName);
-            String err = AzureProperties.checkAzureEndpoint(endpoint, accountName);
-            if (err != null) {
-                throw new AnalysisException(err);
-            }
         } else if (Strings.isNullOrEmpty(endpoint)) {
             throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
         }

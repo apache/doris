@@ -119,10 +119,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             final String accountName = properties.get(S3Properties.ACCESS_KEY);
             final String endpoint = AzureProperties.formatAzureEndpoint(
                     properties.get(S3Properties.ENDPOINT), accountName);
-            String err = AzureProperties.checkAzureEndpoint(endpoint, accountName);
-            if (err != null) {
-                throw new UserException(err);
-            }
             StorageSharedKeyCredential cred = new StorageSharedKeyCredential(accountName,
                     properties.get(S3Properties.SECRET_KEY));
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
