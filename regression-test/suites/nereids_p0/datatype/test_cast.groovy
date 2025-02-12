@@ -203,6 +203,8 @@ suite("test_cast") {
     qt_sql15 "select cast('839:00:00' as time);"
 
     qt_sql16 "select cast('-010000' as time);"
+    // 17, 18 actal result is -00:01:00 and -00:00:01 but out file is 00:...
+    // It should be due to the fact that hour is -0 but the regression is saved as 0
     qt_sql17 "select cast('-000100' as time);"
     qt_sql18 "select cast('-000001' as time);"
     qt_sql19 "select cast('000000' as time);"

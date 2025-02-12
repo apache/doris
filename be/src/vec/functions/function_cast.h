@@ -169,9 +169,9 @@ struct TimeCast {
             num = int_value;
             return true;
         };
-        bool neg {};
+        bool sign {};
         if (*first_char == '-') {
-            neg = true;
+            sign = true;
             first_char++;
             len--;
         }
@@ -212,14 +212,14 @@ struct TimeCast {
             if (!parse_from_str_to_int(first_char, len, from)) {
                 return false;
             }
-            from *= (neg ? -1 : 1);
+            from *= (sign ? -1 : 1);
             return try_parse_time(from, x, local_time_zone);
         }
         // minute second must be < 60
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = TimeValue::make_time(hour, minute, second) * (neg ? -1 : 1);
+        x = TimeValue::make_time(hour, minute, second) * (sign ? -1 : 1);
         return true;
     }
     // Cast from number

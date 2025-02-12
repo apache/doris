@@ -93,11 +93,11 @@ public class TimeV2Literal extends LiteralExpr {
     protected void init(String s) throws AnalysisException {
         // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
         if (!s.contains(":")) {
-            boolean neg = false;
+            boolean sign = false;
             String tail = "";
             if (s.charAt(0) == '-') {
                 s = s.substring(1);
-                neg = true;
+                sign = true;
             }
             if (s.contains(".")) {
                 tail = s.substring(s.indexOf("."));
@@ -115,7 +115,7 @@ public class TimeV2Literal extends LiteralExpr {
             } else {
                 s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
             }
-            if (neg) {
+            if (sign) {
                 s = '-' + s;
             }
             s = s + tail;
