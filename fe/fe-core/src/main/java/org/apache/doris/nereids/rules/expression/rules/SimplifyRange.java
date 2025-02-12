@@ -230,6 +230,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         public abstract ValueDesc intersect(ValueDesc other);
 
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             Set<Literal> newValues = discrete.values.stream()
                     .filter(x -> range.range.contains(x))
                     .collect(Collectors.toCollection(
@@ -264,6 +268,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         }
 
         public static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             // Set<Literal> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
             Set<Literal> literals = in.getOptions().stream()
                     .map(Literal.class::cast)
