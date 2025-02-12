@@ -43,6 +43,7 @@ suite("test_encrypt_sql") {
     sql "drop user if exists ${user}"
     sql "create user ${user} IDENTIFIED BY '${pwd}'"
     sql "grant ADMIN_PRIV on *.*.* to ${user}"
+    sql "admin set frontend config('enable_nereids_load'='true')"
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
