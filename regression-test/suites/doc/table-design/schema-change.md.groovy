@@ -27,97 +27,92 @@ suite("docs/table-design/schema-change.md") {
 
         multi_sql "create database if not exists example_db; use example_db; drop table if exists my_table;"
         sql """
-        CREATE TABLE IF NOT EXISTS example_db.my_table(
-            col1 int,
-            col2 int,
-            col3 int,
-            col4 int,
-            col5 int
-        ) DUPLICATE KEY(col1, col2, col3)
-        DISTRIBUTED BY RANDOM BUCKETS 1
-        ROLLUP (
-            example_rollup_index (col1, col3, col4, col5)
-        )
-        PROPERTIES (
-            "replication_num" = "1"
-        )
+            CREATE TABLE IF NOT EXISTS example_db.my_table(
+                col1 int,
+                col2 int,
+                col3 int,
+                col4 int,
+                col5 int
+            ) DUPLICATE KEY(col1, col2, col3)
+            DISTRIBUTED BY RANDOM BUCKETS 10
         """
         sql """
-            ALTER TABLE example_db.my_table
-            ADD COLUMN new_key_col INT KEY DEFAULT "0" AFTER col1
-            TO example_rollup_index
+            ALTER TABLE example_db.my_table ADD COLUMN key_col INT KEY DEFAULT "0" AFTER col1;
         """
         waitUntilSchemaChangeDone("my_table")
         sql """
-            ALTER TABLE example_db.my_table   
-            ADD COLUMN new_val_col INT DEFAULT "0" AFTER col4
-            TO example_rollup_index
+            ALTER TABLE example_db.my_table ADD COLUMN value_col INT DEFAULT "0" AFTER col4;
         """
         waitUntilSchemaChangeDone("my_table")
 
         sql "drop table if exists example_db.my_table"
         sql """
-        CREATE TABLE IF NOT EXISTS example_db.my_table(
-            col1 int,
-            col2 int,
-            col3 int,
-            col4 int SUM,
-            col5 int MAX
-        ) AGGREGATE KEY(col1, col2, col3)
-        DISTRIBUTED BY HASH(col1) BUCKETS 1
-        ROLLUP (
-            example_rollup_index (col1, col3, col4, col5)
-        )
-        PROPERTIES (
-            "replication_num" = "1"
-        )
+            CREATE TABLE IF NOT EXISTS example_db.my_table(
+                col1 int,
+                col2 int,
+                col3 int,
+                col4 int SUM,
+                col5 varchar(32) REPLACE DEFAULT "abc"
+            ) AGGREGATE KEY(col1, col2, col3)
+            DISTRIBUTED BY HASH(col1) BUCKETS 10
         """
         sql """
-            ALTER TABLE example_db.my_table
-            ADD COLUMN new_key_col INT DEFAULT "0" AFTER col1
-            TO example_rollup_index
+            ALTER TABLE example_db.my_table ADD COLUMN key_col INT DEFAULT "0" AFTER col1;
         """
         waitUntilSchemaChangeDone("my_table")
         sql """
-            ALTER TABLE example_db.my_table
-            ADD COLUMN new_val_col INT SUM DEFAULT "0" AFTER col4
-            TO example_rollup_index
+            ALTER TABLE example_db.my_table ADD COLUMN value_col INT SUM DEFAULT "0" AFTER col4;
         """
         waitUntilSchemaChangeDone("my_table")
-
-        sql """
-            ALTER TABLE example_db.my_table
-            ADD COLUMN (c1 INT DEFAULT "1", c2 FLOAT SUM DEFAULT "0")
-            TO example_rollup_index
-        """
-        waitUntilSchemaChangeDone("my_table")
-
-        sql """
-            ALTER TABLE example_db.my_table
-            DROP COLUMN col3
-            FROM example_rollup_index
-        """
-        waitUntilSchemaChangeDone("my_table")
-
 
         sql "drop table if exists example_db.my_table"
         sql """
-        CREATE TABLE IF NOT EXISTS example_db.my_table(
-            col0 int,
-            col1 int DEFAULT "1",
-            col2 int,
-            col3 varchar(32),
-            col4 int SUM,
-            col5 varchar(32) REPLACE DEFAULT "abc"
-        ) AGGREGATE KEY(col0, col1, col2, col3)
-        DISTRIBUTED BY HASH(col0) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        )
+            CREATE TABLE IF NOT EXISTS example_db.my_table(
+                col1 int,
+                col2 int,
+                col3 int,
+                col4 int SUM,
+                col5 varchar(32) REPLACE DEFAULT "abc"
+            ) AGGREGATE KEY(col1, col2, col3)
+            DISTRIBUTED BY HASH(col1) BUCKETS 10
         """
         sql """
-            ALTER TABLE example_db.my_table 
-            MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2
+            ALTER TABLE example_db.my_table ADD COLUMN (c1 INT DEFAULT "1", c2 FLOAT SUM DEFAULT "0");
+        """
+        waitUntilSchemaChangeDone("my_table")
+
+        sql "drop table if exists example_db.my_table"
+        sql """
+            CREATE TABLE IF NOT EXISTS example_db.my_table(
+                col1 int,
+                col2 int,
+                col3 int,
+                col4 int SUM,
+                col5 varchar(32) REPLACE DEFAULT "abc"
+            ) AGGREGATE KEY(col1, col2, col3)
+            DISTRIBUTED BY HASH(col1) BUCKETS 10
+        """
+
+        sql """
+            ALTER TABLE example_db.my_table DROP COLUMN col4;
+        """
+        waitUntilSchemaChangeDone("my_table")
+
+        sql "drop table if exists example_db.my_table"
+        sql """
+            CREATE TABLE IF NOT EXISTS example_db.my_table(
+                col0 int,
+                col1 int DEFAULT "1",
+                col2 int,
+                col3 varchar(32),
+                col4 int SUM,
+                col5 varchar(32) REPLACE DEFAULT "abc"
+            ) AGGREGATE KEY(col0, col1, col2, col3)
+            DISTRIBUTED BY HASH(col0) BUCKETS 10
+        """
+        sql """
+        ALTER TABLE example_db.my_table
+        MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
         """
         waitUntilSchemaChangeDone("my_table")
         sql """
@@ -141,18 +136,10 @@ suite("docs/table-design/schema-change.md") {
                 v1 int SUM,
                 v2 int MAX,
             ) AGGREGATE KEY(k1, k2, k3, k4)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1
-            ROLLUP (
-               example_rollup_index(k1, k2, k3, v1, v2)
-            )
-            PROPERTIES (
-                "replication_num" = "1"
-            )
+            DISTRIBUTED BY HASH(k1) BUCKETS 10;
         """
         sql """
-            ALTER TABLE example_db.my_table
-            ORDER BY (k3,k1,k2,v2,v1)
-            FROM example_rollup_index
+            ALTER TABLE example_db.my_table ORDER BY (k3,k1,k2,k4,v2,v1)
         """
         waitUntilSchemaChangeDone("my_table")
 
