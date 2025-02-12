@@ -217,6 +217,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         /** merge discrete and ranges only, no merge other value desc */
         public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
                 Expression reference, List<ValueDesc> valueDescs) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
             for (ValueDesc valueDesc : valueDescs) {
                 if (valueDesc instanceof DiscreteValue) {
@@ -268,6 +272,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         /** intersect */
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             Set<ComparableLiteral> newValues = discrete.values.stream().filter(x -> range.range.contains(x))
                     .collect(Collectors.toCollection(
                             () -> Sets.newLinkedHashSetWithExpectedSize(discrete.values.size())));
@@ -298,6 +306,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         private static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             // Set<ComparableLiteral> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
             Set<ComparableLiteral> literals = in.getOptions().stream()
                     .map(ComparableLiteral.class::cast)
