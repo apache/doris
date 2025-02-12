@@ -155,13 +155,18 @@ public:
 
     std::string debug_string() const {
         return fmt::format(
-                "filter_id: {}, state: {}, type: {}({}), build_bf_cardinality: {}, error_msg: "
-                "[{}]",
+                "Wrapper: [filter_id: {}, state: {}, type: {}({}), build_bf_cardinality: {}, "
+                "error_msg: "
+                "[{}]]",
                 _filter_id, _to_string(_state), to_string(_filter_type), to_string(get_real_type()),
                 get_build_bf_cardinality(), _err_msg);
     }
 
     void set_state(State state) {
+        if (_state == State::DISABLED || _state == State::IGNORED) {
+            return;
+        }
+
         _state = state;
         if (state == State::DISABLED || state == State::IGNORED) {
             _minmax_func.reset();

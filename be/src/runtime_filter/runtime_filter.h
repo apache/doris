@@ -61,6 +61,7 @@ public:
         if (state != RuntimeFilterWrapper::State::READY) {
             request->set_ignored(state == RuntimeFilterWrapper::State::IGNORED);
             request->set_disabled(state == RuntimeFilterWrapper::State::DISABLED);
+            return Status::OK();
         }
 
         if (real_runtime_filter_type == RuntimeFilterType::IN_FILTER) {

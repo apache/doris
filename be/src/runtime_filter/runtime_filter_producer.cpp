@@ -27,23 +27,9 @@
 
 namespace doris {
 
-Status RuntimeFilterProducer::init_with_size(size_t local_size) {
-    size_t real_size = need_sync_filter_size() ? get_synced_size() : local_size;
-    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-        local_size > _wrapper->_max_in_num) {
-        RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
-    }
-
-    if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-        RETURN_IF_ERROR(_wrapper->init_bloom_filter(real_size));
-    }
-    return Status::OK();
-}
-
 Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state, RuntimeFilter* filter,
                                                       uint64_t local_merge_time) {
     TNetworkAddress addr;
-    DCHECK(_state != nullptr);
     RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     return filter->_push_to_remote(state, &addr, local_merge_time);
 };
@@ -62,7 +48,7 @@ Status RuntimeFilterProducer::_send_to_local_targets(std::shared_ptr<RuntimeFilt
 };
 
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
-    DCHECK(_rf_state == State::READY_TO_PUBLISH);
+    _check_state({State::READY_TO_PUBLISH});
     _rf_state = State::PUBLISHED;
 
     auto do_merge = [&]() {
@@ -164,7 +150,17 @@ public:
               _rf_context(rf_context) {}
 };
 
-Status RuntimeFilterProducer::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
+Status RuntimeFilterProducer::send_filter_size(
+        RuntimeState* state, uint64_t local_filter_size,
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
+    if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
+        _check_state({State::WAITING_FOR_DATA});
+        return Status::OK();
+    }
+    _rf_state = State::WAITING_FOR_SYNCED_SIZE;
+    _dependency = dependency;
+    _dependency->add();
+
     // two case we need do local merge:
     // 1. has remote target
     // 2. has local target and has global consumer (means target scan has local shuffle)
@@ -189,12 +185,11 @@ Status RuntimeFilterProducer::send_filter_size(RuntimeState* state, uint64_t loc
             }
         }
     } else if (_has_local_target) {
-        set_synced_size(local_filter_size);
+        DCHECK(false);
         return Status::OK();
     }
 
     TNetworkAddress addr;
-    DCHECK(_state != nullptr);
     RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     std::shared_ptr<PBackendService_Stub> stub(
             _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(addr));
@@ -233,17 +228,44 @@ Status RuntimeFilterProducer::send_filter_size(RuntimeState* state, uint64_t loc
     return Status::OK();
 }
 
-void RuntimeFilterProducer::set_finish_dependency(
-        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
-    _dependency = dependency;
-    _dependency->add();
-    CHECK(_dependency);
-}
-
 void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
+    _check_state({State::WAITING_FOR_SYNCED_SIZE});
+    _rf_state = State::WAITING_FOR_DATA;
+
     _synced_size = global_size;
     if (_dependency) {
         _dependency->sub();
+    }
+}
+
+Status RuntimeFilterProducer::init_with_size(size_t local_size) {
+    size_t real_size = _synced_size != -1 ? _synced_size : local_size;
+    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+        real_size > _wrapper->_max_in_num) {
+        RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
+    }
+
+    if (_wrapper->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
+        RETURN_IF_ERROR(_wrapper->init_bloom_filter(real_size));
+    }
+    if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER &&
+        real_size > _wrapper->_max_in_num) {
+        set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+    }
+    return Status::OK();
+}
+
+void RuntimeFilterProducer::disable_meaningless_filters(std::unordered_set<int>& has_in_filter,
+                                                        bool collect_in_filters) {
+    if (_rf_state == State::READY_TO_PUBLISH ||
+        collect_in_filters != (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER)) {
+        return;
+    }
+
+    if (has_in_filter.contains(_expr_order)) {
+        set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+    } else if (collect_in_filters) {
+        has_in_filter.insert(_expr_order);
     }
 }
 

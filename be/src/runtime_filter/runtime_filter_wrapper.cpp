@@ -358,34 +358,35 @@ size_t RuntimeFilterWrapper::get_bloom_filter_size() const {
     return _bloom_filter_func ? _bloom_filter_func->get_size() : 0;
 }
 
-Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* wrapper) {
-    if (wrapper->_state == State::DISABLED) {
+Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
+    if (other->_state == State::DISABLED) {
         _state = State::DISABLED;
     }
 
-    if (wrapper->_state == State::IGNORED || _state == State::DISABLED) {
+    if (other->_state == State::IGNORED || _state == State::DISABLED) {
         return Status::OK();
     }
 
+    DCHECK(_state != State::IGNORED);
+
     _state = State::READY;
 
-    bool can_not_merge_in_or_bloom =
-            _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-            (wrapper->_filter_type != RuntimeFilterType::IN_FILTER &&
-             wrapper->_filter_type != RuntimeFilterType::BLOOM_FILTER &&
-             wrapper->_filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER);
+    bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+                                     (other->_filter_type != RuntimeFilterType::IN_FILTER &&
+                                      other->_filter_type != RuntimeFilterType::BLOOM_FILTER &&
+                                      other->_filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER);
 
     bool can_not_merge_other = _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-                               _filter_type != wrapper->_filter_type;
+                               _filter_type != other->_filter_type;
 
     CHECK(!can_not_merge_in_or_bloom && !can_not_merge_other)
             << " can not merge runtime filter(id=" << _filter_id << "), current is filter type is "
             << to_string(_filter_type) << ", other filter type is "
-            << to_string(wrapper->_filter_type);
+            << to_string(other->_filter_type);
 
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
-        _hybrid_set->insert(wrapper->_hybrid_set.get());
+        _hybrid_set->insert(other->_hybrid_set.get());
         if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
             set_state(State::DISABLED);
         }
@@ -394,19 +395,19 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* wrapper) {
     case RuntimeFilterType::MIN_FILTER:
     case RuntimeFilterType::MAX_FILTER:
     case RuntimeFilterType::MINMAX_FILTER: {
-        RETURN_IF_ERROR(_minmax_func->merge(wrapper->_minmax_func.get()));
+        RETURN_IF_ERROR(_minmax_func->merge(other->_minmax_func.get()));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
-        RETURN_IF_ERROR(_bloom_filter_func->merge(wrapper->_bloom_filter_func.get()));
+        RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
         break;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
         auto real_filter_type = get_real_type();
 
-        auto other_filter_type = wrapper->_filter_type;
+        auto other_filter_type = other->_filter_type;
         if (other_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-            other_filter_type = wrapper->get_real_type();
+            other_filter_type = other->get_real_type();
         }
 
         if (real_filter_type == RuntimeFilterType::IN_FILTER) {
@@ -414,7 +415,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* wrapper) {
             // case1: all input-filter's build_bf_exactly is true, inited by synced global size
             // case2: all input-filter's build_bf_exactly is false, inited by default size
             if (other_filter_type == RuntimeFilterType::IN_FILTER) {
-                _hybrid_set->insert(wrapper->_hybrid_set.get());
+                _hybrid_set->insert(other->_hybrid_set.get());
                 if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
                     // case2: use default size to init bf
                     RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length());
@@ -422,23 +423,23 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* wrapper) {
                 }
             } else {
                 // case1&case2: use input bf directly and insert hybrid set data into bf
-                _bloom_filter_func = wrapper->_bloom_filter_func;
+                _bloom_filter_func = other->_bloom_filter_func;
                 RETURN_IF_ERROR(change_to_bloom_filter());
             }
         } else {
             if (other_filter_type == RuntimeFilterType::IN_FILTER) {
                 // case2: insert data to global filter
-                wrapper->insert_to_bloom_filter(_bloom_filter_func.get());
+                other->insert_to_bloom_filter(_bloom_filter_func.get());
             } else {
                 // case1&case2: all input bf must has same size
-                RETURN_IF_ERROR(_bloom_filter_func->merge(wrapper->_bloom_filter_func.get()));
+                RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
             }
         }
         break;
     }
     case RuntimeFilterType::BITMAP_FILTER: {
         // use input bitmap directly because we assume bitmap filter join always have full data
-        _bitmap_filter_func = wrapper->_bitmap_filter_func;
+        _bitmap_filter_func = other->_bitmap_filter_func;
         break;
     }
     default:

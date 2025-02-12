@@ -144,8 +144,8 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 }
 
 std::string RuntimeFilter::_debug_string() const {
-    return fmt::format("{}, type = {}, mode: {}", _wrapper->debug_string(),
-                       to_string(_runtime_filter_type), _has_local_target ? "LOCAL" : "GLOBAL");
+    return fmt::format("{}, mode: {}", _wrapper->debug_string(),
+                       _has_local_target ? "LOCAL" : "GLOBAL");
 }
 
 void RuntimeFilter::_to_protobuf(PInFilter* filter) {
