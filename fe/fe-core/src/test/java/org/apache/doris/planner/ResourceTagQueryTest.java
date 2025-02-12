@@ -205,7 +205,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1, userTags.size());
 
         // update connection context and query
-        connectContext.setResourceTags(userTags, false);
+        connectContext.setResourceTags(userTags);
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
@@ -221,7 +221,7 @@ public class ResourceTagQueryTest {
         }
 
         // update connection context and query, it will failed because no zone1 backend
-        connectContext.setResourceTags(userTags, false);
+        connectContext.setResourceTags(userTags);
         Assert.assertTrue(connectContext.isResourceTagsSet());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -280,13 +280,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(14, userProps.size());
-
-        // set resource tag downgrade
-        String setResourceTagDownStr = "set property for 'root' 'allow_resource_tag_downgrade' = 'false';";
-        ExceptionChecker.expectThrowsNoException(() -> setProperty(setResourceTagDownStr));
-        boolean tagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(Auth.ROOT_USER);
-        Assert.assertTrue(!tagDowngrade);
+        Assert.assertEquals(13, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;
