@@ -93,9 +93,21 @@ static void register_suites() {
     });
     suite_map.emplace("Transaction::commit.enable_inject", []() {
         auto* sp = SyncPoint::get_instance();
-        sp->set_call_back("Transaction::commit.inject_random_fault", [](auto&& args) {
-            auto* enable = try_any_cast<bool*>(args[0]);
-            *enable = true;
+        sp->set_call_back("transaction:commit:get_err", [](auto&& args) {
+            std::mt19937 gen {std::random_device {}()};
+            double p {-1.0};
+            TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault.set_p", &p);
+            if (p < 0 || p > 1.0) {
+                p = 0.01; // default injection possibility is 1%
+            }
+            std::bernoulli_distribution inject_fault {p};
+            if (inject_fault(gen)) {
+                std::bernoulli_distribution err_type {0.5};
+                fdb_error_t inject_err = (err_type(gen) ? /* FDB_ERROR_CODE_TXN_CONFLICT*/ 1020
+                                                        : /* FDB_ERROR_CODE_TXN_TOO_OLD */ 1007);
+                LOG_WARNING("inject {} err when txn->commit()", inject_err);
+                *try_any_cast<fdb_error_t*>(args[0]) = inject_err;
+            }
         });
         LOG_INFO("enable Transaction::commit.enable_inject");
     });

@@ -27,7 +27,6 @@
 #include <cstring>
 #include <memory>
 #include <optional>
-#include <random>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -528,26 +527,6 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
 }
 
 TxnErrorCode Transaction::commit() {
-    bool enable_inject_random_fault {false};
-    TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault",
-                                  &enable_inject_random_fault);
-    if (enable_inject_random_fault) [[unlikely]] {
-        std::mt19937 gen {std::random_device {}()};
-        double p {-1.0};
-        TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault.set_p", &p);
-        if (p < 0 || p > 1.0) {
-            p = 0.01; // default injection possibility is 1%
-        }
-        std::bernoulli_distribution inject_fault {p};
-        if (inject_fault(gen)) {
-            std::bernoulli_distribution err_type {0.5};
-            TxnErrorCode inject_err =
-                    (err_type(gen) ? TxnErrorCode::TXN_CONFLICT : TxnErrorCode::TXN_TOO_OLD);
-            LOG_WARNING("inject {} err when txn->commit()", inject_err);
-            return inject_err;
-        }
-    }
-
     fdb_error_t err = 0;
     TEST_SYNC_POINT_CALLBACK("transaction:commit:get_err", &err);
     if (err == 0) [[likely]] {
