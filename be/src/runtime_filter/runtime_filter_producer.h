@@ -120,7 +120,7 @@ private:
         if (!check_state<RuntimeFilterProducer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "producer meet invalid state, {}, assumed_states is {}", debug_string(),
-                            to_string<RuntimeFilterProducer>(assumed_states));
+                            states_to_string<RuntimeFilterProducer>(assumed_states));
         }
     }
 

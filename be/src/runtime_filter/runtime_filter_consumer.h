@@ -101,7 +101,7 @@ private:
         if (!check_state<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "consumer meet invalid state, {}, assumed_states is {}", debug_string(),
-                            to_string<RuntimeFilterConsumer>(assumed_states));
+                            states_to_string<RuntimeFilterConsumer>(assumed_states));
         }
     }
 
