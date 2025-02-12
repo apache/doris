@@ -79,6 +79,14 @@ public:
 
     const char* remote_host() const;
 
+    void finish_send_reply() {
+        promise.set_value(true);
+    }
+
+    void wait_finish_send_reply() {
+        futrue.get();
+    }
+
 private:
     HttpMethod _method;
     std::string _uri;
@@ -93,6 +101,10 @@ private:
 
     std::shared_ptr<void> _handler_ctx;
     std::string _request_body;
+
+    // ensure send_reply finished
+    std::promise<bool> promise;
+    std::future<bool> futrue = promise.get_future();
 };
 
 } // namespace doris
