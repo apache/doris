@@ -535,8 +535,6 @@ int InstanceRecycler::init_storage_vault_accessors() {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
-        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
-                                 &accessor_map_, &vault);
         if (!config::valid_vault_name_set.empty()) {
             if (auto it = std::find(config::valid_vault_name_set.begin(),
                                     config::valid_vault_name_set.end(), vault.name());
@@ -554,6 +552,8 @@ int InstanceRecycler::init_storage_vault_accessors() {
                 continue;
             }
         }
+        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
+                                 &accessor_map_, &vault);
         if (vault.has_hdfs_info()) {
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
             int ret = accessor->init();
