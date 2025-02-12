@@ -282,8 +282,8 @@ void Recycler::recycle_callback() {
             recycling_instance_map_.erase(instance_id);
         }
         auto elpased_ms =
-                ctime_ms -
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
+                ctime_ms;
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);
@@ -1595,6 +1595,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor_map_.count(*rid))
                     << "uninitilized accessor, instance_id=" << instance_id_
                     << " resource_id=" << resource_id << " path[0]=" << (*paths)[0];
+            TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.no_resource_id",
+                                     &accessor_map_);
             if (!accessor_map_.contains(*rid)) {
                 LOG_WARNING("delete rowset data accessor_map_ does not contains resouce id")
                         .tag("resource_id", resource_id)
