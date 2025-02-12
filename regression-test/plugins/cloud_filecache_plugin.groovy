@@ -108,7 +108,7 @@ Suite.metaClass.show_cache_hotspot = { String computeGroup = null, String table 
         res = sql_return_maparray """${select_compute_group_hotspot}"""
     }
 
-    if ( computeGroup = null && table == null) {
+    if ( computeGroup == null && table == null) {
         res = sql_return_maparray """${select_all_hotspot}"""
     }
     return res
