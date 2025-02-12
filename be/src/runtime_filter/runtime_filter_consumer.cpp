@@ -17,6 +17,8 @@
 
 #include "runtime_filter/runtime_filter_consumer.h"
 
+#include <mutex>
+
 #include "exprs/bitmapfilter_predicate.h"
 
 namespace doris {
@@ -24,7 +26,7 @@ namespace doris {
 Status RuntimeFilterConsumer::_apply_ready_expr(
         std::list<vectorized::VExprContextSPtr>& probe_ctxs,
         std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
-    _check_state({State::READY});
+    _check_state({State::READY, State::APPLIED});
     _rf_state = State::APPLIED;
     _profile->add_info_string("Info", debug_string());
 
@@ -50,10 +52,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
 Status RuntimeFilterConsumer::acquire_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                                            std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
     std::unique_lock lock(_inner_mutex);
-    if (_rf_state == State::APPLIED) {
-        return Status::OK();
-    }
-    if (_rf_state == State::READY) {
+    if (_rf_state == State::READY || _rf_state == State::APPLIED) {
         RETURN_IF_ERROR(_apply_ready_expr(probe_ctxs, push_exprs));
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
