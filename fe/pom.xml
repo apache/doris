@@ -263,7 +263,7 @@ under the License.
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
-        <commons-io.version>2.7</commons-io.version>
+        <commons-io.version>2.18.0</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
         <hikaricp.version>4.0.3</hikaricp.version>
@@ -354,7 +354,8 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.56.v20240826</jetty.version>
+        <jetty.version>9.4.57.v20241219</jetty.version>
+        <nimbusds.version>10.0.1</nimbusds.version>
         <immutables.version>2.9.3</immutables.version>
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>75.1</icu4j.version>
@@ -644,6 +645,11 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbusds.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
