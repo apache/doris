@@ -373,7 +373,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
         int num_ranges = ranges->size();
         std::vector<RowSetSplits> splits = _read_sources[scan_range_idx].rs_splits;
-        _read_sources[scan_range_idx].rs_splits.clear();
         for (int i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
             scanner_ranges.push_back((*ranges)[i].get());
@@ -385,6 +384,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             }
 
             COUNTER_UPDATE(_key_range_counter, scanner_ranges.size());
+            _read_sources[scan_range_idx].rs_splits.clear();
             for (auto& split : splits) {
                 _read_sources[scan_range_idx].rs_splits.emplace_back(
                         RowSetSplits(split.rs_reader->clone()));
