@@ -200,6 +200,9 @@ supportedCreateStatement
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                        #createSqlBlockRule
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
+    | CREATE USER (IF NOT EXISTS)? grantUserIdentify
+            (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
+            passwordOption commentSpec?                            #createUser
     ;
 
 supportedAlterStatement
@@ -768,9 +771,6 @@ unsupportedCreateStatement
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
         WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
         AS expression                                                           #createAliasFunction
-    | CREATE USER (IF NOT EXISTS)? grantUserIdentify
-        (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
-        passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
     | CREATE INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList
