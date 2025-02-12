@@ -2229,7 +2229,7 @@ public class Config extends ConfigBase {
     public static long max_external_file_cache_num = 10000;
 
     /**
-     * Max cache num of external table's schemaø
+     * Max cache num of external table's schema
      * Decrease this value if FE's memory is small
      */
     @ConfField(mutable = false, masterOnly = false)
