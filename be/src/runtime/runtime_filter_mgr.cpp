@@ -72,7 +72,8 @@ std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consum
 
 Status RuntimeFilterMgr::register_consumer_filter(
         const TRuntimeFilterDesc& desc, const TQueryOptions& options, int node_id,
-        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, bool need_local_merge) {
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, bool need_local_merge,
+        RuntimeProfile* parent_profile) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
     bool has_exist = false;
@@ -91,7 +92,8 @@ Status RuntimeFilterMgr::register_consumer_filter(
             << " _is_global: " << _is_global << " need_local_merge: " << need_local_merge;
     if (!has_exist) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
-        RETURN_IF_ERROR(RuntimeFilterConsumer::create(_state, &desc, node_id, &filter));
+        RETURN_IF_ERROR(
+                RuntimeFilterConsumer::create(_state, &desc, node_id, &filter, parent_profile));
         _consumer_map[key].push_back(filter);
         *consumer_filter = filter;
     } else if (!need_local_merge) {
@@ -378,7 +380,6 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
                     create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
                                   DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
 
-            closure->request_->set_filter_id(request->filter_id());
             closure->request_->set_merge_time(merge_time);
             closure->request_->set_local_merge_time(cnt_val->local_merge_time);
             *closure->request_->mutable_query_id() = request->query_id();

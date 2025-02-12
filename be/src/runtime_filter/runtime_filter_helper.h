@@ -49,17 +49,13 @@ public:
     bool is_all_rf_applied() const { return _is_all_rf_applied; }
 
 private:
-    void _init_profile(RuntimeProfile* profile);
-
     // Register and get all runtime filters at Init phase.
-    Status _register_runtime_filter(bool need_local_merge);
+    Status _register_runtime_filter(RuntimeProfile* profile, bool need_local_merge);
 
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
-    // Set to true if the runtime filter is ready.
-    std::vector<bool> _runtime_filter_ready_flag;
     std::mutex _rf_locks;
     RuntimeState* _state = nullptr;
 

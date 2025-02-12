@@ -54,8 +54,6 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    std::shared_ptr<RuntimeFilterWrapper>& get_wrapper_ref() { return _wrapper; }
-
     std::string debug_string() const {
         return fmt::format(
                 "RuntimeFilterProducer: ({}, state: {}, dependency: {}, synced_size: {}]",
@@ -99,20 +97,30 @@ public:
         }
     }
 
+    void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        context->runtime_filters[_wrapper->_filter_id] = _wrapper;
+    }
+
+    void copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        _wrapper = context->runtime_filters[_wrapper->_filter_id];
+    }
+
 private:
     RuntimeFilterProducer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
             : RuntimeFilter(state, desc),
               _is_broadcast_join(desc->is_broadcast_join),
               _expr_order(desc->expr_order) {}
 
-    Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* filter,
+    Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* merger_filter,
                                    uint64_t local_merge_time);
-    Status _send_to_local_targets(std::shared_ptr<RuntimeFilterWrapper> wrapper, bool global,
+    Status _send_to_local_targets(RuntimeFilter* merger_filter, bool global,
                                   uint64_t local_merge_time);
 
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state<RuntimeFilterProducer>(_rf_state, assumed_states)) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid state, {}", debug_string());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "producer meet invalid state, {}, assumed_states is {}", debug_string(),
+                            to_string<RuntimeFilterProducer>(assumed_states));
         }
     }
 

@@ -1287,8 +1287,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
-    int64_t start_apply = MonotonicMillis();
-
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
@@ -1322,11 +1320,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     if (!filters.empty()) {
         RETURN_IF_ERROR(filters[0]->assign_data_into_wrapper(*request, attach_data));
 
-        std::ranges::for_each(filters, [&](auto& filter) {
-            filter->update_filter(
-                    filters[0].get(), request->merge_time(), start_apply,
-                    request->has_local_merge_time() ? request->local_merge_time() : 0);
-        });
+        std::ranges::for_each(filters, [&](auto& filter) { filter->signal(filters[0].get()); });
     }
 
     return Status::OK();

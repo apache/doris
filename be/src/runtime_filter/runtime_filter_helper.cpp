@@ -36,30 +36,19 @@ RuntimeFilterHelper::RuntimeFilterHelper(const int32_t _node_id,
 Status RuntimeFilterHelper::init(RuntimeState* state, RuntimeProfile* profile,
                                  bool need_local_merge) {
     _state = state;
-    RETURN_IF_ERROR(_register_runtime_filter(need_local_merge));
-    _init_profile(profile);
+    RETURN_IF_ERROR(_register_runtime_filter(profile, need_local_merge));
+    _acquire_runtime_filter_timer = ADD_TIMER(profile, "AcquireRuntimeFilterTime");
     return Status::OK();
 }
 
-void RuntimeFilterHelper::_init_profile(RuntimeProfile* profile) {
-    fmt::memory_buffer buffer;
-    for (auto& consumer : _consumers) {
-        consumer->init_profile(profile);
-        fmt::format_to(buffer, "{}, ", consumer->debug_string());
-    }
-    profile->add_info_string("RuntimeFilters: ", to_string(buffer));
-    _acquire_runtime_filter_timer = ADD_TIMER(profile, "AcquireRuntimeFilterTime");
-}
-
-Status RuntimeFilterHelper::_register_runtime_filter(bool need_local_merge) {
+Status RuntimeFilterHelper::_register_runtime_filter(RuntimeProfile* profile,
+                                                     bool need_local_merge) {
     int filter_size = _runtime_filter_descs.size();
-    _runtime_filter_ready_flag.reserve(filter_size);
     for (int i = 0; i < filter_size; ++i) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(_state->register_consumer_runtime_filter(
-                _runtime_filter_descs[i], need_local_merge, _node_id, &filter));
+                _runtime_filter_descs[i], need_local_merge, _node_id, &filter, profile));
         _consumers.emplace_back(filter);
-        _runtime_filter_ready_flag.emplace_back(false);
     }
     return Status::OK();
 }
@@ -99,14 +88,9 @@ Status RuntimeFilterHelper::acquire_runtime_filter() {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     std::vector<vectorized::VRuntimeFilterPtr> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        if (_consumers[i]->is_ready()) {
-            // Runtime filter has been applied in open phase.
-            RETURN_IF_ERROR(_consumers[i]->apply_ready_expr(_probe_ctxs, vexprs, false));
-        }
+        RETURN_IF_ERROR(_consumers[i]->acquire_expr(_probe_ctxs, vexprs));
 
-        _consumers[i]->update_state();
-
-        if (!_consumers[i]->is_applied()) {
+        if (!_consumers[i]->applied()) {
             _is_all_rf_applied = false;
         }
     }
@@ -148,13 +132,8 @@ Status RuntimeFilterHelper::try_append_late_arrival_runtime_filter(int* arrived_
     std::vector<vectorized::VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        if (_consumers[i]->is_applied()) {
-            ++current_arrived_rf_num;
-            continue;
-        } else if (_consumers[i]->is_ready()) {
-            RETURN_IF_ERROR(_consumers[i]->apply_ready_expr(_probe_ctxs, exprs, true));
-            ++current_arrived_rf_num;
-        }
+        RETURN_IF_ERROR(_consumers[i]->acquire_expr(_probe_ctxs, exprs));
+        current_arrived_rf_num += _consumers[i]->applied();
     }
     // 2. Append unapplied runtime filters to _conjuncts
     if (!exprs.empty()) {

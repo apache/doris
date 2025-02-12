@@ -27,22 +27,21 @@
 
 namespace doris {
 
-Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state, RuntimeFilter* filter,
+Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state,
+                                                      RuntimeFilter* merger_filter,
                                                       uint64_t local_merge_time) {
     TNetworkAddress addr;
     RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
-    return filter->_push_to_remote(state, &addr, local_merge_time);
+    return merger_filter->_push_to_remote(state, &addr, local_merge_time);
 };
 
-Status RuntimeFilterProducer::_send_to_local_targets(std::shared_ptr<RuntimeFilterWrapper> wrapper,
-                                                     bool global, uint64_t local_merge_time) {
+Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* merger_filter, bool global,
+                                                     uint64_t local_merge_time) {
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
-            global ? _state->global_runtime_filter_mgr()->get_consume_filters(filter_id())
-                   : _state->local_runtime_filter_mgr()->get_consume_filters(filter_id());
+            global ? _state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->_filter_id)
+                   : _state->local_runtime_filter_mgr()->get_consume_filters(_wrapper->_filter_id);
     for (auto filter : filters) {
-        filter->_wrapper = wrapper;
-        filter->update_runtime_filter_type_to_profile(local_merge_time);
-        filter->signal();
+        filter->signal(merger_filter);
     }
     return Status::OK();
 };
@@ -55,14 +54,15 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
         // two case we need do local merge:
         // 1. has remote target
         // 2. has local target and has global consumer (means target scan has local shuffle)
-        if (_has_local_target &&
-            _state->global_runtime_filter_mgr()->get_consume_filters(filter_id()).empty()) {
+        if (_has_local_target && _state->global_runtime_filter_mgr()
+                                         ->get_consume_filters(_wrapper->_filter_id)
+                                         .empty()) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
         LocalMergeFilters* local_merge_filters = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                filter_id(), &local_merge_filters));
+                _wrapper->_filter_id, &local_merge_filters));
         local_merge_filters->merge_watcher.start();
         std::lock_guard l(*local_merge_filters->lock);
         RETURN_IF_ERROR(local_merge_filters->merger->merge_from(this));
@@ -71,7 +71,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
         if (local_merge_filters->merge_time == 0) {
             if (_has_local_target) {
                 RETURN_IF_ERROR(
-                        _send_to_local_targets(local_merge_filters->merger->_wrapper, true,
+                        _send_to_local_targets(local_merge_filters->merger.get(), true,
                                                local_merge_filters->merge_watcher.elapsed_time()));
             } else {
                 RETURN_IF_ERROR(
@@ -86,7 +86,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
         // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
         RETURN_IF_ERROR(do_merge());
-        RETURN_IF_ERROR(_send_to_local_targets(_wrapper, false, 0));
+        RETURN_IF_ERROR(_send_to_local_targets(this, false, 0));
     } else if (!publish_local) {
         if (_is_broadcast_join) {
             RETURN_IF_ERROR(_send_to_remote_targets(state, this, 0));
@@ -165,10 +165,10 @@ Status RuntimeFilterProducer::send_filter_size(
     // 1. has remote target
     // 2. has local target and has global consumer (means target scan has local shuffle)
     if (_has_remote_target ||
-        !_state->global_runtime_filter_mgr()->get_consume_filters(filter_id()).empty()) {
+        !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->_filter_id).empty()) {
         LocalMergeFilters* local_merge_filters = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                filter_id(), &local_merge_filters));
+                _wrapper->_filter_id, &local_merge_filters));
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
@@ -215,7 +215,7 @@ Status RuntimeFilterProducer::send_filter_size(
     source_addr->set_port(BackendOptions::get_local_backend().brpc_port);
 
     request->set_filter_size(local_filter_size);
-    request->set_filter_id(filter_id());
+    request->set_filter_id(_wrapper->_filter_id);
 
     callback->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(state->execution_timeout()));
     if (config::execution_ignore_eovercrowded) {

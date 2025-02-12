@@ -66,18 +66,13 @@ public:
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
         for (auto& filter : _runtime_filters) {
-            context->runtime_filters[filter->filter_id()] = filter->get_wrapper_ref();
+            filter->copy_to_shared_context(context);
         }
     }
 
     Status copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
         for (auto& filter : _runtime_filters) {
-            auto filter_id = filter->filter_id();
-            auto ret = context->runtime_filters.find(filter_id);
-            if (ret == context->runtime_filters.end()) {
-                return Status::Aborted("invalid runtime filter id: {}", filter_id);
-            }
-            filter->get_wrapper_ref() = ret->second;
+            filter->copy_from_shared_context(context);
         }
         return Status::OK();
     }

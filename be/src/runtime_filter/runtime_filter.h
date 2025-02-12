@@ -41,10 +41,6 @@ public:
 
     bool has_local_target() const { return _has_local_target; }
 
-    RuntimeFilterType get_real_type();
-
-    int filter_id() const { return _wrapper->_filter_id; }
-
     template <class T>
     Status assign_data_into_wrapper(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
         return _wrapper->assign_data(request, data);
@@ -55,7 +51,7 @@ public:
         auto real_runtime_filter_type = _wrapper->get_real_type();
 
         request->set_filter_type(get_type(real_runtime_filter_type));
-        request->set_contain_null(_wrapper->contain_null());
+        request->set_filter_id(_wrapper->_filter_id);
 
         auto state = _wrapper->get_state();
         if (state != RuntimeFilterWrapper::State::READY) {
@@ -63,6 +59,8 @@ public:
             request->set_disabled(state == RuntimeFilterWrapper::State::DISABLED);
             return Status::OK();
         }
+
+        request->set_contain_null(_wrapper->contain_null());
 
         if (real_runtime_filter_type == RuntimeFilterType::IN_FILTER) {
             auto in_filter = request->mutable_in_filter();
@@ -102,8 +100,6 @@ protected:
                            uint64_t local_merge_time);
 
     std::string _debug_string() const;
-
-    RuntimeFilterWrapper::State _get_wrapper_state();
 
     RuntimeFilterParamsContext* _state = nullptr;
     // _wrapper is a runtime filter function wrapper

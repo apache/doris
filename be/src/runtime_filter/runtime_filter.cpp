@@ -63,7 +63,6 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
     pfragment_instance_id->set_lo((int64_t)this);
 
-    merge_filter_request->set_filter_id(filter_id());
     merge_filter_request->set_local_merge_time(local_merge_time);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
@@ -86,10 +85,6 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     // the closure will be released by brpc during closure->Run.
     merge_filter_closure.release();
     return Status::OK();
-}
-
-RuntimeFilterWrapper::State RuntimeFilter::_get_wrapper_state() {
-    return _wrapper->get_state();
 }
 
 Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
@@ -156,10 +151,6 @@ void RuntimeFilter::_to_protobuf(PInFilter* filter) {
 void RuntimeFilter::_to_protobuf(PMinMaxFilter* filter) {
     filter->set_column_type(to_proto(_wrapper->column_type()));
     _wrapper->_minmax_func->to_pb(filter);
-}
-
-RuntimeFilterType RuntimeFilter::get_real_type() {
-    return _wrapper->get_real_type();
 }
 
 } // namespace doris
