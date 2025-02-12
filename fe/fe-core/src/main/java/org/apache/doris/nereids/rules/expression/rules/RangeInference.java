@@ -76,6 +76,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // only handle `NumericType` and `DateLikeType`
         if (right instanceof ComparableLiteral
                 && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())
+                && !right.isNullLiteral()
                 && !left.containsNonfoldable()) {
             return ValueDesc.range(context, predicate);
         }
