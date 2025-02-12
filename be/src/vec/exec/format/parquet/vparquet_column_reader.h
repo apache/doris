@@ -305,7 +305,6 @@ public:
 
     const std::vector<level_t>& get_def_level() const override {
         if (!_read_column_names.empty()) {
-            //_read_nested_column
             return _child_readers.find(_read_column_names.front())->second->get_def_level();
         }
         return _child_readers.begin()->second->get_def_level();
