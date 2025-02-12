@@ -124,7 +124,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo = new DistributionSpecHiveTableSinkHashPartitioned();
+            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
+                    = new DistributionSpecHiveTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);
             return new PhysicalProperties(shuffleInfo);
         }
