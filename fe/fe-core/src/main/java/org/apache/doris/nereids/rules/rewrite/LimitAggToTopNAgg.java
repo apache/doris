@@ -61,7 +61,8 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= limit.getLimit() + limit.getOffset())
                         .when(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
-                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent()
+                                    && !agg.isDistinct();
                         })
                         .then(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
@@ -76,7 +77,8 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= limit.getLimit() + limit.getOffset())
                         .when(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child().child();
-                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent()
+                                    && !agg.isDistinct();
                         })
                         .then(limit -> {
                             LogicalProject<? extends Plan> project = limit.child();
@@ -95,7 +97,8 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= topn.getLimit() + topn.getOffset())
                         .when(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child();
-                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent()
+                                    && !agg.isDistinct();
                         })
                         .then(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child();
@@ -116,7 +119,8 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= topn.getLimit() + topn.getOffset())
                         .when(topn -> {
                             LogicalAggregate<? extends Plan> agg = topn.child().child();
-                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent();
+                            return !agg.getGroupByExpressions().isEmpty() && !agg.getSourceRepeat().isPresent()
+                                    && !agg.isDistinct();
                         })
                         .then(topn -> {
                             LogicalTopN originTopn = topn;
