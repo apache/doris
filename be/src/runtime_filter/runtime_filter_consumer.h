@@ -113,7 +113,6 @@ private:
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
-    std::atomic<bool> _profile_init = false;
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _wait_timer = nullptr;
 

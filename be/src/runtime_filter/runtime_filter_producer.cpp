@@ -185,7 +185,7 @@ Status RuntimeFilterProducer::send_filter_size(
             }
         }
     } else if (_has_local_target) {
-        DCHECK(false);
+        set_synced_size(local_filter_size);
         return Status::OK();
     }
 
