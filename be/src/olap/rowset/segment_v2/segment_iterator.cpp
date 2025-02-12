@@ -1907,13 +1907,14 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
             continue;
         }
 
-        DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
-            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
-                    "segment_iterator._read_columns_by_index", "column_name", "");
-            if (debug_col_name.empty()) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>("does not need to read data");
-            }
+        DBUG_EXECUTE_IF("segment_iterator._read_columns_by_rowids", {
             auto col_name = _opts.tablet_schema->column(cid).name();
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "segment_iterator._read_columns_by_rowids", "column_name", "");
+            if (debug_col_name.empty() && col_name != "__DORIS_DELETE_SIGN__") {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("does not need to read data, {}",
+                                                                col_name);
+            }
             if (debug_col_name.find(col_name) != std::string::npos) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>("does not need to read data, {}",
                                                                 debug_col_name);
@@ -2507,7 +2508,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
         return false;
     }
 
