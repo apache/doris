@@ -47,8 +47,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_FULL_COMPACTION; }
 
-    int64_t initiator() const override { return INVALID_COMPACTION_INITIATOR_ID; }
-
     Status _check_all_version(const std::vector<RowsetSharedPtr>& rowsets);
     Status _full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                  RowsetWriter* rowset_writer);

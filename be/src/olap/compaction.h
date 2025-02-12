@@ -65,7 +65,7 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
-    virtual int64_t initiator() const = 0;
+    virtual int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
 
 protected:
     Status merge_input_rowsets();

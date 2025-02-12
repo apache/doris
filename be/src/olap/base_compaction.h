@@ -46,8 +46,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
-    int64_t initiator() const override { return INVALID_COMPACTION_INITIATOR_ID; }
-
     // filter input rowset in some case:
     // 1. dup key without delete predicate
     void _filter_input_rowset();

@@ -42,8 +42,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-    int64_t initiator() const override { return INVALID_COMPACTION_INITIATOR_ID; }
-
     Status pick_rowsets_to_compact();
 
     void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
