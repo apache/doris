@@ -46,6 +46,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
@@ -68,6 +69,9 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
+import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -243,6 +247,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
+
+    private DirectoryLister directoryLister;
 
     public PhysicalPlanTranslator() {
         this(null, null);
@@ -559,12 +565,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO(cmy): determine the needCheckColumnPriv param
         ScanNode scanNode;
         if (table instanceof HMSExternalTable) {
+            if (directoryLister == null) {
+                this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
+                        Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+            }
             switch (((HMSExternalTable) table).getDlaType()) {
                 case ICEBERG:
                     scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
                     break;
                 case HIVE:
-                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister);
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
                     hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
                     if (fileScan.getTableSample().isPresent()) {
@@ -640,6 +650,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalHudiScan(PhysicalHudiScan fileScan, PlanTranslatorContext context) {
+        if (directoryLister == null) {
+            this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
+                    Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+        }
         List<Slot> slots = fileScan.getOutput();
         ExternalTable table = fileScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
@@ -652,7 +666,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         + " for Hudi table");
         PhysicalHudiScan hudiScan = (PhysicalHudiScan) fileScan;
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
-                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable());
+                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
+                directoryLister);
         if (fileScan.getTableSnapshot().isPresent()) {
             ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
         }
