@@ -3738,8 +3738,10 @@ public class Env {
         }
 
         // variant max subcolumns count
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT).append("\" = \"");
-        sb.append(olapTable.getVariantMaxSubcolumnsCount()).append("\"");
+        if (olapTable.getVariantMaxSubcolumnsCount() != 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT).append("\" = \"");
+            sb.append(olapTable.getVariantMaxSubcolumnsCount()).append("\"");
+        }
 
         // binlog
         if (Config.enable_feature_binlog) {

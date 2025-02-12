@@ -613,6 +613,7 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {SPARSE_COLUMN_PATH});
+    res.set_parent_unique_id(variant.unique_id());
 
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);

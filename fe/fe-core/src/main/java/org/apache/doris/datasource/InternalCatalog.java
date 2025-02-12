@@ -3073,7 +3073,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         Preconditions.checkNotNull(versionInfo);
-        int variantMaxSubcolumnsCount = PropertyAnalyzer.VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE;
+
+        int variantMaxSubcolumnsCount = PropertyAnalyzer.VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_NEW_VALUE;
         try {
             variantMaxSubcolumnsCount = PropertyAnalyzer.analyzeVariantMaxSubcolumnsCount(properties);
         } catch (AnalysisException e) {

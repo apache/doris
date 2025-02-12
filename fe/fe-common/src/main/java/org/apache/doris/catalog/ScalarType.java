@@ -737,7 +737,7 @@ public class ScalarType extends Type {
             case VARIANT: {
                 scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
                 if (variantMaxSubcolumnsCount < 0) {
-                    throw new IllegalArgumentException(String.format("error count: < 0"));
+                    throw new IllegalArgumentException(String.format("error count: %d", variantMaxSubcolumnsCount));
                 }
                 break;
             }

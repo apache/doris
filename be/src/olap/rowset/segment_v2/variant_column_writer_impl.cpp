@@ -208,7 +208,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         auto full_path = full_path_builder.append(_tablet_column->name_lower_case(), false)
                                  .append(entry->path.get_parts(), false)
                                  .build();
-        // set unique_id and parent_unique_id, will use unique_id to get iterator correct
+        // set unique_id and parent_unique_id, will use parent_unique_id to get iterator correct
         return vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name,
                 vectorized::schema_util::ExtraInfo {.unique_id = _tablet_column->unique_id(),
@@ -230,8 +230,6 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         CHECK(entry->data.is_finalized());
         int current_column_id = column_id++;
         TabletColumn tablet_column = generate_column_info(entry);
-        // tablet_column.set_variant_max_subcolumns_count(
-        //         _tablet_column->variant_max_subcolumns_count());
         RETURN_IF_ERROR(_create_column_writer(current_column_id, tablet_column, *_tablet_column,
                                               _opts.rowset_ctx->tablet_schema));
         converter->add_column_data_convertor(tablet_column);
@@ -508,7 +506,6 @@ void VariantColumnWriterImpl::_init_column_meta(ColumnMetaPB* meta, uint32_t col
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
-    meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
 };
 
 Status VariantColumnWriterImpl::_create_column_writer(uint32_t cid, const TabletColumn& column,
