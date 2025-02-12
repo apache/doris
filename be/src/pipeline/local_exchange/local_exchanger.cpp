@@ -82,7 +82,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
             return true;
         }
         COUNTER_UPDATE(local_state->_get_block_failed_counter, 1);
-        local_state->_dependency->block();
+        local_state->get_dependency(channel_id)->block();
     }
     return false;
 }
@@ -422,6 +422,12 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                                                            vectorized::Block* block, bool* eos) {
             BlockWrapperSPtr next_block;
             _dequeue_data(local_state, next_block, eos, block, id);
+            if (!*eos && block->empty()) {
+                return Status::InternalError(
+                        "LocalMergeSortExchanger{} meet error! Block should not be empty when eos "
+                        "is false",
+                        local_state->debug_string(0));
+            }
             return Status::OK();
         };
         child_block_suppliers.push_back(block_supplier);

@@ -817,7 +817,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
         if (_queues_mem_usage[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
             sink_deps[channel_id]->block();
         }
-        source_deps[channel_id]->set_ready();
     }
 
     Dependency* get_sink_dep_by_channel_id(int channel_id) override {

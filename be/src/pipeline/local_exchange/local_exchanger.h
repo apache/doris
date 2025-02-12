@@ -365,7 +365,6 @@ public:
 private:
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
     MergeInfo _merge_info;
-    std::vector<std::atomic_int64_t> _queues_mem_usege;
 };
 
 class BroadcastExchanger final : public Exchanger<BroadcastBlock> {
