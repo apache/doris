@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon;
 
 public class PaimonSnapshot {
+    public static long INVALID_SNAPSHOT_ID = -1;
     private final long snapshotId;
     private final long schemaId;
 

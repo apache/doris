@@ -20,12 +20,13 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.PartitionItem;
 
 import com.google.common.collect.Maps;
+import org.apache.paimon.partition.Partition;
 
 import java.util.Map;
 
 public class PaimonPartitionInfo {
     private final Map<String, PartitionItem> nameToPartitionItem;
-    private final Map<String, PaimonPartition> nameToPartition;
+    private final Map<String, Partition> nameToPartition;
 
     public PaimonPartitionInfo() {
         this.nameToPartitionItem = Maps.newHashMap();
@@ -33,7 +34,7 @@ public class PaimonPartitionInfo {
     }
 
     public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
-            Map<String, PaimonPartition> nameToPartition) {
+            Map<String, Partition> nameToPartition) {
         this.nameToPartitionItem = nameToPartitionItem;
         this.nameToPartition = nameToPartition;
     }
@@ -42,7 +43,7 @@ public class PaimonPartitionInfo {
         return nameToPartitionItem;
     }
 
-    public Map<String, PaimonPartition> getNameToPartition() {
+    public Map<String, Partition> getNameToPartition() {
         return nameToPartition;
     }
 
