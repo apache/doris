@@ -47,7 +47,6 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
 
     try {
         set_be_config.call("write_buffer_size", "10240")
-        set_be_config.call("variant_max_subcolumns_count", "2")
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -59,7 +58,8 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
             DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES (
                  "replication_num" = "1",
-                 "disable_auto_compaction" = "true"
+                 "disable_auto_compaction" = "true",
+                 "variant_max_subcolumns_count" = "3"
             );
         """
 
@@ -71,7 +71,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
                 backend_id = tablet.BackendId
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def compactJson = parseJson(out.trim())
@@ -163,7 +163,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
         qt_select_6_1_bfcompact """ SELECT count(cast(v['b'] as int)) FROM ${tableName} where cast(v['b'] as int) = 42005;"""
         qt_select_all_bfcompact """SELECT k, v['a'], v['b'], v['xxxx'], v['point'], v['ddddd'] from ${tableName} where (cast(v['point'] as int) = 1);"""
         
-        GetDebugPoint().enableDebugPointForAllBEs("variant_column_writer_impl._get_subcolumn_paths_from_stats", [stats: "24588,12292,12291,3",subcolumns:"a,b"])
+        GetDebugPoint().enableDebugPointForAllBEs("variant_column_writer_impl._get_subcolumn_paths_from_stats", [stats: "24588,12292,12291,3",subcolumns:"a,b,xxxx"])
         triger_compaction.call()
         /**
             variant_statistics {

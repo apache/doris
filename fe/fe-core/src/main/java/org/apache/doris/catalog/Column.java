@@ -154,6 +154,9 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "gctt")
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
+    @SerializedName(value = "varaintMaxSubcolumnsCount")
+    private int variantMaxSubcolumnsCount = 0;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -317,6 +320,7 @@ public class Column implements GsonPostProcessable {
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
+        this.variantMaxSubcolumnsCount = column.getVariantMaxSubcolumnsCount();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -625,6 +629,9 @@ public class Column implements GsonPostProcessable {
         toChildrenThrift(this, tColumn);
 
         tColumn.setColUniqueId(uniqueId);
+        if (type.isVariantType()) {
+            tColumn.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        }
 
         if (type.isAggStateType()) {
             AggStateType aggState = (AggStateType) type;
@@ -832,6 +839,8 @@ public class Column implements GsonPostProcessable {
             for (Column c : childrenColumns) {
                 builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
             }
+        } else if (this.type.isVariantType()) {
+            builder.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         }
 
         OlapFile.ColumnPB col = builder.build();
@@ -1213,5 +1222,13 @@ public class Column implements GsonPostProcessable {
         this.defaultValue = refColumn.defaultValue;
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
+    }
+
+    public void setVariantMaxSubcolumnsCount(int variantMaxSubcolumnsCount) {
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        return variantMaxSubcolumnsCount;
     }
 }

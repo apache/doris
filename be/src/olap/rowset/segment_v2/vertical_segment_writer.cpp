@@ -168,6 +168,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
     }
+    meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -281,6 +282,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.compression_type = _opts.compression_type;
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
+    opts.variant_max_subcolumns_count = column.variant_max_subcolumns_count();
 
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));

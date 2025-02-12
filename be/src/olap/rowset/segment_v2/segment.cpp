@@ -594,8 +594,8 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
         }
         // it contains children or column missing in storage, so treat it as variant
         return identifier.is_nullable
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
-                       : std::make_shared<vectorized::DataTypeObject>();
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(0))
+                       : std::make_shared<vectorized::DataTypeObject>(0);
     }
     // TODO support normal column type
     return nullptr;
@@ -1087,7 +1087,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         DCHECK(storage_type != nullptr);
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
-                slot->col_unique_id());
+                slot->col_unique_id(), slot->type().max_subcolumns_count());
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
             RETURN_IF_ERROR(iterator_hint->init(opt));

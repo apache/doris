@@ -109,7 +109,8 @@ private:
     // 3. init container with subcolumns
     // 4. init container with nested subcolumns
     // 5. init container with sparse column
-    Status _init_container(vectorized::MutableColumnPtr& container, size_t nrows);
+    Status _init_container(vectorized::MutableColumnPtr& container, size_t nrows,
+                           int max_subcolumns_count);
 
     // clear all subcolumns's column data for next batch read
     // set null map for nullable column
@@ -147,7 +148,7 @@ private:
         }
 
         MutableColumnPtr container;
-        RETURN_IF_ERROR(_init_container(container, nrows));
+        RETURN_IF_ERROR(_init_container(container, nrows, variant.max_subcolumns_count()));
         auto& container_variant = assert_cast<ColumnObject&>(*container);
         variant.insert_range_from(container_variant, 0, nrows);
 
