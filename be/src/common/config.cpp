@@ -1281,7 +1281,7 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
-DEFINE_mBool(use_azure_blob_global_endpoint_only, "false");
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");

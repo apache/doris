@@ -1362,7 +1362,7 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
 
-DECLARE_mBool(use_azure_blob_global_endpoint_only);
+DECLARE_mBool(force_azure_blob_global_endpoint);
 
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);

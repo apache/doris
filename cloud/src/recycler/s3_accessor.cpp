@@ -253,7 +253,7 @@ int S3Accessor::init() {
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
-        if (config::use_azure_blob_global_endpoint_only) {
+        if (config::force_azure_blob_global_endpoint) {
             uri_ = fmt::format("https://{}.blob.core.windows.net/{}", conf_.ak, conf_.bucket);
         } else {
             uri_ = fmt::format("{}/{}", conf_.endpoint, conf_.bucket);

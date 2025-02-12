@@ -417,7 +417,7 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePat
     std::string sasToken = sas_builder.GenerateSasToken(
             Azure::Storage::StorageSharedKeyCredential(conf.ak, conf.sk));
 
-    if (doris::config::use_azure_blob_global_endpoint_only) {
+    if (doris::config::force_azure_blob_global_endpoint) {
         return fmt::format(SAS_TOKEN_GLOBAL_URL_TEMPLATE, conf.ak, conf.bucket, opts.key, sasToken);
     }
     auto sasURL =

@@ -3238,7 +3238,7 @@ public class Config extends ConfigBase {
             + "The default is false, meaning the system will use the user-specified endpoint. "
             + "If set to true, the system will force the use of {account}.blob.core.windows.net."
     })
-    public static boolean use_azure_blob_global_endpoint_only = false;
+    public static boolean force_azure_blob_global_endpoint = false;
 
     @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
