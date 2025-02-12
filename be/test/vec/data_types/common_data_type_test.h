@@ -52,6 +52,9 @@ namespace doris::vectorized {
 static bool gen_check_data_in_assert = true;
 
 class CommonDataTypeTest : public ::testing::Test {
+public:
+    CommonDataTypeTest() = default;
+    void TestBody() override {}  // 让 DerivedDataTypeTest 不是抽象类
 protected:
     // Helper function to load data from CSV, with index which splited by spliter and load to columns
     void load_data_from_csv(const DataTypeSerDeSPtrs serders, MutableColumns& columns,
