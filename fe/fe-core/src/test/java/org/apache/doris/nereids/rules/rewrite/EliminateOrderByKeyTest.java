@@ -33,8 +33,19 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 + "distributed by hash(a) properties(\"replication_num\"=\"1\");");
         createTable("create table test.eliminate_order_by_constant_t2(a int, b int, c int, d int) "
                 + "distributed by hash(a) properties(\"replication_num\"=\"1\");");
+        createTable("create table test.test_unique_order_by2(a int not null, b int not null, c int, d int) "
+                + "unique key(a,b) distributed by hash(a) properties('replication_num'='1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+    }
+
+    @Test
+    void testEliminateByCompositeKeys() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_unique_order_by2 order by a,'abc',d,b,d,c")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 3));
     }
 
     @Test
