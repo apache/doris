@@ -783,6 +783,11 @@ under the License.
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
         </dependency>
+        <dependency>
+            <groupId>org.gaul</groupId>
+            <artifactId>modernizer-maven-annotations</artifactId>
+            <version>2.4.0</version>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->

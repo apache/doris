@@ -42,6 +42,7 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
+import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -87,6 +88,8 @@ public class HiveScanNode extends FileQueryScanNode {
     @Setter
     protected SelectedPartitions selectedPartitions = null;
 
+    private DirectoryLister directoryLister;
+
     private boolean partitionInit = false;
     private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
     private List<HivePartition> prunedPartitions;
@@ -101,15 +104,18 @@ public class HiveScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv);
+    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister) {
+        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv, directoryLister);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv) {
+            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
+        this.directoryLister = directoryLister;
     }
 
     @Override
@@ -279,7 +285,8 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName,
+                    directoryLister, hmsTable);
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);

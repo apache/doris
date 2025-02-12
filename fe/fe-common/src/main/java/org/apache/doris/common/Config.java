@@ -2098,6 +2098,10 @@ public class Config extends ConfigBase {
         "Max cache number of external table row count"})
     public static long max_external_table_row_count_cache_num = 100000;
 
+    @ConfField(description = {"每个查询的外表文件元数据缓存的最大文件数量。",
+            "Max cache file number of external table split file meta cache at query level."})
+    public static long max_external_table_split_file_meta_cache_num = 100000;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
