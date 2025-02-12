@@ -3078,17 +3078,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         // get backend by tag
         Set<Tag> tagSet = new HashSet<>();
-        boolean allowResourcetagDowngrade = false;
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             tagSet = context.getResourceTags();
-            allowResourcetagDowngrade = context.isAllowResourceTagDowngrade();
         }
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .needQueryAvailable()
                 .setRequireAliveBe()
                 .addTags(tagSet)
-                .setAllowResourceTagDowngrade(allowResourcetagDowngrade)
                 .build();
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
         for (Backend backend : Env.getCurrentSystemInfo().getBackendsByPolicy(policy)) {
