@@ -236,13 +236,14 @@ class FunctionalDependenciesTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
 
-        plan = PlanChecker.from(connectContext)
-                .analyze("select id from agg where id = 1 group by cube(id, name)")
-                .rewrite()
-                .getPlan();
-        System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+        // comment this ut since repeat's uniform and fd are disabled in this version
+        //plan = PlanChecker.from(connectContext)
+        //        .analyze("select id from agg where id = 1 group by cube(id, name)")
+        //        .rewrite()
+        //        .getPlan();
+        //System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
+        //Assertions.assertTrue(plan.getLogicalProperties()
+        //        .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
     }
 
     @Test
