@@ -426,9 +426,9 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     std::shared_ptr<QueryContext> query_context =
             ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(load_tid);
     if (query_context != nullptr) {
-        _resource_ctx = query_context->resource_ctx;
+        _resource_ctx = query_context->resource_ctx();
     } else {
-        _resource_ctx = ResourceContext::create_shared();
+        _resource_ctx = ResourceContext::create_shared_obj();
         _resource_ctx->task_controller()->set_task_id(load_tid);
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD,
@@ -436,7 +436,7 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
         _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
     }
 #else
-    _resource_ctx = ResourceContext::create_shared();
+    _resource_ctx = ResourceContext::create_shared_obj();
     _resource_ctx->task_controller()->set_task_id(load_tid);
     std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::LOAD,

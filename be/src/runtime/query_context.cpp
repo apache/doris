@@ -174,22 +174,22 @@ void QueryContext::_init_query_mem_tracker() {
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
-    resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
+    _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
 }
 
 void QueryContext::_init_resource_context() {
-    resource_ctx = ResourceContext::create_shared();
-    resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
+    _resource_ctx = ResourceContext::create_shared_obj();
+    _resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
 #ifndef BE_TEST
     _exec_env->runtime_query_statistics_mgr()->register_resource_context(
-            print_id(_query_id), resource_ctx, current_connect_fe, _query_options.query_type);
+            print_id(_query_id), _resource_ctx, current_connect_fe, _query_options.query_type);
 #endif
 }
 
 void QueryContext::init_query_task_controller() {
-    resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
-    resource_ctx->task_controller()->set_task_id(_query_id);
+    _resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
+    _resource_ctx->task_controller()->set_task_id(_query_id);
 }
 
 QueryContext::~QueryContext() {
@@ -212,9 +212,7 @@ QueryContext::~QueryContext() {
         group_id = workload_group()->id(); // before remove
     }
 
-#ifndef BE_TEST
-    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
-#endif
+    _resource_ctx->task_controller()->finish();
 
     if (enable_profile()) {
         _report_query_profile();
@@ -351,7 +349,7 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
 }
 
 void QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
-    resource_ctx->workload_group_context()->set_workload_group(tg);
+    _resource_ctx->workload_group_context()->set_workload_group(tg);
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     workload_group()->add_mem_tracker_limiter(query_mem_tracker());

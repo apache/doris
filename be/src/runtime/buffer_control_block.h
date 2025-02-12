@@ -33,7 +33,6 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "runtime/workload_management/resource_context.h"
 
 namespace google::protobuf {
 class Closure;
@@ -70,7 +69,7 @@ struct GetResultBatchCtx {
             : cntl(cntl_), result(result_), done(done_) {}
 
     void on_failure(const Status& status);
-    void on_close(int64_t packet_seq, ResourceContext* resource_ctx = nullptr);
+    void on_close(int64_t packet_seq, int64_t returned_rows = 0);
     void on_data(const std::unique_ptr<TFetchDataResult>& t_result, int64_t packet_seq,
                  bool eos = false);
 };
@@ -125,14 +124,7 @@ public:
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
     [[nodiscard]] std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
 
-    void update_return_rows(int64_t num_rows) {
-        // _resource_ctx may be null when the result sink init failed
-        // or some other failure.
-        // and the number of written rows is only needed when all things go well.
-        if (_resource_ctx != nullptr) {
-            _resource_ctx->io_context()->stats()->update_returned_rows(num_rows);
-        }
-    }
+    void update_return_rows(int64_t num_rows) { _returned_rows.fetch_add(num_rows); }
 
     void set_dependency(const TUniqueId& id,
                         std::shared_ptr<pipeline::Dependency> result_sink_dependency);
@@ -169,7 +161,7 @@ protected:
     std::deque<GetArrowResultBatchCtx*> _waiting_arrow_result_batch_rpc;
 
     // only used for FE using return rows to check limit
-    std::shared_ptr<ResourceContext> _resource_ctx;
+    std::atomic<int64_t> _returned_rows {0};
     // instance id to dependency
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
     std::unordered_map<TUniqueId, size_t> _instance_rows;

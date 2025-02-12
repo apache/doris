@@ -48,9 +48,9 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(_load_id.to_thrift());
 
     if (query_context != nullptr) {
-        _resource_ctx = query_context->resource_ctx;
+        _resource_ctx = query_context->resource_ctx();
     } else {
-        _resource_ctx = ResourceContext::create_shared();
+        _resource_ctx = ResourceContext::create_shared_obj();
         _resource_ctx->task_controller()->set_task_id(_load_id.to_thrift());
         // when memtable on sink is not enabled, load can not find queryctx
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(

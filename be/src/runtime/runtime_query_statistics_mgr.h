@@ -57,8 +57,6 @@ public:
 
     void report_runtime_query_statistics();
 
-    void set_query_finished(std::string query_id);
-
     // used for workload scheduler policy
     // TODO: save ResourceContext in WorkloadGroupMgr, put get_metric_map into WorkloadGroupMgr.
     void get_metric_map(std::string query_id,

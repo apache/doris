@@ -686,14 +686,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_compressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
-    _state->get_query_ctx()
-            ->resource_ctx->io_context()
-            ->stats()
-            ->update_scan_bytes_from_local_storage(stats.file_cache_stats.bytes_read_from_local);
-    _state->get_query_ctx()
-            ->resource_ctx->io_context()
-            ->stats()
-            ->update_scan_bytes_from_remote_storage(stats.file_cache_stats.bytes_read_from_remote);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            stats.file_cache_stats.bytes_read_from_local);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            stats.file_cache_stats.bytes_read_from_remote);
 }
 
 } // namespace doris::vectorized

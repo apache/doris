@@ -41,6 +41,14 @@ class ResourceContext : public std::enable_shared_from_this<ResourceContext> {
     ENABLE_FACTORY_CREATOR(ResourceContext);
 
 public:
+    static std::shared_ptr<ResourceContext> create_shared_obj() {
+        std::shared_ptr<ResourceContext> resource_ctx = ResourceContext::create_shared();
+        resource_ctx->cpu_context()->set_resource_ctx(resource_ctx.get());
+        resource_ctx->memory_context()->set_resource_ctx(resource_ctx.get());
+        resource_ctx->io_context()->set_resource_ctx(resource_ctx.get());
+        return resource_ctx;
+    }
+
     ResourceContext() {
         // These all default values, it may be reset.
         cpu_context_ = CPUContext::create_unique();
@@ -60,12 +68,15 @@ public:
 
     void set_cpu_context(std::unique_ptr<CPUContext> cpu_context) {
         cpu_context_ = std::move(cpu_context);
+        cpu_context_->set_resource_ctx(this);
     }
     void set_memory_context(std::unique_ptr<MemoryContext> memory_context) {
         memory_context_ = std::move(memory_context);
+        memory_context_->set_resource_ctx(this);
     }
     void set_io_context(std::unique_ptr<IOContext> io_context) {
         io_context_ = std::move(io_context);
+        io_context_->set_resource_ctx(this);
     }
     void set_workload_group_context(std::unique_ptr<WorkloadGroupContext> wg_context) {
         workload_group_context_ = std::move(wg_context);
@@ -84,15 +95,15 @@ public:
         std::unique_ptr<RuntimeProfile> resource_profile =
                 std::make_unique<RuntimeProfile>("ResourceContext");
 
-        RuntimeProfile* cpu_profile = resource_profile->create_child(
-                cpu_context_->stats()->profile()->name(), true, false);
-        cpu_profile->merge(cpu_context_->stats()->profile());
+        RuntimeProfile* cpu_profile =
+                resource_profile->create_child(cpu_context_->stats_profile()->name(), true, false);
+        cpu_profile->merge(cpu_context_->stats_profile());
         RuntimeProfile* memory_profile = resource_profile->create_child(
-                memory_context_->stats()->profile()->name(), true, false);
-        memory_profile->merge(memory_context_->stats()->profile());
-        RuntimeProfile* io_profile = resource_profile->create_child(
-                io_context_->stats()->profile()->name(), true, false);
-        io_profile->merge(io_context_->stats()->profile());
+                memory_context_->stats_profile()->name(), true, false);
+        memory_profile->merge(memory_context_->stats_profile());
+        RuntimeProfile* io_profile =
+                resource_profile->create_child(io_context_->stats_profile()->name(), true, false);
+        io_profile->merge(io_context_->stats_profile());
 
         resource_profile_.set(std::move(resource_profile));
     }

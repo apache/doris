@@ -762,6 +762,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                         _set_scan_concurrency(params, query_ctx.get());
 
+                        if (workload_group_ptr != nullptr) {
+                            RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
+                            query_ctx->set_workload_group(workload_group_ptr);
+                        }
+
                         // There is some logic in query ctx's dctor, we could not check if exists and delete the
                         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
                         map.insert({query_id, query_ctx});

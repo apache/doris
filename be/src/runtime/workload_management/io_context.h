@@ -23,6 +23,8 @@
 
 namespace doris {
 
+class ResourceContext;
+
 class IOContext : public std::enable_shared_from_this<IOContext> {
     ENABLE_FACTORY_CREATOR(IOContext);
 
@@ -42,34 +44,6 @@ public:
         RuntimeProfile::Counter* returned_rows_counter_;
         RuntimeProfile::Counter* shuffle_send_bytes_counter_;
         RuntimeProfile::Counter* shuffle_send_rows_counter_;
-
-        int64_t scan_rows() const { return scan_rows_counter_->value(); }
-        int64_t scan_bytes() const { return scan_bytes_counter_->value(); }
-        int64_t scan_bytes_from_local_storage() const {
-            return scan_bytes_from_local_storage_counter_->value();
-        }
-        int64_t scan_bytes_from_remote_storage() const {
-            return scan_bytes_from_remote_storage_counter_->value();
-        }
-        int64_t returned_rows() const { return returned_rows_counter_->value(); }
-        int64_t shuffle_send_bytes() const { return shuffle_send_bytes_counter_->value(); }
-        int64_t shuffle_send_rows() const { return shuffle_send_rows_counter_->value(); }
-
-        void update_scan_rows(int64_t delta) const { scan_rows_counter_->update(delta); }
-        void update_scan_bytes(int64_t delta) const { scan_bytes_counter_->update(delta); }
-        void update_scan_bytes_from_local_storage(int64_t delta) const {
-            scan_bytes_from_local_storage_counter_->update(delta);
-        }
-        void update_scan_bytes_from_remote_storage(int64_t delta) const {
-            scan_bytes_from_remote_storage_counter_->update(delta);
-        }
-        void update_returned_rows(int64_t delta) const { returned_rows_counter_->update(delta); }
-        void update_shuffle_send_bytes(int64_t delta) const {
-            shuffle_send_bytes_counter_->update(delta);
-        }
-        void update_shuffle_send_rows(int64_t delta) const {
-            shuffle_send_rows_counter_->update(delta);
-        }
 
         RuntimeProfile* profile() { return profile_.get(); }
         void init_profile() {
@@ -93,7 +67,38 @@ public:
 
     IOContext() { stats_.init_profile(); }
     virtual ~IOContext() = default;
-    Stats* stats() { return &stats_; }
+
+    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
+
+    RuntimeProfile* stats_profile() { return stats_.profile(); }
+
+    int64_t scan_rows() const { return stats_.scan_rows_counter_->value(); }
+    int64_t scan_bytes() const { return stats_.scan_bytes_counter_->value(); }
+    int64_t scan_bytes_from_local_storage() const {
+        return stats_.scan_bytes_from_local_storage_counter_->value();
+    }
+    int64_t scan_bytes_from_remote_storage() const {
+        return stats_.scan_bytes_from_remote_storage_counter_->value();
+    }
+    int64_t returned_rows() const { return stats_.returned_rows_counter_->value(); }
+    int64_t shuffle_send_bytes() const { return stats_.shuffle_send_bytes_counter_->value(); }
+    int64_t shuffle_send_rows() const { return stats_.shuffle_send_rows_counter_->value(); }
+
+    void update_scan_rows(int64_t delta) const { stats_.scan_rows_counter_->update(delta); }
+    void update_scan_bytes(int64_t delta) const { stats_.scan_bytes_counter_->update(delta); }
+    void update_scan_bytes_from_local_storage(int64_t delta) const {
+        stats_.scan_bytes_from_local_storage_counter_->update(delta);
+    }
+    void update_scan_bytes_from_remote_storage(int64_t delta) const {
+        stats_.scan_bytes_from_remote_storage_counter_->update(delta);
+    }
+    void update_returned_rows(int64_t delta) const { stats_.returned_rows_counter_->update(delta); }
+    void update_shuffle_send_bytes(int64_t delta) const {
+        stats_.shuffle_send_bytes_counter_->update(delta);
+    }
+    void update_shuffle_send_rows(int64_t delta) const {
+        stats_.shuffle_send_rows_counter_->update(delta);
+    }
 
     IOThrottle* io_throttle() {
         // TODO: get io throttle from workload group
@@ -102,6 +107,7 @@ public:
 
 protected:
     Stats stats_;
+    ResourceContext* resource_ctx_ {nullptr};
 };
 
 } // namespace doris

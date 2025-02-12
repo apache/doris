@@ -261,10 +261,10 @@ public:
     bool is_nereids() const { return _is_nereids; }
 
     WorkloadGroupPtr workload_group() const {
-        return resource_ctx->workload_group_context()->workload_group();
+        return _resource_ctx->workload_group_context()->workload_group();
     }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
-        return resource_ctx->memory_context()->mem_tracker();
+        return _resource_ctx->memory_context()->mem_tracker();
     }
 
     void inc_running_big_mem_op_num() {
@@ -289,20 +289,13 @@ public:
 
     ObjectPool obj_pool;
 
-    std::shared_ptr<ResourceContext> resource_ctx;
+    std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
     std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
-
-    void update_cpu_time(int64_t delta_cpu_time) const {
-        if (workload_group() != nullptr) {
-            workload_group()->update_cpu_time(delta_cpu_time);
-        }
-        resource_ctx->cpu_context()->stats()->update_cpu_cost_ms(delta_cpu_time);
-    }
 
     void add_using_brpc_stub(const TNetworkAddress& network_address,
                              std::shared_ptr<PBackendService_Stub> brpc_stub) {
@@ -331,6 +324,7 @@ private:
     int64_t _bytes_limit = 0;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.

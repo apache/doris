@@ -26,31 +26,28 @@ namespace doris {
 
 void ResourceContext::to_pb_query_statistics(PQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
-    statistics->set_scan_rows(io_context()->stats()->scan_rows());
-    statistics->set_scan_bytes(io_context()->stats()->scan_bytes());
-    statistics->set_cpu_ms(cpu_context()->stats()->cpu_cost_ms() / NANOS_PER_MILLIS);
-    statistics->set_returned_rows(io_context()->stats()->returned_rows());
-    statistics->set_max_peak_memory_bytes(memory_context()->stats()->max_peak_memory_bytes());
-    statistics->set_scan_bytes_from_remote_storage(
-            io_context()->stats()->scan_bytes_from_remote_storage());
-    statistics->set_scan_bytes_from_local_storage(
-            io_context()->stats()->scan_bytes_from_local_storage());
+    statistics->set_scan_rows(io_context()->scan_rows());
+    statistics->set_scan_bytes(io_context()->scan_bytes());
+    statistics->set_cpu_ms(cpu_context()->cpu_cost_ms() / NANOS_PER_MILLIS);
+    statistics->set_returned_rows(io_context()->returned_rows());
+    statistics->set_max_peak_memory_bytes(memory_context()->max_peak_memory_bytes());
+    statistics->set_scan_bytes_from_remote_storage(io_context()->scan_bytes_from_remote_storage());
+    statistics->set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
 }
 
 void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
-    statistics->__set_scan_rows(io_context()->stats()->scan_rows());
-    statistics->__set_scan_bytes(io_context()->stats()->scan_bytes());
-    statistics->__set_cpu_ms(cpu_context()->stats()->cpu_cost_ms() / NANOS_PER_MILLIS);
-    statistics->__set_returned_rows(io_context()->stats()->returned_rows());
-    statistics->__set_max_peak_memory_bytes(memory_context()->stats()->max_peak_memory_bytes());
-    statistics->__set_current_used_memory_bytes(memory_context()->stats()->current_memory_bytes());
-    statistics->__set_shuffle_send_bytes(io_context()->stats()->shuffle_send_bytes());
-    statistics->__set_shuffle_send_rows(io_context()->stats()->shuffle_send_rows());
+    statistics->__set_scan_rows(io_context()->scan_rows());
+    statistics->__set_scan_bytes(io_context()->scan_bytes());
+    statistics->__set_cpu_ms(cpu_context()->cpu_cost_ms() / NANOS_PER_MILLIS);
+    statistics->__set_returned_rows(io_context()->returned_rows());
+    statistics->__set_max_peak_memory_bytes(memory_context()->max_peak_memory_bytes());
+    statistics->__set_current_used_memory_bytes(memory_context()->current_memory_bytes());
+    statistics->__set_shuffle_send_bytes(io_context()->shuffle_send_bytes());
+    statistics->__set_shuffle_send_rows(io_context()->shuffle_send_rows());
     statistics->__set_scan_bytes_from_remote_storage(
-            io_context()->stats()->scan_bytes_from_remote_storage());
-    statistics->__set_scan_bytes_from_local_storage(
-            io_context()->stats()->scan_bytes_from_local_storage());
+            io_context()->scan_bytes_from_remote_storage());
+    statistics->__set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
     statistics->__set_workload_group_id(workload_group_context()->workload_group()->id());
 }
 

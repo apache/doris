@@ -292,7 +292,7 @@ Status PipelineTask::execute(bool* eos) {
         }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
-        query_context()->update_cpu_time(delta_cpu_time);
+        query_context()->resource_ctx()->cpu_context()->update_cpu_cost_ms(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         if (config::enable_prefetch_tablet) {
