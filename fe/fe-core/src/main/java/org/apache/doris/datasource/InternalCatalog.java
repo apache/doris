@@ -3164,6 +3164,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
                 }
+                // storage policy is invalid for table/partition when table is being synced
+                if (isBeingSynced) {
+                    olapTable.setStoragePolicy("");
+                }
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
             } else {

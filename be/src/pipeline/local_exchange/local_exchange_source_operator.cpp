@@ -76,15 +76,16 @@ std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
         // If this is a local merge exchange, source operator is runnable only if all sink operators
         // set dependencies ready
         std::vector<Dependency*> deps;
-        auto le_deps = _shared_state->get_dep_by_channel_id(_channel_id);
         DCHECK_GT(_local_merge_deps.size(), 1);
         // If this is a local merge exchange, we should use all dependencies here.
         for (auto& dep : _local_merge_deps) {
             deps.push_back(dep.get());
         }
         return deps;
-    } else if (_exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT && _channel_id != 0) {
-        // If this is a local merge exchange and is not the first task, source operators always
+    } else if ((_exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT ||
+                _exchanger->get_type() == ExchangeType::PASS_TO_ONE) &&
+               _channel_id != 0) {
+        // If this is a LOCAL_MERGE_SORT/PASS_TO_ONE exchange and is not the first task, source operators always
         // return empty result so no dependencies here.
         return {};
     } else {

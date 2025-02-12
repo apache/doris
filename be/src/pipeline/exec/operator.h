@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
@@ -434,6 +435,9 @@ public:
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
+#endif
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -536,6 +540,9 @@ public:
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorX() = default;
+#endif
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -623,6 +630,10 @@ public:
               _node_id(node_id),
               _pool(pool),
               _limit(-1) {}
+
+#ifdef BE_TEST
+    OperatorXBase() : _operator_id(-1), _node_id(0), _limit(-1) {};
+#endif
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         throw Exception(Status::FatalError("should not reach here!"));
@@ -767,6 +778,11 @@ public:
             : OperatorXBase(pool, tnode, operator_id, descs) {}
     OperatorX(ObjectPool* pool, int node_id, int operator_id)
             : OperatorXBase(pool, node_id, operator_id) {};
+
+#ifdef BE_TEST
+    OperatorX() = default;
+#endif
+
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
@@ -785,6 +801,11 @@ public:
     StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+
+#ifdef BE_TEST
+    StreamingOperatorX() = default;
+#endif
+
     virtual ~StreamingOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;

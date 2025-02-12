@@ -302,10 +302,10 @@ protected:
             data_file_dir + "test_array_array_decimalv3(38,30).csv",
             data_file_dir + "test_array_array_decimalv3(76,56).csv",
             // array-map - 36
-            data_file_dir + "test_array_map<char,double>.csv",
-            data_file_dir + "test_array_map<datetime,decimal<76,56>>.csv",
-            data_file_dir + "test_array_map<ipv4,ipv6>.csv",
-            data_file_dir + "test_array_map<largeInt,string>.csv",
+            data_file_dir + "test_array_map_char_double.csv",
+            data_file_dir + "test_array_map_datetime_decimal.csv",
+            data_file_dir + "test_array_map_ipv4_ipv6.csv",
+            data_file_dir + "test_array_map_largeInt_string.csv",
             // array-struct
             data_file_dir + "test_array_struct.csv"};
 

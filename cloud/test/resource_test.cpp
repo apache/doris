@@ -400,6 +400,8 @@ TEST(ResourceTest, AddDropCluster) {
         auto* ret = try_any_cast<int*>(args[1]);
         *ret = 0;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();

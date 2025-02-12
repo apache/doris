@@ -59,7 +59,6 @@ namespace doris {
 class RuntimeState;
 class TFileRangeDesc;
 class TFileScanRangeParams;
-
 namespace io {
 class FileSystem;
 struct IOContext;
@@ -80,7 +79,7 @@ class DataBuffer;
 } // namespace orc
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class ORCFileInputStream;
 
 struct LazyReadContext {
@@ -153,11 +152,11 @@ public:
     Status _init_select_types(const orc::Type& type, int idx);
 
     Status _fill_partition_columns(
-            Block* block, size_t rows,
+            Block* block, uint64_t rows,
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns);
     Status _fill_missing_columns(
-            Block* block, size_t rows,
+            Block* block, uint64_t rows,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
@@ -249,7 +248,7 @@ private:
         StringDictFilterImpl(OrcReader* orc_reader) : _orc_reader(orc_reader) {}
         ~StringDictFilterImpl() override = default;
 
-        virtual void fillDictFilterColumnNames(
+        void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
             if (_status.ok()) {
@@ -257,7 +256,7 @@ private:
                         std::move(current_strip_information), column_names);
             }
         }
-        virtual void onStringDictsLoaded(
+        void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
             if (_status.ok()) {
@@ -285,7 +284,7 @@ private:
     void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                         std::vector<std::string>& orc_cols_lower_case,
                         std::unordered_map<std::string, const orc::Type*>& type_map,
-                        bool* is_hive1_orc);
+                        bool* is_hive1_orc) const;
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
 
@@ -293,7 +292,7 @@ private:
     std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
             const VSlotRef* slot_ref, const VLiteral* literal);
     bool _check_slot_can_push_down(const VExprSPtr& expr);
-    bool _check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id);
+    bool _check_literal_can_push_down(const VExprSPtr& expr, size_t child_id);
     bool _check_rest_children_can_push_down(const VExprSPtr& expr);
     bool _check_expr_can_push_down(const VExprSPtr& expr);
     void _build_less_than(const VExprSPtr& expr,
@@ -317,19 +316,19 @@ private:
     template <bool is_filter = false>
     Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
                                    const DataTypePtr& data_type, const orc::Type* orc_column_type,
-                                   orc::ColumnVectorBatch* cvb, size_t num_values);
+                                   const orc::ColumnVectorBatch* cvb, size_t num_values);
 
     template <bool is_filter = false>
     Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
-                                       orc::ColumnVectorBatch* cvb, size_t num_values);
+                                       const orc::ColumnVectorBatch* cvb, size_t num_values);
 
     template <typename CppType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                               orc::ColumnVectorBatch* cvb, size_t num_values) {
+                               const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
+        auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -355,12 +354,14 @@ private:
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > orc_decimal_scale) {
             scale_params.scale_type = DecimalScaleParams::SCALE_UP;
-            scale_params.scale_factor = DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
-                    dest_scale - orc_decimal_scale);
+            scale_params.scale_factor =
+                    cast_set<int64_t>(DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
+                            dest_scale - orc_decimal_scale));
         } else if (dest_scale < orc_decimal_scale) {
             scale_params.scale_type = DecimalScaleParams::SCALE_DOWN;
-            scale_params.scale_factor = DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
-                    orc_decimal_scale - dest_scale);
+            scale_params.scale_factor =
+                    cast_set<int64_t>(DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
+                            orc_decimal_scale - dest_scale));
         } else {
             scale_params.scale_type = DecimalScaleParams::NO_SCALE;
             scale_params.scale_factor = 1;
@@ -371,8 +372,8 @@ private:
     Status _decode_explicit_decimal_column(const std::string& col_name,
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
-                                           orc::ColumnVectorBatch* cvb, size_t num_values) {
-        OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
+                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -398,8 +399,10 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    uint64_t hi = data->values[i].getHighBits();
-                    uint64_t lo = data->values[i].getLowBits();
+                    // cast data to non const
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
                 value *= scale_params.scale_factor;
@@ -412,8 +415,10 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    uint64_t hi = data->values[i].getHighBits();
-                    uint64_t lo = data->values[i].getLowBits();
+                    // cast data to non const
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
                 value /= scale_params.scale_factor;
@@ -426,8 +431,10 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    uint64_t hi = data->values[i].getHighBits();
-                    uint64_t lo = data->values[i].getLowBits();
+                    // cast data to non const
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
                 auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
@@ -439,14 +446,14 @@ private:
 
     template <bool is_filter>
     Status _decode_int32_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                                orc::ColumnVectorBatch* cvb, size_t num_values);
+                                const orc::ColumnVectorBatch* cvb, size_t num_values);
 
     template <typename DecimalPrimitiveType, bool is_filter>
     Status _decode_decimal_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                                  const DataTypePtr& data_type, orc::ColumnVectorBatch* cvb,
+                                  const DataTypePtr& data_type, const orc::ColumnVectorBatch* cvb,
                                   size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        if (dynamic_cast<orc::Decimal64VectorBatch*>(cvb) != nullptr) {
+        if (dynamic_cast<const orc::Decimal64VectorBatch*>(cvb) != nullptr) {
             return _decode_explicit_decimal_column<DecimalPrimitiveType, orc::Decimal64VectorBatch,
                                                    is_filter>(col_name, data_column, data_type, cvb,
                                                               num_values);
@@ -459,9 +466,9 @@ private:
 
     template <typename CppType, typename DorisColumnType, typename OrcColumnType, bool is_filter>
     Status _decode_time_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                               orc::ColumnVectorBatch* cvb, size_t num_values) {
+                               const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        auto* data = dynamic_cast<OrcColumnType*>(cvb);
+        auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -482,7 +489,9 @@ private:
                         continue;
                     }
                 }
-                int64_t date_value = data->data[i] + _offset_days;
+
+                // because the date api argument is int32_t, we should cast to int32_t.
+                int32_t date_value = cast_set<int32_t>(data->data[i]) + _offset_days;
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                     v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
@@ -508,26 +517,26 @@ private:
 
     template <bool is_filter>
     Status _decode_string_column(const std::string& col_name, const MutableColumnPtr& data_column,
-                                 const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
+                                 const orc::TypeKind& type_kind, const orc::ColumnVectorBatch* cvb,
                                  size_t num_values);
 
     template <bool is_filter>
     Status _decode_string_non_dict_encoded_column(const std::string& col_name,
                                                   const MutableColumnPtr& data_column,
                                                   const orc::TypeKind& type_kind,
-                                                  orc::EncodedStringVectorBatch* cvb,
+                                                  const orc::EncodedStringVectorBatch* cvb,
                                                   size_t num_values);
 
     template <bool is_filter>
     Status _decode_string_dict_encoded_column(const std::string& col_name,
                                               const MutableColumnPtr& data_column,
                                               const orc::TypeKind& type_kind,
-                                              orc::EncodedStringVectorBatch* cvb,
+                                              const orc::EncodedStringVectorBatch* cvb,
                                               size_t num_values);
 
     Status _fill_doris_array_offsets(const std::string& col_name,
                                      ColumnArray::Offsets64& doris_offsets,
-                                     orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
+                                     const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
     void _collect_profile_on_close();
@@ -543,7 +552,7 @@ private:
                                                            const NullMap* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
-    int64_t get_remaining_rows() { return _remaining_rows; }
+    int64_t get_remaining_rows() const { return _remaining_rows; }
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
     // check if the given name is like _col0, _col1, ...
@@ -593,9 +602,9 @@ private:
     // 2. If true, use indexes instead of column names when reading orc tables.
     bool _is_hive1_orc_or_use_idx = false;
 
+    // map col name in metastore to col name in orc file
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
-    // TODO: check if we can remove _col_name_to_file_col_name_low_case
-    std::unordered_map<std::string, std::string> _col_name_to_file_col_name_low_case;
+    // map col name in orc file to orc type
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
@@ -701,4 +710,5 @@ private:
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

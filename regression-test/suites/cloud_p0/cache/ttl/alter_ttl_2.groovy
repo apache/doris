@@ -161,8 +161,8 @@ suite("alter_ttl_2") {
             }
             assertTrue(flag1)
     }
-    // wait for ttl timeout
-    sleep(40000)
+    // the first load data ttl is 300，so need wait for 200s until the ttl timeout
+    sleep(200000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")

@@ -67,18 +67,5 @@ const vectorized::SortDescription& SortSourceOperatorX::get_sort_description(
     return local_state._shared_state->sorter->get_sort_description();
 }
 
-Status SortSourceOperatorX::build_merger(RuntimeState* state,
-                                         std::unique_ptr<vectorized::VSortedRunMerger>& merger,
-                                         RuntimeProfile* profile) {
-    // now only use in LocalMergeSortExchanger::get_block
-    vectorized::VSortExecExprs vsort_exec_exprs;
-    // clone vsort_exec_exprs in LocalMergeSortExchanger
-    RETURN_IF_ERROR(_vsort_exec_exprs.clone(state, vsort_exec_exprs));
-    merger = std::make_unique<vectorized::VSortedRunMerger>(
-            vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
-            state->batch_size(), _limit, _offset, profile);
-    return Status::OK();
-}
-
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

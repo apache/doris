@@ -1598,6 +1598,9 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("FINISHED", status)
+        // even when job states change to "FINISHED", the table state may not be changed from rollup when creating mv.
+        // so sleep here.
+        sleep(1000)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
@@ -1691,14 +1694,20 @@ class Suite implements GroovyInterceptable {
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
         logger.info(foldSql)
-        List<List<Object>> resultByFoldConstant = sql(foldSql)
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+        tupleResult = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
+        def (resultByFoldConstant, meta) = tupleResult
         logger.info("result by fold constant: " + resultByFoldConstant.toString())
         String closeFoldConstant = "set debug_skip_fold_constant=true";
         sql(closeFoldConstant)
         logger.info(foldSql)
         List<List<Object>> resultExpected = sql(foldSql)
         logger.info("result expected: " + resultExpected.toString())
-        Assert.assertEquals(resultExpected, resultByFoldConstant)
+
+        String errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
+                    { row -> OutputUtils.toCsvString(row as List<Object>) },
+                    { row ->  OutputUtils.toCsvString(row) },
+                    "check output failed", meta)
     }
 
     String getJobName(String dbName, String mtmvName) {

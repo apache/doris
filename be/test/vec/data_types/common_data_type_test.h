@@ -19,22 +19,16 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 
-#include "olap/schema.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/io/reader_buffer.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:

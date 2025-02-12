@@ -151,7 +151,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     if (_is_merging && !local_state.is_ready) {
         SCOPED_TIMER(local_state.create_merger_timer);
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
-                local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
+                local_state.vsort_exec_exprs.ordering_expr_ctxs(), _is_asc_order, _nulls_first,
                 state->batch_size(), _limit, _offset));
         local_state.is_ready = true;
         return Status::OK();

@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 class CLuceneError;
@@ -78,24 +79,12 @@ protected:
     bool doDeleteFile(const char* name) override;
 
 public:
-    explicit DorisCompoundReader(
-            CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
-            int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
-            : _stream(stream),
-              _entries(_CLNEW EntriesType(true, true)),
-              _read_buffer_size(read_buffer_size) {
-        for (auto& e : *entries_clone) {
-            auto* origin_entry = e.second;
-            auto* entry = _CLNEW ReaderFileEntry();
-            char* aid = strdup(e.first);
-            entry->file_name = origin_entry->file_name;
-            entry->offset = origin_entry->offset;
-            entry->length = origin_entry->length;
-            _entries->put(aid, entry);
-        }
-    };
+    DorisCompoundReader(CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
+                        int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
+                        const io::IOContext* io_ctx = nullptr);
     DorisCompoundReader(CL_NS(store)::IndexInput* stream,
-                        int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE);
+                        int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
+                        const io::IOContext* io_ctx = nullptr);
     ~DorisCompoundReader() override;
     void copyFile(const char* file, int64_t file_length, uint8_t* buffer, int64_t buffer_length);
     bool list(std::vector<std::string>* names) const override;
@@ -115,6 +104,9 @@ public:
     static const char* getClassName();
     const char* getObjectName() const override;
     CL_NS(store)::IndexInput* getDorisIndexInput();
+
+private:
+    void initialize(const io::IOContext* io_ctx);
 };
 
 } // namespace segment_v2

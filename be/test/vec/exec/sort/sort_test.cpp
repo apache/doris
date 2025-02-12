@@ -59,7 +59,7 @@ public:
 
         sort_exec_exprs._materialize_tuple = false;
 
-        sort_exec_exprs._lhs_ordering_expr_ctxs.push_back(
+        sort_exec_exprs._ordering_expr_ctxs.push_back(
                 VExprContext::create_shared(std::make_shared<MockSlotRef>(0)));
 
         switch (sort_type) {
@@ -77,6 +77,8 @@ public:
         default:
             break;
         }
+
+        sorter->init_profile(profile.get());
     }
 
     void append_block(ColumnInt32::Ptr column) {
@@ -114,6 +116,7 @@ public:
     VSortExecExprs sort_exec_exprs;
     ObjectPool pool;
     std::unique_ptr<MockRowDescriptor> row_desc;
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};

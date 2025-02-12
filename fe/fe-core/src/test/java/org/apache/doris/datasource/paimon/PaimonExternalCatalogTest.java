@@ -15,11 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "table_format_reader.h"
+package org.apache.doris.datasource.paimon;
 
-namespace doris::vectorized {
+import org.junit.Assert;
+import org.junit.Test;
 
-TableFormatReader::TableFormatReader(std::unique_ptr<GenericReader> file_format_reader)
-        : _file_format_reader(std::move(file_format_reader)) {}
+import java.util.HashMap;
 
-} // namespace doris::vectorized
+
+public class PaimonExternalCatalogTest {
+
+    @Test
+    public void testGetPaimonTable() {
+
+        HashMap<String, String> props = new HashMap<>();
+        props.put("warehouse", "not_exist");
+        PaimonExternalCatalog catalog = new PaimonFileExternalCatalog(1, "name", "resource", props, "comment");
+        catalog.setInitialized(true);
+
+        try {
+            catalog.getPaimonTable("dbName", "tblName");
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to get Paimon table"));
+        }
+    }
+}

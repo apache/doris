@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
+    if (!isCloudMode()) {
+        return
+    }
     GetDebugPoint().clearDebugPointsForAllFEs()
 
     def backendId_to_backendIP = [:]
