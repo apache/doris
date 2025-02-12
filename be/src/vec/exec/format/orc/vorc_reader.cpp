@@ -566,19 +566,17 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    if (!_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name())) {
+    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name())) {
         throw Exception(Status::FatalError(
-                "Check failed: "
-                "_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name())"));
+                "Check failed: _col_name_to_file_col_name.contains(slot_ref->expr_name())"));
     }
     auto file_col_name = _col_name_to_file_col_name[slot_ref->expr_name()];
-    if (!_type_map.contains(file_col_name_low_case)) {
+    if (!_type_map.contains(file_col_name)) {
         LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
-    if (!_type_map.contains(file_col_name_low_case)) {
-        throw Exception(
-                Status::FatalError("Check failed: _type_map.contains(file_col_name_low_case)"));
+    if (!_type_map.contains(file_col_name)) {
+        throw Exception(Status::FatalError("Check failed: _type_map.contains(file_col_name)"));
     }
     const auto* orc_type = _type_map[file_col_name];
     if (!TYPEKIND_TO_PREDICATE_TYPE.contains(orc_type->getKind())) {
