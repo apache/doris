@@ -264,15 +264,11 @@ public:
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
     std::string get_cancel_msg() {
-        std::stringstream ss;
-        ss << "close wait failed coz rpc error";
-        {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            if (!_cancel_msg.empty()) {
-                ss << ". " << _cancel_msg;
-            }
+        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+        if (!_cancel_msg.empty()) {
+            return _cancel_msg;
         }
-        return ss.str();
+        return fmt::format("{} is cancelled", channel_info());
     }
 
     // two ways to stop channel:
