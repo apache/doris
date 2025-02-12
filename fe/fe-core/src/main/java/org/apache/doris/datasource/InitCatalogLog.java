@@ -56,6 +56,9 @@ public class InitCatalogLog implements Writable {
     @SerializedName(value = "refreshDbIds")
     private List<Long> refreshDbIds;
 
+    @SerializedName(value = "refreshRemoteDbNames")
+    private List<String> refreshRemoteDbNames;
+
     @SerializedName(value = "createDbIds")
     private List<Long> createDbIds;
 
@@ -76,15 +79,17 @@ public class InitCatalogLog implements Writable {
         createCount = 0;
         catalogId = 0;
         refreshDbIds = Lists.newArrayList();
+        refreshRemoteDbNames = Lists.newArrayList();
         createDbIds = Lists.newArrayList();
         createDbNames = Lists.newArrayList();
         remoteDbNames = Lists.newArrayList();
         type = Type.UNKNOWN;
     }
 
-    public void addRefreshDb(long id) {
+    public void addRefreshDb(long id, String remoteName) {
         refreshCount += 1;
         refreshDbIds.add(id);
+        refreshRemoteDbNames.add(remoteName);
     }
 
     public void addCreateDb(long id, String name, String remoteName) {
