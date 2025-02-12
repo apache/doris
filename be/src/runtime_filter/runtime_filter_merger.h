@@ -18,6 +18,7 @@
 #pragma once
 
 #include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 
 namespace doris {
 
@@ -39,33 +40,26 @@ public:
     }
 
     Status merge_from(const RuntimeFilter* other) {
-        auto status = _wrapper->merge(other->_wrapper.get());
-        if (!status) {
-            return Status::InternalError("runtime filter merge failed: {}, error_msg: {}",
-                                         debug_string(), status.msg());
+        if (_wrapper->get_state() == RuntimeFilterWrapper::State::IGNORED) {
+            _wrapper = other->_wrapper;
+            return Status::OK();
         }
-        return Status::OK();
+        return _wrapper->merge(other->_wrapper.get());
     }
 
     enum class State {
         PUBLISHED,
-        IGNORED,
-        DISABLED,
         WAITING_FOR_PRODUCT,
     };
 
 private:
     RuntimeFilterMerger(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
-            : RuntimeFilter(state, desc) {}
+            : RuntimeFilter(state, desc), _rf_state(State::WAITING_FOR_PRODUCT) {}
 
     static std::string _to_string(const State& state) {
         switch (state) {
         case State::PUBLISHED:
             return "PUBLISHED";
-        case State::IGNORED:
-            return "IGNORED";
-        case State::DISABLED:
-            return "DISABLED";
         case State::WAITING_FOR_PRODUCT:
             return "WAITING_FOR_PRODUCT";
         default:

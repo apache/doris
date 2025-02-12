@@ -20,6 +20,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_producer.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -29,17 +30,11 @@ Status RuntimeFilterSlots::send_filter_size(
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
-    for (auto runtime_filter : _runtime_filters) {
-        if (runtime_filter->need_sync_filter_size()) {
-            runtime_filter->set_finish_dependency(dependency);
-        }
-    }
 
-    // send_filter_size may call dependency->sub(), so we call set_finish_dependency firstly for all rf to avoid dependency set_ready repeatedly
+    dependency->add(); // add count at start to avoid dependency ready multiple times
+    Defer defer {[&]() { dependency->sub(); }}; // remove the initial external add
     for (auto runtime_filter : _runtime_filters) {
-        if (runtime_filter->need_sync_filter_size()) {
-            RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size));
-        }
+        RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size, dependency));
     }
     return Status::OK();
 }
@@ -54,33 +49,12 @@ Status RuntimeFilterSlots::_disable_meaningless_filters(RuntimeState* state) {
     // process ignore duplicate IN_FILTER
     std::unordered_set<int> has_in_filter;
     for (auto filter : _runtime_filters) {
-        if (filter->is_ready_to_publish_or_published()) {
-            continue;
-        }
-        if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
-            continue;
-        }
-        if (!filter->need_sync_filter_size() &&
-            filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-            continue;
-        }
-        if (has_in_filter.contains(filter->expr_order())) {
-            filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
-            continue;
-        }
-        has_in_filter.insert(filter->expr_order());
+        filter->disable_meaningless_filters(has_in_filter, true);
     }
 
     // process ignore filter when it has IN_FILTER on same expr
     for (auto filter : _runtime_filters) {
-        if (filter->is_ready_to_publish_or_published()) {
-            continue;
-        }
-        if (filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
-            !has_in_filter.contains(filter->expr_order())) {
-            continue;
-        }
-        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+        filter->disable_meaningless_filters(has_in_filter, false);
     }
     return Status::OK();
 }
@@ -99,9 +73,6 @@ void RuntimeFilterSlots::_insert(const vectorized::Block* block, size_t start) {
         int result_column_id =
                 _build_expr_context[filter->expr_order()]->get_last_result_column_id();
         const auto& column = block->get_by_position(result_column_id).column;
-        if (filter->is_ready_to_publish_or_published()) {
-            continue;
-        }
         filter->insert_batch(column, start);
     }
 }
@@ -112,11 +83,11 @@ Status RuntimeFilterSlots::process(
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
+
+    auto wrapper_state = RuntimeFilterWrapper::State::READY;
     if (state->get_task()->wake_up_early()) {
         // partitial ignore rf to make global rf work
-        for (auto filter : _runtime_filters) {
-            filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::IGNORED);
-        }
+        wrapper_state = RuntimeFilterWrapper::State::IGNORED;
     } else if (_should_build_hash_table) {
         uint64_t hash_table_size = block ? block->rows() : 0;
         {
@@ -127,6 +98,11 @@ Status RuntimeFilterSlots::process(
             _insert(block, 1);
         }
     }
+
+    for (auto filter : _runtime_filters) {
+        filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
+    }
+
     RETURN_IF_ERROR(_publish(state));
     return Status::OK();
 }

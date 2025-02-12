@@ -43,6 +43,10 @@ public:
         for (auto& block : blocks) {
             RETURN_IF_ERROR(_process_block(&block));
         }
+
+        for (auto filter : _runtime_filters) {
+            filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+        }
         return _publish(state);
     }
 

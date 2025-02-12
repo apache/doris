@@ -97,4 +97,29 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
 
 Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcode,
                              vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null);
+
+template <typename T>
+std::string to_string(std::vector<typename T::State> assumed_states) {
+    std::vector<std::string> strs;
+    for (auto state : assumed_states) {
+        strs.push_back(T::to_string(state));
+    }
+    return fmt::format("[{}]", fmt::join(strs, ", "));
+}
+
+template <typename T>
+bool check_state(typename T::State real_state, std::vector<typename T::State> assumed_states) {
+    bool matched = false;
+    for (auto state : assumed_states) {
+        if (real_state == state) {
+            matched = true;
+            break;
+        }
+    }
+    if (!matched) {
+        LOG(WARNING) << "assumed_state is " << to_string<T>(assumed_states) << ", but real is "
+                     << T::to_string(real_state);
+    }
+    return matched;
+}
 } // namespace doris
