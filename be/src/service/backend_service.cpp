@@ -1264,14 +1264,12 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     response.__set_report_exec_status_params(*report_exec_status_params);
 }
 
-void BaseBackendService::get_all_dictionary_status(TAllDictionaryStatus& result) {
+void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
+                                               const std::vector<int64_t>& dictionary_ids) {
     std::vector<TDictionaryStatus> dictionary_status;
-    ExecEnv::GetInstance()->dict_factory()->get_all_dictionary_status(dictionary_status);
+    ExecEnv::GetInstance()->dict_factory()->get_dictionary_status(dictionary_status,
+                                                                  dictionary_ids);
     result.__set_dictionary_status_list(dictionary_status);
-}
-
-void BaseBackendService::get_dictionary_status(TDictionaryStatus& result, int64_t dictionary_id) {
-    ExecEnv::GetInstance()->dict_factory()->get_dictionary_status(result, dictionary_id);
 }
 
 } // namespace doris

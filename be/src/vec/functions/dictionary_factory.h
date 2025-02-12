@@ -88,9 +88,8 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
 
-    void get_all_dictionary_status(std::vector<TDictionaryStatus>& dictionary_status);
-
-    void get_dictionary_status(TDictionaryStatus& result, int64_t dict_id);
+    void get_dictionary_status(std::vector<TDictionaryStatus>& result,
+                               std::vector<int64_t> dict_ids);
 
 private:
     std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map;

@@ -352,7 +352,7 @@ struct TDictionaryStatus {
     3: optional i64 dictionary_memory_size
 }
 
-struct TAllDictionaryStatus {
+struct TDictionaryStatusList {
     1: optional list<TDictionaryStatus> dictionary_status_list
 }
 
@@ -420,6 +420,6 @@ service BackendService {
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
 
-    TDictionaryStatus get_dictionary_status(1:i64 dictionary_id);
-    TAllDictionaryStatus get_all_dictionary_status();
+    // if empty, return all dictionary status.
+    TDictionaryStatusList get_dictionary_status(1:list<i64> dictionary_ids);
 }
