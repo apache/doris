@@ -49,7 +49,6 @@ import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -231,10 +230,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         public abstract ValueDesc intersect(ValueDesc other);
 
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
-            DiscreteValue result = new DiscreteValue(context, discrete.reference, discrete.toExpr);
-            discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
-            if (!result.values.isEmpty()) {
-                return result;
+            Set<Literal> newValues = discrete.values.stream()
+                    .filter(x -> range.range.contains(x))
+                    .collect(Collectors.toCollection(
+                            () -> Sets.newLinkedHashSetWithExpectedSize(discrete.values.size())));
+            if (!newValues.isEmpty()) {
+                return new DiscreteValue(context, discrete.reference, discrete.toExpr, newValues);
             }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.and(range.toExpr, discrete.toExpr), context);
@@ -246,7 +247,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         public static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
             Literal value = (Literal) predicate.right();
             if (predicate instanceof EqualTo) {
-                return new DiscreteValue(context, predicate.left(), predicate, value);
+                return new DiscreteValue(context, predicate.left(), predicate, Sets.newHashSet(value));
             }
             RangeValue rangeValue = new RangeValue(context, predicate.left(), predicate);
             if (predicate instanceof GreaterThanEqual) {
@@ -264,7 +265,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
         public static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
             // Set<Literal> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
-            Set<Literal> literals = in.getOptions().stream().map(Literal.class::cast).collect(Collectors.toSet());
+            Set<Literal> literals = in.getOptions().stream()
+                    .map(Literal.class::cast)
+                    .collect(Collectors.toCollection(
+                            () -> Sets.newLinkedHashSetWithExpectedSize(in.getOptions().size())));
             return new DiscreteValue(context, in.getCompareExpr(), in, literals);
         }
     }
@@ -398,17 +402,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
      * a in (1,2,3) => [1,2,3]
      */
     private static class DiscreteValue extends ValueDesc {
-        Set<Literal> values;
+        final Set<Literal> values;
 
         public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Expression toExpr, Literal... values) {
-            this(context, reference, toExpr, Arrays.asList(values));
-        }
-
-        public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Expression toExpr, Collection<Literal> values) {
+                Expression reference, Expression toExpr, Set<Literal> values) {
             super(context, reference, toExpr);
-            this.values = Sets.newHashSet(values);
+            this.values = values;
         }
 
         @Override
@@ -419,10 +418,11 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof DiscreteValue) {
                 Expression originExpr = FoldConstantRuleOnFE.evaluate(
                         ExpressionUtils.or(toExpr, other.toExpr), context);
-                DiscreteValue discreteValue = new DiscreteValue(context, reference, originExpr);
-                discreteValue.values.addAll(((DiscreteValue) other).values);
-                discreteValue.values.addAll(this.values);
-                return discreteValue;
+                Set<Literal> otherValues = ((DiscreteValue) other).values;
+                Set<Literal> newValues = Sets.newLinkedHashSetWithExpectedSize(values.size() + otherValues.size());
+                newValues.addAll(values);
+                newValues.addAll(otherValues);
+                return new DiscreteValue(context, reference, originExpr, newValues);
             }
             if (other instanceof RangeValue) {
                 return union(context, (RangeValue) other, this, true);
@@ -441,13 +441,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof DiscreteValue) {
                 Expression originExpr = FoldConstantRuleOnFE.evaluate(
                         ExpressionUtils.and(toExpr, other.toExpr), context);
-                DiscreteValue discreteValue = new DiscreteValue(context, reference, originExpr);
-                discreteValue.values.addAll(((DiscreteValue) other).values);
-                discreteValue.values.retainAll(this.values);
-                if (discreteValue.values.isEmpty()) {
+                Set<Literal> newValues = Sets.newLinkedHashSet(values);
+                newValues.retainAll(((DiscreteValue) other).values);
+                if (newValues.isEmpty()) {
                     return new EmptyValue(context, reference, originExpr);
                 } else {
-                    return discreteValue;
+                    return new DiscreteValue(context, reference, originExpr, newValues);
                 }
             }
             if (other instanceof RangeValue) {
