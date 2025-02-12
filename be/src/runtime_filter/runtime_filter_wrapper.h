@@ -121,16 +121,16 @@ public:
         PFilterType filter_type = request.filter_type();
 
         if (request.has_disabled() && request.disabled()) {
-            _state = State::DISABLED;
+            set_state(State::DISABLED);
             return Status::OK();
         }
 
         if (request.has_ignored() && request.ignored()) {
-            _state = State::IGNORED;
+            set_state(State::IGNORED);
             return Status::OK();
         }
 
-        _state = State::READY;
+        set_state(State::READY);
 
         switch (filter_type) {
         case PFilterType::IN_FILTER: {
@@ -163,17 +163,11 @@ public:
     }
 
     void set_state(State state) {
-        if (_state == State::DISABLED || _state == State::IGNORED) {
+        if (_state == State::DISABLED || _state == State::READY) {
             return;
         }
 
         _state = state;
-        if (state == State::DISABLED || state == State::IGNORED) {
-            _minmax_func.reset();
-            _hybrid_set.reset();
-            _bloom_filter_func.reset();
-            _bitmap_filter_func.reset();
-        }
     }
 
     State get_state() const { return _state; }

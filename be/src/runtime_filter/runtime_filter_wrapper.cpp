@@ -99,6 +99,7 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
 Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                                             std::vector<vectorized::VRuntimeFilterPtr>& container,
                                             const TExpr& probe_expr) {
+    DCHECK(_state == State::READY);
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
@@ -360,7 +361,7 @@ size_t RuntimeFilterWrapper::get_bloom_filter_size() const {
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     if (other->_state == State::DISABLED) {
-        _state = State::DISABLED;
+        set_state(State::DISABLED);
     }
 
     if (other->_state == State::IGNORED || _state == State::DISABLED) {
@@ -369,7 +370,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
     DCHECK(_state != State::IGNORED);
 
-    _state = State::READY;
+    set_state(State::READY);
 
     bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                                      (other->_filter_type != RuntimeFilterType::IN_FILTER &&

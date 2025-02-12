@@ -99,7 +99,7 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
                              vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null);
 
 template <typename T>
-std::string to_string(std::vector<typename T::State> assumed_states) {
+std::string states_to_string(std::vector<typename T::State> assumed_states) {
     std::vector<std::string> strs;
     for (auto state : assumed_states) {
         strs.push_back(T::to_string(state));
