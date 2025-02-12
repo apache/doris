@@ -22,45 +22,45 @@ include "Exprs.thrift"
 include "Types.thrift"
 
 enum TPartitionType {
-  UNPARTITIONED,
+  UNPARTITIONED = 0,
 
   // round-robin partition
-  RANDOM,
+  RANDOM = 1,
 
   // unordered partition on a set of exprs
   // (partition bounds overlap)
-  HASH_PARTITIONED,
+  HASH_PARTITIONED = 2,
 
   // ordered partition on a list of exprs
   // (partition bounds don't overlap)
-  RANGE_PARTITIONED,
+  RANGE_PARTITIONED = 3,
   
   // partition on a list of exprs
-  LIST_PARTITIONED,
+  LIST_PARTITIONED = 4,
 
   // unordered partition on a set of exprs
   // (only use in bucket shuffle join)
-  BUCKET_SHFFULE_HASH_PARTITIONED,
+  BUCKET_SHFFULE_HASH_PARTITIONED = 5,
 
   // used for shuffle data by parititon and tablet
-  OLAP_TABLE_SINK_HASH_PARTITIONED,
+  OLAP_TABLE_SINK_HASH_PARTITIONED = 6,
 
   // used for shuffle data by hive parititon
-  HIVE_TABLE_SINK_HASH_PARTITIONED,
+  HIVE_TABLE_SINK_HASH_PARTITIONED = 7,
 
   // used for hive unparititoned table
-  HIVE_TABLE_SINK_UNPARTITIONED
+  HIVE_TABLE_SINK_UNPARTITIONED = 8
 }
 
 enum TDistributionType {
-  UNPARTITIONED,
+  UNPARTITIONED = 0,
 
   // round-robin partition
-  RANDOM,
+  RANDOM = 1,
 
   // unordered partition on a set of exprs
   // (partition bounds overlap)
-  HASH_PARTITIONED
+  HASH_PARTITIONED = 2
 }
 
 // TODO(zc): Refine
