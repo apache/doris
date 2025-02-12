@@ -102,7 +102,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
     _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
-    // do the shufffle make sure enough random
+    // Shuffle the channels randomly
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
         _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         std::random_device rd;
