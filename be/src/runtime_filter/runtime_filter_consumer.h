@@ -18,85 +18,48 @@
 #pragma once
 
 #include "runtime_filter/runtime_filter.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 class RuntimeFilterConsumer : public RuntimeFilter {
 public:
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                         int node_id, std::shared_ptr<RuntimeFilterConsumer>* res) {
+                         int node_id, std::shared_ptr<RuntimeFilterConsumer>* res,
+                         RuntimeProfile* parent_profile) {
         *res = std::shared_ptr<RuntimeFilterConsumer>(
-                new RuntimeFilterConsumer(state, desc, node_id));
-        return (*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options());
+                new RuntimeFilterConsumer(state, desc, node_id, parent_profile));
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
+        (*res)->_profile->add_info_string("Info", ((*res)->debug_string()));
+        return Status::OK();
     }
 
     int node_id() const { return _node_id; }
 
-    Status apply_ready_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                            std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
-                            bool is_late_arrival);
-
-    std::string formatted_state() const;
-
-    void init_profile(RuntimeProfile* parent_profile);
-
-    void signal();
-
-    void update_filter(const RuntimeFilter* other, int64_t merge_time, int64_t start_apply,
-                       uint64_t local_merge_time);
+    void signal(RuntimeFilter* other);
 
     std::shared_ptr<pipeline::RuntimeFilterTimer> create_filter_timer(
             std::shared_ptr<pipeline::RuntimeFilterDependency> dependencie);
 
-    void update_state();
+    Status acquire_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                        std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
 
     std::string debug_string() const {
-        return fmt::format("RuntimeFilterConsumer: ({})", _debug_string());
+        return fmt::format("RuntimeFilterConsumer: ({}, state: {})", _debug_string(),
+                           to_string(_rf_state));
     }
 
-    void update_runtime_filter_type_to_profile(uint64_t local_merge_time) {
-        _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
-        _profile->add_info_string("LocalMergeTime",
-                                  std::to_string((double)local_merge_time / NANOS_PER_SEC) + " s");
-    }
-
-    bool is_ready() { return _rf_state == State::READY; }
-    bool is_applied() { return _rf_state == State::APPLIED; }
+    bool applied() { return _rf_state == State::APPLIED; }
 
     enum class State {
-        IGNORED,
-        DISABLED,
         NOT_READY,
         READY,
         TIMEOUT,
         APPLIED,
-        LATE_APPLIED,
     };
 
-private:
-    RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                          int node_id)
-            : RuntimeFilter(state, desc),
-              _node_id(node_id),
-              _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
-              _profile(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
-                                                      desc->filter_id,
-                                                      to_string(_runtime_filter_type)))),
-              _registration_time(MonotonicMillis()),
-              _rf_state(State::NOT_READY) {
-        // If bitmap filter is not applied, it will cause the query result to be incorrect
-        bool wait_infinitely = _state->get_query_ctx()->runtime_filter_wait_infinitely() ||
-                               _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
-        _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
-                                           : _state->get_query_ctx()->runtime_filter_wait_time_ms();
-    }
-
-    static std::string _to_string(const State& state) {
+    static std::string to_string(const State& state) {
         switch (state) {
-        case State::IGNORED:
-            return "IGNORED";
-        case State::DISABLED:
-            return "DISABLED";
         case State::NOT_READY:
             return "NOT_READY";
         case State::READY:
@@ -105,11 +68,40 @@ private:
             return "TIMEOUT";
         case State::APPLIED:
             return "APPLIED";
-        case State::LATE_APPLIED:
-            return "LATE_APPLIED";
         default:
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid State {}",
                                    int(state));
+        }
+    }
+
+private:
+    RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+                          int node_id, RuntimeProfile* parent_profile)
+            : RuntimeFilter(state, desc),
+              _node_id(node_id),
+              _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
+              _profile(
+                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {})", desc->filter_id))),
+              _registration_time(MonotonicMillis()),
+              _rf_state(State::NOT_READY) {
+        // If bitmap filter is not applied, it will cause the query result to be incorrect
+        bool wait_infinitely = _state->get_query_ctx()->runtime_filter_wait_infinitely() ||
+                               _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
+        _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
+                                           : _state->get_query_ctx()->runtime_filter_wait_time_ms();
+
+        parent_profile->add_child(_profile.get(), true, nullptr);
+        _wait_timer = ADD_TIMER(_profile, "WaitTime");
+    }
+
+    Status _apply_ready_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                             std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
+
+    void _check_state(std::vector<State> assumed_states) {
+        if (!check_state<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "consumer meet invalid state, {}, assumed_states is {}", debug_string(),
+                            to_string<RuntimeFilterConsumer>(assumed_states));
         }
     }
 

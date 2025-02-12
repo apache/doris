@@ -116,10 +116,6 @@ bool check_state(typename T::State real_state, std::vector<typename T::State> as
             break;
         }
     }
-    if (!matched) {
-        LOG(WARNING) << "assumed_state is " << to_string<T>(assumed_states) << ", but real is "
-                     << T::to_string(real_state);
-    }
     return matched;
 }
 } // namespace doris

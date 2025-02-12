@@ -502,14 +502,11 @@ Status RuntimeState::register_producer_runtime_filter(
 
 Status RuntimeState::register_consumer_runtime_filter(
         const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
-        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter) {
-    if (desc.has_remote_targets || need_local_merge) {
-        return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                     consumer_filter, true);
-    } else {
-        return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                    consumer_filter, false);
-    }
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, RuntimeProfile* parent_profile) {
+    bool need_merge = desc.has_remote_targets || need_local_merge;
+    RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
+    return mgr->register_consumer_filter(desc, query_options(), node_id, consumer_filter,
+                                         need_merge, parent_profile);
 }
 
 bool RuntimeState::is_nereids() const {

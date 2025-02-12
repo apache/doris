@@ -34,6 +34,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/uid_util.h"
 
@@ -54,6 +55,7 @@ class RuntimeFilterWrapper;
 class QueryContext;
 struct RuntimeFilterParamsContext;
 class ExecEnv;
+class RuntimeProfile;
 
 struct LocalMergeFilters {
     std::unique_ptr<std::mutex> lock = std::make_unique<std::mutex>();
@@ -100,7 +102,7 @@ public:
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
-                                    bool need_local_merge = false);
+                                    bool need_local_merge, RuntimeProfile* parent_profile);
 
     Status register_local_merger_filter(const TRuntimeFilterDesc& desc,
                                         const TQueryOptions& options,
