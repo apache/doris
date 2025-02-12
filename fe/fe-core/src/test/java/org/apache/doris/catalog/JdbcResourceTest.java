@@ -36,6 +36,7 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.Map;
 
@@ -217,5 +218,55 @@ public class JdbcResourceTest {
             JdbcResource.getFullDriverUrl(driverPath2);
         });
         Assert.assertEquals("Driver URL does not match any allowed paths: file:///postgresql-42.5.0.jar", exception.getMessage());
+    }
+
+    @Test
+    public void testValidDriverUrls() {
+        String fileUrl = "file://path/to/driver.jar";
+        Assertions.assertDoesNotThrow(() -> {
+            String result = JdbcResource.getFullDriverUrl(fileUrl);
+            Assert.assertEquals(fileUrl, result);
+        });
+
+        String httpUrl = "http://example.com/driver.jar";
+        Assertions.assertDoesNotThrow(() -> {
+            String result = JdbcResource.getFullDriverUrl(httpUrl);
+            Assert.assertEquals(httpUrl, result);
+        });
+
+        String httpsUrl = "https://example.com/driver.jar";
+        Assertions.assertDoesNotThrow(() -> {
+            String result = JdbcResource.getFullDriverUrl(httpsUrl);
+            Assert.assertEquals(httpsUrl, result);
+        });
+
+        String jarFile = "driver.jar";
+        Assertions.assertDoesNotThrow(() -> {
+            String result = JdbcResource.getFullDriverUrl(jarFile);
+            Assert.assertTrue(result.startsWith("file://"));
+        });
+    }
+
+    @Test
+    public void testInvalidDriverUrls() {
+        String invalidUrl1 = "/mnt/path/to/driver.jar";
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcResource.getFullDriverUrl(invalidUrl1);
+        });
+
+        String invalidUrl2 = "ftp://example.com/driver.jar";
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcResource.getFullDriverUrl(invalidUrl2);
+        });
+
+        String invalidUrl3 = "";
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcResource.getFullDriverUrl(invalidUrl3);
+        });
+
+        String invalidUrl4 = "example.com/driver";
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            JdbcResource.getFullDriverUrl(invalidUrl4);
+        });
     }
 }

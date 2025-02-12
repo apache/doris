@@ -290,6 +290,12 @@ public class JdbcResource extends Resource {
     }
 
     public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
+        if (!(driverUrl.startsWith("file://") || driverUrl.startsWith("http://")
+                || driverUrl.startsWith("https://") || driverUrl.matches("^[^:/]+\\.jar$"))) {
+            throw new IllegalArgumentException("Invalid driver URL format. Supported formats are: "
+                    + "file://xxx.jar, http://xxx.jar, https://xxx.jar, or xxx.jar (without prefix).");
+        }
+
         try {
             URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
@@ -303,7 +309,7 @@ public class JdbcResource extends Resource {
             }
 
             boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
-                            .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
+                    .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
             if (!isAllowed) {
                 throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
             }
@@ -512,4 +518,3 @@ public class JdbcResource extends Resource {
         }
     }
 }
-

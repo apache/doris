@@ -72,11 +72,8 @@ private:
                                const std::string& file_name);
     void _destroy_cache_entry(std::shared_ptr<UserFunctionCacheEntry> entry);
 
-    std::string _get_real_url(const std::string& url);
     std::string _get_file_name_from_url(const std::string& url) const;
     std::vector<std::string> _split_string_by_checksum(const std::string& file);
-
-    std::string _check_and_return_default_driver_url(const std::string& url);
 
 private:
     std::string _lib_dir;
