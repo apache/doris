@@ -20,10 +20,14 @@ package org.apache.doris.catalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.datasource.property.constants.S3Properties;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -31,6 +35,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * HDFS resource
@@ -95,20 +100,42 @@ public class HdfsStorageVault extends StorageVault {
         Cloud.HdfsVaultInfo.Builder hdfsVaultInfoBuilder =
                     Cloud.HdfsVaultInfo.newBuilder();
         Cloud.HdfsBuildConf.Builder hdfsConfBuilder = Cloud.HdfsBuildConf.newBuilder();
+
+        Set<String> lowerCaseKeys = properties.keySet().stream().map(String::toLowerCase)
+                .collect(Collectors.toSet());
+
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(VAULT_PATH_PREFIX)) {
                 hdfsVaultInfoBuilder.setPrefix(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setUser(property.getValue());
+            } else if (property.getKey()
+                    .equalsIgnoreCase(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION)) {
+                Preconditions.checkArgument(lowerCaseKeys.contains(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL),
+                        "%s is required for kerberos", AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL);
+                Preconditions.checkArgument(lowerCaseKeys.contains(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB),
+                        "%s is required for kerberos", AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setHdfsKerberosKeytab(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(VAULT_NAME)) {
                 continue;
             } else {
+                Preconditions.checkArgument(!property.getKey().toLowerCase().contains(S3Properties.S3_PREFIX),
+                        "Invalid argument %s", property.getKey());
+                Preconditions.checkArgument(!property.getKey().toLowerCase().contains(S3Properties.PROVIDER),
+                        "Invalid argument %s", property.getKey());
                 if (!nonHdfsConfPropertyKeys.contains(property.getKey().toLowerCase())) {
                     Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
                     conf.setKey(property.getKey());
