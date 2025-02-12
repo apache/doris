@@ -68,8 +68,6 @@ public:
     IOContext() { stats_.init_profile(); }
     virtual ~IOContext() = default;
 
-    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
-
     RuntimeProfile* stats_profile() { return stats_.profile(); }
 
     int64_t scan_rows() const { return stats_.scan_rows_counter_->value(); }
@@ -106,6 +104,10 @@ public:
     }
 
 protected:
+    friend class ResourceContext;
+
+    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
+
     Stats stats_;
     ResourceContext* resource_ctx_ {nullptr};
 };

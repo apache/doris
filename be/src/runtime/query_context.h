@@ -199,7 +199,7 @@ public:
         }
     }
 
-    void set_workload_group(WorkloadGroupPtr& tg);
+    void set_workload_group(WorkloadGroupPtr& wg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout

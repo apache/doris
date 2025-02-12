@@ -178,7 +178,7 @@ void QueryContext::_init_query_mem_tracker() {
 }
 
 void QueryContext::_init_resource_context() {
-    _resource_ctx = ResourceContext::create_shared_obj();
+    _resource_ctx = ResourceContext::create_shared();
     _resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
 #ifndef BE_TEST
@@ -348,8 +348,8 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
     }
 }
 
-void QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
-    _resource_ctx->workload_group_context()->set_workload_group(tg);
+void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
+    _resource_ctx->workload_group_context()->set_workload_group(wg);
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     workload_group()->add_mem_tracker_limiter(query_mem_tracker());

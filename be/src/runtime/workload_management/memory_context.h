@@ -74,8 +74,6 @@ public:
     MemoryContext() { stats_.init_profile(); }
     virtual ~MemoryContext() = default;
 
-    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
-
     RuntimeProfile* stats_profile() { return stats_.profile(); }
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return mem_tracker_; }
@@ -104,6 +102,10 @@ public:
     virtual Status leave_arbitration(Status reason) { return Status::OK(); }
 
 protected:
+    friend class ResourceContext;
+
+    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
+
     Stats stats_;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> mem_tracker_ {nullptr};

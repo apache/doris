@@ -217,7 +217,7 @@ public:
         if (is_attach_task()) {
             return resource_ctx_;
         } else {
-            auto ctx = ResourceContext::create_shared_obj();
+            auto ctx = ResourceContext::create_shared();
             ctx->memory_context()->set_mem_tracker(
                     doris::ExecEnv::GetInstance()->orphan_mem_tracker());
             return ctx;

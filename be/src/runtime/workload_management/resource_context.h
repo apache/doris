@@ -41,8 +41,8 @@ class ResourceContext : public std::enable_shared_from_this<ResourceContext> {
     ENABLE_FACTORY_CREATOR(ResourceContext);
 
 public:
-    static std::shared_ptr<ResourceContext> create_shared_obj() {
-        std::shared_ptr<ResourceContext> resource_ctx = ResourceContext::create_shared();
+    static std::shared_ptr<ResourceContext> create_shared() {
+        std::shared_ptr<ResourceContext> resource_ctx = std::make_shared<ResourceContext>();
         resource_ctx->cpu_context()->set_resource_ctx(resource_ctx.get());
         resource_ctx->memory_context()->set_resource_ctx(resource_ctx.get());
         resource_ctx->io_context()->set_resource_ctx(resource_ctx.get());

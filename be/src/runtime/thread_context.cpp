@@ -35,7 +35,7 @@ AttachTask::AttachTask(const std::shared_ptr<ResourceContext>& rc) {
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-    std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared_obj();
+    std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(mem_tracker);
     init(rc);
 }

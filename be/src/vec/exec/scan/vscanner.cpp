@@ -103,8 +103,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         }
     }
 
+#ifndef BE_TEST
     int64_t old_scan_rows = _num_rows_read;
     int64_t old_scan_bytes = _num_byte_read;
+#endif
     {
         do {
             // if step 2 filter all rows of block, and block will be reused to get next rows,
