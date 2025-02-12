@@ -566,11 +566,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.remove(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
-            try {
-                Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
-            } catch (AnalysisException e) {
-                // acceptable. drop failed will change its status and plan to do again later.
-            }
+            Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } finally {
             unlock();
@@ -1042,11 +1038,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-        try {
-            Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
-        } catch (AnalysisException e) {
-            // acceptable. drop failed will change its status and plan to do again later.
-        }
+        Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         db.unregisterTable(table.getName());
         StopWatch watch = StopWatch.createStarted();

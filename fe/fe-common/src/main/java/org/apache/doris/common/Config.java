@@ -1886,8 +1886,10 @@ public class Config extends ConfigBase {
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(masterOnly = true, description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
-            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+
+    @ConfField(masterOnly = true, description = { "MTMV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+                    + " 2 的幂次方数",
+                    "The size of the MTMV task's waiting queue If the size is negative, 1024 will be used. If "
             + "the size is not a power of two, the nearest power of the size will be"
             + " automatically selected."})
     public static int mtmv_task_queue_size = 1024;
@@ -1896,6 +1898,13 @@ public class Config extends ConfigBase {
             + " If the size is not a power of two, the nearest power of the size will "
             + "be automatically selected."})
     public static int insert_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = { "字典导入 task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+                    + " 的 2 的幂次方数",
+                    "The size of the Dictionary loading task's waiting queue If the size is negative, 1024 will be used."
+                                    + " If the size is not a power of two, the nearest power of the size will "
+                                    + "be automatically selected." })
+    public static int dictionary_task_queue_size = 1024;
+
     @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
@@ -1906,9 +1915,14 @@ public class Config extends ConfigBase {
     public static int job_insert_task_consumer_thread_num = 10;
 
     @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
-            "The number of threads used to consume mtmv tasks, "
+                    "The number of threads used to consume MTMV tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
+
+    @ConfField(masterOnly = true, description = { "用于执行字典导入任务的线程数,值应该大于0，否则默认为10",
+                    "The number of threads used to consume Dictionary Loading tasks, "
+                                    + "the value should be greater than 0, if it is <=0, default is 10." })
+    public static int job_dictionary_task_consumer_thread_num = 2;
 
     /* job test config */
     /**
@@ -3029,6 +3043,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"字典删除时 RPC 的超时时间",
             "Timeout of dictionary deletion RPC"})
     public static int dictionary_delete_rpc_timeout_ms = 5000;
+
+    @ConfField(mutable = true, masterOnly = true, description = { "字典触发数据过期检查的时间间隔，单位为秒",
+            "Interval at which the dictionary triggers a data expiration check, in seconds" })
+    public static int dictionary_auto_refresh_interval_seconds = 60;
+
+    @ConfField(mutable = true, masterOnly = true, description = { "字典自动刷新数据的间隔，距离上次刷新时间大于该值时会自动刷新",
+            "The interval at which the dictionary automatically refreshes the data when the time since the last "
+                + "refresh is greater than this value." })
+    public static int dictionary_out_of_date_seconds = 600;
 
     //==========================================================================
     //                    begin of cloud config

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TDictionaryTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.commons.lang3.StringUtils;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -85,6 +86,8 @@ public class Dictionary extends Table {
     @SerializedName(value = "version")
     private long version; // every time dictionary is updated, version will increase by 1
 
+    private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
+
     // we need this to call Table's constructor with no args which construct new rwLock and more.
     // for gson only and it will set variables soon. so no need to set them.
     public Dictionary() {
@@ -99,6 +102,7 @@ public class Dictionary extends Table {
         this.status.set(DictionaryStatus.NORMAL); // not replay by gson
         this.layout = null;
         this.version = 0;
+        this.dataDistributions = null; // not replay by gson
     }
 
     public Dictionary(CreateDictionaryInfo info, long uniqueId) {
@@ -114,6 +118,7 @@ public class Dictionary extends Table {
         this.status.set(DictionaryStatus.NORMAL);
         this.layout = info.getLayout();
         this.version = 1;
+        this.dataDistributions = null;
     }
 
     public String getDbName() {
@@ -281,6 +286,21 @@ public class Dictionary extends Table {
 
     public LayoutType getLayout() {
         return layout;
+    }
+
+    public String prettyPrintDistributions() {
+        if (dataDistributions == null) {
+            return ""; // no records
+        }
+        return "{" + StringUtils.join(dataDistributions, ", ") + "}";
+    }
+
+    public List<DictionaryDistribution> getDataDistributions() {
+        return dataDistributions;
+    }
+
+    public void resetDataDistributions() {
+        this.dataDistributions = Lists.newArrayList();
     }
 
     @Override

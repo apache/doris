@@ -5602,7 +5602,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 wild = ctx.wildWhere().expression().getText();
             }
         }
-        return new ShowDictionariesCommand(wild);
+        try {
+            return new ShowDictionariesCommand(wild);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new ParseException(e.getMessage());
+        }
     }
 
     @Override

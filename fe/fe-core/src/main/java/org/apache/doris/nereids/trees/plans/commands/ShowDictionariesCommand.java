@@ -37,16 +37,19 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Show dictionaries command.
  */
 public class ShowDictionariesCommand extends ShowCommand {
-    final String wild;
+    private final String wild;
+    private final PatternMatcher matcher;
 
-    public ShowDictionariesCommand(String wild) {
+    public ShowDictionariesCommand(String wild) throws AnalysisException {
         super(PlanType.SHOW_DICTIONARIES_COMMAND);
         this.wild = wild;
+        this.matcher = PatternMatcherWrapper.createMysqlPattern(wild, true);
     }
 
     private ShowResultSetMetaData getMetaData() {
@@ -56,6 +59,7 @@ public class ShowDictionariesCommand extends ShowCommand {
         builder.addColumn(new Column("BaseTableName", ScalarType.createVarchar(80)));
         builder.addColumn(new Column("Version", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Status", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("DataDistribution", ScalarType.createVarchar(1000)));
         return builder.build();
     }
 
@@ -64,22 +68,29 @@ public class ShowDictionariesCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
 
         DictionaryManager dictionaryManager = ctx.getEnv().getDictionaryManager();
-        Map<String, Dictionary> dictionaries = dictionaryManager.getDictionaries(ctx.getDatabase());
-        for (Map.Entry<String, Dictionary> entry : dictionaries.entrySet()) {
+        List<Dictionary> queryDicts = Lists.newArrayList();
+        // getDictionaries() already have read lock
+        Map<String, Dictionary> dbDictionaries = dictionaryManager.getDictionaries(ctx.getDatabase());
+        for (Map.Entry<String, Dictionary> entry : dbDictionaries.entrySet()) {
             String dictionaryName = entry.getKey();
             // Apply wild condition filtering if wild pattern is provided
-            if (wild != null) {
-                PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(wild, true);
-                if (!matcher.match(dictionaryName)) {
-                    continue;
-                }
+            if (wild == null || matcher.match(dictionaryName)) {
+                queryDicts.add(entry.getValue());
             }
+        }
+
+        // ignore its return value because we dont update it, just show.
+        dictionaryManager
+                .collectDictionaryStatus(queryDicts.stream().map(Dictionary::getId).collect(Collectors.toList()));
+
+        for (Dictionary dictionary : queryDicts) {
             List<String> row = new ArrayList<>();
-            row.add(String.valueOf(entry.getValue().getId())); // id
-            row.add(dictionaryName); // name
-            row.add(String.join(".", entry.getValue().getSourceQualifiedName())); // base table name
-            row.add(String.valueOf(entry.getValue().getVersion())); // version
-            row.add(entry.getValue().getStatus().name()); // status
+            row.add(String.valueOf(dictionary.getId())); // id
+            row.add(dictionary.getName()); // name
+            row.add(String.join(".", dictionary.getSourceQualifiedName())); // base table name
+            row.add(String.valueOf(dictionary.getVersion())); // version
+            row.add(dictionary.getStatus().name()); // status
+            row.add(dictionary.prettyPrintDistributions()); // data distribution
             rows.add(row);
         }
 

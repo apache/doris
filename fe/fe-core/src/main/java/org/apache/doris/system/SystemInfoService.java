@@ -298,6 +298,17 @@ public class SystemInfoService {
         return getAllClusterBackendsNoException().get(backendId);
     }
 
+    public List<Backend> getBackends(List<Long> backendIds) {
+        List<Backend> backends = Lists.newArrayList();
+        for (long backendId : backendIds) {
+            Backend backend = getBackend(backendId);
+            if (backend != null) {
+                backends.add(backend);
+            }
+        }
+        return backends;
+    }
+
     public boolean checkBackendScheduleAvailable(long backendId) {
         Backend backend = getAllClusterBackendsNoException().get(backendId);
         if (backend == null || !backend.isScheduleAvailable()) {
@@ -382,6 +393,12 @@ public class SystemInfoService {
             }
             return backendIds;
         }
+    }
+
+    public List<Backend> getAllClusterBackends(boolean needAlive) {
+        return getAllClusterBackendsNoException().values().stream()
+                .filter(be -> !needAlive || be.isAlive())
+                .collect(Collectors.toList());
     }
 
     public List<Long> getDecommissionedBackendIds() {
