@@ -22,9 +22,13 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
+#include "gflags/gflags.h"
 
 bvar::LatencyRecorder write_latency("s3_tool_write");
 bvar::LatencyRecorder read_latency("s3_tool_read");
+
+// 添加一个全局互斥锁用于保护控制台输出
+static std::mutex console_mutex;
 
 // IOPS 统计器
 class IopsStats {
@@ -204,15 +208,35 @@ private:
 // 显示实时IOPS统计信息的线程函数
 void display_iops_stats(const std::string& operation,
                        const std::shared_ptr<IopsStats>& stats,
-                       std::atomic<bool>& should_stop) {
+                       std::atomic<bool>& should_stop,
+                       std::atomic<int>& completed_ops,
+                       int total_ops) {
     while (!should_stop) {
         double current_iops = stats->get_current_iops();
         double peak_iops = stats->get_peak_iops();
-        std::cout << "\r" << operation << " - 当前IOPS: " << std::fixed << std::setprecision(2)
-                 << current_iops << ", 峰值IOPS: " << peak_iops << std::flush;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 更新频率提高到100ms
+        int completed = completed_ops.load();
+        
+        {
+            std::lock_guard<std::mutex> lock(console_mutex);
+            std::cout << "\r" << operation << " - 当前IOPS: " << std::fixed << std::setprecision(2)
+                     << current_iops << ", 峰值IOPS: " << peak_iops 
+                     << ", 进度: " << completed << "/" << total_ops 
+                     << ", 当前完成数: " << completed_ops.load() << std::flush;  // 添加更多信息
+        }
+
+        // 如果所有操作都完成了，且IOPS降为0，就退出显示
+        if (completed >= total_ops && current_iops == 0) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    std::cout << std::endl;
+    
+    // 打印最终换行
+    if (completed_ops.load() >= total_ops) {
+        std::lock_guard<std::mutex> lock(console_mutex);
+        std::cout << std::endl;
+    }
 }
 
 // 线程池实现
@@ -292,11 +316,61 @@ private:
     std::unordered_set<std::string> _completed_files;
 };
 
+// 添加gflags定义
+DEFINE_int64(data_size_bytes, 1024*1024*1024, "Number of bytes to write per object key");
+DEFINE_int32(obj_key_write_iops, 100, "IOPS limit for writing each object key");
+DEFINE_int32(obj_key_read_iops, 100, "IOPS limit for reading each object key");
+DEFINE_int32(num_threads, 32, "Number of concurrent threads");
+DEFINE_int32(num_keys, 10, "Number of object keys to write/read");
+DEFINE_string(key_prefix, "dx_micro_bench/test_multi/key_", "Prefix for object keys");
+DEFINE_int64(write_batch_size, 1024*1024, "Size of data to write in each write operation");
+DEFINE_int64(read_offset, 0, "Start offset for range read");
+DEFINE_int64(read_length, -1, "Length to read for range read, -1 means read to end");
+
+std::string get_usage(const std::string& progname) {
+    std::stringstream ss;
+    ss << progname << " is the Doris microbench tool for testing file cache in cloud.\n";
+    ss << "\nFlags:\n";
+    ss << "  --data_size_bytes: Number of bytes to write per object key\n";
+    ss << "  --obj_key_write_iops: IOPS limit for writing each object key\n";
+    ss << "  --obj_key_read_iops: IOPS limit for reading each object key\n";
+    ss << "  --num_threads: Thread number of thread pool\n";
+    ss << "  --num_keys: Number of object keys to write/read\n";
+    ss << "  --key_prefix: Prefix for object keys\n";
+    ss << "  --write_batch_size: Size of data to write in each write operation\n";
+    ss << "  --read_offset: Start offset for range read\n";
+    ss << "  --read_length: Length to read for range read, -1 means read to end\n";
+    ss << "\nExample:\n";
+    ss << progname << " --data_size_bytes=1048576 --obj_key_write_iops=100 "
+       << "--obj_key_read_iops=100 --num_threads=4 --num_keys=1 "
+       << "--key_prefix=dx_micro_bench/test_multi/key_ --write_batch_size=2097152 --read_offset=1048576 --read_length=2097152\n";
+    return ss.str();
+}
+
 int main(int argc, char* argv[]) {
-    if (argc < 6) {
-        std::cerr << "用法: s3_iops_writer_tool <data_size_bytes> <write_iops> <read_iops> <num_threads> <num_keys> [key_prefix]" << std::endl;
-        return -1;
-    }
+    std::string usage = get_usage(argv[0]);
+    gflags::SetUsageMessage(usage);
+    google::ParseCommandLineFlags(&argc, &argv, true);
+
+    // 打印所有配置参数
+    std::cout << "\n配置参数:" << std::endl;
+    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "数据大小 (data_size_bytes): " << FLAGS_data_size_bytes << " bytes" 
+              << " (" << FLAGS_data_size_bytes/1024.0/1024.0 << " MB)" << std::endl;
+    std::cout << "写入IOPS限制 (obj_key_write_iops): " << FLAGS_obj_key_write_iops << std::endl;
+    std::cout << "读取IOPS限制 (obj_key_read_iops): " << FLAGS_obj_key_read_iops << std::endl;
+    std::cout << "线程数 (num_threads): " << FLAGS_num_threads << std::endl;
+    std::cout << "对象数量 (num_keys): " << FLAGS_num_keys << std::endl;
+    std::cout << "对象前缀 (key_prefix): " << FLAGS_key_prefix << std::endl;
+    std::cout << "写入批次大小 (write_batch_size): " << FLAGS_write_batch_size << " bytes"
+              << " (" << FLAGS_write_batch_size/1024.0/1024.0 << " MB)" << std::endl;
+    std::cout << "读取偏移量 (read_offset): " << FLAGS_read_offset << " bytes"
+              << " (" << FLAGS_read_offset/1024.0/1024.0 << " MB)" << std::endl;
+    std::cout << "读取长度 (read_length): " << (FLAGS_read_length == -1 ? "到文件末尾" : 
+              std::to_string(FLAGS_read_length) + " bytes (" + 
+              std::to_string(FLAGS_read_length/1024.0/1024.0) + " MB)") << std::endl;
+    std::cout << "----------------------------------------\n" << std::endl;
+
     brpc::StartDummyServerAt(32888/*port*/);
     const char* doris_home = getenv("DORIS_HOME");
     if (doris_home == nullptr) {
@@ -311,12 +385,12 @@ int main(int argc, char* argv[]) {
     }
 
     std::string bucket = "gavin-test-hk-1308700295";
-    std::string key_prefix = argc > 6 ? argv[6] : "dx_micro_bench/test_multi/key_";
-    size_t data_size = std::stoull(argv[1]);
-    int write_iops = std::stoi(argv[2]);
-    int read_iops = std::stoi(argv[3]);
-    int num_threads = std::stoi(argv[4]);
-    int num_keys = std::stoi(argv[5]);
+    std::string key_prefix = FLAGS_key_prefix;
+    size_t data_size = FLAGS_data_size_bytes;
+    int write_iops = FLAGS_obj_key_write_iops;
+    int read_iops = FLAGS_obj_key_read_iops;
+    int num_threads = FLAGS_num_threads;
+    int num_keys = FLAGS_num_keys;
 
     // 生成多个key
     std::vector<std::string> keys;
@@ -351,8 +425,8 @@ int main(int argc, char* argv[]) {
     std::cout << "总写入IOPS限制: " << write_iops * num_keys << std::endl;
     std::cout << "总读取IOPS限制: " << read_iops * num_keys << std::endl;
     std::cout << "线程数: " << num_threads << std::endl;
-    std::cout << "Key数量: " << num_keys << std::endl;
-    std::cout << "Key前缀: " << key_prefix << std::endl;
+    std::cout << "Obj Key数量: " << num_keys << std::endl;
+    std::cout << "Obj Key前缀: " << key_prefix << std::endl;
 
     // 初始化S3客户端
     doris::S3ClientConf s3_conf;
@@ -372,8 +446,15 @@ int main(int argc, char* argv[]) {
     auto completion_tracker = std::make_shared<FileCompletionTracker>();
     std::atomic<bool> should_stop_write_display(false);
     std::atomic<bool> should_stop_read_display(false);
-    std::thread write_display_thread(display_iops_stats, "写入", write_stats, std::ref(should_stop_write_display));
-    std::thread read_display_thread(display_iops_stats, "读取", read_stats, std::ref(should_stop_read_display));
+    std::atomic<int> completed_writes(0);  // 添加写完成计数器
+    std::atomic<int> completed_reads(0);   // 添加读完成计数器
+    
+    std::thread write_display_thread(display_iops_stats, "写入", write_stats, 
+                                   std::ref(should_stop_write_display),
+                                   std::ref(completed_writes), num_keys);
+    std::thread read_display_thread(display_iops_stats, "读取", read_stats, 
+                                  std::ref(should_stop_read_display),
+                                  std::ref(completed_reads), num_keys);
 
     auto start_time = std::chrono::steady_clock::now();
     std::vector<std::future<void>> futures;
@@ -394,6 +475,7 @@ int main(int argc, char* argv[]) {
             std::vector<doris::Slice> slices;
             slices.reserve(4);
             size_t accumulated_size = 0;
+            size_t write_batch_size = FLAGS_write_batch_size;
 
             for (size_t j = 0; j < num_blocks; ++j) {
                 size_t offset = j * block_size;
@@ -401,7 +483,7 @@ int main(int argc, char* argv[]) {
                 slices.emplace_back(data.data() + offset, current_block_size);
                 accumulated_size += current_block_size;
 
-                if (accumulated_size >= 0.5 * 1024 * 1024 || j == num_blocks - 1) {
+                if (accumulated_size >= write_batch_size || j == num_blocks - 1) {
                     doris::Status status = writer->appendv(slices.data(), slices.size());
                     if (!status.ok()) {
                         std::cerr << "写入S3错误 (key=" << key << "): " << status.to_string() << std::endl;
@@ -420,6 +502,7 @@ int main(int argc, char* argv[]) {
 
             // 标记文件写入完成
             completion_tracker->mark_completed(key);
+            completed_writes++;  // 增加完成计数
         }));
     }
 
@@ -431,14 +514,9 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < keys.size(); ++i) {
         const auto& key = keys[i];
         futures.push_back(pool.enqueue([&, key, i]() -> void {
-            const size_t block_size = 512 * 1024;
-            size_t num_blocks = (data_size + block_size - 1) / block_size;
-            std::string read_buffer;
-            read_buffer.resize(data_size);
-
             // 等待文件写入完成，最多重试30次，每次等待1秒
             int retry_count = 0;
-            const int max_retries = 30;
+            const int max_retries = 300;
             while (!completion_tracker->is_completed(key)) {
                 if (retry_count++ >= max_retries) {
                     std::cerr << "等待文件写入超时 (key=" << key << ")" << std::endl;
@@ -447,6 +525,9 @@ int main(int argc, char* argv[]) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 continue;
             }
+
+            // 添加日志
+            std::cout << "开始读取文件: " << key << std::endl;
 
             doris::io::FileReaderOptions reader_opts;
             reader_opts.cache_type = doris::io::FileCachePolicy::FILE_BLOCK_CACHE;
@@ -489,49 +570,60 @@ int main(int argc, char* argv[]) {
                 auto reader = std::make_unique<IopsControlledFileReader>(
                         status_or_reader.value(), read_limiters[i], read_stats);
 
-                bool read_success = true;
-                for (size_t j = 0; j < num_blocks && read_success; ++j) {
-                    size_t offset = j * block_size;
-                    size_t current_block_size = std::min(block_size, data_size - offset);
-                    doris::Slice read_slice(read_buffer.data() + offset, current_block_size);
+                // 计算实际读取范围
+                size_t read_offset = FLAGS_read_offset;
+                size_t read_length = FLAGS_read_length;
+                if (read_length == -1 || read_offset + read_length > data_size) {
+                    read_length = data_size - read_offset;
+                }
+
+                // 分配只读取指定range的buffer
+                std::string read_buffer;
+                read_buffer.resize(read_length);
+
+                const size_t block_size = 512 * 1024;
+                size_t num_blocks = (read_length + block_size - 1) / block_size;
+
+                for (size_t j = 0; j < num_blocks; ++j) {
+                    size_t block_offset = j * block_size;
+                    size_t current_block_size = std::min(block_size, read_length - block_offset);
+                    doris::Slice read_slice(read_buffer.data() + block_offset, current_block_size);
                     size_t bytes_read = 0;
                     
-                    doris::Status read_status = reader->read_at(offset, read_slice, &bytes_read, &io_ctx);
+                    doris::Status read_status = reader->read_at(read_offset + block_offset, read_slice, &bytes_read, &io_ctx);
                     if (!read_status.ok()) {
-                        read_success = false;
-                        if (++read_retry_count >= max_read_retries) {
-                            std::cerr << "读取S3错误 (key=" << key << "): " << read_status.to_string() << std::endl;
-                            return;
-                        }
-                        std::this_thread::sleep_for(std::chrono::seconds(1));
-                        break;
+                        std::cerr << "读取S3错误 (key=" << key << "): " << read_status.to_string() << std::endl;
+                        return;
                     }
 
                     if (bytes_read != current_block_size) {
-                        read_success = false;
-                        if (++read_retry_count >= max_read_retries) {
-                            std::cerr << "读取大小不匹配 (key=" << key << "): 期望 " << current_block_size 
-                                     << ", 实际 " << bytes_read << std::endl;
-                            return;
-                        }
-                        std::this_thread::sleep_for(std::chrono::seconds(1));
-                        break;
+                        std::cerr << "读取大小不匹配 (key=" << key << "): 期望 " << current_block_size 
+                                 << ", 实际 " << bytes_read << std::endl;
+                        return;
                     }
                 }
 
-                if (read_success) {
-                    // 验证数据
-                    if (read_buffer != data) {
-                        if (++read_retry_count >= max_read_retries) {
-                            std::cerr << "数据验证失败! (key=" << key << ")" << std::endl;
-                            return;
+                // 验证数据：只比较指定range的数据
+                if (memcmp(read_buffer.data(), data.data() + read_offset, read_length) != 0) {
+                    std::cerr << "数据验证失败! (key=" << key << ", range: offset=" << read_offset 
+                             << ", length=" << read_length << ")" << std::endl;
+                    
+                    // 输出前100个字节的比较结果以帮助调试
+                    for (size_t i = 0; i < std::min(read_length, size_t(100)); ++i) {
+                        if (read_buffer[i] != data[read_offset + i]) {
+                            std::cerr << "First mismatch at offset " << i << ": expected " 
+                                     << (int)data[read_offset + i] << ", got " << (int)read_buffer[i] << std::endl;
+                            break;
                         }
-                        std::this_thread::sleep_for(std::chrono::seconds(1));
-                        continue;
                     }
-                    break;  // 读取成功，退出重试循环
+                    return;
                 }
+                break;
             }
+
+            // 添加完成日志
+            std::cout << "完成读取文件: " << key << std::endl;
+            completed_reads++;  // 增加完成计数
         }));
     }
 
@@ -540,19 +632,20 @@ int main(int argc, char* argv[]) {
         future.get();
     }
 
-    auto end_time = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
+    // 停止监控显示
     should_stop_write_display = true;
     should_stop_read_display = true;
     write_display_thread.join();
     read_display_thread.join();
 
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
     std::cout << "\n所有操作完成，总耗时: " << duration.count() << "ms" << std::endl;
-    const size_t block_size = 8 * 1024 * 1024;
-    double total_blocks = (double)(data_size + block_size - 1) / block_size * num_keys;
-    std::cout << "平均IOPS: " << std::fixed << std::setprecision(2)
-             << total_blocks / (duration.count() / 1000.0) << std::endl;
+    // const size_t block_size = 10 * 1024 * 1024;
+    // double total_blocks = (double)(data_size + block_size - 1) / block_size * num_keys;
+    // std::cout << "平均IOPS: " << std::fixed << std::setprecision(2)
+    //          << total_blocks / (duration.count() / 1000.0) << std::endl;
     std::cout << "缓存统计:" << std::endl;
     std::cout << "- 缓存命中: " << total_stats.num_local_io_total << std::endl;
     std::cout << "- 缓存未命中: " << total_stats.num_remote_io_total << std::endl;
