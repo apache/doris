@@ -50,9 +50,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
-    int64_t initiator() const override;
-
-    std::string _uuid;
     int64_t _input_segments = 0;
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;

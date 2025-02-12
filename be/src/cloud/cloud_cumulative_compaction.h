@@ -52,9 +52,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-    int64_t initiator() const override;
-
-    std::string _uuid;
     int64_t _input_segments = 0;
     int64_t _max_conflict_version = 0;
     // Snapshot values when pick input rowsets

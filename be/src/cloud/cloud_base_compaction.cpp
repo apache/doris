@@ -38,12 +38,7 @@ bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
 
 CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudBaseCompaction::~CloudBaseCompaction() = default;
 
@@ -452,10 +447,6 @@ void CloudBaseCompaction::do_lease() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
-}
-
-int64_t CloudBaseCompaction::initiator() const {
-    return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
 }
 
 } // namespace doris

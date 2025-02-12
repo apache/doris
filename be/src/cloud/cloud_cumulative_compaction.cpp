@@ -41,12 +41,7 @@ bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
 CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
                                                      CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
@@ -620,10 +615,6 @@ void CloudCumulativeCompaction::do_lease() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
-}
-
-int64_t CloudCumulativeCompaction::initiator() const {
-    return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
 }
 
 #include "common/compile_check_end.h"

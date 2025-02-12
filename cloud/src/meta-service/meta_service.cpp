@@ -2399,14 +2399,20 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
                      << " request initiator=" << request->initiator() << " msg " << msg;
         return;
     }
+    bool modify_initiators = false;
     auto initiators = lock_info.mutable_initiators();
     for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
         if (*iter == request->initiator()) {
             initiators->erase(iter);
+            modify_initiators = true;
             break;
         }
     }
-    if (initiators->empty()) {
+    if (!modify_initiators) {
+        LOG(INFO) << "initiators don't have initiator=" << request->initiator()
+                  << ",initiators_size=" << lock_info.initiators_size() << ",just return";
+        return;
+    } else if (initiators->empty()) {
         LOG(INFO) << "remove delete bitmap lock, table_id=" << request->table_id()
                   << " lock_id=" << request->lock_id() << " key=" << hex(lock_key);
         txn->remove(lock_key);

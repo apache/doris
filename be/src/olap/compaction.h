@@ -65,7 +65,6 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
-    virtual int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
 
 protected:
     Status merge_input_rowsets();
@@ -153,6 +152,8 @@ public:
 
     int64_t get_compaction_permits();
 
+    int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();
@@ -193,6 +194,8 @@ public:
 
     Status execute_compact() override;
 
+    int64_t initiator() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
@@ -201,6 +204,8 @@ protected:
     virtual Status garbage_collection();
 
     CloudStorageEngine& _engine;
+
+    std::string _uuid;
 
     int64_t _expiration = 0;
 

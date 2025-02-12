@@ -43,7 +43,6 @@ protected:
 
     Status modify_rowsets() override;
     Status garbage_collection() override;
-    int64_t initiator() const override;
 
 private:
     Status _cloud_full_compaction_update_delete_bitmap(int64_t initiator);
@@ -53,7 +52,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_FULL_COMPACTION; }
 
-    std::string _uuid;
     int64_t _input_segments = 0;
     // Snapshot values when pick input rowsets
     int64_t _base_compaction_cnt = 0;

@@ -42,12 +42,7 @@ bvar::Adder<uint64_t> full_output_size("full_compaction", "output_size");
 
 CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudFullCompaction::~CloudFullCompaction() = default;
 
@@ -387,10 +382,6 @@ Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
                << _output_rowset->version().second << "]"
                << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
-}
-
-int64_t CloudFullCompaction::initiator() const {
-    return boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
 }
 
 } // namespace doris

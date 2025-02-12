@@ -1404,7 +1404,12 @@ int64_t CloudCompactionMixin::get_compaction_permits() {
 
 CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
                                            const std::string& label)
-        : Compaction(tablet, label), _engine(engine) {}
+        : Compaction(tablet, label), _engine(engine) {
+    auto uuid = UUIDGenerator::instance()->next_uuid();
+    std::stringstream ss;
+    ss << uuid;
+    _uuid = ss.str();
+}
 
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
@@ -1439,6 +1444,10 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
+int64_t CloudCompactionMixin::initiator() const {
+    return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
+}
+
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
@@ -1446,7 +1455,10 @@ Status CloudCompactionMixin::execute_compact() {
             execute_compact_impl(permits), [&](const doris::Exception& ex) {
                 auto st = garbage_collection();
                 if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
-                    // release delete bitmap lock
+                    // if compaction fail, be will try to abort compaction, and delete bitmap lock
+                    // will release if abort job successfully, but if abort failed, delete bitmap
+                    // lock will not release, in this situation, be need to send this rpc to ms
+                    // to try to release delete bitmap lock.
                     _engine.meta_mgr().remove_delete_bitmap_update_lock(
                             _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
                             _tablet->tablet_id());
