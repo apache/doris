@@ -156,7 +156,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 sourceExprs.addAll(ExpressionUtils.extractDisjunction(expr));
             }
         }
-        Expression result = isAnd ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
+        Expression result = ExpressionUtils.compound(isAnd, sourceExprs);
         result = FoldConstantRuleOnFE.evaluate(result, context);
         return result;
     }

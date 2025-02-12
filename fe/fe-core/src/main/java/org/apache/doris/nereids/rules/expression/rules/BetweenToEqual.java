@@ -75,7 +75,7 @@ public class BetweenToEqual implements ExpressionPatternRuleFactory {
             }
         }
         if (equals.isEmpty()) {
-            return null;
+            return and;
         } else {
             List<Expression> newConjuncts = Lists.newArrayList(equals);
             for (Expression conj : conjuncts) {
@@ -95,7 +95,7 @@ public class BetweenToEqual implements ExpressionPatternRuleFactory {
     // A <= a
     // A is expr, a is literal
     private static boolean isCandidate(Expression expr) {
-        if (expr instanceof GreaterThanEqual || expr instanceof LessThanEqual) {
+        if ((expr instanceof GreaterThanEqual || expr instanceof LessThanEqual) && !expr.containsNonfoldable()) {
             return expr.child(0) instanceof Literal && !(expr.child(1) instanceof Literal)
                 || expr.child(1) instanceof Literal && !(expr.child(0) instanceof Literal);
         }

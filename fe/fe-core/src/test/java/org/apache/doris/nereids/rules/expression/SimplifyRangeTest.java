@@ -394,11 +394,28 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 "(CA is null and null) OR CB < timestamp '2024-01-05 00:50:00'");
     }
 
+    @Test
+    public void testSimplifyNonfoldable() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyRange.INSTANCE)
+        ));
+        // if expression contains non-foldable, don't simplify itself.
+        assertRewriteNoChange("random(1, 10) = 1 or random(1, 10) = 2 or random(1, 10) = 3");
+        assertRewriteNoChange("random(1, 10) in (1, 2, 3) or random(1, 10) in (4, 5, 6)");
+        assertRewriteNoChange("random(1, 10) > 8 and random(1, 10) < 5");
+        assertRewriteNoChange("random(1, 10) < 5 and random(1, 10) < 5 and random(1, 10) < 5");
+        assertRewriteNoChange("random(1, 10) < 5 or random(1, 10) < 5 or random(1, 10) < 5");
+    }
+
     private ValueDesc getValueDesc(String expression) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression parseExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         parseExpression = typeCoercion(parseExpression);
         return (new RangeInference()).getValue(parseExpression, context);
+    }
+
+    private void assertRewriteNoChange(String expression) {
+        assertRewrite(expression, expression);
     }
 
     private void assertRewrite(String expression, String expected) {
