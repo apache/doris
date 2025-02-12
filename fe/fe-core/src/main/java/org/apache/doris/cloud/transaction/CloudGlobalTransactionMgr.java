@@ -1255,8 +1255,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         if (stopWatch != null) {
             stopWatch.stop();
-            LOG.info("get table cloud commit lock, tableList=(" + StringUtils.join(tablesToLock, ",") + ")"
-                    + ", transactionId=" + transactionId + ", cost=" + stopWatch.getTime() + " ms");
+            long costTimeMs = stopWatch.getTime();
+            if (costTimeMs > 1000) {
+                LOG.warn("get table cloud commit lock, tableList=(" + StringUtils.join(tablesToLock, ",") + ")"
+                        + ", transactionId=" + transactionId + ", cost=" + costTimeMs + " ms");
+            }
         }
     }
 
