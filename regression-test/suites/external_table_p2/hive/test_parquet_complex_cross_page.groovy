@@ -41,13 +41,12 @@ suite("test_parquet_complex_cross_page", "p2,external,hive,external_remote,exter
     logger.info("switched to catalog " + hms_catalog_name)
     sql """ use regression;"""
 
-
-    qt_1 """  SELECT *  FROM local(     "file_path" = "tmp/a.parquet",     "backend_id" = "1739188597488",     "format" = "parquet") 
-    WHERE device_id='DZ692'  and format_time between 1737693770300 and 1737693770500  and date between '20250124' and '20250124'  and project='GA20230001' ; """ 
-    
-    sql """ SELECT functions_pnc_ssm_road_di_objects from test_parquet_complex_cross_page ; """ 
     sql """ set dry_run_query=true; """ 
-    qt_2 """ select * from test_parquet_complex_cross_page ; """ 
+
+    qt_1 """  SELECT *  FROM test_parquet_complex_cross_page WHERE device_id='DZ692'  and format_time between 1737693770300 and 1737693770500 
+    and date between '20250124' and '20250124'  and project='GA20230001' ; """ 
+    qt_2 """ SELECT functions_pnc_ssm_road_di_objects from test_parquet_complex_cross_page ; """ 
+    qt_3 """ select * from test_parquet_complex_cross_page ; """ 
     
     sql """drop catalog ${hms_catalog_name};"""
 }
