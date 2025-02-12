@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -1059,7 +1060,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName,
+                new FileSystemDirectoryLister(), null);
     }
 
     @Override
