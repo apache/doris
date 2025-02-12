@@ -81,6 +81,11 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
                                                                     const std::string& label,
                                                                     int64_t byte_limit) {
     auto tracker = std::make_shared<MemTrackerLimiter>(type, label, byte_limit);
+    // Write tracker is only used to tracker the size, so limit == -1
+    auto write_tracker = std::make_shared<MemTrackerLimiter>(type, "Memtable" + label, -1);
+    // Memtable has a separate logic to deal with memory flush, so that should not check the limit in memtracker.
+    write_tracker->set_enable_reserve_memory(true);
+    tracker->_write_tracker.swap(write_tracker);
 #ifndef BE_TEST
     DCHECK(ExecEnv::tracking_memory());
     std::lock_guard<std::mutex> l(
@@ -132,7 +137,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
     }
-    DCHECK(reserved_consumption() == 0);
+    DCHECK_EQ(reserved_consumption(), 0);
     memory_memtrackerlimiter_cnt << -1;
 }
 
@@ -374,7 +379,8 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
             "{}, peak used {}, current used {}. backend {}, {}.",
             label(), type_string(_type), MemCounter::print_bytes(limit()),
             MemCounter::print_bytes(peak_consumption()), MemCounter::print_bytes(consumption()),
-            BackendOptions::get_localhost(), GlobalMemoryArbitrator::process_memory_used_str());
+            BackendOptions::get_localhost(),
+            GlobalMemoryArbitrator::process_memory_used_details_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "
@@ -558,7 +564,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                     seek_num++;
                     // 32M small query does not cancel
                     if (tracker->consumption() <= 33554432 ||
-                        tracker->consumption() < tracker->limit()) {
+                        tracker->consumption() < tracker->_limit) {
                         small_num++;
                         continue;
                     }
@@ -568,7 +574,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                         continue;
                     }
                     auto overcommit_ratio = int64_t(
-                            (static_cast<double>(tracker->consumption()) / tracker->limit()) *
+                            (static_cast<double>(tracker->consumption()) / tracker->_limit) *
                             10000);
                     max_pq.emplace(overcommit_ratio, tracker->label());
                     query_consumption[tracker->label()] = tracker->consumption();

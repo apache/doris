@@ -739,6 +739,24 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     return Status::OK();
 }
 
+size_t VExpr::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) {
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 64; /// TODO: need a more reasonable value
+    }
+    return estimate_size;
+}
+
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                          int* result_column_id) {
     if (context->get_inverted_index_context() &&

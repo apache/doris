@@ -170,7 +170,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         ASSERT_TRUE(res.ok());
     }
     static_cast<void>(mem_limiter->init(100));
-    mem_limiter->handle_memtable_flush();
+    mem_limiter->handle_memtable_flush(nullptr);
     CHECK_EQ(0, mem_limiter->mem_usage());
 
     res = delta_writer->close();

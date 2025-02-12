@@ -27,6 +27,7 @@
 #include <thread>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
@@ -419,32 +420,50 @@ private:
     Status _destroy_agg_status(vectorized::AggregateDataPtr data);
 };
 
+struct BasicSpillSharedState {
+    virtual ~BasicSpillSharedState() = default;
+
+    // These two counters are shared to spill source operators as the initial value
+    // of 'SpillWriteFileCurrentBytes' and 'SpillWriteFileCurrentCount'.
+    // Total bytes of spill data written to disk file(after serialized)
+    RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
+    RuntimeProfile::Counter* _spill_file_total_count = nullptr;
+
+    void setup_shared_profile(RuntimeProfile* sink_profile) {
+        _spill_file_total_count =
+                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+        _spill_write_file_total_size =
+                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileBytes", TUnit::BYTES, 1);
+    }
+
+    virtual void update_spill_stream_profiles(RuntimeProfile* source_profile) = 0;
+};
+
 struct AggSpillPartition;
 struct PartitionedAggSharedState : public BasicSharedState,
+                                   public BasicSpillSharedState,
                                    public std::enable_shared_from_this<PartitionedAggSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
     ~PartitionedAggSharedState() override = default;
 
-    void init_spill_params(size_t spill_partition_count_bits);
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
+
+    void init_spill_params(size_t spill_partition_count);
 
     void close();
 
     AggSharedState* in_mem_shared_state = nullptr;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
-    size_t partition_count_bits;
     size_t partition_count;
     size_t max_partition_index;
-    Status sink_status;
     bool is_spilled = false;
     std::atomic_bool is_closed = false;
     std::deque<std::shared_ptr<AggSpillPartition>> spill_partitions;
 
-    size_t get_partition_index(size_t hash_value) const {
-        return (hash_value >> (32 - partition_count_bits)) & max_partition_index;
-    }
+    size_t get_partition_index(size_t hash_value) const { return hash_value % partition_count; }
 };
 
 struct AggSpillPartition {
@@ -490,30 +509,31 @@ public:
 };
 
 struct SpillSortSharedState : public BasicSharedState,
+                              public BasicSpillSharedState,
                               public std::enable_shared_from_this<SpillSortSharedState> {
     ENABLE_FACTORY_CREATOR(SpillSortSharedState)
 
     SpillSortSharedState() = default;
     ~SpillSortSharedState() override = default;
 
-    // This number specifies the maximum size of sub blocks
-    static constexpr size_t SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
-    void update_spill_block_batch_row_count(const vectorized::Block* block) {
+    void update_spill_block_batch_row_count(RuntimeState* state, const vectorized::Block* block) {
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
             avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
             spill_block_batch_row_count =
-                    (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes - 1) / avg_row_bytes;
+                    (state->spill_sort_batch_bytes() + avg_row_bytes - 1) / avg_row_bytes;
             LOG(INFO) << "spill sort block batch row count: " << spill_block_batch_row_count;
         }
     }
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
+
     void close();
 
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
     std::atomic_bool is_closed = false;
-    Status sink_status;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
     std::deque<vectorized::SpillStreamSPtr> sorted_streams;
@@ -539,10 +559,13 @@ public:
 
 class MultiCastDataStreamer;
 
-struct MultiCastSharedState : public BasicSharedState {
-public:
-    MultiCastSharedState(ObjectPool* pool, int cast_sender_count);
+struct MultiCastSharedState : public BasicSharedState,
+                              public BasicSpillSharedState,
+                              public std::enable_shared_from_this<MultiCastSharedState> {
+    MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id);
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
 };
 
 struct AnalyticSharedState : public BasicSharedState {
@@ -586,8 +609,17 @@ struct HashJoinSharedState : public JoinSharedState {
 
 struct PartitionedHashJoinSharedState
         : public HashJoinSharedState,
+          public BasicSpillSharedState,
           public std::enable_shared_from_this<PartitionedHashJoinSharedState> {
     ENABLE_FACTORY_CREATOR(PartitionedHashJoinSharedState)
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override {
+        for (auto& stream : spilled_streams) {
+            if (stream) {
+                stream->update_shared_profiles(source_profile);
+            }
+        }
+    }
 
     std::unique_ptr<RuntimeState> inner_runtime_state;
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
@@ -717,6 +749,7 @@ public:
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<RuntimeProfile::Counter*> mem_counters;
     std::atomic<int64_t> mem_usage = 0;
+    std::atomic<size_t> _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
     virtual void create_dependencies(int local_exchange_id) {
@@ -759,8 +792,7 @@ public:
     }
 
     virtual void add_total_mem_usage(size_t delta) {
-        if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) >
-            config::local_exchange_buffer_mem_limit) {
+        if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) > _buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
@@ -768,9 +800,14 @@ public:
     virtual void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
-        if (cast_set<int64_t>(prev_usage - delta) <= config::local_exchange_buffer_mem_limit) {
+        if (cast_set<int64_t>(prev_usage - delta) <= _buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
+    }
+
+    virtual void set_low_memory_mode(RuntimeState* state) {
+        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
+                                              state->low_memory_mode_buffer_limit());
     }
 };
 
@@ -799,16 +836,22 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 
     void add_mem_usage(int channel_id, size_t delta) override {
         LocalExchangeSharedState::add_mem_usage(channel_id, delta);
-        if (mem_counters[channel_id]->value() > _each_queue_limit) {
+        if (mem_counters[channel_id]->value() > _each_queue_limit.load()) {
             sink_deps[channel_id]->block();
         }
     }
 
     void sub_mem_usage(int channel_id, size_t delta) override {
         LocalExchangeSharedState::sub_mem_usage(channel_id, delta);
-        if (mem_counters[channel_id]->value() <= _each_queue_limit) {
+        if (mem_counters[channel_id]->value() <= _each_queue_limit.load()) {
             sink_deps[channel_id]->set_ready();
         }
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
+                                              state->low_memory_mode_buffer_limit());
+        _each_queue_limit = std::max<int64_t>(64 * 1024, _buffer_mem_limit / source_deps.size());
     }
 
     Dependency* get_sink_dep_by_channel_id(int channel_id) override {
@@ -820,7 +863,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
 private:
-    const int64_t _each_queue_limit;
+    std::atomic_int64_t _each_queue_limit;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
