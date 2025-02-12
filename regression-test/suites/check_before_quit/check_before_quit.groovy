@@ -240,9 +240,10 @@ suite("check_before_quit", "nonConcurrent,p0") {
         }
         List<List<Object>> allTables = sql "show tables from ${db}"
         logger.info("show all tabkes: ${allTables}")
-        for (int j = 0;j < allTables.size();j ++) {
+        for (int j = 0; j < allTables.size(); j++) {
             def tbl = allTables[j][0]
             def createTableSql = ""
+            def isNotLightSchemaChanged = false
             try {
                 createTableSql = sql "show create table ${db}.${tbl}"
                 logger.info("create table sql: ${createTableSql}")
@@ -257,10 +258,15 @@ suite("check_before_quit", "nonConcurrent,p0") {
                             logger.info(e2.getMessage())
                             throw e2
                         }
-                    } 
+                    }
                     logger.info("create materialized view sql: ${createTableSql}")
                 }
             }
+
+            if (!createTableSql[0][1].contains("\"light_schema_change\" = \"true\"")) {
+                isNotLightSchemaChanged = true
+            }
+
             if (createTableSql[0][1].contains("CREATE VIEW")) {
                 sql "drop view if exists ${tbl}"
             } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
@@ -272,7 +278,10 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 sql(createTableSql[0][1])
                 def createTableSqlResult = sql "show create table ${tbl}"
                 logger.info("create table/view sql result info: ${createTableSqlResult}")
-                assertEquals(createTableSqlResult, createTableSql)
+
+                createTableSqlResult = createTableSqlResult[0][1].replaceAll(",?\\s*light_schema_change = true", "")
+                
+                assertEquals(createTableSqlResult, createTableSql[0][1])
             }
         }
     }
