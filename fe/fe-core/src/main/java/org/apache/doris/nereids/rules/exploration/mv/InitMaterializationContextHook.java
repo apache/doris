@@ -259,7 +259,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                         }
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 MTMVPlanUtil.createBasicMvContext(cascadesContext.getConnectContext()), true,
-                                false);
+                                false, cascadesContext.getConnectContext());
                         contexts.add(new SyncMaterializationContext(mtmvCache.getLogicalPlan(),
                                 mtmvCache.getOriginalPlan(), olapTable, meta.getIndexId(), indexName,
                                 cascadesContext, mtmvCache.getStatistics()));
