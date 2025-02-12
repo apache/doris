@@ -269,7 +269,7 @@ struct literal_traits<TYPE_DECIMALV2> {
 template <>
 struct literal_traits<TYPE_TIMEV2> {
     const static TPrimitiveType::type ttype = TPrimitiveType::TIMEV2;
-    const static TExprNodeType::type tnode_type = TExprNodeType::TIME_LITERAL;
+    const static TExprNodeType::type tnode_type = TExprNodeType::TIMEV2_LITERAL;
     using CXXType = std::string;
 };
 
@@ -363,9 +363,9 @@ void set_literal(TExprNode& node, const U& value) {
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires(T == TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
-    TTimeLiteral time_literal;
-    time_literal.__set_value(value);
-    node.__set_time_literal(time_literal);
+    TTimeV2Literal timev2_literal;
+    timev2_literal.__set_value(value);
+    node.__set_timev2_literal(timev2_literal);
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>

@@ -466,7 +466,7 @@ public class CastExpr extends Expr {
         } else if (type.isBoolean()) {
             return new BoolLiteral(value.getStringValue());
         } else if (type.isTimeType()) {
-            return new TimeLiteral(value.getStringValue());
+            return new TimeV2Literal(value.getStringValue());
         }
         return this;
     }

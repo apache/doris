@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
@@ -92,12 +92,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "curtime")
     public static Expression curTime() {
-        return TimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return TimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     @ExecFunction(name = "current_time")
     public static Expression currentTime() {
-        return TimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return TimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     /**

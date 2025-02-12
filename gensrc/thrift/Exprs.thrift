@@ -82,7 +82,7 @@ enum TExprNodeType {
   // to prevent push to storage layer
   NULL_AWARE_IN_PRED,
   NULL_AWARE_BINARY_PRED,
-  TIME_LITERAL,
+  TIMEV2_LITERAL,
 }
 
 //enum TAggregationOp {
@@ -120,7 +120,7 @@ struct TDateLiteral {
   1: required string value
 }
 
-struct TTimeLiteral {
+struct TTimeV2Literal {
   1: required string value
 }
 
@@ -273,7 +273,7 @@ struct TExprNode {
   34: optional TIPv4Literal ipv4_literal
   35: optional TIPv6Literal ipv6_literal
   36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
-  37: optional TTimeLiteral time_literal
+  37: optional TTimeV2Literal timev2_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

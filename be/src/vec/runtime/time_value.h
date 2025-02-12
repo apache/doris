@@ -83,8 +83,8 @@ public:
     }
 
     static bool timev2_to_double_from_str(const char* str, double& v, int scale = 6) {
-        // like fe/fe-core/src/main/java/org/apache/doris/analysis/TimeLiteral.java and
-        // fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/literal/TimeLiteral.java
+        // like fe/fe-core/src/main/java/org/apache/doris/analysis/TimeV2Literal.java and
+        // fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/literal/TimeV2Literal.java
         // init function to parse str
         std::string s(str);
         bool neg;

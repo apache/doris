@@ -22,20 +22,20 @@ import org.apache.doris.common.AnalysisException;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class TimeLiteralTest {
+public class TimeV2LiteralTest {
 
     @Test
     public void testTimeLiteralCreate() throws AnalysisException {
-        TimeLiteral literal = new TimeLiteral("12:12:12");
+        TimeV2Literal literal = new TimeV2Literal("12:12:12");
         String s = literal.getStringValue();
         Assert.assertEquals(s, "12:12:12");
-        literal = new TimeLiteral("112:00:00");
+        literal = new TimeV2Literal("112:00:00");
         s = literal.getStringValue();
         Assert.assertEquals(s, "112:00:00");
-        literal = new TimeLiteral(21, 12, 21);
+        literal = new TimeV2Literal(21, 12, 21);
         s = literal.getStringValue();
         Assert.assertEquals(s, "21:12:21");
-        literal = new TimeLiteral(838, 59, 59);
+        literal = new TimeV2Literal(838, 59, 59);
         s = literal.getStringValue();
         Assert.assertEquals(s, "838:59:59");
     }

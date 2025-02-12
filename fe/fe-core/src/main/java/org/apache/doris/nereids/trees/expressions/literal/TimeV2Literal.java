@@ -28,11 +28,11 @@ import java.time.LocalDateTime;
 /**
  * Time literal in Nereids.
  */
-public class TimeLiteral extends Literal {
+public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0, 0, 0);
-    private static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59, 999999, 6);
+    private static final TimeV2Literal MIN_TIME = new TimeV2Literal(-838, 0, 0, 0, 0);
+    private static final TimeV2Literal MAX_TIME = new TimeV2Literal(838, 59, 59, 999999, 6);
 
     protected float hour;
     protected long minute;
@@ -40,11 +40,11 @@ public class TimeLiteral extends Literal {
     protected long microsecond;
     protected long scale;
 
-    public TimeLiteral(String s) throws AnalysisException {
+    public TimeV2Literal(String s) throws AnalysisException {
         this(TimeV2Type.INSTANCE, s);
     }
 
-    protected TimeLiteral(TimeV2Type dataType, String s) throws AnalysisException {
+    protected TimeV2Literal(TimeV2Type dataType, String s) throws AnalysisException {
         super(dataType);
         init(s);
     }
@@ -52,14 +52,14 @@ public class TimeLiteral extends Literal {
     /**
      * C'tor time literal.
      */
-    public TimeLiteral(float hour, long minute, long second) {
+    public TimeV2Literal(float hour, long minute, long second) {
         this(TimeV2Type.INSTANCE, hour, minute, second);
     }
 
     /**
      * C'tor for time type.
      */
-    public TimeLiteral(TimeV2Type dataType, float hour, long minute, long second) {
+    public TimeV2Literal(TimeV2Type dataType, float hour, long minute, long second) {
         super(dataType);
         this.hour = hour;
         this.minute = minute;
@@ -71,7 +71,7 @@ public class TimeLiteral extends Literal {
     /**
      * C'tor for time type.
      */
-    public TimeLiteral(float hour, long minute, long second, long microsecond, int scale) {
+    public TimeV2Literal(float hour, long minute, long second, long microsecond, int scale) {
         super(TimeV2Type.INSTANCE);
         this.hour = hour;
         this.minute = minute;
@@ -196,12 +196,12 @@ public class TimeLiteral extends Literal {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitTimeLiteral(this, context);
+        return visitor.visitTimeV2Literal(this, context);
     }
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.TimeLiteral(hour, minute, second, microsecond, scale);
+        return new org.apache.doris.analysis.TimeV2Literal(hour, minute, second, microsecond, scale);
     }
 
     @Override
@@ -250,7 +250,7 @@ public class TimeLiteral extends Literal {
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }
-        return new TimeLiteral(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
 
     @Override

@@ -23,12 +23,12 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TTimeLiteral;
+import org.apache.doris.thrift.TTimeV2Literal;
 
-public class TimeLiteral extends LiteralExpr {
+public class TimeV2Literal extends LiteralExpr {
 
-    public static final TimeLiteral MIN_TIME = new TimeLiteral(-838, 0, 0, 0, 0);
-    public static final TimeLiteral MAX_TIME = new TimeLiteral(838, 59, 59, 999999, 6);
+    public static final TimeV2Literal MIN_TIME = new TimeV2Literal(-838, 0, 0, 0, 0);
+    public static final TimeV2Literal MAX_TIME = new TimeV2Literal(838, 59, 59, 999999, 6);
 
     protected float hour;
     protected long minute;
@@ -39,7 +39,7 @@ public class TimeLiteral extends LiteralExpr {
      * C'tor forcing type, e.g., due to implicit cast
      */
     // for restore
-    private TimeLiteral() {
+    private TimeV2Literal() {
         this.type = Type.TIMEV2;
         this.hour = 0;
         this.minute = 0;
@@ -47,7 +47,7 @@ public class TimeLiteral extends LiteralExpr {
         this.microsecond = 0;
     }
 
-    public TimeLiteral(float hour, long minute, long second) {
+    public TimeV2Literal(float hour, long minute, long second) {
         super();
         this.type = Type.TIMEV2;
         this.hour = hour;
@@ -57,7 +57,7 @@ public class TimeLiteral extends LiteralExpr {
         analysisDone();
     }
 
-    public TimeLiteral(float hour, long minute, long second, long microsecond, long scale) {
+    public TimeV2Literal(float hour, long minute, long second, long microsecond, long scale) {
         super();
         this.type = ScalarType.createTimeV2Type((int) scale);
         this.hour = hour;
@@ -70,13 +70,13 @@ public class TimeLiteral extends LiteralExpr {
         analysisDone();
     }
 
-    public TimeLiteral(String s) throws AnalysisException {
+    public TimeV2Literal(String s) throws AnalysisException {
         super();
         init(s);
         analysisDone();
     }
 
-    protected TimeLiteral(TimeLiteral other) {
+    protected TimeV2Literal(TimeV2Literal other) {
         super(other);
         this.type = ScalarType.createTimeV2Type(((ScalarType) other.type).getScalarScale());
         this.hour = other.getHour();
@@ -87,7 +87,7 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     public Expr clone() {
-        return new TimeLiteral(this);
+        return new TimeV2Literal(this);
     }
 
     protected void init(String s) throws AnalysisException {
@@ -187,8 +187,8 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.TIME_LITERAL;
-        msg.time_literal = new TTimeLiteral(getStringValue());
+        msg.node_type = TExprNodeType.TIMEV2_LITERAL;
+        msg.timev2_literal = new TTimeV2Literal(getStringValue());
     }
 
     @Override

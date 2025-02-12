@@ -295,7 +295,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
         } else if (targetType.isTimeLikeType()) {
-            return new TimeLiteral((TimeV2Type) targetType, desc);
+            return new TimeV2Literal((TimeV2Type) targetType, desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
@@ -349,10 +349,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             case JSONB: return new JsonLiteral(stringValue);
             case IPV4: return new IPv4Literal(stringValue);
             case IPV6: return new IPv6Literal(stringValue);
-            case TIME:
-            case TIMEV2: {
-                return new TimeLiteral(stringValue);
-            }
+            case TIMEV2: return new TimeV2Literal(stringValue);
             default: {
             }
         }
