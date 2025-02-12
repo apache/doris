@@ -355,8 +355,16 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
                         value.range = null;
                     } else if (value.range != null) {
                         if (value.range.isConnected(otherValue.range)) {
-                            value.range = value.range.intersection(otherValue.range);
-                            value.isDiscrete = value.isDiscrete && otherValue.isDiscrete;
+                            Range<ComparableLiteral> newRange = value.range.intersection(otherValue.range);
+                            if (!newRange.isEmpty()) {
+                                value.range = newRange;
+                                // If newRange.lowerEndpoint().equals(newRange.upperEndpoint()),
+                                // then isDiscrete should be true.
+                                // But no need to do that because AddMinMax will not handle discrete value cases.
+                                value.isDiscrete = value.isDiscrete && otherValue.isDiscrete;
+                            } else {
+                                value.range = null;
+                            }
                         } else {
                             value.range = null;
                         }
