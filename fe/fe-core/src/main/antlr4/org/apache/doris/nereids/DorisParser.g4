@@ -850,9 +850,9 @@ optionWithoutType
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
     | PASSWORD (FOR userIdentify)? EQ (pwd=STRING_LITERAL
-    | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))     #setPassword
+        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN)) #setPassword
     | LDAP_ADMIN_PASSWORD EQ (pwd=STRING_LITERAL
-    | (PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))             #setLdapAdminPassword
+        | (PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))         #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType
     ;
 

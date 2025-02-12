@@ -104,6 +104,26 @@ suite("test_encrypt_sql") {
             """
         } catch (Exception e) {}
 
+        try {
+            sql"""CREATE TABLE mysql_tbl (
+                    k1 DATE, 
+                    k2 INT, 
+                    k3 SMALLINT, 
+                    k4 VARCHAR(2048), 
+                    k5 DATETIME
+                )
+                ENGINE=mysql
+                PROPERTIES(
+                    'host' = '127.0.0.1',
+                    'port' = '8234',
+                    'user' = 'abc',
+                    'password' = '123',
+                    'database' = 'mysql_db',
+                    'table' = 'mysql_table'
+                );
+            """
+        } catch (Exception e) {}
+
         sql "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')"
 
         sql "SET PASSWORD FOR '${user}' = PASSWORD('123456')"

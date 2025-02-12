@@ -99,6 +99,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateCatalog(ctx);
     }
 
+    // create table clause
+    @Override
+    public LogicalPlan visitCreateTable(DorisParser.CreateTableContext ctx) {
+        DorisParser.PropertyClauseContext context = ctx.properties;
+        if (context != null) {
+            encryptProperty(visitPropertyClause(context), context.fileProperties.start.getStartIndex(),
+                    context.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateTable(ctx);
+    }
+
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
         if (MapUtils.isNotEmpty(properties)) {
             PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ",
