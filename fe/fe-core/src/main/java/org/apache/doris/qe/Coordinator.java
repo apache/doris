@@ -666,7 +666,7 @@ public class Coordinator implements CoordInterface {
                         // throw exception during workload group manager.
                         throw new UserException("could not find query queue");
                     }
-                    queueToken = queryQueue.getToken();
+                    queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     queueToken.get(DebugUtil.printId(queryId),
                             this.queryOptions.getExecutionTimeout() * 1000);
                 }

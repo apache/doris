@@ -99,7 +99,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
     }
 
-    if (scan_ranges.size() > 0 &&
+    if (!scan_ranges.empty() &&
         scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
         // for compatibility.
         // in new implement, the tuple id is set in prepare phase

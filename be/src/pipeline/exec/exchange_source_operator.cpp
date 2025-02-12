@@ -17,6 +17,8 @@
 
 #include "exchange_source_operator.h"
 
+#include <fmt/core.h>
+
 #include <cstdint>
 #include <memory>
 
@@ -74,7 +76,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                            "SHUFFLE_DATA_DEPENDENCY");
+                                            fmt::format("SHUFFLE_DATA_DEPENDENCY_{}", i));
         queues[i]->set_dependency(deps[i]);
         metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
@@ -163,6 +165,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(),
                                                                       block, block->columns()));
     }
+
     // In vsortrunmerger, it will set eos=true, and block not empty
     // so that eos==true, could not make sure that block not have valid data
     if (!*eos || block->rows() > 0) {

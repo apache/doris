@@ -45,7 +45,8 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+    Status do_pre_agg(RuntimeState* state, vectorized::Block* input_block,
+                      vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);
 
 private:
@@ -208,6 +209,9 @@ public:
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
+    void set_low_memory_mode(RuntimeState* state) override {
+        _spill_streaming_agg_mem_limit = 1024 * 1024;
+    }
 
 private:
     friend class StreamingAggLocalState;
