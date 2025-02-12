@@ -198,7 +198,6 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeEqualSet(DataTrait.Builder builder) {
-        builder.addEqualSet(child().getLogicalProperties().getTrait());
         Set<Expression> common = getCommonGroupingSetExpressions();
         Set<Slot> slots = new HashSet<>();
         for (Expression expr : common) {
@@ -207,6 +206,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             }
             slots.add((Slot) expr);
         }
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
         builder.pruneEqualSetSlots(slots);
     }
 
