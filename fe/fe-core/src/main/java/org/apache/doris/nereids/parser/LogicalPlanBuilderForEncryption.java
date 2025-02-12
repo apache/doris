@@ -115,6 +115,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateTable(ctx);
     }
 
+    // select from tvf
+    @Override
+    public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
+        DorisParser.PropertyItemListContext properties = ctx.properties;
+        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                properties.stop.getStopIndex());
+        return super.visitTableValuedFunction(ctx);
+    }
+
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
         if (MapUtils.isNotEmpty(properties)) {
             PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ",

@@ -144,6 +144,37 @@ suite("test_encrypt_sql") {
             """
         } catch (Exception e) {}
 
+        try {
+            sql"""INSERT INTO test_s3load
+                    SELECT * FROM S3_${tableName} (
+                        "uri" = "s3://your_bucket_name/s3load_example.csv"
+                        "format" = "csv"
+                        "provider" = "OSS"
+                        "s3.endpoint" = "oss-cn-hangzhou.aliyuncs.com"
+                        "s3.region" = "oss-cn-hangzhou"
+                        "s3.access_key" = "abc"
+                        "s3.secret_key" = "abc"
+                        "column_separator" = ","
+                        "csv_schema" = "user_id:int;name:string;age:int"
+                    );
+            """
+        } catch (Exception e) {}
+
+        try {
+            sql"""SELECT * FROM S3_${tableName} (
+                        "uri" = "s3://your_bucket_name/s3load_example.csv"
+                        "format" = "csv"
+                        "provider" = "OSS"
+                        "s3.endpoint" = "oss-cn-hangzhou.aliyuncs.com"
+                        "s3.region" = "oss-cn-hangzhou"
+                        "s3.access_key" = "abc"
+                        "s3.secret_key" = "abc"
+                        "column_separator" = ","
+                        "csv_schema" = "user_id:int;name:string;age:int"
+                  );
+            """
+        } catch (Exception e) {}
+
         sql "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')"
 
         sql "SET PASSWORD FOR '${user}' = PASSWORD('123456')"
