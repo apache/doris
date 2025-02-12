@@ -3978,6 +3978,36 @@ public class Env {
                     index++;
                 }
             }
+            // with all rollup
+            if (getDdlForSync) {
+                sb.append("\nROLLUP (\n");
+                List<Long> indexIds = new ArrayList<>(olapTable.getIndexIdToMeta().keySet());
+                for (int i = 0; i < indexIds.size(); i++) {
+                    Long indexId = indexIds.get(i);
+                    if (indexId == olapTable.getBaseIndexId()) {
+                        continue;
+                    }
+
+                    MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(indexId);
+                    String indexName = olapTable.getIndexNameById(indexId);
+                    sb.append(indexName).append(" (");
+
+                    List<Column> indexSchema = materializedIndexMeta.getSchema();
+                    for (int j = 0; j < indexSchema.size(); j++) {
+                        Column column = indexSchema.get(j);
+                        sb.append(column.getName());
+                        if (j != indexSchema.size() - 1) {
+                            sb.append(", ");
+                        }
+                    }
+                    sb.append(")");
+
+                    if (i != indexIds.size() - 1) {
+                        sb.append(",\n");
+                    }
+                }
+                sb.append("\n)");
+            }
 
             // properties
             sb.append("\nPROPERTIES (\n");
