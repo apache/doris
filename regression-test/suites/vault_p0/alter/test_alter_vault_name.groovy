@@ -101,6 +101,17 @@ suite("test_alter_vault_name", "nonConcurrent") {
     }, "already existed")
 
     // case5
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type" = "s3",
+                "VAULT_NAME" = "@#¥%*&-+=null."
+            );
+        """
+    }, "Incorrect vault name")
+
+    // case6
     sql """
         CREATE TABLE ${hdfsVaultName} (
             C_CUSTKEY     INTEGER NOT NULL,
