@@ -21,8 +21,6 @@ package org.apache.doris.datasource.property.constants;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.credentials.CloudCredential;
 
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
