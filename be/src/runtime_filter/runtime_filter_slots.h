@@ -20,8 +20,8 @@
 #include "common/status.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime_filter/runtime_filter.h"
-#include "runtime_filter/runtime_filter_producer.h"
+#include "runtime_filter/role/producer.h"
+#include "runtime_filter/role/runtime_filter.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"

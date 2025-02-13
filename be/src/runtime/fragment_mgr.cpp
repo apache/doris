@@ -79,7 +79,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
-#include "runtime_filter/runtime_filter_consumer.h"
+#include "runtime_filter/role/consumer.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"

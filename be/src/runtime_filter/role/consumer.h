@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/role/runtime_filter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -98,7 +98,7 @@ private:
                              std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
 
     void _check_state(std::vector<State> assumed_states) {
-        if (!check_state<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
+        if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "consumer meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterConsumer>(assumed_states));

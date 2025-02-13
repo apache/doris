@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/role/runtime_filter.h"
 
 namespace doris {
 
@@ -115,7 +115,7 @@ private:
                                   uint64_t local_merge_time);
 
     void _check_state(std::vector<State> assumed_states) {
-        if (!check_state<RuntimeFilterProducer>(_rf_state, assumed_states)) {
+        if (!check_state_impl<RuntimeFilterProducer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "producer meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterProducer>(assumed_states));
