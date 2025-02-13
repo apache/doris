@@ -98,6 +98,11 @@ suite("insert_group_commit_into") {
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
     }
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     try {
         // create table
         sql """ drop table if exists ${table}; """
