@@ -168,6 +168,11 @@ Status MemTableWriter::flush_async() {
         return _cancel_status;
     }
 
+    // _mem_table may be null after write failure triggers reset
+    if (_mem_table == nullptr) {
+        return Status::OK();
+    }
+
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                 << PrettyPrinter::print_bytes(_mem_table->memory_usage())
                 << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
