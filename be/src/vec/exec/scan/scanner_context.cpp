@@ -534,10 +534,11 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
         // This DCHECK is necessary.
         // We need to make sure each scan operator could have at least 1 scan tasks.
         // Or this scan operator will not be re-scheduled.
-        if (!_pending_scanners.empty() && _num_scheduled_scanners == 0) {
+        if (!_pending_scanners.empty() && _num_scheduled_scanners == 0 && _tasks_queue.empty()) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner schduler logical error.");
         }
 #endif
+
         return Status::OK();
     }
 
