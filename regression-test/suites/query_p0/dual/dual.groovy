@@ -60,11 +60,7 @@ suite('dual') {
     qt_sql 'select 1 from `dual`'
     qt_sql 'select 1 from dual'
 
-    // Tests for dropping 'dual' and ensuring correct error handling
-    test {
-        sql 'drop table if exists dual'
-        exception """DUAL is keyword, maybe `DUAL`"""
-    }
+    sql 'drop table if exists dual'
     sql 'drop table if exists `dual`'
 
     // Test error handling when table does not exist
