@@ -53,6 +53,7 @@ std::shared_ptr<FileReader> FDCache::get_file_reader(const AccessKeyAndOffset& k
     if (config::file_cache_max_file_reader_cache_size == 0) [[unlikely]] {
         return nullptr;
     }
+    DCHECK(ExecEnv::GetInstance());
     std::shared_lock rlock(_mtx);
     if (auto iter = _file_name_to_reader.find(key); iter != _file_name_to_reader.end()) {
         return iter->second->second;
@@ -81,6 +82,7 @@ void FDCache::remove_file_reader(const AccessKeyAndOffset& key) {
     if (config::file_cache_max_file_reader_cache_size == 0) [[unlikely]] {
         return;
     }
+    DCHECK(ExecEnv::GetInstance());
     std::lock_guard wlock(_mtx);
     if (auto iter = _file_name_to_reader.find(key); iter != _file_name_to_reader.end()) {
         _file_reader_list.erase(iter->second);
