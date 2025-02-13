@@ -255,6 +255,15 @@ public class InsertUtils {
      * normalize plan to let it could be process correctly by nereids
      */
     public static Plan normalizePlan(Plan plan, TableIf table) {
+        table.readLock();
+        try {
+            return normalizePlanWithoutLock(plan, table);
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    private static Plan normalizePlanWithoutLock(Plan plan, TableIf table) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;
