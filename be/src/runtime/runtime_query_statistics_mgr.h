@@ -52,8 +52,7 @@ public:
             std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profile, bool is_done);
 
     void register_resource_context(std::string query_id,
-                                   std::shared_ptr<ResourceContext> resource_ctx,
-                                   TNetworkAddress fe_addr, TQueryType::type query_type);
+                                   std::shared_ptr<ResourceContext> resource_ctx);
 
     void report_runtime_query_statistics();
 
@@ -77,6 +76,9 @@ public:
 
 private:
     std::shared_mutex _resource_contexts_map_lock;
+    // Must be shared_ptr of ResourceContext, because ResourceContext can only be removed from
+    // _resource_contexts_map after QueryStatistics is reported to FE,
+    // at which time the Query may have ended.
     std::map<std::string, std::shared_ptr<ResourceContext>> _resource_contexts_map;
 
     std::mutex _report_profile_mutex;

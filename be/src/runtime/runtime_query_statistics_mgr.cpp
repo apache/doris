@@ -321,10 +321,15 @@ void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
 }
 
 void RuntimeQueryStatisticsMgr::register_resource_context(
-        std::string query_id, std::shared_ptr<ResourceContext> resource_ctx,
-        TNetworkAddress fe_addr, TQueryType::type query_type) {
+        std::string query_id, std::shared_ptr<ResourceContext> resource_ctx) {
     std::lock_guard<std::shared_mutex> write_lock(_resource_contexts_map_lock);
-    DCHECK(_resource_contexts_map.find(query_id) == _resource_contexts_map.end());
+    // Note: `group_commit_insert` will use the same `query_id` to submit multiple load tasks in sequence.
+    // After the previous load task ends but QueryStatistics has not been reported to FE,
+    // if the next load task with the same `query_id` starts to execute, `register_resource_context` will
+    // find that `query_id` already exists in _resource_contexts_map.
+    // At this time, directly overwriting the `resource_ctx` corresponding to the `query_id`
+    // in `register_resource_context` will cause the previous load task not to be reported to FE.
+    // DCHECK(_resource_contexts_map.find(query_id) == _resource_contexts_map.end());
     _resource_contexts_map[query_id] = resource_ctx;
 }
 

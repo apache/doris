@@ -182,8 +182,8 @@ void QueryContext::_init_resource_context() {
     _resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
 #ifndef BE_TEST
-    _exec_env->runtime_query_statistics_mgr()->register_resource_context(
-            print_id(_query_id), _resource_ctx, current_connect_fe, _query_options.query_type);
+    _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
+                                                                         _resource_ctx);
 #endif
 }
 
