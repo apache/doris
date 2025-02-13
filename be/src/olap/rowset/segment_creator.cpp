@@ -362,7 +362,7 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
             LOG(INFO) << "directly flush a single block " << _buffer_block.rows() << " rows"
                       << ", block size " << _buffer_block.bytes() << " block allocated_size "
                       << _buffer_block.allocated_bytes();
-            vectorized::Block block = _buffer_block.to_block();
+            vectorized::Block block = std::move(_buffer_block).to_block();
             RETURN_IF_ERROR(flush_single_block(&block));
             _buffer_block.clear();
         }
@@ -392,7 +392,7 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
 
 Status SegmentCreator::flush() {
     if (_buffer_block.rows() > 0) {
-        vectorized::Block block = _buffer_block.to_block();
+        vectorized::Block block = std::move(_buffer_block).to_block();
         LOG(INFO) << "directly flush a single block " << block.rows() << " rows"
                   << ", block size " << block.bytes() << " block allocated_size "
                   << block.allocated_bytes();

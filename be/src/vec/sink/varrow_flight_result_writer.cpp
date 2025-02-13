@@ -66,7 +66,7 @@ Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) 
                 vectorized::MutableBlock::create_unique(block.clone_empty());
         RETURN_IF_ERROR(mutable_block->merge_ignore_overflow(std::move(block)));
         std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
-        output_block->swap(mutable_block->to_block());
+        output_block->swap(std::move(*mutable_block).to_block());
 
         auto num_rows = output_block->rows();
         // arrow::RecordBatch without `nbytes()` in C++
