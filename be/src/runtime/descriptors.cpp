@@ -49,12 +49,10 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_name(tdesc.colName),
           _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
-          _col_type(thrift_to_type(tdesc.primitive_type)),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized),
+          _is_materialized(tdesc.isMaterialized || tdesc.need_materialize),
           _is_key(tdesc.is_key),
-          _need_materialize(tdesc.need_materialize),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
           _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
@@ -68,12 +66,10 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(pdesc.col_unique_id()),
-          _col_type(static_cast<PrimitiveType>(pdesc.col_type())),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
-          _need_materialize(true),
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
 
@@ -85,12 +81,10 @@ SlotDescriptor::SlotDescriptor()
           _col_pos(0),
           _is_nullable(false),
           _col_unique_id(0),
-          _col_type(PrimitiveType {}),
           _slot_idx(0),
           _field_idx(-1),
-          _is_materialized(false),
+          _is_materialized(true),
           _is_key(false),
-          _need_materialize(true),
           _is_auto_increment(false) {}
 #endif
 
@@ -108,7 +102,7 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
-    pslot->set_col_type(_col_type);
+    pslot->set_col_type(_type.type);
     for (const std::string& path : _column_paths) {
         pslot->add_column_paths(path);
     }
@@ -546,7 +540,7 @@ int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const
     int column_id_counter = 0;
     for (auto* const tuple_desc : _tuple_desc_map) {
         for (auto* const slot : tuple_desc->slots()) {
-            if (!force_materialize_slot && !slot->need_materialize()) {
+            if (!force_materialize_slot && !slot->is_materialized()) {
                 continue;
             }
             if (slot->id() == slot_id) {

@@ -15,13 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_alias_function") {
+package org.apache.doris.udf;
 
-    sql """DROP FUNCTION IF EXISTS mesh_udf_test1(INT,INT)"""
-    sql """CREATE ALIAS FUNCTION mesh_udf_test1(INT,INT) WITH PARAMETER(n,d) AS ROUND(1+floor(n/d));"""
-    qt_sql1 """select mesh_udf_test1(1,2);"""
+import java.util.ArrayList;
 
-    sql """DROP FUNCTION IF EXISTS mesh_udf_test2(INT,INT)"""
-    sql """CREATE ALIAS FUNCTION mesh_udf_test2(INT,INT) WITH PARAMETER(n,d) AS add(1,floor(divide(n,d)))"""
-    qt_sql1 """select mesh_udf_test2(1,2);"""
+public class StaticIntTestUDTF {
+    static {
+        System.out.println("static load should only print once StaticIntTestUDTF");
+    }
+    private static int value = 0;
+    public ArrayList<Integer> evaluate() {
+        ArrayList<Integer> result = new ArrayList<>();
+        value = value + 1;
+        for (int i = 0; i < value; i++) {
+            result.add(value);
+        }
+        return result;
+    }
 }
