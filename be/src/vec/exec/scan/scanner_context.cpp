@@ -145,6 +145,7 @@ Status ScannerContext::init() {
     }
 #endif
     if (_min_scan_concurrency_of_scan_scheduler == 0) {
+        // _scanner_scheduler->get_max_threads() is setted by workload group.
         _min_scan_concurrency_of_scan_scheduler = 2 * _scanner_scheduler->get_max_threads();
     }
 
