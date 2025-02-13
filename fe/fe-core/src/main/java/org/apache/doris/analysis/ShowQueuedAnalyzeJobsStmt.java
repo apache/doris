@@ -34,16 +34,16 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 /**
- * ShowAutoAnalyzeJobsStmt is used to show pending auto analysis jobs.
+ * ShowQueuedAnalyzeJobsStmt is used to show pending auto analysis jobs.
  * syntax:
- *    SHOW AUTO ANALYZE JOBS
+ *    SHOW QUEUED ANALYZE JOBS
  *        [TABLE]
  *        [
  *            WHERE
  *            [PRIORITY = ["HIGH"|"MID"|"LOW"|"VERY_LOW"]]
  *        ]
  */
-public class ShowAutoAnalyzeJobsStmt extends ShowStmt implements NotFallbackInParser {
+public class ShowQueuedAnalyzeJobsStmt extends ShowStmt implements NotFallbackInParser {
     private static final String PRIORITY = "priority";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("catalog_name")
@@ -56,7 +56,7 @@ public class ShowAutoAnalyzeJobsStmt extends ShowStmt implements NotFallbackInPa
     private final TableName tableName;
     private final Expr whereClause;
 
-    public ShowAutoAnalyzeJobsStmt(TableName tableName, Expr whereClause) {
+    public ShowQueuedAnalyzeJobsStmt(TableName tableName, Expr whereClause) {
         this.tableName = tableName;
         this.whereClause = whereClause;
     }
