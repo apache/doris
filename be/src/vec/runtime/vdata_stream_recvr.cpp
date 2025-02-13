@@ -128,10 +128,6 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     DCHECK(block->empty());
     block->swap(*next_block);
     *eos = false;
-    if (block->empty()) {
-        return Status::InternalError(
-                "VDataStreamRecvr meet error! Block should not be empty when eos is false");
-    }
     return Status::OK();
 }
 
