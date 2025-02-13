@@ -25,28 +25,28 @@ import org.junit.jupiter.api.Test;
 public class AzurePropertiesTest {
 
     @Test
-    public static String testFormatAzureEndpointGlobal() {
+    public static void testFormatAzureEndpointGlobal() {
         Config.force_azure_blob_global_endpoint = true;
         String endpoint = AzureProperties.formatAzureEndpoint("ANY-ENDPOINT", "ak");
         Assertions.assertEquals("https://ak.blob.core.windows.net", endpoint);
     }
 
     @Test
-    public static String testFormatAzureEndpoint() {
+    public static void testFormatAzureEndpoint() {
         Config.force_azure_blob_global_endpoint = false;
         String endpoint = AzureProperties.formatAzureEndpoint("ak.blob.core.chinacloudapi.cn", "ANY-ACCOUNT");
         Assertions.assertEquals("https://ak.blob.core.chinacloudapi.cn", endpoint);
     }
 
     @Test
-    public static String testFormatAzureEndpointHTTPS() {
+    public static void testFormatAzureEndpointHTTPS() {
         Config.force_azure_blob_global_endpoint = false;
         String endpoint = AzureProperties.formatAzureEndpoint("https://ak.blob.core.chinacloudapi.cn", "ANY-ACCOUNT");
         Assertions.assertEquals("https://ak.blob.core.chinacloudapi.cn", endpoint);
     }
 
     @Test
-    public static String testFormatAzureEndpointHTTP() {
+    public static void testFormatAzureEndpointHTTP() {
         Config.force_azure_blob_global_endpoint = false;
         String endpoint = AzureProperties.formatAzureEndpoint("http://ak.blob.core.chinacloudapi.cn", "ANY-ACCOUNT");
         Assertions.assertEquals("http://ak.blob.core.chinacloudapi.cn", endpoint);
