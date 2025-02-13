@@ -416,4 +416,16 @@ Status SetSharedState::hash_table_init() {
     return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
 }
 
+void AggSharedState::refresh_top_limit(size_t row_id,
+                                       const vectorized::ColumnRawPtrs& key_columns) {
+    for (int j = 0; j < key_columns.size(); ++j) {
+        limit_columns[j]->insert_from(*key_columns[j], row_id);
+    }
+    limit_heap.emplace(limit_columns[0]->size() - 1, limit_columns, order_directions,
+                       null_directions);
+
+    limit_heap.pop();
+    limit_columns_min = limit_heap.top()._row_id;
+}
+
 } // namespace doris::pipeline
