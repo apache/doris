@@ -142,7 +142,10 @@ void DataTypeDateV2::cast_from_date_time(const Int64 from, UInt32& to) {
 }
 
 bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
-    return typeid(rhs) == typeid(*this);
+    if (const auto* ptype = typeid_cast<const DataTypeDateTimeV2*>(&rhs)) {
+        return _scale == ptype->get_scale();
+    }
+    return false;
 }
 
 std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num) const {
