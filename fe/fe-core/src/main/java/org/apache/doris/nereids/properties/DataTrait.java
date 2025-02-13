@@ -332,6 +332,18 @@ public class DataTrait {
         }
 
         /**
+         * get all unique slots
+         */
+        public List<Set<Slot>> getAllUnique() {
+            List<Set<Slot>> res = new ArrayList<>();
+            for (Slot slot : uniqueSet.slots) {
+                res.add(ImmutableSet.of(slot));
+            }
+            res.addAll(uniqueSet.slotSets);
+            return res;
+        }
+
+        /**
          * get all uniform slots
          */
         public List<Set<Slot>> getAllUniformAndNotNull() {

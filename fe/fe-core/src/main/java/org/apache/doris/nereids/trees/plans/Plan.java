@@ -250,7 +250,7 @@ public interface Plan extends TreeNode<Plan> {
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
             // all slots dependent unique slot
-            for (Set<Slot> uniqueSlot : fdBuilder.getAllUniqueAndNotNull()) {
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUnique()) {
                 fdBuilder.addDeps(uniqueSlot, o);
             }
             // uniform slot dependents all slots
