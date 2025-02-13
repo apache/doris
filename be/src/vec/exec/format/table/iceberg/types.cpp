@@ -18,9 +18,10 @@
 #include "types.h"
 
 #include <optional>
+#include <regex>
 
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 std::unique_ptr<MapType> MapType::of_optional(int key_id, int value_id,
                                               std::unique_ptr<Type> key_type,
@@ -171,8 +172,8 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
     } else if (lower_type_string == "binary") {
         return std::make_unique<BinaryType>();
     } else {
-        std::regex fixed("fixed\\[\\s*(\\d+)\\s*\\]");
-        std::regex decimal("decimal\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)");
+        std::regex fixed(R"(fixed\[\s*(\d+)\s*\])");
+        std::regex decimal(R"(decimal\(\s*(\d+)\s*,\s*(\d+)\s*\))");
 
         std::smatch match;
         if (std::regex_match(lower_type_string, match, fixed)) {
@@ -191,5 +192,5 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
     }
 }
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg

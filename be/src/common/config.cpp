@@ -51,7 +51,7 @@ namespace doris::config {
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 
 // Dir of jdbc drivers
-DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
@@ -1015,6 +1015,9 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// enable prefetch tablets before opening
+DEFINE_mBool(enable_prefetch_tablet, "true");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
@@ -1052,6 +1055,12 @@ DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
+DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
+DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
+
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 // If true, evict the ttl cache using LRU when full.
@@ -1142,8 +1151,9 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
+DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1291,7 +1301,7 @@ DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_mInt64(s3_put_token_limit, "0");
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS

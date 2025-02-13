@@ -64,6 +64,7 @@ statementBase
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
+    | supportedStatsStatement           #supportedStatsStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -227,6 +228,8 @@ supportedAlterStatement
     | ALTER DATABASE name=identifier SET (DATA | REPLICA | TRANSACTION)
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
+    | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+
     ;
 
 supportedDropStatement
@@ -608,7 +611,6 @@ unsupportedAlterStatement
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
-    | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
     ;
 
 alterSystemClause
@@ -709,6 +711,11 @@ unsupportedDropStatement
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
+supportedStatsStatement
+    : SHOW AUTO? ANALYZE (jobId=INTEGER_VALUE | tableName=multipartIdentifier)?
+        (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showAnalyze
+    ;
+
 unsupportedStatsStatement
     : ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
@@ -733,8 +740,6 @@ unsupportedStatsStatement
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
         columnList=identifierList                                               #showColumnHistogramStats
-    | SHOW AUTO? ANALYZE tableName=multipartIdentifier? wildWhere?              #showAnalyze
-    | SHOW ANALYZE jobId=INTEGER_VALUE wildWhere?                               #showAnalyzeFromJobId
     | SHOW AUTO JOBS tableName=multipartIdentifier? wildWhere?                  #showAutoAnalyzeJobs
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;

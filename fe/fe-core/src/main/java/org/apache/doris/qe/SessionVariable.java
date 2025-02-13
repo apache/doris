@@ -363,6 +363,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
+    public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
+            "enable_runtime_filter_partition_prune";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -748,10 +751,10 @@ public class SessionVariable implements Serializable, Writable {
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
-    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
     public long maxExecMemByte = 2147483648L;
 
-    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
             description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
                     "How many bytes of block can be saved in the block queue of each Scan Instance"})
     // 100MB
@@ -784,7 +787,8 @@ public class SessionVariable implements Serializable, Writable {
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
+    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, needForward = true,
+            checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
     private int queryTimeoutS = 900;
 
     // query timeout in second.
@@ -804,7 +808,7 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setMaxExecutionTimeMS")
     public int maxExecutionTimeMS = 900000;
 
-    @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
+    @VariableMgr.VarAttr(name = INSERT_TIMEOUT, needForward = true)
     public int insertTimeoutS = 14400;
 
     // if true, need report to coordinator when plan fragment execute successfully.
@@ -1496,6 +1500,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    public boolean enableRuntimeFilterPartitionPrune = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -2508,6 +2515,7 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterType = 1 << randomInt;
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
+        this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
 
         switch (randomInt) {
             case 0:
@@ -3673,6 +3681,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
     }
 
+    public boolean isEnableRuntimeFilterPartitionPrune() {
+        return enableRuntimeFilterPartitionPrune;
+    }
+
+    public void setEnableRuntimeFilterPartitionPrune(boolean enableRuntimeFilterPartitionPrune) {
+        this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
+    }
+
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }
@@ -4013,6 +4029,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
+        tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         return tResult;
     }
@@ -4195,23 +4212,6 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetAnalyzeTimeout()) {
             setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
         }
-    }
-
-    /**
-     * Get all variables which need to be set in TQueryOptions.
-     **/
-    public TQueryOptions getQueryOptionVariables() {
-        TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setMemLimit(maxExecMemByte);
-        queryOptions.setScanQueueMemLimit(maxScanQueueMemByte);
-        queryOptions.setNumScannerThreads(numScannerThreads);
-        queryOptions.setMinScannerConcurrency(minScannerConcurrency);
-        queryOptions.setMinScanSchedulerConcurrency(minScanSchedulerConcurrency);
-        queryOptions.setQueryTimeout(queryTimeoutS);
-        queryOptions.setInsertTimeout(insertTimeoutS);
-        queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
-        queryOptions.setBeExecVersion(Config.be_exec_version);
-        return queryOptions;
     }
 
     /**
