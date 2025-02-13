@@ -181,6 +181,7 @@ public class BrokerFileGroup implements Writable {
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
         }
+
         enclose = dataDescription.getEnclose();
         escape = dataDescription.getEscape();
 
@@ -223,16 +224,14 @@ public class BrokerFileGroup implements Writable {
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
-        if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
-            stripOuterArray = dataDescription.isStripOuterArray();
-            jsonPaths = dataDescription.getJsonPaths();
-            jsonRoot = dataDescription.getJsonRoot();
-            fuzzyParse = dataDescription.isFuzzyParse();
-            // ATTN: for broker load, we only support reading json format data line by line,
-            // so if this is set to false, it must be stream load.
-            readJsonByLine = dataDescription.isReadJsonByLine();
-            numAsString = dataDescription.isNumAsString();
-        }
+        stripOuterArray = dataDescription.isStripOuterArray();
+        jsonPaths = dataDescription.getJsonPaths();
+        jsonRoot = dataDescription.getJsonRoot();
+        fuzzyParse = dataDescription.isFuzzyParse();
+        // ATTN: for broker load, we only support reading json format data line by line,
+        // so if this is set to false, it must be stream load.
+        readJsonByLine = dataDescription.isReadJsonByLine();
+        numAsString = dataDescription.isNumAsString();
         trimDoubleQuotes = dataDescription.getTrimDoubleQuotes();
         skipLines = dataDescription.getSkipLines();
     }
