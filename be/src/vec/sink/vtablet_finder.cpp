@@ -63,7 +63,10 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
             _num_filtered_rows++;
             _filter_bitmap.Set(row_index, true);
             if (stop_processing) {
-                return Status::DataQualityError("Encountered unqualified data, stop processing");
+                return Status::DataQualityError(
+                        "Encountered unqualified data, stop processing. Please check if the source "
+                        "data matches the schema, and consider disabling strict mode or increasing "
+                        "max_filter_ratio.");
             }
             skip[row_index] = true;
             continue;
