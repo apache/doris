@@ -15,27 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("filter_equal_or_notequal_case") {
+suite("mv_filter_equal_or_notequal_case_uniq", "partition_mv_rewrite_dimension") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 
     sql """
-    drop table if exists orders_1
+    drop table if exists orders_filter_uniq
     """
 
-    sql """CREATE TABLE `orders_1` (
+    sql """
+    drop table if exists orders_filter_uniq
+    """
+
+    sql """CREATE TABLE `orders_filter_uniq` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
+      `o_orderdate` DATE not NULL,
       `o_orderstatus` VARCHAR(1) NULL,
       `o_totalprice` DECIMAL(15, 2)  NULL,
       `o_orderpriority` VARCHAR(15) NULL,
       `o_clerk` VARCHAR(15) NULL,
       `o_shippriority` INT NULL,
-      `o_comment` VARCHAR(79) NULL,
-      `o_orderdate` DATE not NULL
+      `o_comment` VARCHAR(79) NULL
     ) ENGINE=OLAP
-    DUPLICATE KEY(`o_orderkey`, `o_custkey`)
+    unique KEY(`o_orderkey`, `o_custkey`, `o_orderdate`)
     COMMENT 'OLAP'
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
@@ -43,14 +47,15 @@ suite("filter_equal_or_notequal_case") {
     );"""
 
     sql """
-    drop table if exists lineitem_1
+    drop table if exists lineitem_filter_uniq
     """
 
-    sql """CREATE TABLE `lineitem_1` (
+    sql """CREATE TABLE `lineitem_filter_uniq` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
       `l_suppkey` INT NULL,
+      `l_shipdate` DATE not NULL,
       `l_quantity` DECIMAL(15, 2) NULL,
       `l_extendedprice` DECIMAL(15, 2) NULL,
       `l_discount` DECIMAL(15, 2) NULL,
@@ -61,10 +66,9 @@ suite("filter_equal_or_notequal_case") {
       `l_receiptdate` DATE NULL,
       `l_shipinstruct` VARCHAR(25) NULL,
       `l_shipmode` VARCHAR(10) NULL,
-      `l_comment` VARCHAR(44) NULL,
-      `l_shipdate` DATE not NULL
+      `l_comment` VARCHAR(44) NULL
     ) ENGINE=OLAP
-    DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
+    unique KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate )
     COMMENT 'OLAP'
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
@@ -72,35 +76,59 @@ suite("filter_equal_or_notequal_case") {
     );"""
 
     sql """
-    insert into orders_1 values 
-    (null, 1, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
-    (1, null, 'o', 109.2, 'c','d',2, 'mm', '2023-10-17'),
-    (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
-    (1, 2, 'o', null, 'a', 'b', 1, 'yy', '2023-10-20'),
-    (2, 3, 'k', 109.2, null,'d',2, 'mm', '2023-10-21'),
-    (3, 1, 'k', 99.5, 'a', null, 1, 'yy', '2023-10-22'),
-    (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
-    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
-    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
-    (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19'); 
+    insert into orders_filter_uniq values 
+    (null, 1, '2023-10-17', 'o', 99.5, 'a', 'b', 1, 'yy'),
+    (1, null, '2023-10-17', 'k', 109.2, 'c','d',2, 'mm'),
+    (3, 3, '2023-10-19', null, 99.5, 'a', 'b', 1, 'yy'),
+    (1, 2, '2023-10-20', 'o', null, 'a', 'b', 1, 'yy'),
+    (2, 3, '2023-10-21', 'k', 109.2, null,'d',2, 'mm'),
+    (3, 1, '2023-10-22', 'o', 99.5, 'a', null, 1, 'yy'),
+    (1, 3, '2023-10-19', 'k', 99.5, 'a', 'b', null, 'yy'),
+    (2, 1, '2023-10-18', 'o', 109.2, 'c','d',2, null),
+    (3, 2, '2023-10-17', 'k', 99.5, 'a', 'b', 1, 'yy'),
+    (4, 5, '2023-10-19', 'o', 99.5, 'a', 'b', 1, 'yy');
     """
 
     sql """
-    insert into lineitem_1 values 
-    (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
-    (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
-    (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
-    (1, 2, 3, null, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
-    (2, 3, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
-    (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
-    (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
+    insert into lineitem_filter_uniq values 
+    (null, 1, 2, 3, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, null, 3, 1, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 3, null, 2, '2023-10-19', 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
+    (1, 2, 3, null, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (2, 3, 2, 1, '2023-10-18', 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 1, 1, 2, '2023-10-19', 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx'),
+    (1, 3, 2, 2, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
 
-    sql """analyze table orders_1 with sync;"""
-    sql """analyze table lineitem_1 with sync;"""
 
-    sql """alter table orders_1 modify column o_comment set stats ('row_count'='10');"""
-    sql """alter table lineitem_1 modify column l_comment set stats ('row_count'='7');"""
+    sql """alter table orders_filter_uniq modify column o_orderkey set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_custkey set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_orderdate set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_orderstatus set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_totalprice set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_orderpriority set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_clerk set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_shippriority set stats ('row_count'='50');"""
+    sql """alter table orders_filter_uniq modify column o_comment set stats ('row_count'='50');"""
+    
+
+    sql """alter table lineitem_filter_uniq modify column l_orderkey set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_linenumber set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_partkey set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_suppkey set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_quantity set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_extendedprice set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_discount set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_tax set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_returnflag set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_linestatus set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_commitdate set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_receiptdate set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_shipinstruct set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_shipmode set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_comment set stats ('row_count'='50');"""
+    sql """alter table lineitem_filter_uniq modify column l_shipdate set stats ('row_count'='50');"""
+
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
@@ -118,36 +146,30 @@ suite("filter_equal_or_notequal_case") {
         }
     }
 
-    def mv_name = "mv_1"
-    def mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    def tb_lineitem = "lineitem_filter_uniq"
+
+    def mv_name = "mv1"
+    def mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey
+        from lineitem_filter_uniq 
         where l_shipdate = '2023-10-17'
         """
 
-    create_async_mv(db, mv_name, mtmv_sql)
+    createMV(getMVStmt(mv_name, mv_sql))
 
     // mv equal and sql equal
     def query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey  
+        from lineitem_filter_uniq 
         where l_shipdate = '2023-10-17'
         """
-    def res_tmp = sql """explain ${query_sql}"""
-    logger.info("res_temp:" + res_tmp)
     mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv equal and sql not equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate != '2023-10-17'
         """
     mv_rewrite_fail(query_sql, mv_name)
@@ -155,81 +177,70 @@ suite("filter_equal_or_notequal_case") {
     // mv equal and sql equal and number is difference
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        from lineitem_filter_uniq 
+        left join orders_filter_uniq 
+        on lineitem_filter_uniq.l_orderkey = orders_filter_uniq.o_orderkey
         where l_shipdate = '2023-10-19'
         """
     mv_rewrite_fail(query_sql, mv_name)
+    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON lineitem_filter_uniq;"""
 
-    mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    mv_name = "mv2"
+    mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey  
+        from lineitem_filter_uniq 
         where l_shipdate != '2023-10-17'
         """
 
-    create_async_mv(db, mv_name, mtmv_sql)
+    createMV(getMVStmt(mv_name, mv_sql))
 
     // mv not equal and sql equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate = '2023-10-17'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv not equal and sql not equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate != '2023-10-17'
         """
     mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
+    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON lineitem_filter_uniq;"""
 
-
-    mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    mv_name = "mv3"
+    mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey   
+        from lineitem_filter_uniq 
         where l_shipdate > '2023-10-17'
         """
 
-    create_async_mv(db, mv_name, mtmv_sql)
+    createMV(getMVStmt(mv_name, mv_sql))
 
     // mv is range and sql equal and filter not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate = '2023-10-16'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate = '2023-10-17'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate = '2023-10-19'
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -237,30 +248,24 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate > '2023-10-16'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate < '2023-10-16'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate > '2023-10-17'
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -268,20 +273,16 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate < '2023-10-17'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate > '2023-10-18'
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -289,30 +290,24 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate < '2023-10-19'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey  
+        from lineitem_filter_uniq 
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-17'
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -320,10 +315,8 @@ suite("filter_equal_or_notequal_case") {
 
     // sql range is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate in ('2023-10-17')
         """
     mv_rewrite_fail(query_sql, mv_name)
@@ -331,10 +324,8 @@ suite("filter_equal_or_notequal_case") {
     // sql range is in mv range
     // single value
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate in ('2023-10-18')
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -342,10 +333,8 @@ suite("filter_equal_or_notequal_case") {
 
     // multi value
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate in ('2023-10-18', '2023-11-18')
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -353,50 +342,42 @@ suite("filter_equal_or_notequal_case") {
 
     // sql range like mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate like "%2023-10-18%"
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is null
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate is null
         """
     mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is not null
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey  
+        from lineitem_filter_uniq 
         where l_shipdate is not null
         """
     mv_rewrite_fail(query_sql, mv_name)
+    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON lineitem_filter_uniq;"""
 
-    mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    mv_name = "mv4"
+    mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey   
+        from lineitem_filter_uniq 
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-19'
         """
 
-    create_async_mv(db, mv_name, mtmv_sql)
+    createMV(getMVStmt(mv_name, mv_sql))
 
     // mv is range and sql is range and filter not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-19'
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -404,32 +385,27 @@ suite("filter_equal_or_notequal_case") {
 
 
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
     mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
+    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON lineitem_filter_uniq;"""
 
-    //
-    mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    mv_name = "mv5"
+    mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey    
+        from lineitem_filter_uniq 
         where l_shipdate in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
 
-    create_async_mv(db, mv_name, mtmv_sql)
+    createMV(getMVStmt(mv_name, mv_sql))
 
     // mv is in range and sql is in range and filter is in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -437,30 +413,26 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is in range and sql is in range and filter is not in mv range
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate not in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
     mv_rewrite_fail(query_sql, mv_name)
+    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON lineitem_filter_uniq;"""
 
-    mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    mv_name = "mv6"
+    mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey    
+        from lineitem_filter_uniq 
         where l_shipdate like "%2023-10-17%"
         """
 
-    create_async_mv(db, mv_name, mtmv_sql)
+    createMV(getMVStmt(mv_name, mv_sql))
 
     // mv is like filter and sql is like filter and filter number is equal
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate like "%2023-10-17%"
         """
     mv_rewrite_success(query_sql, mv_name)
@@ -468,30 +440,27 @@ suite("filter_equal_or_notequal_case") {
 
     // mv is like filter and sql is not like filter
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey 
-        from lineitem_1 
-        left join orders_1 
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey 
+        from lineitem_filter_uniq 
         where l_shipdate like "%2023-10-17%"
         """
     mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
+    sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON lineitem_filter_uniq;"""
 
     // between .. and ..
-    mtmv_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+    mv_name = "mv7"
+    mv_sql = """
+        select l_orderkey, l_linenumber, l_shipdatE, l_partkey, l_suppkey 
+        from lineitem_filter_uniq
         where l_shipdate between '2023-10-16' and '2023-10-19'
         """
-    create_async_mv(db, mv_name, mtmv_sql)
+
+    createMV(getMVStmt(mv_name, mv_sql))
 
     query_sql = """
-        select l_shipdate, o_orderdate, l_partkey, l_suppkey
-        from lineitem_1
-        left join orders_1
-        on lineitem_1.l_orderkey = orders_1.o_orderkey
+        select l_shipdate, l_partkey, l_suppkey
+        from lineitem_filter_uniq
         where l_shipdate between '2023-10-17' and '2023-10-19'
         """
     mv_rewrite_success(query_sql, mv_name)
