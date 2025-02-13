@@ -19,8 +19,6 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "pipeline/exec/sort_sink_operator.h"
-#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "vec/runtime/partitioner.h"
@@ -214,15 +212,29 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
      */
     DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
     const auto& map = *shuffle_idx_to_instance_idx;
+    int32_t enqueue_rows = 0;
     for (const auto& it : map) {
         DCHECK(it.second >= 0 && it.second < _num_partitions)
                 << it.first << " : " << it.second << " " << _num_partitions;
         uint32_t start = partition_rows_histogram[it.first];
         uint32_t size = partition_rows_histogram[it.first + 1] - start;
         if (size > 0) {
+            enqueue_rows += size;
             _enqueue_data_and_set_ready(it.second, local_state,
                                         {new_block_wrapper, {row_idx, start, size}});
         }
+    }
+    if (enqueue_rows != rows) [[unlikely]] {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "Type: {}, Local Exchange Id: {}, Shuffled Map: ",
+                       get_exchange_type_name(get_type()), local_state->parent()->node_id());
+        for (const auto& it : map) {
+            fmt::format_to(debug_string_buffer, "[{}:{}], ", it.first, it.second);
+        }
+        return Status::InternalError(
+                "Rows mismatched! Data may be lost. [Expected enqueue rows={}, Real enqueue "
+                "rows={}, Detail: {}]",
+                rows, enqueue_rows, fmt::to_string(debug_string_buffer));
     }
 
     return Status::OK();
@@ -396,7 +408,14 @@ void LocalMergeSortExchanger::finalize() {
 
 Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                                              LocalExchangeSourceLocalState* local_state) {
-    RETURN_IF_ERROR(_sort_source->build_merger(state, _merger, local_state->profile()));
+    vectorized::VExprContextSPtrs ordering_expr_ctxs;
+    ordering_expr_ctxs.resize(_merge_info.ordering_expr_ctxs.size());
+    for (size_t i = 0; i < ordering_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(_merge_info.ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
+    }
+    _merger = std::make_unique<vectorized::VSortedRunMerger>(
+            ordering_expr_ctxs, _merge_info.is_asc_order, _merge_info.nulls_first,
+            state->batch_size(), _merge_info.limit, _merge_info.offset, local_state->profile());
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
         vectorized::BlockSupplier block_supplier = [&, local_state, id = channel_id](
@@ -574,7 +593,7 @@ Status AdaptivePassthroughExchanger::sink(RuntimeState* state, vectorized::Block
     if (_is_pass_through) {
         return _passthrough_sink(state, in_block, std::move(sink_info));
     } else {
-        if (_total_block++ > _num_partitions) {
+        if (++_total_block >= _num_partitions) {
             _is_pass_through = true;
         }
         return _shuffle_sink(state, in_block, std::move(sink_info));

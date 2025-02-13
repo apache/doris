@@ -33,14 +33,18 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -762,5 +766,244 @@ public abstract class DataType {
             return true;
         }
         return false;
+    }
+
+    public void validateDataType() {
+        validateCatalogDataType(toCatalogDataType());
+    }
+
+    private static void validateCatalogDataType(Type catalogType) {
+        if (catalogType.exceedsMaxNestingDepth()) {
+            throw new AnalysisException(
+                    String.format("Type exceeds the maximum nesting depth of %s:\n%s",
+                            Type.MAX_NESTING_DEPTH, catalogType.toSql()));
+        }
+        if (!catalogType.isSupported()) {
+            throw new AnalysisException("Unsupported data type: " + catalogType.toSql());
+        }
+
+        if (catalogType.isScalarType()) {
+            validateScalarType((ScalarType) catalogType);
+        } else if (catalogType.isComplexType()) {
+            // now we not support array / map / struct nesting complex type
+            if (catalogType.isArrayType()) {
+                Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
+                if (itemType instanceof ScalarType) {
+                    validateNestedType(catalogType, (ScalarType) itemType);
+                }
+            }
+            if (catalogType.isMapType()) {
+                org.apache.doris.catalog.MapType mt =
+                        (org.apache.doris.catalog.MapType) catalogType;
+                if (mt.getKeyType() instanceof ScalarType) {
+                    validateNestedType(catalogType, (ScalarType) mt.getKeyType());
+                }
+                if (mt.getValueType() instanceof ScalarType) {
+                    validateNestedType(catalogType, (ScalarType) mt.getValueType());
+                }
+            }
+            if (catalogType.isStructType()) {
+                ArrayList<org.apache.doris.catalog.StructField> fields =
+                        ((org.apache.doris.catalog.StructType) catalogType).getFields();
+                Set<String> fieldNames = new HashSet<>();
+                for (org.apache.doris.catalog.StructField field : fields) {
+                    Type fieldType = field.getType();
+                    if (fieldType instanceof ScalarType) {
+                        validateNestedType(catalogType, (ScalarType) fieldType);
+                        if (!fieldNames.add(field.getName())) {
+                            throw new AnalysisException("Duplicate field name " + field.getName()
+                                    + " in struct " + catalogType.toSql());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void validateNestedType(Type parent, Type child) throws AnalysisException {
+        if (child.isNull()) {
+            throw new AnalysisException("Unsupported data type: " + child.toSql());
+        }
+        // check whether the sub-type is supported
+        if (!parent.supportSubType(child)) {
+            throw new AnalysisException(
+                    parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
+        }
+        validateCatalogDataType(child);
+    }
+
+    private static void validateScalarType(ScalarType scalarType) {
+        org.apache.doris.catalog.PrimitiveType type = scalarType.getPrimitiveType();
+        // When string type length is not assigned, it needs to be assigned to 1.
+        if (scalarType.getPrimitiveType().isStringType() && !scalarType.isLengthSet()) {
+            if (scalarType.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
+                // always set varchar length MAX_VARCHAR_LENGTH
+                scalarType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (scalarType.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.STRING) {
+                // always set text length MAX_STRING_LENGTH
+                scalarType.setLength(ScalarType.MAX_STRING_LENGTH);
+            } else {
+                scalarType.setLength(1);
+            }
+        }
+        switch (type) {
+            case CHAR:
+            case VARCHAR: {
+                String name;
+                int maxLen;
+                if (type == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
+                    name = "VARCHAR";
+                    maxLen = ScalarType.MAX_VARCHAR_LENGTH;
+                } else {
+                    name = "CHAR";
+                    maxLen = ScalarType.MAX_CHAR_LENGTH;
+                }
+                int len = scalarType.getLength();
+                // len is decided by child, when it is -1.
+
+                if (len <= 0) {
+                    throw new AnalysisException(name + " size must be > 0: " + len);
+                }
+                if (scalarType.getLength() > maxLen) {
+                    throw new AnalysisException(name + " size must be <= " + maxLen + ": " + len);
+                }
+                break;
+            }
+            case DECIMALV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                // precision: [1, 27]
+                if (precision < 1 || precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                    throw new AnalysisException("Precision of decimal must between 1 and 27."
+                            + " Precision was set to: " + precision + ".");
+                }
+                // scale: [0, 9]
+                if (scale < 0 || scale > ScalarType.MAX_DECIMALV2_SCALE) {
+                    throw new AnalysisException("Scale of decimal must between 0 and 9."
+                            + " Scale was set to: " + scale + ".");
+                }
+                if (precision - scale > ScalarType.MAX_DECIMALV2_PRECISION
+                        - ScalarType.MAX_DECIMALV2_SCALE) {
+                    throw new AnalysisException("Invalid decimal type with precision = " + precision
+                            + ", scale = " + scale);
+                }
+                // scale < precision
+                if (scale > precision) {
+                    throw new AnalysisException("Scale of decimal must be smaller than precision."
+                            + " Scale is " + scale + " and precision is " + precision);
+                }
+                break;
+            }
+            case DECIMAL32: {
+                int decimal32Precision = scalarType.decimalPrecision();
+                int decimal32Scale = scalarType.decimalScale();
+                if (decimal32Precision < 1
+                        || decimal32Precision > ScalarType.MAX_DECIMAL32_PRECISION) {
+                    throw new AnalysisException("Precision of decimal must between 1 and 9."
+                            + " Precision was set to: " + decimal32Precision + ".");
+                }
+                // scale >= 0
+                if (decimal32Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0."
+                            + " Scale was set to: " + decimal32Scale + ".");
+                }
+                // scale < precision
+                if (decimal32Scale > decimal32Precision) {
+                    throw new AnalysisException(
+                            "Scale of decimal must be smaller than precision." + " Scale is "
+                                    + decimal32Scale + " and precision is " + decimal32Precision);
+                }
+                break;
+            }
+            case DECIMAL64: {
+                int decimal64Precision = scalarType.decimalPrecision();
+                int decimal64Scale = scalarType.decimalScale();
+                if (decimal64Precision < 1
+                        || decimal64Precision > ScalarType.MAX_DECIMAL64_PRECISION) {
+                    throw new AnalysisException("Precision of decimal64 must between 1 and 18."
+                            + " Precision was set to: " + decimal64Precision + ".");
+                }
+                // scale >= 0
+                if (decimal64Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0."
+                            + " Scale was set to: " + decimal64Scale + ".");
+                }
+                // scale < precision
+                if (decimal64Scale > decimal64Precision) {
+                    throw new AnalysisException(
+                            "Scale of decimal must be smaller than precision." + " Scale is "
+                                    + decimal64Scale + " and precision is " + decimal64Precision);
+                }
+                break;
+            }
+            case DECIMAL128: {
+                int decimal128Precision = scalarType.decimalPrecision();
+                int decimal128Scale = scalarType.decimalScale();
+                if (decimal128Precision < 1
+                        || decimal128Precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                    throw new AnalysisException("Precision of decimal128 must between 1 and 38."
+                            + " Precision was set to: " + decimal128Precision + ".");
+                }
+                // scale >= 0
+                if (decimal128Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0."
+                            + " Scale was set to: " + decimal128Scale + ".");
+                }
+                // scale < precision
+                if (decimal128Scale > decimal128Precision) {
+                    throw new AnalysisException(
+                            "Scale of decimal must be smaller than precision." + " Scale is "
+                                    + decimal128Scale + " and precision is " + decimal128Precision);
+                }
+                break;
+            }
+            case DECIMAL256: {
+                if (SessionVariable.getEnableDecimal256()) {
+                    int precision = scalarType.decimalPrecision();
+                    int scale = scalarType.decimalScale();
+                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {
+                        throw new AnalysisException("Precision of decimal256 must between 1 and 76."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale >= 0
+                    if (scale < 0) {
+                        throw new AnalysisException("Scale of decimal must not be less than 0."
+                                + " Scale was set to: " + scale + ".");
+                    }
+                    // scale < precision
+                    if (scale > precision) {
+                        throw new AnalysisException(
+                                "Scale of decimal must be smaller than precision." + " Scale is "
+                                        + scale + " and precision is " + precision);
+                    }
+                    break;
+                } else {
+                    int precision = scalarType.decimalPrecision();
+                    throw new AnalysisException("Column of type Decimal256 with precision "
+                            + precision + " in not supported.");
+                }
+            }
+            case TIMEV2:
+            case DATETIMEV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                // precision: [1, 27]
+                if (precision != ScalarType.DATETIME_PRECISION) {
+                    throw new AnalysisException(
+                            "Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
+                                    + "." + " Precision was set to: " + precision + ".");
+                }
+                // scale: [0, 9]
+                if (scale < 0 || scale > 6) {
+                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
+                            + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case INVALID_TYPE:
+                throw new AnalysisException("Invalid type.");
+            default:
+                break;
+        }
     }
 }

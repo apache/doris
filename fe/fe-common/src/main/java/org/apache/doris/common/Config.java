@@ -2214,6 +2214,10 @@ public class Config extends ConfigBase {
         "Max cache number of external table row count"})
     public static long max_external_table_row_count_cache_num = 100000;
 
+    @ConfField(description = {"每个查询的外表文件元数据缓存的最大文件数量。",
+            "Max cache file number of external table split file meta cache at query level."})
+    public static long max_external_table_split_file_meta_cache_num = 100000;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
@@ -3326,6 +3330,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
             "Max retry times when schema change failed in cloud model, default is 3."})
     public static int schema_change_max_retry_time = 3;
+
+    @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
+            "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
+    public static boolean enable_show_file_cache_hotspot_stmt = false;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

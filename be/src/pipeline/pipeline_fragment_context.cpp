@@ -818,7 +818,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                     child_op->get_name());
         }
         shared_state->exchanger = LocalMergeSortExchanger::create_unique(
-                sort_source, cur_pipe->num_tasks(), _num_instances,
+                LocalMergeSortExchanger::MergeInfo {
+                        sort_source->_is_asc_order, sort_source->_nulls_first, sort_source->_limit,
+                        sort_source->_offset, sort_source->_vsort_exec_exprs.ordering_expr_ctxs()},
+                cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)

@@ -29,7 +29,6 @@ namespace pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 class BlockWrapper;
-class SortSourceOperatorX;
 
 struct Profile {
     RuntimeProfile::Counter* compute_hash_value_timer = nullptr;
@@ -88,7 +87,10 @@ public:
         ~BlockWrapper() {
             if (_shared_state != nullptr) {
                 DCHECK_GT(_allocated_bytes, 0);
-                _shared_state->sub_total_mem_usage(_allocated_bytes, _channel_ids.front());
+                // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
+                // not used by `sub_total_mem_usage`. So we just pass -1 here.
+                _shared_state->sub_total_mem_usage(
+                        _allocated_bytes, _channel_ids.empty() ? -1 : _channel_ids.front());
                 if (_shared_state->exchanger->_free_block_limit == 0 ||
                     _shared_state->exchanger->_free_blocks.size_approx() <
                             _shared_state->exchanger->_free_block_limit *
@@ -335,11 +337,18 @@ public:
 
 class LocalMergeSortExchanger final : public Exchanger<BlockWrapperSPtr> {
 public:
+    struct MergeInfo {
+        const std::vector<bool>& is_asc_order;
+        const std::vector<bool>& nulls_first;
+        const int64_t limit;
+        const int64_t offset;
+        const vectorized::VExprContextSPtrs& ordering_expr_ctxs;
+    };
     ENABLE_FACTORY_CREATOR(LocalMergeSortExchanger);
-    LocalMergeSortExchanger(std::shared_ptr<SortSourceOperatorX> sort_source,
-                            int running_sink_operators, int num_partitions, int free_block_limit)
+    LocalMergeSortExchanger(MergeInfo&& merge_info, int running_sink_operators, int num_partitions,
+                            int free_block_limit)
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit),
-              _sort_source(std::move(sort_source)) {}
+              _merge_info(std::move(merge_info)) {}
     ~LocalMergeSortExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo&& sink_info) override;
@@ -355,7 +364,7 @@ public:
 
 private:
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
-    std::shared_ptr<SortSourceOperatorX> _sort_source;
+    MergeInfo _merge_info;
     std::vector<std::atomic_int64_t> _queues_mem_usege;
 };
 
