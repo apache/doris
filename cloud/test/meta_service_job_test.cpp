@@ -1783,7 +1783,7 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "be1",
                                  output_rowsets, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        ASSERT_NE(res.status().msg().find("lock initiator not exist"), std::string::npos);
+        ASSERT_NE(res.status().msg().find("lock initiator 12345 not exist"), std::string::npos);
         remove_delete_bitmap_lock(meta_service.get(), table_id);
         res.Clear();
 

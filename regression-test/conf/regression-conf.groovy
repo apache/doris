@@ -179,6 +179,7 @@ dfsNamenodeRpcAddress3=""
 hadoopSecurityAuthentication = ""
 hadoopKerberosKeytabPath = ""
 hadoopKerberosPrincipal = ""
+hadoopSecurityAutoToLocal = ""
 
 
 //paimon catalog test config for bigdata
@@ -197,13 +198,6 @@ extPgHost = "***.**.**.*"
 extPgPort = 5432
 extPgUser = "****"
 extPgPassword = "***********"
-
-// elasticsearch external test config for bigdata
-enableExternalEsTest = false
-extEsHost = "***********"
-extEsPort = 9200
-extEsUser = "*******"
-extEsPassword = "***********"
 
 // minio external test config
 enableExternalMinioTest = false
@@ -276,3 +270,11 @@ cbsS3Endpoint = "oss-cn-beijing.aliyuncs.com"
 cbsS3Bucket = "test-bucket"
 cbsS3Prefix = "test-cluster-prefix"
 
+// External Env
+enableExternalIcebergTest = false
+// The properties string of iceberg catalog
+icebergS3TablesCatalog = ""
+
+enableExternalHudiTest = false
+// The properties string of hudi catalog
+hudiEmrCatalog = ""

@@ -23,7 +23,10 @@
 #include <filesystem>
 
 #include "common/status.h"
+#include "io/fs/stream_sink_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
@@ -120,6 +123,62 @@ int64_t InvertedIndexFileWriter::headerLength() {
     return header_size;
 }
 
+Status InvertedIndexFileWriter::add_into_searcher_cache() {
+    auto inverted_index_file_reader =
+            std::make_unique<InvertedIndexFileReader>(_fs, _index_path_prefix, _storage_format);
+    auto st = inverted_index_file_reader->init();
+    if (!st.ok()) {
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            //StreamSinkFileWriter not found file is normal.
+            return Status::OK();
+        }
+        LOG(WARNING) << "InvertedIndexFileWriter::add_into_searcher_cache for "
+                     << _index_path_prefix << ", error " << st.msg();
+        return st;
+    }
+    for (const auto& entry : _indices_dirs) {
+        auto index_meta = entry.first;
+        auto dir =
+                DORIS_TRY(inverted_index_file_reader->_open(index_meta.first, index_meta.second));
+        auto index_file_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                _index_path_prefix, index_meta.first, index_meta.second);
+        InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                           &inverted_index_cache_handle)) {
+            auto st = InvertedIndexSearcherCache::instance()->erase(
+                    searcher_cache_key.index_file_path);
+            if (!st.ok()) {
+                LOG(WARNING) << "InvertedIndexFileWriter::add_into_searcher_cache for "
+                             << _index_path_prefix << ", error " << st.msg();
+            }
+        }
+        IndexSearcherPtr searcher;
+        size_t reader_size = 0;
+        auto index_searcher_builder = DORIS_TRY(_construct_index_searcher_builder(dir.get()));
+        RETURN_IF_ERROR(InvertedIndexReader::create_index_searcher(
+                index_searcher_builder.get(), dir.release(), &searcher, reader_size));
+        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
+                                                                       reader_size, UnixMillis());
+        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
+    }
+    return Status::OK();
+}
+
+Result<std::unique_ptr<IndexSearcherBuilder>>
+InvertedIndexFileWriter::_construct_index_searcher_builder(const DorisCompoundReader* dir) {
+    std::vector<std::string> files;
+    dir->list(&files);
+    auto reader_type = InvertedIndexReaderType::FULLTEXT;
+    bool found_bkd = std::any_of(files.begin(), files.end(), [](const std::string& file) {
+        return file == InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name();
+    });
+    if (found_bkd) {
+        reader_type = InvertedIndexReaderType::BKD;
+    }
+    return IndexSearcherBuilder::create_index_searcher_builder(reader_type);
+}
+
 Status InvertedIndexFileWriter::close() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
@@ -165,6 +224,9 @@ Status InvertedIndexFileWriter::close() {
                     InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix),
                     err.what());
         }
+    }
+    if (config::enable_write_index_searcher_cache) {
+        return add_into_searcher_cache();
     }
     return Status::OK();
 }

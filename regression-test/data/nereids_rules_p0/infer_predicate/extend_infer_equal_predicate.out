@@ -251,7 +251,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_datev2 = expr_cast(d_datetimev2 as DATEV2))) otherCondition=()
 ----filter((t1.d_datev2 < '2022-01-03'))
 ------PhysicalOlapScan[extend_infer_t1]
-----filter((cast(d_datetimev2 as DATEV2) < '2022-01-03'))
+----filter((t2.d_datetimev2 < '2022-01-03 00:00:00'))
 ------PhysicalOlapScan[extend_infer_t2]
 
 -- !test_date_both_upcast1 --

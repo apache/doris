@@ -103,7 +103,7 @@ public class OlapTableTest {
         olapTable.resetPropertiesForRestore(false, false, replicaAlloc, false);
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertFalse(olapTable.isColocateTable());
+        Assert.assertTrue(olapTable.isColocateTable());
         Assert.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         // restore with dynamic partition keys
@@ -277,7 +277,7 @@ public class OlapTableTest {
         Set<Tag> tagSet = new HashSet<>();
         tagSet.add(taga);
 
-        connectContext.setResourceTags(tagSet, false);
+        connectContext.setResourceTags(tagSet);
         TFetchOption tfetchOption2 = tab.generateTwoPhaseReadOption(-1);
         Assert.assertTrue(tfetchOption2.nodes_info.nodes.size() == 1);
         ConnectContext.remove();

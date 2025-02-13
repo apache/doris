@@ -28,7 +28,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -75,7 +74,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -221,20 +219,21 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
             TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
-            List<TableIf> targetTables = Lists.newArrayList(targetTableIf, newestTargetTableIf);
-            targetTables.sort(Comparator.comparing(TableIf::getId));
-            MetaLockUtils.readLockTables(targetTables);
+            newestTargetTableIf.readLock();
             try {
                 if (targetTableIf.getId() != newestTargetTableIf.getId()) {
                     LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
                             retryTimes, DebugUtil.printId(ctx.queryId()),
                             targetTableIf.getId(), newestTargetTableIf.getId());
+                    newestTargetTableIf.readUnlock();
                     continue;
                 }
-                if (!targetTableIf.getFullSchema().equals(newestTargetTableIf.getFullSchema())) {
+                // Use the schema saved during planning as the schema of the original target table.
+                if (!ctx.getStatementContext().getInsertTargetSchema().equals(newestTargetTableIf.getFullSchema())) {
                     LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
                             retryTimes, DebugUtil.printId(ctx.queryId()),
-                            targetTableIf.getFullSchema(), newestTargetTableIf.getFullSchema());
+                            ctx.getStatementContext().getInsertTargetSchema(), newestTargetTableIf.getFullSchema());
+                    newestTargetTableIf.readUnlock();
                     continue;
                 }
                 if (!insertExecutor.isEmptyInsert()) {
@@ -244,9 +243,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                             buildResult.physicalSink
                     );
                 }
-                MetaLockUtils.readUnlockTables(targetTables);
+                newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
-                MetaLockUtils.readUnlockTables(targetTables);
+                newestTargetTableIf.readUnlock();
                 // the abortTxn in onFail need to acquire table write lock
                 if (insertExecutor != null) {
                     insertExecutor.onFail(e);

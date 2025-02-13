@@ -57,7 +57,7 @@ public class AlterViewInfoTest {
         Column column1 = new Column("col1", PrimitiveType.BIGINT);
         Column column2 = new Column("col2", PrimitiveType.DOUBLE);
 
-        AlterViewInfo alterViewInfo = new AlterViewInfo(dbId, tableId, inlineViewDef, Lists.newArrayList(column1, column2), sqlMode);
+        AlterViewInfo alterViewInfo = new AlterViewInfo(dbId, tableId, inlineViewDef, Lists.newArrayList(column1, column2), sqlMode, null);
         alterViewInfo.write(out);
         out.flush();
         out.close();

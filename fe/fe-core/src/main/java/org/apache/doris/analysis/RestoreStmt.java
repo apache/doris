@@ -40,22 +40,26 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     public static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    public static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
     public static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_FORCE_REPLACE = "force_replace";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
     private int metaVersion = -1;
     private boolean reserveReplica = false;
+    private boolean reserveColocate = false;
     private boolean reserveDynamicPartitionEnable = false;
     private boolean isLocal = false;
     private boolean isBeingSynced = false;
     private boolean isCleanTables = false;
     private boolean isCleanPartitions = false;
     private boolean isAtomicRestore = false;
+    private boolean isForceReplace = false;
     private byte[] meta = null;
     private byte[] jobInfo = null;
 
@@ -89,6 +93,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean reserveReplica() {
         return reserveReplica;
+    }
+
+    public boolean reserveColocate() {
+        return reserveColocate;
     }
 
     public boolean reserveDynamicPartitionEnable() {
@@ -125,6 +133,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean isAtomicRestore() {
         return isAtomicRestore;
+    }
+
+    public boolean isForceReplace() {
+        return isForceReplace;
     }
 
     @Override
@@ -173,7 +185,8 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
         if (reserveReplica && !Config.force_olap_table_replication_allocation.isEmpty()) {
             reserveReplica = false;
         }
-
+        // reserve colocate
+        reserveColocate = eatBooleanProperty(copiedProperties, PROP_RESERVE_COLOCATE, reserveColocate);
         // reserve dynamic partition enable
         reserveDynamicPartitionEnable = eatBooleanProperty(
                 copiedProperties, PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, reserveDynamicPartitionEnable);
@@ -211,6 +224,9 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
         // is atomic restore
         isAtomicRestore = eatBooleanProperty(copiedProperties, PROP_ATOMIC_RESTORE, isAtomicRestore);
+
+        // is force replace
+        isForceReplace = eatBooleanProperty(copiedProperties, PROP_FORCE_REPLACE, isForceReplace);
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,

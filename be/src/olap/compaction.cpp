@@ -837,6 +837,11 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
             continue;
         }
         auto col_unique_id = col_unique_ids[0];
+        if (!_cur_tablet_schema->has_column_unique_id(col_unique_id)) {
+            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
+                         << col_unique_id << "] not found, will skip index compaction";
+            continue;
+        }
         // Avoid doing inverted index compaction on non-slice type columns
         if (!field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
             continue;
@@ -1493,7 +1498,7 @@ void CloudCompactionMixin::garbage_collection() {
         for (const auto& [_, file_writer] : beta_rowset_writer->get_file_writers()) {
             auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-            file_cache->remove_if_cached(file_key);
+            file_cache->remove_if_cached_async(file_key);
         }
     }
 }

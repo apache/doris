@@ -274,6 +274,17 @@ public class InsertUtils {
      * normalize plan to let it could be process correctly by nereids
      */
     public static Plan normalizePlan(LogicalPlan plan, TableIf table,
+            Optional<CascadesContext> analyzeContext,
+            Optional<InsertCommandContext> insertCtx) {
+        table.readLock();
+        try {
+            return normalizePlanWithoutLock(plan, table, analyzeContext, insertCtx);
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    private static Plan normalizePlanWithoutLock(LogicalPlan plan, TableIf table,
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;

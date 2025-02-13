@@ -1383,7 +1383,6 @@ enum MetaServiceCode {
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
-    PENDING_DELETE_BITMAP_WRONG = 8004;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
@@ -1449,7 +1448,6 @@ message RemoveDeleteBitmapResponse {
 
 message PendingDeleteBitmapPB {
     repeated bytes delete_bitmap_keys = 1;
-    optional int64 lock_id = 2;
 }
 
 message DeleteBitmapUpdateLockPB {

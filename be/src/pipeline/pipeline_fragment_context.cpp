@@ -132,7 +132,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
@@ -376,8 +376,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
-        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-                request.query_id, _runtime_filter_states[i], _query_ctx->query_mem_tracker, false);
+        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr =
+                std::make_unique<RuntimeFilterMgr>(request.query_id, _runtime_filter_states[i],
+                                                   _query_ctx->query_mem_tracker(), false);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
@@ -412,7 +413,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
                     // Initialize runtime state for this task
-                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
+                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
 
                     task_runtime_state->set_task_execution_context(shared_from_this());
                     task_runtime_state->set_be_number(local_params.backend_num);
@@ -818,7 +819,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                     child_op->get_name());
         }
         shared_state->exchanger = LocalMergeSortExchanger::create_unique(
-                sort_source, cur_pipe->num_tasks(), _num_instances,
+                LocalMergeSortExchanger::MergeInfo {
+                        sort_source->_is_asc_order, sort_source->_nulls_first, sort_source->_limit,
+                        sort_source->_offset, sort_source->_vsort_exec_exprs.ordering_expr_ctxs()},
+                cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
@@ -1059,7 +1063,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         DCHECK(thrift_sink.__isset.olap_table_sink);
 #ifndef NDEBUG
         DCHECK(state->get_query_ctx() != nullptr);
-        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+        state->get_query_ctx()->query_mem_tracker()->is_group_commit_load = true;
 #endif
         _sink.reset(
                 new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
@@ -1211,7 +1215,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
 #ifndef NDEBUG
         DCHECK(_query_ctx != nullptr);
-        _query_ctx->query_mem_tracker->is_group_commit_load = true;
+        _query_ctx->query_mem_tracker()->is_group_commit_load = true;
 #endif
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(
@@ -1845,13 +1849,13 @@ PipelineFragmentContext::collect_realtime_profile() const {
 
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
-    _fragment_level_profile->to_thrift(fragment_profile.get());
+    _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage
     for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
         auto profile_ptr = std::make_shared<TRuntimeProfileTree>();
-        pipeline_profile->to_thrift(profile_ptr.get());
+        pipeline_profile->to_thrift(profile_ptr.get(), _runtime_state->profile_level());
         res.push_back(profile_ptr);
     }
 
@@ -1879,13 +1883,15 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
-            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
+            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get(),
+                                                        _runtime_state->profile_level());
             _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
-    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
+    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get(),
+                                                      _runtime_state->profile_level());
     return load_channel_profile;
 }
 #include "common/compile_check_end.h"

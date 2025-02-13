@@ -170,16 +170,6 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
     return Status::OK();
 }
 
-doris::LocalMergeFilters* RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id) {
-    DCHECK(_is_global);
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _local_merge_producer_map.find(filter_id);
-    if (iter == _local_merge_producer_map.end()) {
-        return nullptr;
-    }
-    return &iter->second;
-}
-
 Status RuntimeFilterMgr::register_producer_filter(
         const TRuntimeFilterDesc& desc, const TQueryOptions& options,
         std::shared_ptr<IRuntimeFilter>* producer_filter) {
