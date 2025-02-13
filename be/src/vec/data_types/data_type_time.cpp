@@ -22,15 +22,18 @@
 
 #include <gen_cpp/data.pb.h>
 
+#include <cctype>
 #include <typeinfo>
 #include <utility>
 
+#include "common/status.h"
 #include "util/date_func.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/runtime/time_value.h"
 
 namespace doris {
 namespace vectorized {
@@ -77,5 +80,16 @@ void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 
 MutableColumnPtr DataTypeTimeV2::create_column() const {
     return DataTypeNumberBase<Float64>::create_column();
+}
+
+Field DataTypeTimeV2::get_field(const TExprNode& node) const {
+    const int32_t scale = node.type.types.empty() ? 0 : node.type.types.front().scalar_type.scale;
+    double v;
+    if (TimeValue::timev2_to_double_from_str(node.timev2_literal.value.c_str(), v, scale)) {
+        return v;
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Invalid value: {} for type TimeV2", node.timev2_literal.value);
+    }
 }
 } // namespace doris::vectorized

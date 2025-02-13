@@ -15,36 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.common.AnalysisException;
 
-/**
- * Datetime type in Nereids.
- */
-public class TimeType extends PrimitiveType implements RangeScalable {
+import org.junit.Assert;
+import org.junit.Test;
 
-    public static final TimeType INSTANCE = new TimeType();
+public class TimeV2LiteralTest {
 
-    private static final int WIDTH = 8;
-
-    private TimeType() {
+    @Test
+    public void testTimeLiteralCreate() throws AnalysisException {
+        TimeV2Literal literal = new TimeV2Literal("12:12:12");
+        String s = literal.getStringValue();
+        Assert.assertEquals(s, "12:12:12");
+        literal = new TimeV2Literal("112:00:00");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "112:00:00");
+        literal = new TimeV2Literal(21, 12, 21);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "21:12:21");
+        literal = new TimeV2Literal(838, 59, 59);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59");
     }
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.TIME;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof TimeType;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
-    }
 }
