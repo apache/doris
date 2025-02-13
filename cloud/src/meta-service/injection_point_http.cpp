@@ -36,7 +36,7 @@ std::once_flag register_suites_once;
 
 // define a struct to store value only
 struct TypedValue {
-    std::variant<int64_t, bool, std::string> value;
+    std::variant<int64_t, bool, std::string, double> value;
 };
 
 inline std::default_random_engine make_random_engine() {
@@ -90,6 +90,26 @@ static void register_suites() {
                           << " inject kv txn conflict";
             }
         });
+    });
+    suite_map.emplace("Transaction::commit.enable_inject", []() {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("Transaction::commit.inject_random_fault", [](auto&& args) {
+            std::mt19937 gen {std::random_device {}()};
+            double p {-1.0};
+            TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault.set_p", &p);
+            if (p < 0 || p > 1.0) {
+                p = 0.01; // default injection possibility is 1%
+            }
+            std::bernoulli_distribution inject_fault {p};
+            if (inject_fault(gen)) {
+                std::bernoulli_distribution err_type {0.5};
+                fdb_error_t inject_err = (err_type(gen) ? /* FDB_ERROR_CODE_TXN_CONFLICT*/ 1020
+                                                        : /* FDB_ERROR_CODE_TXN_TOO_OLD */ 1007);
+                LOG_WARNING("inject {} err when txn->commit()", inject_err);
+                *try_any_cast<fdb_error_t*>(args[0]) = inject_err;
+            }
+        });
+        LOG_INFO("enable Transaction::commit.enable_inject");
     });
 }
 
@@ -153,10 +173,12 @@ HttpResponse set_value(const std::string& point, const brpc::URI& uri) {
                 typed_value.value = value.GetBool();
             } else if (value.IsInt64()) {
                 typed_value.value = value.GetInt64();
+            } else if (value.IsDouble()) {
+                typed_value.value = value.GetDouble();
             } else if (value.IsString()) {
                 typed_value.value = value.GetString();
             } else {
-                auto msg = "value must be boolean, integer or string";
+                auto msg = "value must be boolean, integer, double or string";
                 LOG(WARNING) << msg;
                 return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
             }
@@ -183,6 +205,9 @@ HttpResponse set_value(const std::string& point, const brpc::URI& uri) {
                         } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>, bool>) {
                             // process bool
                             *try_any_cast<bool*>(args[i]) = v;
+                        } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>, double>) {
+                            // process double
+                            *try_any_cast<double*>(args[i]) = v;
                         } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>,
                                                             std::string>) {
                             // process string

@@ -528,6 +528,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
 
 TxnErrorCode Transaction::commit() {
     fdb_error_t err = 0;
+    TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault", &err);
     TEST_SYNC_POINT_CALLBACK("transaction:commit:get_err", &err);
     if (err == 0) [[likely]] {
         StopWatch sw;
