@@ -259,6 +259,16 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
         _query_options.dump_heap_profile_when_mem_limit_exceeded &&
         (new_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
          new_status.is<ErrorCode::MEM_ALLOC_FAILED>())) {
+        LOG(INFO) << fmt::format(
+                             "Query {} canceled because of memory limit exceeded, dumping memory "
+                             "detail profiles. {}",
+                             print_id(_query_id),
+                             doris::ProcessProfile::instance()
+                                     ->memory_profile()
+                                     ->process_memory_detail_str())
+                  << " wg: " << _workload_group
+                ? _workload_group->debug_string()
+                : "null";
         std::string dot = HeapProfiler::instance()->dump_heap_profile_to_dot();
         if (!dot.empty()) {
             dot += "\n-------------------------------------------------------\n";

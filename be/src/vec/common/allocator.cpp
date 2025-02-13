@@ -86,13 +86,15 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
         std::string err_msg;
         err_msg += fmt::format(
                 "Allocator sys memory check failed: Cannot alloc:{}, consuming "
-                "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
+                "tracker:<{}>, peak used {}, current used {}, reserved {}, exec node:<{}>, {}.",
                 doris::PrettyPrinter::print_bytes(size),
                 doris::thread_context()->thread_mem_tracker()->label(),
                 doris::PrettyPrinter::print_bytes(
                         doris::thread_context()->thread_mem_tracker()->peak_consumption()),
                 doris::PrettyPrinter::print_bytes(
                         doris::thread_context()->thread_mem_tracker()->consumption()),
+                doris::PrettyPrinter::print_bytes(
+                        doris::thread_context()->thread_mem_tracker()->reserved_consumption()),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 

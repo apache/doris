@@ -629,10 +629,10 @@ size_t MemTable::get_flush_reserve_memory_size() const {
         if (_tablet_schema->num_key_columns() == 0) {
             // no need to reserve
         } else {
-            reserve_size = _input_mutable_block.allocated_bytes();
+            reserve_size = static_cast<size_t>(_input_mutable_block.allocated_bytes() * 1.2);
         }
     } else {
-        reserve_size = _input_mutable_block.allocated_bytes();
+        reserve_size = static_cast<size_t>(_input_mutable_block.allocated_bytes() * 1.2);
     }
     return reserve_size;
 }

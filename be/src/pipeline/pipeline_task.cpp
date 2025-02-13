@@ -396,8 +396,8 @@ Status PipelineTask::execute(bool* eos) {
         if (*eos) {
             _pending_block.reset();
         } else if (_pending_block) [[unlikely]] {
-            LOG(INFO) << "Query: " << print_id(query_id)
-                      << " has pending block, size: " << _pending_block->allocated_bytes();
+            LOG(INFO) << "Query: " << print_id(query_id) << " has pending block, size: "
+                      << PrettyPrinter::print_bytes(_pending_block->allocated_bytes());
             _block = std::move(_pending_block);
             block = _block.get();
             *eos = _pending_eos;
@@ -425,17 +425,31 @@ Status PipelineTask::execute(bool* eos) {
                             "{}, revocable mem size: {}, failed: {}",
                             print_id(query_id), PrettyPrinter::print_bytes(reserve_size),
                             _root->get_name(), _root->node_id(), _state->task_id(),
-                            PrettyPrinter::print_bytes(get_revocable_size()), st.to_string());
+                            PrettyPrinter::print_bytes(_sink->revocable_mem_size(_state)),
+                            st.to_string());
                     // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
                     if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
                         debug_msg += fmt::format(", debug info: {}",
                                                  GlobalMemoryArbitrator::process_mem_log_str());
                     }
                     LOG_EVERY_N(INFO, 100) << debug_msg;
-                    // If reserve failed, not add this query to paused list, because it is very small, will not
-                    // consume a lot of memory. But need set low memory mode to indicate that the system should
-                    // not use too much memory.
-                    _state->get_query_ctx()->set_low_memory_mode();
+                    auto sink_revokable_mem_size = _sink->revocable_mem_size(_state);
+                    if (sink_revokable_mem_size >= _state->spill_min_revocable_mem()) {
+                        LOG(INFO) << fmt::format(
+                                "Query: {} sink: {}, node id: {}, task id: "
+                                "{}, revocable mem size: {}",
+                                print_id(query_id), _sink->get_name(), _sink->node_id(),
+                                _state->task_id(),
+                                PrettyPrinter::print_bytes(sink_revokable_mem_size));
+                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                                _state->get_query_ctx()->shared_from_this(), reserve_size, st);
+                        continue;
+                    } else {
+                        // If reserve failed, not add this query to paused list, because it is very small, will not
+                        // consume a lot of memory. But need set low memory mode to indicate that the system should
+                        // not use too much memory.
+                        _state->get_query_ctx()->set_low_memory_mode();
+                    }
                 }
             }
 
@@ -469,7 +483,8 @@ Status PipelineTask::execute(bool* eos) {
                             "{}, revocable mem size: {}, failed: {}",
                             print_id(query_id), PrettyPrinter::print_bytes(sink_reserve_size),
                             _sink->get_name(), _sink->node_id(), _state->task_id(),
-                            PrettyPrinter::print_bytes(get_revocable_size()), status.to_string());
+                            PrettyPrinter::print_bytes(_sink->revocable_mem_size(_state)),
+                            status.to_string());
                     // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
                     if (!status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
                         debug_msg += fmt::format(", debug info: {}",

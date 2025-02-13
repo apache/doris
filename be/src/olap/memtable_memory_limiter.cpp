@@ -117,17 +117,26 @@ void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPt
     // Wait at most 1s, because this code is not aware cancel flag. If the load task is cancelled
     // Should releae memory quickly.
     using namespace std::chrono_literals;
-    int32_t sleep_times = 10;
+    int32_t max_sleep_times = 300;
+    int32_t sleep_times = max_sleep_times;
+    MonotonicStopWatch timer;
+    timer.start();
     while (wg != nullptr && wg->enable_write_buffer_limit() && wg->exceed_write_buffer_limit() &&
            sleep_times > 0) {
         std::this_thread::sleep_for(100ms);
         --sleep_times;
     }
+    if (sleep_times < max_sleep_times) {
+        timer.stop();
+        LOG(INFO) << "handle_workload_group_memtable_flush waited "
+                  << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                  << ", wg: " << wg->debug_string();
+    }
     // Check process memory again.
-    handle_memtable_flush(wg);
+    _handle_memtable_flush(wg);
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush(WorkloadGroupPtr wg) {
+void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     if (!_soft_limit_reached() || _load_usage_low()) {
@@ -150,14 +159,13 @@ void MemTableMemoryLimiter::handle_memtable_flush(WorkloadGroupPtr wg) {
         if (need_flush > 0) {
             auto limit = _hard_limit_reached() ? Limit::HARD : Limit::SOFT;
             LOG(INFO) << "reached memtable memory " << (limit == Limit::HARD ? "hard" : "soft")
-                      << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
-                      << GlobalMemoryArbitrator::sys_mem_available_details_str()
-                      << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                      << " limit, load mem: "
+                      << PrettyPrinter::print_bytes(_mem_tracker->consumption())
                       << ", memtable writers num: " << _writers.size()
                       << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
                       << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
-                      << ", wg: " << (wg ? wg->debug_string() : "null\n")
+                      << ", wg: " << (wg ? wg->debug_string() : "null") << "\n"
                       << doris::ProcessProfile::instance()
                                  ->memory_profile()
                                  ->process_memory_detail_str();
@@ -168,7 +176,8 @@ void MemTableMemoryLimiter::handle_memtable_flush(WorkloadGroupPtr wg) {
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
     g_memtable_memory_limit_latency_ms << time_ms;
-    LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit"
+    LOG(INFO) << "waited " << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+              << " for memtable memory limit"
               << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
               << GlobalMemoryArbitrator::sys_mem_available_details_str()
               << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
@@ -176,8 +185,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(WorkloadGroupPtr wg) {
               << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
               << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
               << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
-              << ", wg: " << (wg ? wg->debug_string() : "null.\n")
-              << doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str();
+              << ", wg: " << (wg ? wg->debug_string() : "null.");
 }
 
 int64_t MemTableMemoryLimiter::flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush) {
@@ -283,8 +291,7 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
 
     _last_limit = limit;
     _log_timer.reset();
-    LOG(INFO) << ss.str() << ", " << GlobalMemoryArbitrator::process_memory_used_details_str()
-              << ", " << GlobalMemoryArbitrator::sys_mem_available_details_str()
+    LOG(INFO) << ss.str()
               << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
               << ", memtable writers num: " << _writers.size()
               << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)

@@ -233,6 +233,8 @@ private:
     void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                                     std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
 
+    std::string _memory_debug_string() const;
+
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;

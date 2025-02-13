@@ -24,6 +24,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_scanner_helper.h"
 #include "pipeline/task_scheduler.h"
@@ -328,10 +329,6 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                  << query_count;
         }
 
-        bool is_low_watermark = false;
-        bool is_high_watermark = false;
-        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
-
         bool has_changed_hard_limit = false;
         int64_t flushed_memtable_bytes = 0;
         // If the query is paused because its limit exceed the query itself's memlimit, then just spill disk.
@@ -461,6 +458,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 // If wg's memlimit not exceed, but process memory exceed, it means cache or other metadata
                 // used too much memory. Should clean all cache here.
                 // 1. Check cache used, if cache is larger than > 0, then just return and wait for it to 0 to release some memory.
+                // if config::disable_memory_gc == true, will deadlock
                 if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted >
                             0.05 &&
                     doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted >
@@ -472,7 +470,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                  "capacity "
                                  "to 0 now";
                 }
-                if (query_it->cache_ratio_ < 0.05) {
+                if ((!config::disable_memory_gc && query_it->cache_ratio_ < 0.05) ||
+                    config::disable_memory_gc) {
                     // 1. Check if could revoke some memory from memtable
                     if (flushed_memtable_bytes <= 0) {
                         flushed_memtable_bytes =
@@ -531,6 +530,10 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 ++query_it;
             }
         }
+
+        bool is_low_watermark = false;
+        bool is_high_watermark = false;
+        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
         // Not need waiting flush memtable and below low watermark disable load buffer limit
         if (flushed_memtable_bytes <= 0 && !is_low_watermark) {
             wg->enable_write_buffer_limit(false);

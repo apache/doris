@@ -86,7 +86,9 @@ public:
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
-    void reset_block() { _mutable_block.reset(); }
+    size_t mem_usage() const { return _mutable_block ? _mutable_block->allocated_bytes() : 0; }
+
+    void reset_block();
 
     void set_is_local(bool is_local) { _is_local = is_local; }
     bool is_local() const { return _is_local; }
@@ -156,23 +158,7 @@ public:
     Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
 
     Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
-                    bool eos) {
-        if (_fragment_instance_id.lo == -1) {
-            return Status::OK();
-        }
-
-        bool serialized = false;
-        if (_pblock == nullptr) {
-            _pblock = std::make_unique<PBlock>();
-        }
-        RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
-                                                          data, offset, size));
-        if (serialized) {
-            RETURN_IF_ERROR(_send_current_block(eos));
-        }
-
-        return Status::OK();
-    }
+                    bool eos);
 
     void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 

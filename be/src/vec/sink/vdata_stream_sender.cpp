@@ -43,7 +43,9 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "util/pretty_printer.h"
 #include "util/proto_util.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
@@ -119,6 +121,28 @@ Status Channel::open(RuntimeState* state) {
     _state = state;
     return Status::OK();
 }
+Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offset,
+                         const uint32_t size, bool eos) {
+    if (_fragment_instance_id.lo == -1) {
+        return Status::OK();
+    }
+
+    bool serialized = false;
+    if (_pblock == nullptr) {
+        _pblock = std::make_unique<PBlock>();
+    }
+    int64_t old_channel_mem_usage = mem_usage();
+    Defer update_mem([&]() {
+        COUNTER_UPDATE(_parent->memory_used_counter(), mem_usage() - old_channel_mem_usage);
+    });
+    RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
+                                                      data, offset, size));
+    if (serialized) {
+        RETURN_IF_ERROR(_send_current_block(eos));
+    }
+
+    return Status::OK();
+}
 
 std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
     if (!_local_recvr) {
@@ -128,9 +152,7 @@ std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
 }
 
 int64_t Channel::mem_usage() const {
-    auto* mutable_block = _serializer.get_block();
-    int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
-    return mem_usage;
+    return _serializer.mem_usage();
 }
 
 Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
@@ -314,6 +336,10 @@ Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t n
     _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
 
     return Status::OK();
+}
+
+void BlockSerializer::reset_block() {
+    _mutable_block.reset();
 }
 
 } // namespace doris::vectorized
