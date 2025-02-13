@@ -326,7 +326,8 @@ public:
     }
 
     Status add_array_nulls(uint32_t row_id) override {
-        _null_bitmap.add(row_id);
+        // need to add offset for row_id, because row_id here is the row id in block, not segment.
+        _null_bitmap.add(_rid + row_id);
         return Status::OK();
     }
 
