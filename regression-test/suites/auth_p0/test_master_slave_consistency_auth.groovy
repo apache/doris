@@ -115,6 +115,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         logger.info("url_tmp1:" + url_tmp1)
         logger.info("new_jdbc_url:" + new_jdbc_url)
+        // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                sql "sync"
+        }
         connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
@@ -165,6 +169,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
+         // If exec on fe follower, wait meta data is ready on follower
+         connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                 sql "sync"
+         }
         connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
@@ -190,6 +198,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """grant select_priv(username) on ${dbName}.${view_name} to ${user}"""
+         // If exec on fe follower, wait meta data is ready on follower
+         connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                 sql "sync"
+         }
         connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${view_name}"
         }
@@ -215,6 +227,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${mtmv_name}"
         }
@@ -228,6 +244,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         // user
         sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
@@ -236,6 +256,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
@@ -257,6 +281,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """grant select_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant Load_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant '${role}' to '${user}'"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
             sql """insert into ${dbName}.`${tableName}` values (4, "444")"""
@@ -267,6 +295,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         sql """revoke '${role}' from '${user}'"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
@@ -305,6 +337,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
             }
         }
         sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg}' TO '${user}';"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             sql """set workload_group = '${wg}';"""
             sql """select username from ${dbName}.${tableName}"""
@@ -324,6 +360,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
             assertTrue(res == [])
         }
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(jdbcUser, "${jdbcPassword}", new_jdbc_url) {
+                         sql "sync"
+                 }
         connect(user, "${pwd}", url_tmp1) {
             ArrayList res = sql """SHOW RESOURCES;"""
             logger.info("res:" + res)
