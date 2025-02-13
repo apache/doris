@@ -158,7 +158,7 @@ public class VariableMgr {
     }
 
     // Set value to a variable
-    private static boolean setValue(Object obj, SessionVariableField sessionVariableField, String value)
+    private static void setValue(Object obj, SessionVariableField sessionVariableField, String value)
             throws DdlException {
 
         Field field = sessionVariableField.getField();
@@ -241,7 +241,6 @@ public class VariableMgr {
             VariableVarCallbacks.call(attr.name(), value);
         }
 
-        return true;
     }
 
     // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
@@ -299,7 +298,7 @@ public class VariableMgr {
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 
-    public static String findSimilarSessionVarNames(String inputName) {
+    private static String findSimilarSessionVarNames(String inputName) {
         JaroWinklerDistance jaroWinklerDistance = new JaroWinklerDistance();
         StringJoiner joiner = new StringJoiner(", ", "{", "}");
         ctxByDisplayVarName.keySet().stream()
@@ -321,7 +320,8 @@ public class VariableMgr {
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable(),
+                    findSimilarSessionVarNames(setVar.getVariable()));
         }
         try {
             checkUpdate(setVar, varCtx.getFlag());
@@ -760,7 +760,7 @@ public class VariableMgr {
                     row.add(getValue(ctx.getObj(), ctx.getField()));
                 }
 
-                if (row.size() > 1 && VariableVarConverters.hasConverter(row.get(0))) {
+                if (VariableVarConverters.hasConverter(row.get(0))) {
                     try {
                         row.set(1, VariableVarConverters.decode(row.get(0), Long.valueOf(row.get(1))));
                     } catch (DdlException e) {
