@@ -54,7 +54,8 @@ static bool gen_check_data_in_assert = true;
 class CommonDataTypeTest : public ::testing::Test {
 public:
     CommonDataTypeTest() = default;
-    void TestBody() override {}  // 让 DerivedDataTypeTest 不是抽象类
+    void TestBody() override {}
+
 protected:
     // Helper function to load data from CSV, with index which splited by spliter and load to columns
     void load_data_from_csv(const DataTypeSerDeSPtrs serders, MutableColumns& columns,
@@ -176,15 +177,15 @@ public:
                           bool assert_false = false) {
         if (assert_false) {
             EXPECT_ANY_THROW(data_type->get_field(node))
-                    << "get_field_assert: "
-                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
-                    << " field: " << assert_field.get_type() << std::endl;
+                    << "get_field_assert: " << " datatype:" + data_type->get_name()
+                    << " node_type:" << node.node_type << " field: " << assert_field.get_type()
+                    << std::endl;
         } else {
             Field field = data_type->get_field(node);
             ASSERT_EQ(field, assert_field)
-                    << "get_field_assert: "
-                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
-                    << " field: " << assert_field.get_type() << std::endl;
+                    << "get_field_assert: " << " datatype:" + data_type->get_name()
+                    << " node_type:" << node.node_type << " field: " << assert_field.get_type()
+                    << std::endl;
         }
     }
 
