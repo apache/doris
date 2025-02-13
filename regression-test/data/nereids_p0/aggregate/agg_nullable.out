@@ -360,20 +360,20 @@
 \N
 
 -- !select_topn_array --
-\N
+[]
 
 -- !select_topn_array2 --
 
 -- !select_topn_array_n --
-\N
+[]
 
 -- !select_topn_weighted --
-\N
+[]
 
 -- !select_topn_weighted2 --
 
 -- !select_topn_weighted_n --
-\N
+[]
 
 -- !select_variance --
 \N
