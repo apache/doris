@@ -24,11 +24,11 @@ import java.util.List;
 /**
  * use for shuffle data by partition keys before sink.
  */
-public class DistributionSpecTableSinkHashPartitioned extends DistributionSpec {
+public class DistributionSpecHiveTableSinkHashPartitioned extends DistributionSpec {
 
     private List<ExprId> outputColExprIds;
 
-    public DistributionSpecTableSinkHashPartitioned() {
+    public DistributionSpecHiveTableSinkHashPartitioned() {
         super();
     }
 
@@ -42,6 +42,6 @@ public class DistributionSpecTableSinkHashPartitioned extends DistributionSpec {
 
     @Override
     public boolean satisfy(DistributionSpec other) {
-        return other instanceof DistributionSpecTableSinkHashPartitioned;
+        return other instanceof DistributionSpecHiveTableSinkHashPartitioned;
     }
 }
