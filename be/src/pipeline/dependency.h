@@ -826,7 +826,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 private:
     friend class LocalExchangeSourceLocalState;
 
-    std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
 #include "common/compile_check_end.h"

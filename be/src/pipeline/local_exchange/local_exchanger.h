@@ -348,7 +348,10 @@ public:
                             int free_block_limit)
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit),
               _merge_info(std::move(merge_info)) {
-        _eos.resize(num_partitions, false);
+        _eos.resize(num_partitions, nullptr);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _eos[i] = std::make_shared<std::atomic_bool>(false);
+        }
     }
     ~LocalMergeSortExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
@@ -366,7 +369,7 @@ public:
 private:
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
     MergeInfo _merge_info;
-    std::vector<bool> _eos;
+    std::vector<std::shared_ptr<std::atomic_bool>> _eos;
 };
 
 class BroadcastExchanger final : public Exchanger<BroadcastBlock> {

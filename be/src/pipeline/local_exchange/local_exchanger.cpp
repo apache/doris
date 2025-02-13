@@ -383,7 +383,7 @@ Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_
                         *sink_info.channel_id));
     }
     if (eos && sink_info.local_state) {
-        _eos[*sink_info.channel_id] = true;
+        _eos[*sink_info.channel_id]->store(true);
         sink_info.local_state->_shared_state->source_deps[*sink_info.channel_id]
                 ->set_always_ready();
     }
@@ -429,13 +429,25 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                                                            vectorized::Block* block, bool* eos) {
             BlockWrapperSPtr next_block;
             _dequeue_data(local_state, next_block, eos, block, id);
-            if (!*eos && block->empty() && !_eos[id]) {
+#ifndef NDEBUG
+            if (*eos && !(*_eos[id])) {
+                return Status::InternalError(
+                        "LocalMergeSortExchanger{} meet error! _eos[id] should be true if no "
+                        "source operators are running",
+                        local_state->debug_string(0));
+            }
+#endif
+            // `eos` is true if all sink operators are closed and no block remains. `_eos[id]` is
+            // true means sink operator of instance[id] has already sent the last block with `eos`
+            // flag.
+            if (block->empty() && !(*_eos[id])) {
                 return Status::InternalError(
                         "LocalMergeSortExchanger{} meet error! Block should not be empty when eos "
                         "is false",
                         local_state->debug_string(0));
+            } else if (block->empty()) {
+                *eos = *_eos[id];
             }
-            *eos = _eos[id] || *eos;
             return Status::OK();
         };
         child_block_suppliers.push_back(block_supplier);

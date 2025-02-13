@@ -399,7 +399,7 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         EXPECT_EQ(shared_state->mem_usage, mem_usage);
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
         for (size_t i = 0; i < num_sources; i++) {
-            for (size_t j = 0; j <= num_blocks; j++) {
+            for (size_t j = 0; j < num_blocks; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -408,9 +408,9 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
                                              {cast_set<int>(_local_states[i]->_channel_id),
                                               _local_states[i].get()}),
                         Status::OK());
-                EXPECT_EQ(block.rows(), j == num_blocks ? 0 : 10);
+                EXPECT_EQ(block.rows(), 10);
                 EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_blocks);
+                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_blocks - 1);
             }
         }
         EXPECT_EQ(shared_state->mem_usage, 0);
@@ -446,8 +446,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == 1 ? 0 : 10);
-                EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 1);
+                EXPECT_FALSE(eos);
+                EXPECT_FALSE(_local_states[i]->_dependency->ready());
             }
         }
     }
@@ -596,7 +596,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         EXPECT_EQ(shared_state->mem_usage, mem_usage);
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
         for (size_t i = 0; i < num_sources; i++) {
-            for (size_t j = 0; j <= (i == 0 ? num_blocks * num_sink : 0); j++) {
+            for (size_t j = 0; j < (i == 0 ? num_blocks * num_sink : 0); j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -608,7 +608,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
                 EXPECT_EQ(block.rows(), i == 0 && j < num_blocks * num_sink ? 10 : 0);
                 EXPECT_EQ(eos, i != 0);
                 if (i == 0) {
-                    EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_blocks * num_sink);
+                    EXPECT_EQ(_local_states[i]->_dependency->ready(),
+                              j != num_blocks * num_sink - 1);
                 }
             }
         }
@@ -635,7 +636,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         }
         for (size_t i = 0; i < 1; i++) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
-            for (size_t j = 0; j <= 1; j++) {
+            for (size_t j = 0; j < 1; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -645,8 +646,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == 1 ? 0 : 10);
-                EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 1);
+                EXPECT_FALSE(eos);
+                EXPECT_FALSE(_local_states[i]->_dependency->ready());
             }
         }
     }
@@ -789,7 +790,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
 
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
         for (size_t i = 0; i < num_sources; i++) {
-            for (size_t j = 0; j <= num_blocks * num_sources; j++) {
+            for (size_t j = 0; j < num_blocks * num_sources; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -799,8 +800,9 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == num_blocks * num_sources ? 0 : 10);
-                EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_blocks * num_sources);
+                EXPECT_FALSE(eos);
+                EXPECT_EQ(_local_states[i]->_dependency->ready(),
+                          j != num_blocks * num_sources - 1);
             }
         }
         EXPECT_EQ(shared_state->mem_usage, 0);
@@ -826,7 +828,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         }
         for (size_t i = 0; i < num_sources; i++) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
-            for (size_t j = 0; j <= num_sources; j++) {
+            for (size_t j = 0; j < num_sources; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -836,8 +838,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == num_sources ? 0 : 10);
-                EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_sources);
+                EXPECT_FALSE(eos);
+                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_sources - 1);
             }
         }
     }
@@ -988,7 +990,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
         for (size_t i = 0; i < num_sources; i++) {
             // First `num_sources` blocks are splited by rows into all channels and the others are passthrough.
-            for (size_t j = 0; j <= 2 * num_blocks - 1; j++) {
+            for (size_t j = 0; j < 2 * num_blocks - 1; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -1002,7 +1004,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
                                          : (j == 2 * num_blocks - 1 ? 0 : num_rows_per_block))
                         << j;
                 EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 2 * num_blocks - 1) << j;
+                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 2 * num_blocks - 2) << j;
             }
         }
         EXPECT_EQ(shared_state->mem_usage, 0);
@@ -1028,7 +1030,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         }
         for (size_t i = 0; i < num_sources; i++) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
-            for (size_t j = 0; j <= 1; j++) {
+            for (size_t j = 0; j < 1; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -1038,8 +1040,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == 1 ? 0 : num_rows_per_block);
-                EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 1);
+                EXPECT_FALSE(eos);
+                EXPECT_FALSE(_local_states[i]->_dependency->ready());
             }
         }
     }
@@ -1324,6 +1326,7 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
                 "MemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
+    _local_states[0]->_local_merge_deps = shared_state->source_deps;
     {
         // Enqueue 2 blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_partitions; i++) {
@@ -1354,7 +1357,7 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
 
     {
         for (size_t i = 0; i < num_sources; i++) {
-            EXPECT_EQ(shared_state->mem_counters[i]->value(), shared_state->_queues_mem_usage[i]);
+            EXPECT_EQ(shared_state->mem_counters[i]->value(), expect_block_bytes * num_blocks);
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
         }
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
@@ -1488,7 +1491,7 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchangerWithEmptyBlock) {
     }
 
     for (size_t i = 0; i < num_sources; i++) {
-        EXPECT_EQ(shared_state->mem_counters[i]->value(), shared_state->_queues_mem_usage[i]);
+        EXPECT_EQ(shared_state->mem_counters[i]->value(), expect_block_bytes * num_blocks);
         EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
     }
     // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
@@ -1523,18 +1526,31 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchangerWithEmptyBlock) {
     for (size_t i = 0; i < num_sink; i++) {
         shared_state->sub_running_sink_operators();
     }
-    for (size_t i = 0; i < num_sources; i++) {
-        for (size_t j = 0; j < num_sink * num_blocks + 1 - num_blocks; j++) {
-            bool eos = false;
-            vectorized::Block block;
-            EXPECT_EQ(exchanger->get_block(_runtime_state.get(), &block, &eos,
-                                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
-                                           {cast_set<int>(_local_states[i]->_channel_id),
-                                            _local_states[i].get()}),
-                      Status::OK());
-            EXPECT_TRUE(exchanger->_merger != nullptr);
-            EXPECT_EQ(block.rows(), i > 0 || j == num_sink * num_blocks - num_blocks ? 0 : 10);
-            EXPECT_EQ(eos, i > 0 || j == num_sink * num_blocks - num_blocks);
+
+    {
+        for (size_t i = 0; i < num_sources; i++) {
+            for (size_t j = 0; j < num_sink * num_blocks - num_blocks; j++) {
+                bool eos = false;
+                error = false;
+                vectorized::Block block;
+                try {
+                    EXPECT_EQ(exchanger->get_block(
+                                      _runtime_state.get(), &block, &eos,
+                                      {nullptr, nullptr, _local_states[i]->_copy_data_timer},
+                                      {cast_set<int>(_local_states[i]->_channel_id),
+                                       _local_states[i].get()}),
+                              Status::OK());
+                } catch (const Exception& e) {
+                    error = true;
+                    EXPECT_TRUE(e.to_status().is<ErrorCode::INTERNAL_ERROR>());
+                }
+                // error is true when we get another block after all blocks in one queue are exhausted.
+                EXPECT_EQ(error, i == 0 && (j % (num_blocks + 1) == 0)) << i << " " << j;
+                EXPECT_TRUE(exchanger->_merger != nullptr);
+                EXPECT_EQ(block.rows(), i > 0 || (j % (num_blocks + 1) == 0) ? 0 : 10)
+                        << i << " " << j;
+                EXPECT_EQ(eos, i > 0 || j == num_sink * num_blocks - num_blocks) << i << " " << j;
+            }
         }
     }
 }
