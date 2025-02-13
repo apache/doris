@@ -17,12 +17,16 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigurationUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.conf.HiveConf;
 
+import java.io.File;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +72,33 @@ public class ConnectionProperties {
             return Maps.newHashMap();
         }
         Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(origProps.get(resourceConfig));
+        Map<String, String> confMap = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : conf) {
+            confMap.put(entry.getKey(), entry.getValue());
+        }
+        return confMap;
+    }
+    
+    protected Map<String, String> loadHiveConfigFromFile(String resourceConfig) {
+        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
+            return Maps.newHashMap();
+        }
+        HiveConf conf = new HiveConf();
+        for (String resource : resourceConfig.split(",")) {
+            // Construct the full path to the resource file.
+            String resourcePath = Config.hive_config_dir + File.separator + resource.trim();
+            File file = new File(resourcePath);
+
+            // Check if the file exists and is a regular file; if not, throw an exception.
+            if (file.exists() && file.isFile()) {
+                // Add the resource file to the Hadoop Configuration object.
+                conf.addResource(new Path(file.toURI()));
+            } else {
+                // Throw an exception if the file does not exist or is not a regular file.
+                throw new IllegalArgumentException("Hive config resource file does not exist: " + resourcePath);
+            }
+        }
+
         Map<String, String> confMap = Maps.newHashMap();
         for (Map.Entry<String, String> entry : conf) {
             confMap.put(entry.getKey(), entry.getValue());
