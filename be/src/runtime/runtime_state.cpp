@@ -375,6 +375,10 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         !is_summary) {
         if (_load_zero_tolerance) {
             *stop_processing = true;
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
         }
         return Status::OK();
     }

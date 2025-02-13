@@ -51,7 +51,7 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                 skip[row_index] = true;
                 continue;
             }
-            RETURN_IF_ERROR(state->append_error_msg_to_file(
+            auto st = state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
                         fmt::memory_buffer buf;
@@ -59,11 +59,11 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                                        block->dump_data(row_index, 1));
                         return fmt::to_string(buf);
                     },
-                    &stop_processing));
+                    &stop_processing);
             _num_filtered_rows++;
             _filter_bitmap.Set(row_index, true);
-            if (stop_processing) {
-                return Status::DataQualityError("Encountered unqualified data, stop processing");
+            if (!st.ok()) {
+                return st;
             }
             skip[row_index] = true;
             continue;
