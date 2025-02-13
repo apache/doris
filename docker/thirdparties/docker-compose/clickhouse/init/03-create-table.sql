@@ -289,3 +289,107 @@ CREATE TABLE doris_test.dt_with_tz
 )
 ENGINE = MergeTree
 ORDER BY id;
+
+CREATE TABLE doris_test.extreme_test
+(
+    id UInt64,
+    -- Integer types (signed and unsigned) and their Nullable versions
+    int8_col         Int8,
+    int8_nullable    Nullable(Int8),
+    int16_col        Int16,
+    int16_nullable   Nullable(Int16),
+    int32_col        Int32,
+    int32_nullable   Nullable(Int32),
+    int64_col        Int64,
+    int64_nullable   Nullable(Int64),
+    uint8_col        UInt8,
+    uint8_nullable   Nullable(UInt8),
+    uint16_col       UInt16,
+    uint16_nullable  Nullable(UInt16),
+    uint32_col       UInt32,
+    uint32_nullable  Nullable(UInt32),
+    uint64_col       UInt64,
+    uint64_nullable  Nullable(UInt64),
+    -- Floating point types
+    float32_col      Float32,
+    float32_nullable Nullable(Float32),
+    float64_col      Float64,
+    float64_nullable Nullable(Float64),
+    -- Decimal type (defined here with precision 18 and scale 2)
+    decimal_col      Decimal(18,2),
+    decimal_nullable Nullable(Decimal(18,2)),
+    -- Date and DateTime types
+    date_col         Date,
+    date_nullable    Nullable(Date),
+    datetime_col     DateTime,
+    datetime_nullable Nullable(DateTime),
+    -- String types
+    string_col         String,
+    string_nullable    Nullable(String),
+    fixedstring_col    FixedString(10),
+    fixedstring_nullable Nullable(FixedString(10)),
+    -- Enum type (Enum8 valid range is -128 to 127; here three enum values are defined)
+    enum_col         Enum8('A' = 1, 'B' = 2, 'C' = 3),
+    enum_nullable    Nullable(Enum8('A' = 1, 'B' = 2, 'C' = 3)),
+    -- UUID type
+    uuid_col         UUID,
+    uuid_nullable    Nullable(UUID),
+    -- IP address types
+    ipv4_col         IPv4,
+    ipv4_nullable    Nullable(IPv4),
+    ipv6_col         IPv6,
+    ipv6_nullable    Nullable(IPv6)
+) ENGINE = MergeTree()
+ORDER BY id;
+
+CREATE TABLE doris_test.extreme_test_multi_block
+(
+    id UInt64,
+    -- Integer types (signed and unsigned) and their Nullable versions
+    int8_col         Int8,
+    int8_nullable    Nullable(Int8),
+    int16_col        Int16,
+    int16_nullable   Nullable(Int16),
+    int32_col        Int32,
+    int32_nullable   Nullable(Int32),
+    int64_col        Int64,
+    int64_nullable   Nullable(Int64),
+    uint8_col        UInt8,
+    uint8_nullable   Nullable(UInt8),
+    uint16_col       UInt16,
+    uint16_nullable  Nullable(UInt16),
+    uint32_col       UInt32,
+    uint32_nullable  Nullable(UInt32),
+    uint64_col       UInt64,
+    uint64_nullable  Nullable(UInt64),
+    -- Floating point types
+    float32_col      Float32,
+    float32_nullable Nullable(Float32),
+    float64_col      Float64,
+    float64_nullable Nullable(Float64),
+    -- Decimal type (defined here with precision 18 and scale 2)
+    decimal_col      Decimal(18,2),
+    decimal_nullable Nullable(Decimal(18,2)),
+    -- Date and DateTime types
+    date_col         Date,
+    date_nullable    Nullable(Date),
+    datetime_col     DateTime,
+    datetime_nullable Nullable(DateTime),
+    -- String types
+    string_col         String,
+    string_nullable    Nullable(String),
+    fixedstring_col    FixedString(10),
+    fixedstring_nullable Nullable(FixedString(10)),
+    -- Enum type (Enum8 valid range is -128 to 127; here three enum values are defined)
+    enum_col         Enum8('A' = 1, 'B' = 2, 'C' = 3),
+    enum_nullable    Nullable(Enum8('A' = 1, 'B' = 2, 'C' = 3)),
+    -- UUID type
+    uuid_col         UUID,
+    uuid_nullable    Nullable(UUID),
+    -- IP address types
+    ipv4_col         IPv4,
+    ipv4_nullable    Nullable(IPv4),
+    ipv6_col         IPv6,
+    ipv6_nullable    Nullable(IPv6)
+) ENGINE = MergeTree()
+ORDER BY id;
