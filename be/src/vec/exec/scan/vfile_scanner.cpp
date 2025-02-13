@@ -374,7 +374,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     Status st = _get_block_wrapped(state, block, eof);
     if (!st.ok()) {
         // add cur path in error msg for easy debugging
-        return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
+        return std::move(st.append(". cur path: " + get_current_scan_range_name() + ". "));
     }
     return st;
 }
