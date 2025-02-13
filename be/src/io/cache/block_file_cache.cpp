@@ -971,12 +971,13 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     size_t max_size = queue.get_max_size();
     auto is_overflow = [&] {
-        return _disk_resource_limit_mode ? removed_size < size
-                                         : cur_cache_size + size - removed_size > _capacity ||
-                                                   (queue_size + size - removed_size > max_size) ||
-                                                   (query_context_cache_size + size -
-                                                            (removed_size + ghost_remove_size) >
-                                                    query_context->get_max_cache_size());
+        return (_disk_resource_limit_mode || _need_evict_cache_in_advance)
+                       ? removed_size < size
+                       : cur_cache_size + size - removed_size > _capacity ||
+                                 (queue_size + size - removed_size > max_size) ||
+                                 (query_context_cache_size + size -
+                                          (removed_size + ghost_remove_size) >
+                                  query_context->get_max_cache_size());
     };
 
     /// Select the cache from the LRU queue held by query for expulsion.
@@ -1238,7 +1239,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
 bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size,
                                  size_t cur_cache_size) const {
     bool ret = false;
-    if (_disk_resource_limit_mode) {
+    if (_disk_resource_limit_mode || _need_evict_cache_in_advance) {
         ret = (removed_size < need_size);
     } else {
         ret = (cur_cache_size + need_size - removed_size > _capacity);
