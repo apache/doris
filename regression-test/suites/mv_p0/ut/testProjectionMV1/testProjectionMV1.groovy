@@ -39,7 +39,7 @@ suite ("testProjectionMV1") {
         exception "errCode = 2,"
     }
 
-    createMV("create materialized view emps_mv as select deptno, empid from emps order by deptno;")
+    createMV("create materialized view emps_mv as select deptno, empid from emps order by deptno, empid;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
