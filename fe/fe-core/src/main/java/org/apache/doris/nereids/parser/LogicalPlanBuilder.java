@@ -5658,7 +5658,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitionNameParts.addAll(visitIdentifierList(ctx.specifiedPartition().identifierList()));
             }
         }
-        PartitionNames partitionNames = new PartitionNames(isTempPart, partitionNameParts);
+        PartitionNames partitionNames = null;
+        if (!partitionNameParts.isEmpty()) {
+            partitionNames = new PartitionNames(isTempPart, partitionNameParts);
+        }
         return new DescribeCommand(dbTableName, false, partitionNames);
     }
 
