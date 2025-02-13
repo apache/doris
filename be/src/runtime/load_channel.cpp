@@ -77,7 +77,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
             channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
                                                        _self_profile);
             {
-                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                std::lock_guard<std::mutex> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
             }
         }
@@ -158,7 +158,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     _self_profile->set_timestamp(_last_updated_time);
 
     {
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        std::lock_guard<std::mutex> l(_tablets_channels_lock);
         for (auto& it : _tablets_channels) {
             it.second->refresh_profile();
         }
