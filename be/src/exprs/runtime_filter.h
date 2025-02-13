@@ -300,10 +300,6 @@ public:
     void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
                        int64_t start_apply);
 
-    void set_ignored();
-
-    bool get_ignored();
-
     void set_disabled();
     bool get_disabled() const;
 

@@ -156,7 +156,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         if (state->get_task()->wake_up_early()) {
             // partitial ignore rf to make global rf work or ignore useless rf
             RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
-            RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
+            RETURN_IF_ERROR(_runtime_filter_slots->disable_all_filters());
         } else if (_should_build_hash_table) {
             auto* block = _shared_state->build_block.get();
             uint64_t hash_table_size = block ? block->rows() : 0;

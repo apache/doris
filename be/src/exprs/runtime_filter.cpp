@@ -391,7 +391,6 @@ public:
     BloomFilterFuncBase* get_bloomfilter() const { return _context->bloom_filter_func.get(); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
-        DCHECK(!is_ignored());
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             _context->hybrid_set->insert_fixed_len(column, start);
@@ -476,11 +475,9 @@ public:
             return Status::OK();
         }
 
-        if (wrapper->is_ignored() || is_disabled()) {
+        if (is_disabled()) {
             return Status::OK();
         }
-
-        _context->ignored = false;
 
         bool can_not_merge_in_or_bloom =
                 _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -950,10 +947,6 @@ public:
         return false;
     }
 
-    bool is_ignored() const { return _context->ignored; }
-
-    void set_ignored() { _context->ignored = true; }
-
     bool is_disabled() const { return _context->disabled; }
 
     void set_disabled() {
@@ -1114,7 +1107,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
 
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            ctx->ignored = true;
+            ctx->disabled = true;
         } else {
             ctx->err_msg = status.to_string();
             Base::_process_if_meet_error_status(status);
@@ -1224,9 +1217,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, bool opt_remo
     merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
     merge_filter_callback->cntl_->ignore_eovercrowded();
 
-    if (get_ignored() || get_disabled()) {
+    if (get_disabled()) {
         merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
-        merge_filter_request->set_ignored(get_ignored());
         merge_filter_request->set_disabled(get_disabled());
     } else {
         RETURN_IF_ERROR(serialize(merge_filter_request.get(), &data, &len));
@@ -1249,7 +1241,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
     auto origin_size = push_exprs.size();
-    if (!_wrapper->is_ignored() && !_wrapper->is_disabled()) {
+    if (!_wrapper->is_disabled()) {
         _set_push_down(!is_late_arrival);
         RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
     }
@@ -1421,14 +1413,6 @@ void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     }
 }
 
-void IRuntimeFilter::set_ignored() {
-    _wrapper->_context->ignored = true;
-}
-
-bool IRuntimeFilter::get_ignored() {
-    return _wrapper->is_ignored();
-}
-
 void IRuntimeFilter::set_disabled() {
     _wrapper->set_disabled();
 }
@@ -1440,10 +1424,10 @@ bool IRuntimeFilter::get_disabled() const {
 std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
             "[Id = {}, IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
-            "HasLocalTarget = {}, Ignored = {}, Disabled = {}, Type = {}, WaitTimeMS = {}]",
+            "HasLocalTarget = {}, Disabled = {}, Type = {}, WaitTimeMS = {}]",
             _filter_id, _is_push_down, _get_explain_state_string(), _has_remote_target,
-            _has_local_target, _wrapper->_context->ignored, _wrapper->_context->disabled,
-            _wrapper->get_real_type(), wait_time_ms());
+            _has_local_target, _wrapper->_context->disabled, _wrapper->get_real_type(),
+            wait_time_ms());
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
@@ -1550,13 +1534,9 @@ Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParamsV2* param,
     *wrapper = param->pool->add(new RuntimePredicateWrapper(
             param->pool, column_type, get_type(filter_type), param->request->filter_id()));
 
-    if (param->request->has_disabled() && param->request->disabled()) {
+    if ((param->request->has_disabled() && param->request->disabled()) ||
+        (param->request->has_ignored() && param->request->ignored())) {
         (*wrapper)->set_disabled();
-        return Status::OK();
-    }
-
-    if (param->request->has_ignored() && param->request->ignored()) {
-        (*wrapper)->set_ignored();
         return Status::OK();
     }
 
@@ -1601,13 +1581,9 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
     *wrapper = std::make_unique<RuntimePredicateWrapper>(pool, column_type, get_type(filter_type),
                                                          param->request->filter_id());
 
-    if (param->request->has_disabled() && param->request->disabled()) {
+    if ((param->request->has_disabled() && param->request->disabled()) ||
+        (param->request->has_ignored() && param->request->ignored())) {
         (*wrapper)->set_disabled();
-        return Status::OK();
-    }
-
-    if (param->request->has_ignored() && param->request->ignored()) {
-        (*wrapper)->set_ignored();
         return Status::OK();
     }
 
@@ -1648,12 +1624,11 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, disabled: {}, "
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, disabled: {}, "
             "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
             "has_remote_target: {}, error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->_context->ignored, _wrapper->_context->disabled,
-            _wrapper->get_build_bf_cardinality(),
+            _wrapper->_context->disabled, _wrapper->get_build_bf_cardinality(),
             _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
             _has_remote_target, _wrapper->_context->err_msg);
 }
@@ -1988,7 +1963,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
 
     if (param->request->has_ignored() && param->request->ignored()) {
-        set_ignored();
+        set_disabled();
     } else {
         std::unique_ptr<RuntimePredicateWrapper> wrapper;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
