@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
@@ -5643,22 +5644,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDescribeTable(DorisParser.DescribeTableContext ctx) {
-        String tableName = null;
+        TableNameInfo dbTableName = null;
         if (ctx.multipartIdentifier() != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
-            tableName = nameParts.get(0); // only one entry possible
+            dbTableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
         }
-        return new DescribeCommand(tableName, false);
+        List<String> partitionNameParts = new ArrayList<>();
+        boolean isTempPart = false;
+        if (ctx.specifiedPartition() != null) {
+            isTempPart = ctx.specifiedPartition().TEMPORARY() != null;
+            if (ctx.specifiedPartition().identifier() != null) {
+                partitionNameParts.add(ctx.specifiedPartition().identifier().getText());
+            } else {
+                partitionNameParts.addAll(visitIdentifierList(ctx.specifiedPartition().identifierList()));
+            }
+        }
+        PartitionNames partitionNames = new PartitionNames(isTempPart, partitionNameParts);
+        return new DescribeCommand(dbTableName, false, partitionNames);
     }
 
     @Override
     public LogicalPlan visitDescribeTableAll(DorisParser.DescribeTableAllContext ctx) {
-        String tableName = null;
+        TableNameInfo dbTableName = null;
         if (ctx.multipartIdentifier() != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
-            tableName = nameParts.get(0); // only one entry possible
+            dbTableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
         }
-        return new DescribeCommand(tableName, true);
+        return new DescribeCommand(dbTableName, true);
     }
 
     @Override
