@@ -520,6 +520,23 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             LOG.info("schema change tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
+                boolean beAlive = Env.getCurrentSystemInfo().checkBackendAlive(task.getBackendId());
+                if (task.getFailedTimes() > 0 || !beAlive) {
+                    long originTabletId = partitionIndexTabletMap
+                            .get(task.getPartitionId(), task.getIndexId()).get(task.getTabletId());
+                    long originIdxId = indexIdMap.get(task.getIndexId());
+                    Tablet tablet =
+                            tbl.getPartition(task.getPartitionId()).getIndex(originIdxId).getTablet(originTabletId);
+                    // cooldown replica id is current backend replica id means the tablet is a cooldown tablet,
+                    // only one replica will really do linked schema change for cooldown replica
+                    long replicaId = tablet.getReplicaByBackendId(task.getBackendId()).getId();
+                    if (tablet.getCooldownReplicaId() == replicaId && isLinkedSchemaChangeTask(tbl, task)) {
+                        String errMsg = beAlive ? task.getErrorMsg() : String.format("backend %d is not alive",
+                                task.getBackendId());
+                        throw new AlterCancelException(
+                                String.format("cooldown tablet schema change tasks failed, error reason: %s", errMsg));
+                    }
+                }
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
@@ -606,6 +623,52 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
         // Drop table column stats after schema change finished.
         Env.getCurrentEnv().getAnalysisManager().dropStats(tbl);
+    }
+
+    // check if this task does linked shcema change
+    private boolean isLinkedSchemaChangeTask(OlapTable olapTable, AgentTask task) {
+        long shadowIndexId = task.getIndexId();
+        long originIndexId = indexIdMap.get(shadowIndexId);
+        List<Column> originSchema = olapTable.getSchemaByIndexId(originIndexId);
+        List<Column> shadowSchema = indexSchemaMap.get(shadowIndexId);
+        long originKeyNum = originSchema.stream().filter(Column::isKey).count();
+        long shadowKeyNum = shadowSchema.stream().filter(Column::isKey).count();
+
+        long originShortKeyNum = olapTable.getIndexMetaByIndexId(originIndexId).getShortKeyColumnCount();
+        // the number of short_keys changed
+        if (indexShortKeyMap.get(shadowIndexId) != originShortKeyNum) {
+            return false;
+        }
+        for (int i = 0; i < originShortKeyNum; ++i) {
+            // modify short key column
+            if (originSchema.get(i) != shadowSchema.get(i)) {
+                return false;
+            }
+        }
+        // index changed
+        if (hasBfChange || indexChange) {
+            return false;
+        }
+        // add key column
+        if (originKeyNum < shadowKeyNum
+                && olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            return false;
+        }
+        // drop key column, the new table should be re agg.
+        if (originKeyNum > shadowKeyNum && olapTable.getKeysType() != KeysType.DUP_KEYS) {
+            return false;
+        }
+        if (originKeyNum == shadowKeyNum) {
+            // reorder or modify key column
+            for (int i = 0; i < originKeyNum; ++i) {
+                if (originSchema.get(i) != shadowSchema.get(i)) {
+                    return false;
+                }
+            }
+        }
+        // TODO: if exists delete condition in tablet, can't do linked schema change
+        return true;
     }
 
     private void onFinished(OlapTable tbl) {

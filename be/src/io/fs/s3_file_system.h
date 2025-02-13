@@ -107,6 +107,8 @@ protected:
         }
     }
 
+    Status copy_path_impl(const Path& src, const Path& dest) override;
+
 private:
     S3FileSystem(S3Conf&& s3_conf, std::string&& id, RuntimeProfile* profile);
 
