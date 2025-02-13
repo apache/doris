@@ -15,36 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/hdfs_util.h"
+#include "io/hdfs_util.h"
+
+#include <bthread/bthread.h>
+#include <bthread/butex.h>
+#include <bvar/latency_recorder.h>
 
 #include <ostream>
+#include <thread>
 
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_builder.h"
+#include "vec/common/string_ref.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
-HDFSHandle& HDFSHandle::instance() {
-    static HDFSHandle hdfs_handle;
-    return hdfs_handle;
-}
-
-hdfsFS HDFSHandle::create_hdfs_fs(HDFSCommonBuilder& hdfs_builder) {
-    hdfsFS hdfs_fs = hdfsBuilderConnect(hdfs_builder.get());
-    if (hdfs_fs == nullptr) {
-        LOG(WARNING) << "connect to hdfs failed."
-                     << ", error: " << hdfs_error();
-        return nullptr;
-    }
-    return hdfs_fs;
-}
+namespace hdfs_bvar {
+bvar::LatencyRecorder hdfs_read_latency("hdfs_read");
+bvar::LatencyRecorder hdfs_write_latency("hdfs_write");
+bvar::LatencyRecorder hdfs_create_dir_latency("hdfs_create_dir");
+bvar::LatencyRecorder hdfs_open_latency("hdfs_open");
+bvar::LatencyRecorder hdfs_close_latency("hdfs_close");
+bvar::LatencyRecorder hdfs_flush_latency("hdfs_flush");
+bvar::LatencyRecorder hdfs_hflush_latency("hdfs_hflush");
+bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
+}; // namespace hdfs_bvar
 
 Path convert_path(const Path& path, const std::string& namenode) {
     std::string fs_path;
-    if (path.native().starts_with(namenode)) {
-        // `path` is URI format, remove the namenode part in `path`
+    if (path.native().find(namenode) != std::string::npos) {
+        // `path` is uri format, remove the namenode part in `path`
+        // FIXME(plat1ko): Not robust if `namenode` doesn't appear at the beginning of `path`
         fs_path = path.native().substr(namenode.size());
     } else {
         fs_path = path;
@@ -61,5 +63,4 @@ bool is_hdfs(const std::string& path_or_fs) {
     return path_or_fs.rfind("hdfs://") == 0;
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
