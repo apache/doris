@@ -154,16 +154,21 @@ public:
     }
 
     std::string debug_string() const {
-        return fmt::format(
-                "Wrapper: [filter_id: {}, state: {}, type: {}({}), build_bf_cardinality: {}, "
-                "error_msg: "
-                "[{}]]",
-                _filter_id, _to_string(_state), to_string(_filter_type), to_string(get_real_type()),
-                get_build_bf_cardinality(), _err_msg);
+        auto result = fmt::format(
+                "Wrapper: [filter_id: {}, state: {}, type: {}({}), column_type: {}", _filter_id,
+                to_string(_state), filter_type_to_string(_filter_type),
+                filter_type_to_string(get_real_type()), type_to_string(_column_return_type));
+        if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
+            result += fmt::format(", build_bf_cardinality: {}", get_build_bf_cardinality());
+        }
+        if (!_err_msg.empty()) {
+            result += fmt::format(", error_msg: {}", _err_msg);
+        }
+        return result;
     }
 
     void set_state(State state) {
-        if (_state == State::DISABLED || _state == State::READY) {
+        if (_state == State::DISABLED) {
             return;
         }
 
@@ -172,8 +177,15 @@ public:
 
     State get_state() const { return _state; }
 
-private:
-    static std::string _to_string(const State& state) {
+    void check_state(std::vector<State> assumed_states) const {
+        if (!check_state<RuntimeFilterWrapper>(_state, assumed_states)) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "producer meet invalid state, {}, assumed_states is {}", debug_string(),
+                            states_to_string<RuntimeFilterWrapper>(assumed_states));
+        }
+    }
+
+    static std::string to_string(const State& state) {
         switch (state) {
         case State::IGNORED:
             return "IGNORED";
@@ -191,6 +203,7 @@ private:
         }
     }
 
+private:
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;

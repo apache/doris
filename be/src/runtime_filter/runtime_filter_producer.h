@@ -36,7 +36,7 @@ public:
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start) {
-        if (_rf_state == State::READY_TO_PUBLISH) {
+        if (_rf_state == State::READY_TO_PUBLISH || _rf_state == State::PUBLISHED) {
             return;
         }
         _check_state({State::WAITING_FOR_DATA});
@@ -70,11 +70,9 @@ public:
     };
 
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state) {
-        if (_rf_state == State::READY_TO_PUBLISH) {
-            return;
+        if (_set_state(State::READY_TO_PUBLISH)) {
+            _wrapper->set_state(state);
         }
-        _wrapper->set_state(state);
-        _rf_state = State::READY_TO_PUBLISH;
     }
 
     void disable_meaningless_filters(std::unordered_set<int>& has_in_filter,
@@ -122,6 +120,14 @@ private:
                             "producer meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterProducer>(assumed_states));
         }
+    }
+
+    bool _set_state(State state) {
+        if (_rf_state == State::PUBLISHED || _rf_state == State::READY_TO_PUBLISH) {
+            return false;
+        }
+        _rf_state = state;
+        return true;
     }
 
     bool _is_broadcast_join;

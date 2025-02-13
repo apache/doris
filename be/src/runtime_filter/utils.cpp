@@ -22,7 +22,7 @@
 
 namespace doris {
 
-std::string to_string(RuntimeFilterType type) {
+std::string filter_type_to_string(RuntimeFilterType type) {
     switch (type) {
     case RuntimeFilterType::IN_FILTER: {
         return "in";
