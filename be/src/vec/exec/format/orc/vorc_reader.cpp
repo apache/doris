@@ -2342,8 +2342,8 @@ Status OrcReader::on_string_dicts_loaded(
         Block temp_block;
         int dict_pos = -1;
         int index = 0;
-        for (auto* const slot_desc : _tuple_descriptor->slots()) {
-            if (!slot_desc->need_materialize()) {
+        for (const auto slot_desc : _tuple_descriptor->slots()) {
+            if (!slot_desc->is_materialized()) {
                 // should be ignored from reading
                 continue;
             }
