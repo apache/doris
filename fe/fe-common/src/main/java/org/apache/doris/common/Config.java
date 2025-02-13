@@ -1899,10 +1899,10 @@ public class Config extends ConfigBase {
             + "be automatically selected."})
     public static int insert_task_queue_size = 1024;
     @ConfField(masterOnly = true, description = { "字典导入 task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
-                    + " 的 2 的幂次方数",
-                    "The size of the Dictionary loading task's waiting queue If the size is negative, 1024 will be used."
-                                    + " If the size is not a power of two, the nearest power of the size will "
-                                    + "be automatically selected." })
+            + " 的 2 的幂次方数",
+            "The size of the Dictionary loading task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected." })
     public static int dictionary_task_queue_size = 1024;
 
     @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",

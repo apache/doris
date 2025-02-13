@@ -20,6 +20,7 @@ package org.apache.doris.dictionary;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -49,7 +50,7 @@ public class DictionaryTask extends AbstractTask {
     }
 
     @Override
-    public void run() {
+    public void run() throws JobException {
         LOG.info("begin execute dictionary task, taskId: {}, dictionaryId: {}, context: {}", 
                 getTaskId(), dictionaryId, taskContext);
 
@@ -60,6 +61,8 @@ public class DictionaryTask extends AbstractTask {
             return;
         }
 
+        DictionaryJob job = (DictionaryJob) getJobOrJobException();
+        job.writeLock();
         try {
             if (taskContext.isLoad()) {
                 Env.getCurrentEnv().getDictionaryManager().dataLoad(null, dictionary);
@@ -69,6 +72,8 @@ public class DictionaryTask extends AbstractTask {
             LOG.info("finish execute dictionary task, taskId: {}, dictionaryId: {}", getTaskId(), dictionaryId);
         } catch (Exception e) {
             LOG.warn("execute dictionary task failed, taskId: {}, dictionaryId: {}", getTaskId(), dictionaryId, e);
+        } finally {
+            job.writeUnlock();
         }
     }
 

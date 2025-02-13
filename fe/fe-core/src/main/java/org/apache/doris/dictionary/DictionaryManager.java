@@ -33,7 +33,6 @@ import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -109,7 +108,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
     public DictionaryManager() {
         super("Dictionary Manager", Config.dictionary_auto_refresh_interval_seconds * 1000);
-        registerLoadJob();
     }
 
     private void registerLoadJob() {
@@ -123,6 +121,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             Env.getCurrentEnv().getJobManager().registerJob(job);
         } catch (JobException e) {
             LOG.warn("Failed to register dictionary job", e);
+            job = null; // wait re-register it
         }
     }
 
@@ -139,6 +138,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
     @Override
     protected void runAfterCatalogReady() {
+        // wait Env completed. expacted only run one time.
+        if (job == null) {
+            registerLoadJob();
+        }
         // interval unit is ms
         setInterval(Config.dictionary_auto_refresh_interval_seconds * 1000);
         // Check and update dictionary data in each cycle
@@ -198,6 +201,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // 3. Log the creation operation
             Env.getCurrentEnv().getEditLog().logCreateDictionary(dictionary);
 
+            submitDataLoad(dictionary);
             return dictionary;
         } finally {
             unlockWrite();
@@ -212,7 +216,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     public void dropDictionary(ConnectContext ctx, String dbName, String dictName, boolean ifExists)
             throws DdlException {
         lockWrite();
-        Dictionary dic = null;
+        Dictionary dictionary = null;
         try {
             Map<String, Dictionary> dbDictionaries = dictionaries.get(dbName);
             if (dbDictionaries == null || !dbDictionaries.containsKey(dictName)) {
@@ -221,11 +225,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 }
                 return;
             }
-            dic = dbDictionaries.remove(dictName);
+            dictionary = dbDictionaries.remove(dictName);
 
             // remove mapping from table to dict
-            dbTableToDicNames.get(dbName).remove(dic.getSourceTableName(), dictName);
-            idToDictionary.remove(dic.getId());
+            dbTableToDicNames.get(dbName).remove(dictionary.getSourceTableName(), dictName);
+            idToDictionary.remove(dictionary.getId());
 
             // Log the drop operation
             Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, dictName);
@@ -234,7 +238,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
         // submit an async task, not block here. if failed, just rely on
         // checkAndUpdateDictionaries() to drop unrecognized dictionary.
-        submitDataUnload(dic);
+        submitDataUnload(dictionary);
     }
 
     /**
@@ -376,7 +380,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     private void submitDataLoad(Dictionary dictionary) {
-        job.submitDataLoad(dictionary);
+        if (job.submitDataLoad(dictionary)) {
+            LOG.info("submit dictionary load of " + dictionary.getName());
+        }
     }
 
     public void dataLoad(ConnectContext ctx, Dictionary dictionary) throws Exception {
@@ -385,7 +391,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
                     + dictionary.getStatus().name());
         }
-
+        LOG.info("Start loading data into dictionary " + dictionary.getName());
         if (ctx == null) { // for run with scheduler, not by command.
             // priv check is done in relative(caller) command. so use ADMIN here is ok.
             ctx = InsertTask.makeConnectContext(job.getCreateUser(), dictionary.getDbName());
@@ -429,7 +435,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     // we dont care whether it's succeed or not. if failed, rely on
     // checkAndUpdateDictionaries() to drop it.
     private void submitDataUnload(Dictionary dictionary) {
-        job.submitDataUnload(dictionary);
+        if (job.submitDataUnload(dictionary)) {
+            LOG.info("submit dictionary unload of " + dictionary.getName());
+        }
     }
 
     public boolean dataUnload(Dictionary dictionary) {

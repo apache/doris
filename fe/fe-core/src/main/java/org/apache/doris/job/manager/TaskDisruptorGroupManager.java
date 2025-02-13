@@ -68,7 +68,6 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.insert_task_queue_size);
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.mtmv_task_queue_size);
-
     private static final int DISPATCH_DICTIONARY_TASK_QUEUE_SIZE = normalizeRingbufferSize(
             Config.dictionary_task_queue_size);
 

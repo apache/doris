@@ -20,6 +20,7 @@ package org.apache.doris.dictionary;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
@@ -34,6 +35,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -72,6 +74,7 @@ public class DictionaryJob extends AbstractJob<DictionaryTask, DictionaryTaskCon
     private Set<Long> dictionaries = Sets.newConcurrentHashSet();
 
     public DictionaryJob() {
+        super.setCreateTimeMs(System.currentTimeMillis());
         jobRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -85,11 +88,13 @@ public class DictionaryJob extends AbstractJob<DictionaryTask, DictionaryTaskCon
         LOG.info("begin create dictionary task, jobId: {}, taskContext: {}", super.getJobId(), taskContext);
         ArrayList<DictionaryTask> tasks = Lists.newArrayList();
         
-        // Create tasks for all dictionaries
-        DictionaryTask task = new DictionaryTask(taskContext.getDictionary().getId(), taskContext);
-        task.setTaskType(taskType);
-        tasks.add(task);
-        super.initTasks(tasks, taskType);
+        if (taskContext != null) { // for register job
+            // Create tasks for all dictionaries
+            DictionaryTask task = new DictionaryTask(taskContext.getDictionary().getId(), taskContext);
+            task.setTaskType(taskType);
+            tasks.add(task);
+            super.initTasks(tasks, taskType);
+        }
 
         LOG.info("finish create dictionary tasks, count: {}", tasks.size());
         return tasks;
@@ -98,7 +103,7 @@ public class DictionaryJob extends AbstractJob<DictionaryTask, DictionaryTaskCon
     @Override
     public boolean isReadyForScheduling(DictionaryTaskContext taskContext) {
         // Only allow one batch of tasks at a time
-        return getRunningTasks().isEmpty();
+        return getRunningTasks().size() < Config.job_dictionary_task_consumer_thread_num;
     }
 
     @Override
@@ -127,26 +132,43 @@ public class DictionaryJob extends AbstractJob<DictionaryTask, DictionaryTaskCon
         return String.format("Dictionary task %d is not ready because queue is full", taskId);
     }
 
-    public void submitDataLoad(Dictionary dictionary) {
+    public boolean submitDataLoad(Dictionary dictionary) {
         try {
             DictionaryTaskContext context = new DictionaryTaskContext(true, dictionary);
             Env.getCurrentEnv().getJobManager().triggerJob(getJobId(), context);
         } catch (JobException e) {
             LOG.warn("Failed to submit data load for dictionary: {}", dictionary.getId(), e);
+            return false;
         }
+        return true;
     }
 
-    public void submitDataUnload(Dictionary dictionary) {
+    public boolean submitDataUnload(Dictionary dictionary) {
         try {
             DictionaryTaskContext context = new DictionaryTaskContext(false, dictionary);
             Env.getCurrentEnv().getJobManager().triggerJob(getJobId(), context);
         } catch (JobException e) {
             LOG.warn("Failed to submit data unload for dictionary: {}", dictionary.getId(), e);
+            return false;
         }
+        return true;
+    }
+
+    public void writeLock() {
+        this.jobRwLock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        this.jobRwLock.writeLock().unlock();
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static Dictionary read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Dictionary.class);
     }
 }

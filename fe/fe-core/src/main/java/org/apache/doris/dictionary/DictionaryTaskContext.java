@@ -17,12 +17,20 @@
 
 package org.apache.doris.dictionary;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.gson.annotations.SerializedName;
 
 /**
  * Context for dictionary task execution
  */
-public class DictionaryTaskContext {
+public class DictionaryTaskContext implements Writable {
     @SerializedName(value = "il")
     private final boolean isLoad; // true for load, false for unload
 
@@ -48,5 +56,16 @@ public class DictionaryTaskContext {
                 "isLoad=" + isLoad +
                 ", dictionary=" + dictionary +
                 '}';
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static Dictionary read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Dictionary.class);
     }
 }
