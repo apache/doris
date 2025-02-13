@@ -31,11 +31,7 @@
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
 
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
