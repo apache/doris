@@ -256,7 +256,7 @@ public class RestoreJobTest {
         db.unregisterTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false,
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false, false, false,
                 env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();

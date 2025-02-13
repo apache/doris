@@ -41,27 +41,24 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
     _type = type;
     if (_type == ExchangeType::HASH_SHUFFLE) {
+        _shuffle_idx_to_instance_idx.clear();
         _use_global_shuffle = use_global_hash_shuffle;
         // For shuffle join, if data distribution has been broken by previous operator, we
         // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
         // we should use map shuffle idx to instance idx because all instances will be
         // distributed to all BEs. Otherwise, we should use shuffle idx directly.
         if (use_global_hash_shuffle) {
-            std::for_each(shuffle_idx_to_instance_idx.begin(), shuffle_idx_to_instance_idx.end(),
-                          [&](const auto& item) {
-                              DCHECK(item.first != -1);
-                              _shuffle_idx_to_instance_idx.push_back({item.first, item.second});
-                          });
+            _shuffle_idx_to_instance_idx = shuffle_idx_to_instance_idx;
         } else {
-            _shuffle_idx_to_instance_idx.resize(_num_partitions);
             for (int i = 0; i < _num_partitions; i++) {
-                _shuffle_idx_to_instance_idx[i] = {i, i};
+                _shuffle_idx_to_instance_idx[i] = i;
             }
         }
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
                 _num_partitions));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        DCHECK_GT(num_buckets, 0);
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
@@ -90,6 +87,9 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                 "UseGlobalShuffle",
                 std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._use_global_shuffle));
     }
+    _profile->add_info_string(
+            "PartitionExprsSize",
+            std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._partitioned_exprs_num));
     _channel_id = info.task_idx;
     return Status::OK();
 }
@@ -110,6 +110,18 @@ Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_close_timer);
+    if (Base::_closed) {
+        return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->sub_running_sink_operators();
+    }
+    return Base::close(state, exec_status);
+}
+
 std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
@@ -128,15 +140,15 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
+    RETURN_IF_ERROR(local_state._exchanger->sink(
+            state, in_block, eos,
+            {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
+            {&local_state._channel_id, local_state._partitioner.get(), &local_state,
+             &_shuffle_idx_to_instance_idx}));
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
-        local_state._shared_state->sub_running_sink_operators();
         return Status::EndOfFile("receiver eof");
-    }
-    if (eos) {
-        local_state._shared_state->sub_running_sink_operators();
     }
 
     return Status::OK();

@@ -17,7 +17,7 @@
 
 suite("connect_action") {
     logger.info("ok")
-    def result1 = connect(user = 'admin', password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+    def result1 = connect('admin', context.config.jdbcPassword, context.config.jdbcUrl) {
         // execute sql with admin user
         sql 'select 99 + 1'
     }

@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
@@ -42,6 +43,7 @@
 #include "vec/sink/writer/vtablet_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs>
 VRowDistribution::_get_partition_function() {
@@ -50,7 +52,7 @@ VRowDistribution::_get_partition_function() {
 
 Status VRowDistribution::_save_missing_values(
         std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
-        int col_size, Block* block, std::vector<int64_t> filter,
+        int col_size, Block* block, const std::vector<int64_t>& filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
     RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
@@ -102,7 +104,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     int time_out = _state->execution_timeout() * 1000;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -175,7 +177,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "auto detect replace partition request: " << request;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     int time_out = _state->execution_timeout() * 1000;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -224,7 +226,10 @@ void VRowDistribution::_filter_block_by_skip(vectorized::Block* block,
     auto& partition_ids = row_part_tablet_id.partition_ids;
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
 
-    for (size_t i = 0; i < block->rows(); i++) {
+    auto rows = block->rows();
+    // row count of a block should not exceed UINT32_MAX
+    auto rows_uint32 = cast_set<uint32_t>(rows);
+    for (uint32_t i = 0; i < rows_uint32; i++) {
         if (!_skip[i]) {
             row_ids.emplace_back(i);
             partition_ids.emplace_back(_partitions[i]->id);
@@ -249,7 +254,10 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
     if (const auto* nullable_column =
                 vectorized::check_and_get_column<vectorized::ColumnNullable>(*filter_column)) {
-        for (size_t i = 0; i < block->rows(); i++) {
+        auto rows = block->rows();
+        // row count of a block should not exceed UINT32_MAX
+        auto rows_uint32 = cast_set<uint32_t>(rows);
+        for (uint32_t i = 0; i < rows_uint32; i++) {
             if (nullable_column->get_bool_inline(i) && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
@@ -266,7 +274,10 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         _filter_block_by_skip(block, row_part_tablet_id);
     } else {
         const auto& filter = assert_cast<const vectorized::ColumnUInt8&>(*filter_column).get_data();
-        for (size_t i = 0; i < block->rows(); i++) {
+        auto rows = block->rows();
+        // row count of a block should not exceed UINT32_MAX
+        auto rows_uint32 = cast_set<uint32_t>(rows);
+        for (uint32_t i = 0; i < rows_uint32; i++) {
             if (filter[i] != 0 && !_skip[i]) {
                 row_ids.emplace_back(i);
                 partition_ids.emplace_back(_partitions[i]->id);
@@ -299,7 +310,7 @@ Status VRowDistribution::_filter_block(vectorized::Block* block,
 Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
         vectorized::Block* block, bool has_filtered_rows,
         std::vector<RowPartTabletIds>& row_part_tablet_ids) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
 
     bool stop_processing = false;
     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
@@ -318,7 +329,7 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
                                            int64_t& rows_stat_val) {
     // for missing partition keys, calc the missing partition and save in _partitions_need_create
     auto [part_ctxs, part_exprs] = _get_partition_function();
-    auto part_col_num = part_exprs.size();
+    int part_col_num = cast_set<int>(part_exprs.size());
     // the two vectors are in column-first-order
     std::vector<std::vector<std::string>> col_strs;
     std::vector<const NullMap*> col_null_maps;
@@ -363,10 +374,10 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
         vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
     std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
 
-    auto partition_col = block->get_by_position(partition_keys[0]);
+    auto& partition_col = block->get_by_position(partition_keys[0]);
     _missing_map.clear();
     _missing_map.reserve(partition_col.column->size());
     bool stop_processing = false;
@@ -393,7 +404,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
 
     // for non-auto-partition situation, goes into two 'else' branch. just find the origin partitions, replace them by rpc,
     //  and find the new partitions to use.
@@ -504,7 +515,7 @@ Status VRowDistribution::generate_rows_distribution(
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
             DCHECK(result_idx != -1);
 
-            partition_cols_idx.push_back(result_idx);
+            partition_cols_idx.push_back(cast_set<uint16_t>(result_idx));
         }
 
         // change the column to compare to transformed.

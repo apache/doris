@@ -265,7 +265,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -289,9 +288,16 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
+                            bool need_set_mark_runtime_filter_predicate =
+                                    value_range.is_whole_value_range() &&
+                                    conjunct_expr_root->is_rf_wrapper();
                             Defer mark_runtime_filter_flag {[&]() {
-                                value_range.mark_runtime_filter_predicate(
-                                        _is_runtime_filter_predicate);
+                                // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
+                                // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
+                                // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
+                                if (need_set_mark_runtime_filter_predicate) {
+                                    value_range.mark_runtime_filter_predicate(true);
+                                }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
@@ -375,7 +381,7 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
                                                         vectorized::VExprContext* expr_ctx,
                                                         SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 1);
+        DCHECK(expr->get_num_children() == 1);
         PushDownType temp_pdt = _should_push_down_bloom_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
@@ -391,7 +397,7 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
                                                          vectorized::VExprContext* expr_ctx,
                                                          SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 1);
+        DCHECK(expr->get_num_children() == 1);
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             _filter_predicates.bitmap_filters.emplace_back(slot->col_name(),
@@ -520,8 +526,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const auto* const_column =
-                    check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr)) {
+        if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
+                    const_col_wrapper->column_ptr.get())) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
@@ -530,7 +536,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             }
         } else if (const auto* bool_column =
                            check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
-                                   const_col_wrapper->column_ptr)) {
+                                   const_col_wrapper->column_ptr.get())) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
@@ -620,7 +626,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         range.intersection(temp_range);
         *pdt = PushDownType::ACCEPTABLE;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->get_num_children() == 2);
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
 
         StringRef value;
@@ -690,7 +696,7 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
-                        const_col_wrapper->column_ptr)) {
+                        const_col_wrapper->column_ptr.get())) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
             } else {
@@ -769,7 +775,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             iter->next();
         }
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->get_num_children() == 2);
 
         auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         StringRef value;
@@ -924,7 +930,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
         ColumnValueRange<T>& range, PushDownType* pdt) {
     if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->get_num_children() == 2);
 
         auto noneq_checker = [](const std::string& fn_name) {
             return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
@@ -988,9 +994,18 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
+    // If scan operator is serial operator(like topn), its real parallelism is 1.
+    // Otherwise, its real parallelism is query_parallel_instance_num.
+    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
+    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
+    // Related pr:
+    // https://github.com/apache/doris/pull/42460
+    // https://github.com/apache/doris/pull/44635
+    const int parallism_of_scan_operator =
+            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.is_serial_operator());
+            _scan_dependency, parallism_of_scan_operator);
     return Status::OK();
 }
 
@@ -1034,10 +1049,7 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
     _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
-    _total_throughput_counter =
-            profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    _scanner_peak_memory_usage = _peak_memory_usage_counter;
     //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
@@ -1046,24 +1058,18 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
-    // time of transfer thread to wait for block from scan thread
-    _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
-    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-    _scanner_ctx_sched_time = ADD_TIMER(_scanner_profile, "ScannerCtxSchedTime");
-
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
+    _max_scan_concurrency = ADD_COUNTER(_runtime_profile, "MaxScanConcurrency", TUnit::UNIT);
+    _min_scan_concurrency = ADD_COUNTER(_runtime_profile, "MinScanConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
@@ -1194,12 +1200,16 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
             DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (tnode.limit > 0 &&
-                tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
-                _should_run_serial = true;
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+                if (tnode.limit > 0 &&
+                    tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
+                    _should_run_serial = true;
+                }
             }
         }
     }
+
+    _query_parallel_instance_num = state->query_parallel_instance_num();
 
     return Status::OK();
 }
@@ -1284,6 +1294,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     if (*eos) {
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);
+        local_state._scanner_profile->add_info_string("EOS", "True");
     }
 
     return Status::OK();

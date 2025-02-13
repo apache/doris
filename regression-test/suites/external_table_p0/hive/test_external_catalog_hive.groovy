@@ -154,7 +154,7 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
         sql """GRANT SELECT_PRIV on *.*.* to '${user}'"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """switch hms;"""
             test {
                 sql "show tables"

@@ -355,14 +355,14 @@ public:
     /// The index is signed to access -1th element without pointer overflow.
     T& operator[](ssize_t n) {
         /// <= size, because taking address of one element past memory range is Ok in C++ (expression like &arr[arr.size()] is perfectly valid).
-        assert((n >= (static_cast<ssize_t>(pad_left_) ? -1 : 0)) &&
-               (n <= static_cast<ssize_t>(this->size())));
+        DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
+        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 
     const T& operator[](ssize_t n) const {
-        assert((n >= (static_cast<ssize_t>(pad_left_) ? -1 : 0)) &&
-               (n <= static_cast<ssize_t>(this->size())));
+        DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
+        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 

@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
@@ -39,6 +40,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
@@ -97,7 +99,10 @@ public:
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
-        _child = std::move(child);
+        if (_child && child != nullptr) {
+            return Status::InternalError("Child is already set in node name={}", get_name());
+        }
+        _child = child;
         return Status::OK();
     }
 
@@ -165,9 +170,6 @@ public:
 
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
-    RuntimeProfile::HighWaterMarkCounter* peak_memory_usage_counter() {
-        return _peak_memory_usage_counter;
-    }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
@@ -202,11 +204,10 @@ protected:
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
-    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    // Account for current memory and peak memory used by this node
+    RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _projection_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
-    // Account for peak memory used by this node
-    RuntimeProfile::HighWaterMarkCounter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
@@ -348,9 +349,6 @@ public:
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
-    RuntimeProfile::HighWaterMarkCounter* peak_memory_usage_counter() {
-        return _peak_memory_usage_counter;
-    }
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
@@ -380,8 +378,7 @@ protected:
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
-    RuntimeProfile::Counter* _memory_used_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _peak_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
 
     std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
@@ -433,14 +430,14 @@ private:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
-
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
+#endif
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -508,8 +505,6 @@ public:
 
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
-    void set_dests_id(const std::vector<int>& dest_id) { _dests_id = dest_id; }
-
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int node_id() const { return _node_id; }
@@ -540,14 +535,14 @@ protected:
 template <typename LocalStateType>
 class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
-    DataSinkOperatorX(int operator_id, const int node_id)
-            : DataSinkOperatorXBase(operator_id, node_id) {}
-
     DataSinkOperatorX(const int id, const int node_id, const int source_id)
             : DataSinkOperatorXBase(id, node_id, source_id) {}
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorX() = default;
+#endif
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -615,8 +610,6 @@ public:
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-        }
-        if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor = std::make_unique<RowDescriptor>(
                     descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
@@ -637,14 +630,16 @@ public:
               _node_id(node_id),
               _pool(pool),
               _limit(-1) {}
+
+#ifdef BE_TEST
+    OperatorXBase() : _operator_id(-1), _node_id(0), _limit(-1) {};
+#endif
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
-        LOG(FATAL) << "should not reach here!";
-        return Status::OK();
+        throw Exception(Status::FatalError("should not reach here!"));
     }
     virtual Status init(ExchangeType type) {
-        LOG(FATAL) << "should not reach here!";
-        return Status::OK();
+        throw Exception(Status::FatalError("should not reach here!"));
     }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
@@ -652,6 +647,8 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
 
+    // Tablets should be hold before open phase.
+    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status open(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -730,6 +727,9 @@ public:
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
 
+    // To keep compatibility with older FE
+    void set_serial_operator() { _is_serial_operator = true; }
+
 protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
@@ -778,6 +778,11 @@ public:
             : OperatorXBase(pool, tnode, operator_id, descs) {}
     OperatorX(ObjectPool* pool, int node_id, int operator_id)
             : OperatorXBase(pool, node_id, operator_id) {};
+
+#ifdef BE_TEST
+    OperatorX() = default;
+#endif
+
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
@@ -796,6 +801,11 @@ public:
     StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+
+#ifdef BE_TEST
+    StreamingOperatorX() = default;
+#endif
+
     virtual ~StreamingOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -833,9 +843,9 @@ public:
 
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
-class AsyncWriterSink : public PipelineXSinkLocalState<FakeSharedState> {
+class AsyncWriterSink : public PipelineXSinkLocalState<BasicSharedState> {
 public:
-    using Base = PipelineXSinkLocalState<FakeSharedState>;
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _async_writer_dependency(nullptr) {
         _finish_dependency =
@@ -864,4 +874,5 @@ protected:
     std::shared_ptr<Dependency> _finish_dependency;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

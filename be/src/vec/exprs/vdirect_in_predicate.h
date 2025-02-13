@@ -22,6 +22,8 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
 
@@ -52,7 +54,7 @@ public:
 
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
-                                  std::vector<size_t>& args) override {
+                                  ColumnNumbers& args) override {
         return _do_execute(context, block, result_column_id, args);
     }
 
@@ -62,7 +64,7 @@ public:
 
 private:
     Status _do_execute(VExprContext* context, Block* block, int* result_column_id,
-                       std::vector<size_t>& arguments) {
+                       ColumnNumbers& arguments) {
         DCHECK(_open_finished || _getting_const_col);
         arguments.resize(_children.size());
         for (int i = 0; i < _children.size(); ++i) {
@@ -71,7 +73,7 @@ private:
             arguments[i] = column_id;
         }
 
-        size_t num_columns_without_result = block->columns();
+        uint32_t num_columns_without_result = block->columns();
         auto res_data_column = ColumnVector<UInt8>::create(block->rows());
         ColumnPtr argument_column =
                 block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -99,4 +101,6 @@ private:
     std::shared_ptr<HybridSetBase> _filter;
     std::string _expr_name;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

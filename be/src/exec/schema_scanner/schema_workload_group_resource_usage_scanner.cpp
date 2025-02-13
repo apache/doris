@@ -28,6 +28,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendWorkloadGroupResourceUsage::_s_tbls_columns = {
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
@@ -70,7 +72,7 @@ Status SchemaBackendWorkloadGroupResourceUsage::get_next_block_internal(vectoriz
         }
 
         ExecEnv::GetInstance()->workload_group_mgr()->get_wg_resource_usage(_block.get());
-        _total_rows = _block->rows();
+        _total_rows = (int)_block->rows();
     }
 
     if (_row_idx == _total_rows) {

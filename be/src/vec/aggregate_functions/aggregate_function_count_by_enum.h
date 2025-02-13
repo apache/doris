@@ -32,6 +32,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct CountByEnumData {
     std::unordered_map<std::string, uint64_t> cbe;
@@ -46,8 +47,7 @@ void build_json_from_vec(rapidjson::StringBuffer& buffer,
     doc.SetArray();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-    int vec_size_number = data_vec.size();
-    for (int idx = 0; idx < vec_size_number; ++idx) {
+    for (size_t idx = 0; idx < data_vec.size(); ++idx) {
         rapidjson::Value obj(rapidjson::kObjectType);
 
         rapidjson::Value obj_cbe(rapidjson::kObjectType);
@@ -197,7 +197,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         for (int i = 0; i < arg_count; i++) {
             const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
             if (nullable_column == nullptr) {
@@ -217,7 +217,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -240,3 +240,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

@@ -33,13 +33,10 @@ inline std::vector<vectorized::DataTypePtr> get_data_types(
 template <typename DataVariants>
 Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTypePtr>& data_types,
                         bool is_first_phase) {
-    auto type = get_hash_key_type_with_phase(get_hash_key_type(data_types), !is_first_phase);
+    auto type = HashKeyType::EMPTY;
     try {
-        if (has_nullable_key(data_types)) {
-            data->template init<true>(data_types, type);
-        } else {
-            data->template init<false>(data_types, type);
-        }
+        type = get_hash_key_type_with_phase(get_hash_key_type(data_types), !is_first_phase);
+        data->init(data_types, type);
     } catch (const Exception& e) {
         // method_variant may meet valueless_by_exception, so we set it to monostate
         data->method_variant.template emplace<std::monostate>();
@@ -48,7 +45,7 @@ Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTy
 
     CHECK(!data->method_variant.valueless_by_exception());
 
-    if (type != HashKeyType::without_key &&
+    if (type != HashKeyType::without_key && type != HashKeyType::EMPTY &&
         data->method_variant.index() == 0) { // index is 0 means variant is monostate
         return Status::InternalError("method_variant init failed");
     }
@@ -57,15 +54,15 @@ Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTy
 
 template <typename MethodVariants, template <typename> typename MethodNullable,
           template <typename, typename> typename MethodOneNumber,
-          template <typename, bool> typename MethodFixed, template <typename> typename DataNullable>
+          template <typename> typename DataNullable>
 struct DataVariants {
     DataVariants() = default;
     DataVariants(const DataVariants&) = delete;
     DataVariants& operator=(const DataVariants&) = delete;
     MethodVariants method_variant;
 
-    template <typename T, typename TT, bool nullable>
-    void emplace_single() {
+    template <typename T, typename TT>
+    void emplace_single(bool nullable) {
         if (nullable) {
             method_variant.template emplace<MethodNullable<MethodOneNumber<T, DataNullable<TT>>>>();
         } else {

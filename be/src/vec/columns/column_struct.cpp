@@ -313,28 +313,10 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
-bool ColumnStruct::could_shrinked_column() {
-    const size_t tuple_size = columns.size();
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->could_shrinked_column()) {
-            return true;
-        }
+void ColumnStruct::shrink_padding_chars() {
+    for (auto& column : columns) {
+        column->shrink_padding_chars();
     }
-    return false;
-}
-
-MutableColumnPtr ColumnStruct::get_shrinked_column() {
-    const size_t tuple_size = columns.size();
-    MutableColumns new_columns(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        if (columns[i]->could_shrinked_column()) {
-            new_columns[i] = columns[i]->get_shrinked_column();
-        } else {
-            new_columns[i] = columns[i]->get_ptr();
-        }
-    }
-    return ColumnStruct::create(std::move(new_columns));
 }
 
 void ColumnStruct::reserve(size_t n) {
@@ -366,6 +348,16 @@ size_t ColumnStruct::allocated_bytes() const {
         res += column->allocated_bytes();
     }
     return res;
+}
+
+bool ColumnStruct::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        if (!columns[i]->has_enough_capacity(*src_concrete.columns[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {

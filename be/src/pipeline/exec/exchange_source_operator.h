@@ -22,6 +22,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ExecNode;
 } // namespace doris
 
@@ -59,6 +60,9 @@ public:
     std::vector<std::shared_ptr<Dependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
+    RuntimeProfile::Counter* get_data_from_recvr_timer = nullptr;
+    RuntimeProfile::Counter* filter_timer = nullptr;
+    RuntimeProfile::Counter* create_merger_timer = nullptr;
 };
 
 class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
@@ -106,4 +110,5 @@ private:
     std::vector<bool> _nulls_first;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

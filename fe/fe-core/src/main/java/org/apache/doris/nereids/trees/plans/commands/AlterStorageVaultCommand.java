@@ -21,10 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import com.google.common.base.Preconditions;
 
 import java.util.Map;
 
@@ -47,6 +50,13 @@ public class AlterStorageVaultCommand extends Command implements ForwardWithSync
         StorageVault.StorageVaultType vaultType = StorageVaultType.fromString(properties.get(TYPE));
         if (vaultType == StorageVault.StorageVaultType.UNKNOWN) {
             throw new AnalysisException("Unsupported Storage Vault type: " + type);
+        }
+
+        FeNameFormat.checkStorageVaultName(name);
+        if (properties.containsKey(StorageVault.VAULT_NAME)) {
+            String newName = properties.get(StorageVault.VAULT_NAME);
+            FeNameFormat.checkStorageVaultName(newName);
+            Preconditions.checkArgument(!name.equalsIgnoreCase(newName), "Vault name has not been changed");
         }
         Env.getCurrentEnv().getStorageVaultMgr().alterStorageVault(vaultType, properties, name);
     }

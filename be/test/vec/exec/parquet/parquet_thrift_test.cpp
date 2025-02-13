@@ -186,9 +186,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                 FieldSchema* field_schema, ColumnPtr& doris_column,
                                 DataTypePtr& data_type, level_t* definitions) {
     tparquet::ColumnMetaData chunk_meta = column_chunk->meta_data;
-    size_t start_offset = chunk_meta.__isset.dictionary_page_offset
-                                  ? chunk_meta.dictionary_page_offset
-                                  : chunk_meta.data_page_offset;
+    size_t start_offset = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
+                                                    : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
 
     cctz::time_zone ctz;
@@ -230,12 +229,14 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     } else {
         data_column = src_column->assume_mutable();
     }
+    FilterMap filter_map;
+    RETURN_IF_ERROR(filter_map.init(nullptr, 0, false));
     ColumnSelectVector run_length_map;
     // decode page data
     if (field_schema->definition_level == 0) {
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
-        run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+        RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
         RETURN_IF_ERROR(
                 chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
     } else {
@@ -249,7 +250,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                     chunk_reader.insert_null_values(data_column, num_values);
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
-                    run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+                    RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
                     RETURN_IF_ERROR(chunk_reader.decode_values(data_column, resolved_type,
                                                                run_length_map, false));
                 }
@@ -264,7 +265,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
             chunk_reader.insert_null_values(data_column, num_values);
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
-            run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+            RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
             RETURN_IF_ERROR(
                     chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }

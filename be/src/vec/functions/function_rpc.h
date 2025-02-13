@@ -48,7 +48,7 @@ public:
     RPCFnImpl(const TFunction& fn);
     ~RPCFnImpl() = default;
     Status vec_call(FunctionContext* context, vectorized::Block& block,
-                    const std::vector<size_t>& arguments, size_t result, size_t input_rows_count);
+                    const ColumnNumbers& arguments, uint32_t result, size_t input_rows_count);
     bool available() { return _client != nullptr; }
 
 private:
@@ -88,14 +88,14 @@ public:
     const DataTypePtr& get_return_type() const override { return _return_type; }
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
-                                const ColumnNumbers& arguments, size_t result) const override {
+                                const ColumnNumbers& arguments, uint32_t result) const override {
         return nullptr;
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) const override;
+                   uint32_t result, size_t input_rows_count, bool dry_run = false) const override;
 
     bool is_use_default_implementation_for_constants() const override { return true; }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_compression", "p0") {
+suite("load") {
     // test snappy compression algorithm
     def tableName = "test_snappy"
 

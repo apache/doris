@@ -37,7 +37,6 @@ suite ("subQuery") {
     sql """insert into subQuery values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into subQuery values("2020-01-03",3,"c",3,3,3);"""
 
-
     createMV("create materialized view subQuery_mv as select deptno, empid from subQuery;")
 
     sleep(3000)
@@ -45,6 +44,8 @@ suite ("subQuery") {
     sql """insert into subQuery values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table subQuery with sync;"
+    sql """alter table subQuery modify column time_col set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from subQuery order by empid;", "subQuery_mv")

@@ -64,16 +64,6 @@ public:
     PInternalService(ExecEnv* exec_env);
     ~PInternalService() override;
 
-    void transmit_data(::google::protobuf::RpcController* controller,
-                       const ::doris::PTransmitDataParams* request,
-                       ::doris::PTransmitDataResult* response,
-                       ::google::protobuf::Closure* done) override;
-
-    void transmit_data_by_http(::google::protobuf::RpcController* controller,
-                               const ::doris::PEmptyRequest* request,
-                               ::doris::PTransmitDataResult* response,
-                               ::google::protobuf::Closure* done) override;
-
     void exec_plan_fragment(google::protobuf::RpcController* controller,
                             const PExecPlanFragmentRequest* request,
                             PExecPlanFragmentResult* result,
@@ -96,6 +86,10 @@ public:
 
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
+
+    void fetch_arrow_data(google::protobuf::RpcController* controller,
+                          const PFetchArrowDataRequest* request, PFetchArrowDataResult* result,
+                          google::protobuf::Closure* done) override;
 
     void outfile_write_success(google::protobuf::RpcController* controller,
                                const POutfileWriteSuccessRequest* request,
@@ -249,11 +243,6 @@ private:
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
-    void _transmit_data(::google::protobuf::RpcController* controller,
-                        const ::doris::PTransmitDataParams* request,
-                        ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
-                        const Status& extract_st);
-
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
@@ -271,6 +260,7 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
+    FifoThreadPool _arrow_flight_work_pool;
 };
 
 // `StorageEngine` mixin for `PInternalService`

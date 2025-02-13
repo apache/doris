@@ -40,6 +40,9 @@ public class MultiCastPlanFragment extends PlanFragment {
         destNodeList.add(exchangeNode);
     }
 
+    public List<ExchangeNode> getDestNodeList() {
+        return destNodeList;
+    }
 
     public List<PlanFragment> getDestFragmentList() {
         return destNodeList.stream().map(PlanNode::getFragment).collect(Collectors.toList());

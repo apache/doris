@@ -49,14 +49,14 @@ public:
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
-    template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableBuild;
 
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     vectorized::Arena _arena;
+
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -68,9 +68,9 @@ public:
     using typename Base::LocalState;
 
     friend class SetSinkLocalState<is_intersect>;
-    SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                     const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id),
+    SetSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                     const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, dest_id),
               _cur_child_id(child_id),
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -40,6 +41,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Extract common expr for `CompoundPredicate`.
@@ -55,16 +57,30 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                  matchesTopType(CompoundPredicate.class).then(ExtractCommonFactorRule::extractCommonFactor)
+                        .toRule(ExpressionRuleType.EXTRACT_COMMON_FACTOR)
         );
     }
 
     private static Expression extractCommonFactor(CompoundPredicate originExpr) {
         // fast return
-        if (!(originExpr.left() instanceof CompoundPredicate || originExpr.left() instanceof BooleanLiteral)
-                && !(originExpr.right() instanceof CompoundPredicate || originExpr.right() instanceof BooleanLiteral)) {
+        boolean canExtract = false;
+        Set<Expression> childrenSet = new LinkedHashSet<>();
+        for (Expression child : originExpr.children()) {
+            if ((child instanceof CompoundPredicate || child instanceof BooleanLiteral)) {
+                canExtract = true;
+            }
+            childrenSet.add(child);
+        }
+        if (!canExtract) {
+            if (childrenSet.size() != originExpr.children().size()) {
+                if (childrenSet.size() == 1) {
+                    return childrenSet.iterator().next();
+                } else {
+                    return originExpr.withChildren(childrenSet.stream().collect(Collectors.toList()));
+                }
+            }
             return originExpr;
         }
-
         // flatten same type to a list
         // e.g. ((a and (b or c)) and c) -> [a, (b or c), c]
         List<Expression> flatten = ExpressionUtils.extract(originExpr);

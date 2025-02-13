@@ -75,12 +75,11 @@ public:
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
-        return node.string_literal.value;
+        return Field(node.string_literal.value);
     }
 
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
     bool is_comparable() const override { return true; }
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {

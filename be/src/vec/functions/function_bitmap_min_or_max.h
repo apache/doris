@@ -50,7 +50,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnInt64::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 

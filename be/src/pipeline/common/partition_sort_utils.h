@@ -123,57 +123,41 @@ public:
 using PartitionDataPtr = PartitionBlocks*;
 using PartitionDataWithStringKey = PHHashMap<StringRef, PartitionDataPtr>;
 using PartitionDataWithShortStringKey = StringHashMap<PartitionDataPtr>;
-using PartitionDataWithUInt8Key = PHHashMap<vectorized::UInt8, PartitionDataPtr>;
-using PartitionDataWithUInt16Key = PHHashMap<vectorized::UInt16, PartitionDataPtr>;
-using PartitionDataWithUInt32Key =
-        PHHashMap<vectorized::UInt32, PartitionDataPtr, HashCRC32<vectorized::UInt32>>;
-using PartitionDataWithUInt64Key =
-        PHHashMap<vectorized::UInt64, PartitionDataPtr, HashCRC32<vectorized::UInt64>>;
-using PartitionDataWithUInt128Key =
-        PHHashMap<vectorized::UInt128, PartitionDataPtr, HashCRC32<vectorized::UInt128>>;
-using PartitionDataWithUInt256Key =
-        PHHashMap<vectorized::UInt256, PartitionDataPtr, HashCRC32<vectorized::UInt256>>;
-using PartitionDataWithUInt136Key =
-        PHHashMap<vectorized::UInt136, PartitionDataPtr, HashCRC32<vectorized::UInt136>>;
+
+template <typename T>
+using PartitionData = PHHashMap<T, PartitionDataPtr, HashCRC32<T>>;
+
+template <typename T>
+using PartitionDataSingle = vectorized::MethodOneNumber<T, PartitionData<T>>;
+
+template <typename T>
+using PartitionDataSingleNullable = vectorized::MethodSingleNullableColumn<
+        vectorized::MethodOneNumber<T, vectorized::DataWithNullKey<PartitionData<T>>>>;
 
 using PartitionedMethodVariants = std::variant<
         std::monostate, vectorized::MethodSerialized<PartitionDataWithStringKey>,
-        vectorized::MethodOneNumber<vectorized::UInt8, PartitionDataWithUInt8Key>,
-        vectorized::MethodOneNumber<vectorized::UInt16, PartitionDataWithUInt16Key>,
-        vectorized::MethodOneNumber<vectorized::UInt32, PartitionDataWithUInt32Key>,
-        vectorized::MethodOneNumber<vectorized::UInt64, PartitionDataWithUInt64Key>,
-        vectorized::MethodOneNumber<vectorized::UInt128, PartitionDataWithUInt128Key>,
-        vectorized::MethodOneNumber<vectorized::UInt256, PartitionDataWithUInt256Key>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt8, vectorized::DataWithNullKey<PartitionDataWithUInt8Key>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt16, vectorized::DataWithNullKey<PartitionDataWithUInt16Key>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt32, vectorized::DataWithNullKey<PartitionDataWithUInt32Key>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt64, vectorized::DataWithNullKey<PartitionDataWithUInt64Key>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt128, vectorized::DataWithNullKey<PartitionDataWithUInt128Key>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt256, vectorized::DataWithNullKey<PartitionDataWithUInt256Key>>>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt64Key, false>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt64Key, true>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt128Key, false>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt128Key, true>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt256Key, false>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt256Key, true>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt136Key, false>,
-        vectorized::MethodKeysFixed<PartitionDataWithUInt136Key, true>,
+        PartitionDataSingle<vectorized::UInt8>, PartitionDataSingle<vectorized::UInt16>,
+        PartitionDataSingle<vectorized::UInt32>, PartitionDataSingle<vectorized::UInt64>,
+        PartitionDataSingle<vectorized::UInt128>, PartitionDataSingle<vectorized::UInt256>,
+        PartitionDataSingleNullable<vectorized::UInt8>,
+        PartitionDataSingleNullable<vectorized::UInt16>,
+        PartitionDataSingleNullable<vectorized::UInt32>,
+        PartitionDataSingleNullable<vectorized::UInt64>,
+        PartitionDataSingleNullable<vectorized::UInt128>,
+        PartitionDataSingleNullable<vectorized::UInt256>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt64>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt128>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt256>>,
+        vectorized::MethodKeysFixed<PartitionData<vectorized::UInt136>>,
         vectorized::MethodStringNoCache<PartitionDataWithShortStringKey>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
                 vectorized::DataWithNullKey<PartitionDataWithShortStringKey>>>>;
 
 struct PartitionedHashMapVariants
         : public DataVariants<PartitionedMethodVariants, vectorized::MethodSingleNullableColumn,
-                              vectorized::MethodOneNumber, vectorized::MethodKeysFixed,
-                              vectorized::DataWithNullKey> {
-    template <bool nullable>
+                              vectorized::MethodOneNumber, vectorized::DataWithNullKey> {
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
         switch (type) {
         case HashKeyType::without_key: {
             break;
@@ -183,27 +167,27 @@ struct PartitionedHashMapVariants
             break;
         }
         case HashKeyType::int8_key: {
-            emplace_single<vectorized::UInt8, PartitionDataWithUInt8Key, nullable>();
+            emplace_single<vectorized::UInt8, PartitionData<vectorized::UInt8>>(nullable);
             break;
         }
         case HashKeyType::int16_key: {
-            emplace_single<vectorized::UInt16, PartitionDataWithUInt16Key, nullable>();
+            emplace_single<vectorized::UInt16, PartitionData<vectorized::UInt16>>(nullable);
             break;
         }
         case HashKeyType::int32_key: {
-            emplace_single<vectorized::UInt32, PartitionDataWithUInt32Key, nullable>();
+            emplace_single<vectorized::UInt32, PartitionData<vectorized::UInt32>>(nullable);
             break;
         }
         case HashKeyType::int64_key: {
-            emplace_single<vectorized::UInt64, PartitionDataWithUInt64Key, nullable>();
+            emplace_single<vectorized::UInt64, PartitionData<vectorized::UInt64>>(nullable);
             break;
         }
         case HashKeyType::int128_key: {
-            emplace_single<vectorized::UInt128, PartitionDataWithUInt128Key, nullable>();
+            emplace_single<vectorized::UInt128, PartitionData<vectorized::UInt128>>(nullable);
             break;
         }
         case HashKeyType::int256_key: {
-            emplace_single<vectorized::UInt256, PartitionDataWithUInt256Key, nullable>();
+            emplace_single<vectorized::UInt256, PartitionData<vectorized::UInt256>>(nullable);
             break;
         }
         case HashKeyType::string_key: {
@@ -218,24 +202,20 @@ struct PartitionedHashMapVariants
             break;
         }
         case HashKeyType::fixed64:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt64Key, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt64>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt128Key, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt128>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt136Key, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt136>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<PartitionDataWithUInt256Key, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt256>>>(
+                    get_key_sizes(data_types));
             break;
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR,

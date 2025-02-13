@@ -176,6 +176,9 @@ public class DataStreamSink extends DataSink {
             strBuilder.append(prefix).append("  PROJECTION TUPLE: ").append(outputTupleDesc.getId());
             strBuilder.append("\n");
         }
+        if (isMerge) {
+            strBuilder.append("IS_MERGE: true\n");
+        }
 
         return strBuilder.toString();
     }
@@ -234,6 +237,7 @@ public class DataStreamSink extends DataSink {
                 tStreamSink.addToTabletSinkExprs(expr.treeToThrift());
             }
         }
+        tStreamSink.setIsMerge(isMerge);
         tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);
         return result;

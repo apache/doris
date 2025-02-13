@@ -44,8 +44,7 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineFragmentContext;
 
 public:
-    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
-                      std::weak_ptr<PipelineFragmentContext> context, int num_tasks_of_parent)
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks, int num_tasks_of_parent)
             : _pipeline_id(pipeline_id),
               _num_tasks(num_tasks),
               _num_tasks_of_parent(num_tasks_of_parent) {
@@ -74,6 +73,14 @@ public:
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
 
+    // For HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, and ADAPTIVE_PASSTHROUGH,
+    // data is processed and shuffled on the sink.
+    // Compared to PASSTHROUGH, this is a relatively heavy operation.
+    static bool heavy_operations_on_the_sink(ExchangeType idx) {
+        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE ||
+               idx == ExchangeType::ADAPTIVE_PASSTHROUGH;
+    }
+
     bool need_to_local_exchange(const DataDistribution target_data_distribution,
                                 const int idx) const;
     void init_data_distribution() {
@@ -86,7 +93,9 @@ public:
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
-    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) {
+        _children = std::move(children);
+    }
 
     void incr_created_tasks(int i, PipelineTask* task) {
         _num_tasks_created++;
@@ -139,7 +148,6 @@ private:
     std::vector<std::shared_ptr<Pipeline>> _children;
 
     PipelineId _pipeline_id;
-    int _previous_schedule_id = -1;
 
     // pipline id + operator names. init when:
     //  build_operators(), if pipeline;

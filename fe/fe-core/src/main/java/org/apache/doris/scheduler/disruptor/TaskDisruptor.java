@@ -20,6 +20,7 @@ package org.apache.doris.scheduler.disruptor;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.scheduler.constants.TaskType;
+import org.apache.doris.scheduler.exception.JobException;
 
 import com.lmax.disruptor.EventTranslatorThreeArg;
 import com.lmax.disruptor.LiteTimeoutBlockingWaitStrategy;
@@ -119,15 +120,17 @@ public class TaskDisruptor implements Closeable {
      *
      * @param taskId task id
      */
-    public void tryPublishTask(Long taskId) {
+    public void tryPublishTask(Long taskId) throws JobException {
         if (isClosed) {
             log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
             return;
         }
-        try {
+        // We reserve two slots in the ring buffer
+        // to prevent it from becoming stuck due to competition between producers and consumers.
+        if (disruptor.getRingBuffer().hasAvailableCapacity(2)) {
             disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK);
-        } catch (Exception e) {
-            log.warn("tryPublish failed, taskId: {}", taskId, e);
+        } else {
+            throw new JobException("There is not enough available capacity in the RingBuffer.");
         }
     }
 

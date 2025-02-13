@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -55,11 +56,10 @@ public:
     bool use_local_merge() const { return _merge_by_exchange; }
     const vectorized::SortDescription& get_sort_description(RuntimeState* state) const;
 
-    Status build_merger(RuntimeState* state, std::unique_ptr<vectorized::VSortedRunMerger>& merger,
-                        RuntimeProfile* profile);
-
 private:
+    friend class PipelineFragmentContext;
     friend class SortLocalState;
+
     const bool _merge_by_exchange;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
@@ -69,4 +69,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

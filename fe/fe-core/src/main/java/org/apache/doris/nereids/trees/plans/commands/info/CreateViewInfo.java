@@ -73,18 +73,17 @@ public class CreateViewInfo extends BaseViewInfo {
 
     /**translateToLegacyStmt*/
     public CreateViewStmt translateToLegacyStmt(ConnectContext ctx) {
+        // expand star(*) in project list and replace table name with qualifier
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+        // rewrite project alias
+        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+        checkViewSql(rewrittenSql);
         List<ColWithComment> cols = Lists.newArrayList();
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.translateToColWithComment());
         }
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, orReplace, viewName.transferToTableName(), cols,
                 comment, null);
-        // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
-
-        // rewrite project alias
-        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
-
         createViewStmt.setInlineViewDef(rewrittenSql);
         createViewStmt.setFinalColumns(finalCols);
         return createViewStmt;

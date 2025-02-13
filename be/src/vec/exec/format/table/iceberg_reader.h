@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -45,6 +44,7 @@ class KeyValue;
 } // namespace tparquet
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class SlotDescriptor;
@@ -101,8 +101,7 @@ protected:
     };
     using DeleteRows = std::vector<int64_t>;
     using DeleteFile = phmap::parallel_flat_hash_map<
-            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>,
-            std::equal_to<std::string>,
+            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>, std::equal_to<>,
             std::allocator<std::pair<const std::string, std::unique_ptr<DeleteRows>>>, 8,
             std::mutex>;
     /**
@@ -154,7 +153,7 @@ protected:
     // copy from _colname_to_value_range with new column name that is in parquet/orc file, to support schema evolution.
     std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
     // column id to name map. Collect from FE slot descriptor.
-    std::unordered_map<int, std::string> _col_id_name_map;
+    std::unordered_map<uint64_t, std::string> _col_id_name_map;
     // col names in the parquet,orc file
     std::vector<std::string> _all_required_col_names;
     // col names in table but not in parquet,orc file
@@ -167,7 +166,9 @@ protected:
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 
-    int64_t _remaining_push_down_count;
+    // the table level row count for optimizing query like:
+    // select count(*) from table;
+    int64_t _remaining_table_level_row_count;
     Fileformat _file_format = Fileformat::NONE;
 
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
@@ -202,7 +203,7 @@ public:
                                  kv_cache, io_ctx) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int, std::string>& col_id_name_map,
+            const std::unordered_map<uint64_t, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
@@ -218,7 +219,7 @@ public:
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
 
-    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    Status _gen_col_name_maps(const FieldDescriptor& field_desc);
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
@@ -248,7 +249,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int, std::string>& col_id_name_map,
+            const std::unordered_map<uint64_t, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
@@ -270,4 +271,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

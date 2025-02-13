@@ -91,6 +91,8 @@ suite("mv_contains_cast") {
 
     order_qt_query_before "${query_sql}"
 
+    sql """alter table test modify column event_type set stats ('row_count'='10');"""
+
     createMV("""
     CREATE MATERIALIZED VIEW sync_mv
     AS

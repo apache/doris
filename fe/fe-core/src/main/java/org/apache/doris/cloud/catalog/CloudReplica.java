@@ -214,7 +214,7 @@ public class CloudReplica extends Replica {
                     ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
                 } catch (Exception e) {
                     LOG.warn("get compute group by session context exception");
-                    throw new ComputeGroupException(String.format("default compute group %s check auth failed",
+                    throw new ComputeGroupException(String.format("session context compute group %s check auth failed",
                             cluster),
                         ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
                 }

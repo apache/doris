@@ -69,9 +69,6 @@ suite("test_segcompaction_agg_keys_index") {
                 "AWS_REGION" = "$region",
                 "provider" = "${getS3Provider()}"
             )
-            properties(
-                "use_new_load_scan_node" = "true"
-            )
             """
 
         def max_try_milli_secs = 3600000

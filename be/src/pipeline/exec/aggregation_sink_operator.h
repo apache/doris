@@ -102,11 +102,8 @@ protected:
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
@@ -127,7 +124,7 @@ protected:
 
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
-    AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                      const DescriptorTbl& descs, bool require_bucket_distribution);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {

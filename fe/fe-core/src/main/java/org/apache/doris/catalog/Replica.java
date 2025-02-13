@@ -26,6 +26,8 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -121,6 +123,23 @@ public class Replica {
     @Deprecated
     @SerializedName(value = "lsvh", alternate = {"lastSuccessVersionHash"})
     private long lastSuccessVersionHash = 0L;
+
+    @Setter
+    @Getter
+    @SerializedName(value = "lis", alternate = {"localInvertedIndexSize"})
+    private Long localInvertedIndexSize = 0L;
+    @Setter
+    @Getter
+    @SerializedName(value = "lss", alternate = {"localSegmentSize"})
+    private Long localSegmentSize = 0L;
+    @Setter
+    @Getter
+    @SerializedName(value = "ris", alternate = {"remoteInvertedIndexSize"})
+    private Long remoteInvertedIndexSize = 0L;
+    @Setter
+    @Getter
+    @SerializedName(value = "rss", alternate = {"remoteSegmentSize"})
+    private Long remoteSegmentSize = 0L;
 
     private volatile long totalVersionCount = -1;
     private volatile long visibleVersionCount = -1;

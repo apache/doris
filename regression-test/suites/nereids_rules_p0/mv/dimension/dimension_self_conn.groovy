@@ -101,6 +101,9 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     sql """analyze table orders_self_conn with sync;"""
     sql """analyze table lineitem_self_conn with sync;"""
 
+    sql """alter table orders_self_conn modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_self_conn modify column l_comment set stats ('row_count'='7');"""
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -302,7 +305,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
 
     // agg
     // agg + without group by + with agg function
-    agg_mv_stmt = """
+    def agg_mv_stmt = """
         select t2.o_orderkey, 
         sum(t1.O_TOTALPRICE) as sum_total,
         max(t1.o_totalprice) as max_total, 

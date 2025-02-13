@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_runtime_filter_boolean", "query_p0") {
+    sql "set enable_runtime_filter_prune=false;"
     sql "drop table if exists test_runtime_filter_boolean0;"
     sql """ create table test_runtime_filter_boolean0(k1 int, v1 boolean)
                 DUPLICATE KEY(`k1`)

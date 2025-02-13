@@ -23,23 +23,26 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
+#include "common/consts.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
 
 namespace vectorized {
+// #include "common/compile_check_begin.h"
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                         int end_idx, BufferWritable& bw,
+Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                         int64_t end_idx, BufferWritable& bw,
                                                          FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                            BufferWritable& bw,
                                                            FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -60,7 +63,7 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -85,8 +88,9 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                    arrow::ArrayBuilder* array_builder, int start,
-                                                    int end, const cctz::time_zone& ctz) const {
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<const ColumnDecimal<T>&>(column);
     auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
@@ -101,12 +105,11 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = p_value->value;
+            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
-        // TODO: decimal256
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
@@ -119,7 +122,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = p_value->value;
+            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
@@ -160,9 +163,10 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int start,
-                                                     int end, const cctz::time_zone& ctz) const {
-    auto concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
+    const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
     const auto* arrow_decimal_type =
             static_cast<const arrow::DecimalType*>(arrow_array->type().get());
     const auto arrow_scale = arrow_decimal_type->scale();
@@ -171,7 +175,7 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     // Decimal<Int128I> for deicmalv3
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         // TODO check precision
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
@@ -195,11 +199,12 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         }
     } else if constexpr (std::is_same_v<T, Decimal128V3> || std::is_same_v<T, Decimal64> ||
                          std::is_same_v<T, Decimal32>) {
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
-        LOG(WARNING) << "Unsuppoted convertion to decimal from " << column.get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 }
 
@@ -207,7 +212,7 @@ template <typename T>
 template <bool is_binary_format>
 Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
                                                        MysqlRowBuffer<is_binary_format>& result,
-                                                       int row_idx, bool col_const,
+                                                       int64_t row_idx, bool col_const,
                                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
@@ -228,8 +233,8 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                      bool col_const,
+                                                      MysqlRowBuffer<true>& row_buffer,
+                                                      int64_t row_idx, bool col_const,
                                                       const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
@@ -237,7 +242,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
 template <typename T>
 Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<false>& row_buffer,
-                                                      int row_idx, bool col_const,
+                                                      int64_t row_idx, bool col_const,
                                                       const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
@@ -246,11 +251,11 @@ template <typename T>
 Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
-                                                    int start, int end,
+                                                    int64_t start, int64_t end,
                                                     std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
 
-    if constexpr (IsDecimal128V2<T> || IsDecimal128V3<T>) {
+    if constexpr (IsDecimal128V2<T> || IsDecimal128V3<T> || IsDecimal256<T>) {
         orc::Decimal128VectorBatch* cur_batch =
                 dynamic_cast<orc::Decimal128VectorBatch*>(orc_col_batch);
 
@@ -278,7 +283,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
 template <typename T>
 
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -295,7 +300,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
-                                                                      int times) const {
+                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }

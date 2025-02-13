@@ -19,7 +19,6 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorColumn;
@@ -28,7 +27,9 @@ import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariDataSource;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -36,12 +37,18 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.semver4j.Semver;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Array;
 import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
-import java.sql.Driver;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -52,7 +59,6 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.function.Function;
 
 public abstract class BaseJdbcExecutor implements JdbcExecutor {
@@ -60,6 +66,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
+    private ClassLoader classLoader = null;
     private Connection conn = null;
     protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
@@ -71,8 +78,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected int batchSizeNum = 0;
     protected int curBlockRows = 0;
     protected String jdbcDriverVersion;
+    private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
+        setJdbcDriverSystemProperties();
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
         TDeserializer deserializer = new TDeserializer(PROTOCOL_FACTORY);
         try {
@@ -87,6 +96,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setJdbcUrl(request.jdbc_url)
                 .setJdbcDriverUrl(request.driver_path)
                 .setJdbcDriverClass(request.jdbc_driver_class)
+                .setJdbcDriverChecksum(request.jdbc_driver_checksum)
                 .setBatchSize(request.batch_size)
                 .setOp(request.op)
                 .setTableType(request.table_type)
@@ -94,10 +104,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setConnectionPoolMaxSize(request.connection_pool_max_size)
                 .setConnectionPoolMaxWaitTime(request.connection_pool_max_wait_time)
                 .setConnectionPoolMaxLifeTime(request.connection_pool_max_life_time)
-                .setConnectionPoolKeepAlive(request.connection_pool_keep_alive)
-                .setEnableConnectionPool(request.enable_connection_pool);
+                .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
-        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
         init(config, request.statement);
         this.jdbcDriverVersion = getJdbcDriverVersion();
     }
@@ -120,21 +128,25 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         } finally {
             closeResources(resultSet, stmt, conn);
-            if (config.isEnableConnectionPool()) {
-                if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
-                    hikariDataSource.close();
-                    JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                    hikariDataSource = null;
-                }
+            if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
+                hikariDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+                hikariDataSource = null;
             }
         }
     }
 
-    private void closeResources(AutoCloseable... closeables) {
-        for (AutoCloseable closeable : closeables) {
-            if (closeable != null) {
+    private void closeResources(Object... resources) {
+        for (Object resource : resources) {
+            if (resource != null) {
                 try {
-                    closeable.close();
+                    if (resource instanceof ResultSet) {
+                        ((ResultSet) resource).close();
+                    } else if (resource instanceof Statement) {
+                        ((Statement) resource).close();
+                    } else if (resource instanceof Connection) {
+                        ((Connection) resource).close();
+                    }
                 } catch (Exception e) {
                     LOG.warn("Cannot close resource: ", e);
                 }
@@ -146,13 +158,15 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             throws SQLException {
     }
 
+    protected void setJdbcDriverSystemProperties() {
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
+    }
+
     public void cleanDataSource() {
-        if (config.isEnableConnectionPool()) {
-            if (hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                hikariDataSource = null;
-            }
+        if (hikariDataSource != null) {
+            hikariDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+            hikariDataSource = null;
         }
     }
 
@@ -294,63 +308,49 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     private void init(JdbcDataSourceConfig config, String sql) throws JdbcExecutorException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+        String hikariDataSourceKey = config.createCacheKey();
         try {
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
+            initializeClassLoader(config);
             Thread.currentThread().setContextClassLoader(classLoader);
-            if (config.isEnableConnectionPool()) {
-                String hikariDataSourceKey = config.createCacheKey();
-                hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
-                if (hikariDataSource == null) {
-                    synchronized (hikariDataSourceLock) {
-                        hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
-                        if (hikariDataSource == null) {
-                            long start = System.currentTimeMillis();
-                            HikariDataSource ds = new HikariDataSource();
-                            ds.setDriverClassName(config.getJdbcDriverClass());
-                            ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
-                            ds.setUsername(config.getJdbcUser());
-                            ds.setPassword(config.getJdbcPassword());
-                            ds.setMinimumIdle(config.getConnectionPoolMinSize()); // default 1
-                            ds.setMaximumPoolSize(config.getConnectionPoolMaxSize()); // default 10
-                            ds.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
-                            ds.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
-                            ds.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
-                            setValidationQuery(ds);
-                            if (config.isConnectionPoolKeepAlive()) {
-                                ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
-                            }
-                            hikariDataSource = ds;
-                            JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, hikariDataSource);
-                            LOG.info("JdbcClient set"
-                                    + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
-                                    + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
-                                    + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
-                                    + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime()
-                                    + ", ConnectionPoolKeepAlive = " + config.isConnectionPoolKeepAlive());
-                            LOG.info("init datasource [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
-                                    System.currentTimeMillis() - start) + " ms");
+            hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
+            if (hikariDataSource == null) {
+                synchronized (hikariDataSourceLock) {
+                    hikariDataSource = JdbcDataSource.getDataSource().getSource(hikariDataSourceKey);
+                    if (hikariDataSource == null) {
+                        long start = System.currentTimeMillis();
+                        HikariDataSource ds = new HikariDataSource();
+                        ds.setDriverClassName(config.getJdbcDriverClass());
+                        ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()));
+                        ds.setUsername(config.getJdbcUser());
+                        ds.setPassword(config.getJdbcPassword());
+                        ds.setMinimumIdle(config.getConnectionPoolMinSize()); // default 1
+                        ds.setMaximumPoolSize(config.getConnectionPoolMaxSize()); // default 10
+                        ds.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
+                        ds.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
+                        ds.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+                        setValidationQuery(ds);
+                        if (config.isConnectionPoolKeepAlive()) {
+                            ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
                         }
+                        hikariDataSource = ds;
+                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, hikariDataSource);
+                        LOG.info("JdbcClient set"
+                                + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
+                                + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
+                                + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
+                                + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime()
+                                + ", ConnectionPoolKeepAlive = " + config.isConnectionPoolKeepAlive());
+                        LOG.info("init datasource [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
+                                System.currentTimeMillis() - start) + " ms");
                     }
                 }
-                conn = hikariDataSource.getConnection();
-            } else {
-                Class<?> driverClass = Class.forName(config.getJdbcDriverClass(), true, classLoader);
-                Driver driverInstance = (Driver) driverClass.getDeclaredConstructor().newInstance();
-
-                Properties info = new Properties();
-                info.put("user", config.getJdbcUser());
-                info.put("password", config.getJdbcPassword());
-
-                conn = driverInstance.connect(SecurityChecker.getInstance().getSafeJdbcUrl(config.getJdbcUrl()), info);
-                if (conn == null) {
-                    throw new SQLException("Failed to establish a connection. The JDBC driver returned null. "
-                            + "Please check if the JDBC URL is correct: "
-                            + config.getJdbcUrl()
-                            + ". Ensure that the URL format and parameters are valid for the driver: "
-                            + driverInstance.getClass().getName());
-                }
             }
+
+            long start = System.currentTimeMillis();
+            conn = hikariDataSource.getConnection();
+            LOG.info("get connection [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
+                    System.currentTimeMillis() - start)
+                    + " ms");
 
             initializeStatement(conn, config, sql);
 
@@ -365,6 +365,60 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
+        }
+    }
+
+    private synchronized void initializeClassLoader(JdbcDataSourceConfig config)
+            throws MalformedURLException, FileNotFoundException {
+        try {
+            URL[] urls = {new URL(config.getJdbcDriverUrl())};
+            if (classLoaderMap.containsKey(urls[0])) {
+                this.classLoader = classLoaderMap.get(urls[0]);
+            } else {
+                String expectedChecksum = config.getJdbcDriverChecksum();
+                String actualChecksum = computeObjectChecksum(urls[0].toString(), null);
+                if (!expectedChecksum.equals(actualChecksum)) {
+                    throw new RuntimeException("Checksum mismatch for JDBC driver.");
+                }
+                ClassLoader parent = getClass().getClassLoader();
+                this.classLoader = URLClassLoader.newInstance(urls, parent);
+                classLoaderMap.put(urls[0], this.classLoader);
+            }
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Error loading JDBC driver.", e);
+        }
+    }
+
+    public static String computeObjectChecksum(String urlStr, String encodedAuthInfo) {
+        try (InputStream inputStream = getInputStreamFromUrl(urlStr, encodedAuthInfo, 10000, 10000)) {
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] buf = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buf)) != -1) {
+                digest.update(buf, 0, bytesRead);
+            }
+            return Hex.encodeHexString(digest.digest());
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new RuntimeException("Compute driver checksum from url: " + urlStr
+                    + " encountered an error: " + e.getMessage());
+        }
+    }
+
+    public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
+            int readTimeoutMs) throws IOException {
+        try {
+            URL url = new URL(urlStr);
+            URLConnection conn = url.openConnection();
+
+            if (encodedAuthInfo != null) {
+                conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+            }
+
+            conn.setConnectTimeout(connectTimeoutMs);
+            conn.setReadTimeout(readTimeoutMs);
+            return conn.getInputStream();
+        } catch (Exception e) {
+            throw new IOException("Failed to open URL connection: " + urlStr, e);
         }
     }
 

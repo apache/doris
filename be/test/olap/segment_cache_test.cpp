@@ -323,7 +323,7 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
         segment_v2::SegmentSharedPtr segment_ptr = handle.get_segments()[0];
 
         // load index and bf second
-        res = segment_ptr->load_pk_index_and_bf();
+        res = segment_ptr->load_pk_index_and_bf(nullptr);
         ASSERT_TRUE(res.ok());
 
         // check cache mem usage equals to segment mem usage

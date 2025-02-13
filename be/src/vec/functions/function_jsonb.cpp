@@ -189,7 +189,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(0, 0);
@@ -363,7 +363,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
 
         ColumnPtr jsonb_data_column;
@@ -447,7 +447,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         if (arguments.size() != 1 && arguments.size() != 2) {
             // here has argument param error
@@ -459,11 +459,12 @@ public:
         // prepare jsonb data column
         jsonb_data_column = unpack_if_const(block.get_by_position(arguments[0]).column).first;
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column);
+            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
             jsonb_data_column = nullable->get_nested_column_ptr();
             data_null_map = &nullable->get_null_map_data();
         }
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(jsonb_data_column);
+        const ColumnString* col_from_string =
+                check_and_get_column<ColumnString>(jsonb_data_column.get());
 
         // prepare parse path column prepare, maybe we do not have path column
         ColumnPtr jsonb_path_column = nullptr;
@@ -475,11 +476,12 @@ public:
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             if (block.get_by_position(arguments[1]).column->is_nullable()) {
-                const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_path_column);
+                const auto* nullable =
+                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
-            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column);
+            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -619,7 +621,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
@@ -1353,14 +1355,14 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
-                                       const ColumnNumbers& arguments, size_t result,
+                                       const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) {
         DCHECK_GE(arguments.size(), 2);
         ColumnPtr jsonb_data_column;
@@ -1427,7 +1429,7 @@ struct JsonbLengthImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeJsonb>()}; }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto path = ColumnString::create();
         std::string root_path = "$";
@@ -1451,7 +1453,7 @@ struct JsonbLengthAndPathImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return JsonbLengthUtil::jsonb_length_execute(context, block, arguments, result,
                                                      input_rows_count);
@@ -1478,14 +1480,14 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct JsonbContainsUtil {
     static Status jsonb_contains_execute(FunctionContext* context, Block& block,
-                                         const ColumnNumbers& arguments, size_t result,
+                                         const ColumnNumbers& arguments, uint32_t result,
                                          size_t input_rows_count) {
         DCHECK_GE(arguments.size(), 3);
 
@@ -1569,7 +1571,7 @@ struct JsonbContainsImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto path = ColumnString::create();
         std::string root_path = "$";
@@ -1594,7 +1596,7 @@ struct JsonbContainsAndPathImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return JsonbContainsUtil::jsonb_contains_execute(context, block, arguments, result,
                                                          input_rows_count);
@@ -1638,17 +1640,16 @@ private:
                       LikeState* state, JsonbPath* cur_path,
                       std::unordered_set<std::string>* matches) const {
         if (element.isString()) {
-            const std::string_view str = element.getString();
+            const std::string_view element_str = element.getString();
             unsigned char res;
-            RETURN_IF_ERROR(matched(str, state, &res));
+            RETURN_IF_ERROR(matched(element_str, state, &res));
             if (res) {
                 std::string str;
                 auto valid = cur_path->to_string(&str);
                 if (!valid) {
                     return false;
                 }
-                auto res = matches->insert(str);
-                return res.second;
+                return matches->insert(str).second;
             } else {
                 return false;
             }
@@ -1828,7 +1829,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         // the json_doc, one_or_all, and search_str must be given.
         // and we require the positions are static.
         if (arguments.size() < 3) {
@@ -1845,9 +1846,10 @@ public:
         // prepare jsonb data column
         std::tie(col_json, json_is_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json)) {
-            col_json_string = check_and_get_column<ColumnString>(nullable->get_nested_column_ptr());
+        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            col_json_string =
+                    check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
         }
 
         if (!col_json_string) {
@@ -1874,8 +1876,8 @@ public:
         // prepare jsonb data column
         std::tie(col_one, one_is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one)) {
+        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
             col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }
         if (!col_one_string) {
@@ -1922,8 +1924,9 @@ public:
         std::tie(col_search, search_is_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        const ColumnString* col_search_string = check_and_get_column<ColumnString>(col_search);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search)) {
+        const ColumnString* col_search_string =
+                check_and_get_column<ColumnString>(col_search.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
             col_search_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }

@@ -27,6 +27,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
         : Base(parent, state) {
@@ -125,12 +126,12 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
 }
 
 PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                         const TPlanNode& tnode,
+                                                         int dest_id, const TPlanNode& tnode,
                                                          const DescriptorTbl& descs,
                                                          bool require_bucket_distribution)
-        : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
-    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs,
-                                                            require_bucket_distribution);
+        : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id, dest_id) {
+    _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, dest_id, tnode,
+                                                            descs, require_bucket_distribution);
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -139,8 +140,6 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     if (state->query_options().__isset.external_agg_partition_bits) {
         _spill_partition_count_bits = state->query_options().external_agg_partition_bits;
     }
-
-    _agg_sink_operator->set_dests_id(DataSinkOperatorX<PartitionedAggSinkLocalState>::dests_id());
     RETURN_IF_ERROR(
             _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);
@@ -202,7 +201,7 @@ size_t PartitionedAggSinkOperatorX::revocable_mem_size(RuntimeState* state) cons
 
 Status PartitionedAggSinkLocalState::setup_in_memory_agg_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     _runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     _runtime_state->set_be_number(state->be_number());
@@ -319,4 +318,5 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
             std::move(spill_runnable));
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

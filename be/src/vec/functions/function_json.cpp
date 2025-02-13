@@ -571,7 +571,7 @@ struct JsonParser<'1'> {
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         DCHECK(data.size == 1 || strncmp(data.data, "true", 4) == 0 ||
                strncmp(data.data, "false", 5) == 0);
-        value.SetBool((*data.data == '1' || *data.data == 't') ? true : false);
+        value.SetBool(*data.data == '1' || *data.data == 't');
     }
 };
 
@@ -609,6 +609,18 @@ struct JsonParser<'5'> {
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
+    }
+};
+
+template <>
+struct JsonParser<'7'> {
+    // json string
+    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
+                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        rapidjson::Document document;
+        JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
+        convert_jsonb_to_rapidjson(*json_val, document, allocator);
+        value.CopyFrom(document, allocator);
     }
 };
 
@@ -673,7 +685,8 @@ struct FunctionJsonObjectImpl {
         }
 
         for (int i = 0; i + 1 < data_columns.size() - 1; i += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i + 1], objects, allocator,
+            // last is for old type definition
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i + 1], objects, allocator,
                                                         data_columns[i], data_columns[i + 1],
                                                         nullmaps[i + 1]);
         }
@@ -725,7 +738,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
@@ -788,13 +801,13 @@ public:
         for (int i = 0; i < args; i += 2) {
             const auto* null_map = nullmaps[i];
             if (null_map) {
-                const bool not_null_num =
+                auto not_null_num =
                         simd::count_zero_num((int8_t*)null_map->get_data().data(), size);
                 if (not_null_num < size) {
                     return Status::InternalError(
                             "function {} can not input null value , JSON documents may not contain "
-                            "NULL member names.",
-                            name);
+                            "NULL member names. input size is {}:{}",
+                            name, size, not_null_num);
                 }
             }
         }
@@ -977,7 +990,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
@@ -1007,7 +1020,7 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         std::vector<const ColumnString*> data_columns;
@@ -1049,7 +1062,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1168,7 +1181,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_json = *(block.get_by_position(arguments[0]).column);
         const IColumn& col_search = *(block.get_by_position(arguments[1]).column);
         const IColumn& col_path = *(block.get_by_position(arguments[2]).column);
@@ -1241,7 +1254,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1410,7 +1423,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         bool is_nullable = false;
         ColumnUInt8::MutablePtr ret_null_map = nullptr;

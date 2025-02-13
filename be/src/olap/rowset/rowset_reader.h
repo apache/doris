@@ -40,7 +40,7 @@ struct RowSetSplits {
     // if segment_offsets is not empty, means we only scan
     // [pair.first, pair.second) segment in rs_reader, only effective in dup key
     // and pipeline
-    std::pair<int, int> segment_offsets;
+    std::pair<int64_t, int64_t> segment_offsets;
 
     // RowRanges of each segment.
     std::vector<RowRanges> segment_row_ranges;
@@ -80,10 +80,6 @@ public:
 
     virtual int64_t newest_write_timestamp() = 0;
     virtual Status current_block_row_locations(std::vector<RowLocation>* locations) {
-        return Status::NotSupported("to be implemented");
-    }
-
-    virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
         return Status::NotSupported("to be implemented");
     }
 

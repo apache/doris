@@ -23,6 +23,7 @@
 #include "runtime/result_queue_mgr.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class MemoryScratchSinkOperatorX;
 class MemoryScratchSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
@@ -45,6 +46,9 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    RuntimeProfile::Counter* _get_arrow_schema_timer = nullptr;
+    RuntimeProfile::Counter* _convert_block_to_arrow_batch_timer = nullptr;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
 };
 
 class MemoryScratchSinkOperatorX final : public DataSinkOperatorX<MemoryScratchSinkLocalState> {
@@ -64,4 +68,5 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -2077,7 +2077,10 @@ visible_functions = {
     "Url": [
         [['domain'], 'STRING', ['STRING'], ''],
         [['domain_without_www'], 'STRING', ['STRING'], ''],
-        [['protocol'], 'STRING', ['STRING'], '']
+        [['protocol'], 'STRING', ['STRING'], ''],
+        [['top_level_domain'], 'STRING', ['STRING'], ''],
+        [['cut_to_first_significant_subdomain'], 'STRING', ['STRING'], ''],
+        [['first_significant_subdomain'], 'STRING', ['STRING'], '']
     ],
 
     # search functions
@@ -2150,6 +2153,8 @@ visible_functions = {
         [['to_ipv6_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE'],
         [['ipv4_to_ipv6'], 'IPV6', ['IPV4'], 'DEPEND_ON_ARGUMENT'],
         [['cut_ipv6'], 'STRING', ['IPV6', 'TINYINT', 'TINYINT'], 'DEPEND_ON_ARGUMENT'],
+        [['ipv6_from_uint128_string_or_null'], 'IPV6', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv6_from_uint128_string_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE']
     ],
 
     "NonNullalbe": [

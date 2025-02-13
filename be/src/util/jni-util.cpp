@@ -92,6 +92,10 @@ const std::string GetDorisJNIClasspathOption() {
     }
 }
 
+const std::string GetKerb5ConfPath() {
+    return "-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path;
+}
+
 [[maybe_unused]] void SetEnvIfNecessary() {
     const auto* doris_home = getenv("DORIS_HOME");
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
@@ -105,10 +109,11 @@ const std::string GetDorisJNIClasspathOption() {
     // LIBHDFS_OPTS
     const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
     std::string libhdfs_opts =
-            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{}", java_opts,
+            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{} ", java_opts,
                         getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
+    libhdfs_opts += fmt::format("{} ", GetKerb5ConfPath());
 
-    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 0);
+    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
 }
 
 // Only used on non-x86 platform
@@ -138,6 +143,7 @@ const std::string GetDorisJNIClasspathOption() {
                                                std::istream_iterator<std::string>());
             options.push_back(GetDorisJNIClasspathOption());
         }
+        options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
@@ -317,6 +323,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
 }
 
 jobject JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map) {
+    //TODO: ADD EXCEPTION CHECK.
     jclass hashmap_class = env->FindClass("java/util/HashMap");
     jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
     jobject hashmap_object = env->NewObject(hashmap_class, hashmap_constructor, map.size());
@@ -399,16 +406,26 @@ std::map<std::string, std::string> JniUtil::convert_to_cpp_map(JNIEnv* env, jobj
 
 Status JniUtil::GetGlobalClassRef(JNIEnv* env, const char* class_str, jclass* class_ref) {
     *class_ref = NULL;
-    jclass local_cl = env->FindClass(class_str);
-    RETURN_ERROR_IF_EXC(env);
+    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(jclass, local_cl, env, FindClass(class_str));
     RETURN_IF_ERROR(LocalToGlobalRef(env, local_cl, reinterpret_cast<jobject*>(class_ref)));
-    env->DeleteLocalRef(local_cl);
-    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
 Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global_ref) {
     *global_ref = env->NewGlobalRef(local_ref);
+    // NewGlobalRef:
+    // Returns a global reference to the given obj.
+    //
+    //May return NULL if:
+    //  obj refers to null
+    //  the system has run out of memory
+    //  obj was a weak global reference and has already been garbage collected
+    if (*global_ref == NULL) {
+        return Status::InternalError(
+                "LocalToGlobalRef fail,global ref is NULL,maybe the system has run out of memory.");
+    }
+
+    //NewGlobalRef not throw exception,maybe we just need check NULL.
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }

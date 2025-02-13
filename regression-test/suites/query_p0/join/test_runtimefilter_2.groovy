@@ -15,9 +15,10 @@
  // specific language governing permissions and limitations
  // under the License.
 
- suite("test_runtimefilter_2", "query_p0") {
-     sql "drop table if exists t_ods_tpisyncjpa4_2;"
-     sql """ create table t_ods_tpisyncjpa4_2(INTERNAL_CODE varchar(50), USER_ID varchar(50), USER_NAME varchar(50), STATE_ID varchar(50)) distributed by hash(INTERNAL_CODE) properties('replication_num'='1'); """
+suite("test_runtimefilter_2", "query_p0") {
+    sql "set enable_runtime_filter_prune=false;"
+    sql "drop table if exists t_ods_tpisyncjpa4_2;"
+    sql """ create table t_ods_tpisyncjpa4_2(INTERNAL_CODE varchar(50), USER_ID varchar(50), USER_NAME varchar(50), STATE_ID varchar(50)) distributed by hash(INTERNAL_CODE) properties('replication_num'='1'); """
 
      sql """ insert into t_ods_tpisyncjpa4_2 values('1', '2', '3', '1');"""
 
@@ -41,4 +42,4 @@
         select DISTINCT         tpisyncjpa4.USER_ID as USER_ID,            tpisyncjpa4.USER_NAME as USER_NAME,       tpisyncjpp1.POST_ID AS "T4_POST_ID"   FROM t_ods_tpisyncjpa4_2 tpisyncjpa4 cross join [shuffle]       t_ods_tpisyncjpp1_2 tpisyncjpp1            inner join            (       SELECT         USER_ID,         MAX(INTERNAL_CODE) as INTERNAL_CODE       FROM        t_ods_tpisyncjpa4_2              WHERE         STATE_ID = '1'       GROUP BY         USER_ID     )jpa4         on tpisyncjpa4.USER_ID=jpa4.USER_ID and tpisyncjpa4.INTERNAL_CODE=jpa4.INTERNAL_CODE         inner join [shuffle]         (       SELECT         POST_ID,         MAX(INTERNAL_CODE) as INTERNAL_CODE       FROM             t_ods_tpisyncjpp1_2       WHERE         STATE_ID = '1'       GROUP BY         POST_ID     )jpp1         on tpisyncjpp1.POST_ID=jpp1.POST_ID and  tpisyncjpp1.INTERNAL_CODE=jpp1.INTERNAL_CODE         where tpisyncjpa4.USER_ID = tpisyncjpp1.USER_ID AND tpisyncjpp1.STATE_ID ='1' AND tpisyncjpa4.STATE_ID ='1'         AND tpisyncjpp1.POST_ID='BSDSAE1018';     
      """
     
- }
+}

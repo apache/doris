@@ -95,20 +95,8 @@ suite("test_template_three_args") {
     order_qt_const3 "select concat(b, a, 'abc') from arg1_three_args"
 
     /// folding
-    def re_fe
-    def re_be
-    def re_no_fold
-    def check_three_ways = { test_sql ->
-        re_fe = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        re_be = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        re_no_fold = order_sql "select/*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        logger.info("check on sql \${test_sql}")
-        assertEquals(re_fe, re_be)
-        assertEquals(re_fe, re_no_fold)
-    }
-
-    check_three_ways "concat('', '', '')"
-    check_three_ways "concat('\\t\\t', '\\t\\t', '\\t\\t')"
-    check_three_ways "concat('中文', '中文', '中文')"
-    check_three_ways "concat('abcde', 'abcde', 'abcde')"
+    check_fold_consistency "concat('', '', '')"
+    check_fold_consistency "concat('\\t\\t', '\\t\\t', '\\t\\t')"
+    check_fold_consistency "concat('中文', '中文', '中文')"
+    check_fold_consistency "concat('abcde', 'abcde', 'abcde')"
 }

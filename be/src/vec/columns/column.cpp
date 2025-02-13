@@ -30,7 +30,7 @@ namespace doris::vectorized {
 
 std::string IColumn::dump_structure() const {
     std::stringstream res;
-    res << get_family_name() << "(size = " << size();
+    res << get_name() << "(size = " << size();
 
     ColumnCallback callback = [&](ColumnPtr& subcolumn) {
         res << ", " << subcolumn->dump_structure();
@@ -44,13 +44,6 @@ std::string IColumn::dump_structure() const {
 
 void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
-}
-
-void IColumn::insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                       std::vector<size_t> positions) {
-    for (size_t i = 0; i < srcs.size(); ++i) {
-        insert_from(*srcs[i], positions[i]);
-    }
 }
 
 void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,

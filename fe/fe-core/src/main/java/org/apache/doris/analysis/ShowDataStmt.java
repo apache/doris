@@ -100,25 +100,63 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
                     .add("RowCount").add("RemoteSize").build();
 
+    private static final ShowResultSetMetaData SHOW_DETAILED_TABLE_DATA_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LocalTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
+                    .build();
+
+    private static final ShowResultSetMetaData SHOW_DETAILED_INDEX_DATA_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LocalTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
+                    .build();
+
     TableName tableName;
     String dbName;
-    List<List<String>> totalRows;
+    List<List<String>> totalRows = Lists.newArrayList();
     List<List<Object>> totalRowsObject = Lists.newArrayList();
 
-    private List<OrderByElement> orderByElements;
-    private List<OrderByPair> orderByPairs;
+    private List<OrderByElement> orderByElements = null;
+    private List<OrderByPair> orderByPairs = null;
 
-    private final Map<String, String> properties;
+    private Map<String, String> properties = null;
+    private boolean detailed = true;
 
     private static final String WAREHOUSE = "entire_warehouse";
     private static final String DB_LIST = "db_names";
 
-    public ShowDataStmt(TableName tableName, List<OrderByElement> orderByElements, Map<String, String> properties) {
+    private long totalSize = 0;
+    private long totalReplicaCount = 0;
+    private long totalRemoteSize = 0;
+    private long totalLocalInvertedSize = 0;
+    private long totalLocalSegmentSize = 0;
+    private long totalRemoteInvertedSize = 0;
+    private long totalRemoteSegmentSize = 0;
+
+    public ShowDataStmt(TableName tableName, List<OrderByElement> orderByElements,
+                                    Map<String, String> properties, boolean detailed) {
         this.tableName = tableName;
-        this.totalRows = Lists.newArrayList();
         this.orderByElements = orderByElements;
         this.properties = properties;
+        this.detailed = detailed;
     }
+
+    public ShowDataStmt() {}
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -156,111 +194,7 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             }
         }
 
-        if (tableName == null) {
-            db.readLock();
-            try {
-                long totalSize = 0;
-                long totalReplicaCount = 0;
-                long totalRemoteSize = 0;
-                // sort by table name
-                List<Table> tables = db.getTables();
-                SortedSet<Table> sortedTables = new TreeSet<>(new Comparator<Table>() {
-                    @Override
-                    public int compare(Table t1, Table t2) {
-                        return t1.getName().compareTo(t2.getName());
-                    }
-                });
-
-                for (Table table : tables) {
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                    table.getName(),
-                                    PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    sortedTables.add(table);
-                }
-
-                for (Table table : sortedTables) {
-                    if (!table.isManagedTable()) {
-                        continue;
-                    }
-
-                    OlapTable olapTable = (OlapTable) table;
-                    long tableSize = 0;
-                    long replicaCount = 0;
-                    long remoteSize = 0;
-
-                    tableSize = olapTable.getDataSize();
-                    replicaCount = olapTable.getReplicaCount();
-                    remoteSize = olapTable.getRemoteDataSize();
-
-                    //|TableName|Size|ReplicaCount|RemoteSize
-                    List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize);
-                    totalRowsObject.add(row);
-
-                    totalSize += tableSize;
-                    totalReplicaCount += replicaCount;
-                    totalRemoteSize += remoteSize;
-                } // end for tables
-
-                // sort by
-                if (orderByPairs != null && !orderByPairs.isEmpty()) {
-                    // k-> index, v-> isDesc
-                    Map<Integer, Boolean> sortMap = Maps.newLinkedHashMap();
-                    for (OrderByPair orderByPair : orderByPairs) {
-                        sortMap.put(orderByPair.getIndex(), orderByPair.isDesc());
-
-                    }
-                    totalRowsObject.sort(sortRows(sortMap));
-                }
-
-                // for output
-                for (List<Object> row : totalRowsObject) {
-                    //|TableName|Size|ReplicaCount|RemoteSize
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(1));
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
-                            + tableSizePair.second;
-                    Pair<Double, String> remoteSizePair = DebugUtil.getByteUint((long) row.get(3));
-                    String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(remoteSizePair.first) + " "
-                            + remoteSizePair.second;
-                    List<String> result = Arrays.asList(String.valueOf(row.get(0)),
-                            readableSize, String.valueOf(row.get(2)), remoteReadableSize);
-                    totalRows.add(result);
-                }
-
-                Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
-                String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
-                        + totalSizePair.second;
-                Pair<Double, String> totalRemoteSizePair = DebugUtil.getByteUint(totalRemoteSize);
-                String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteSizePair.first) + " "
-                        + totalRemoteSizePair.second;
-                List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount),
-                         remoteReadableSize);
-                totalRows.add(total);
-
-                // quota
-                long quota = db.getDataQuota();
-                long replicaQuota = db.getReplicaQuota();
-                Pair<Double, String> quotaPair = DebugUtil.getByteUint(quota);
-                String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaPair.first) + " "
-                        + quotaPair.second;
-
-                List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota), "");
-                totalRows.add(quotaRow);
-
-                // left
-                long left = Math.max(0, quota - totalSize);
-                long replicaCountLeft = Math.max(0, replicaQuota - totalReplicaCount);
-                Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
-                String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
-                        + leftPair.second;
-                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft), "");
-                totalRows.add(leftRow);
-            } finally {
-                db.readUnlock();
-            }
-        } else {
+        if (hasTable()) {
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName,
                     PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
@@ -268,96 +202,237 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
                         ConnectContext.get().getRemoteIP(),
                         dbName + ": " + tableName);
             }
+            OlapTable table = (OlapTable) db.getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
+            getSingleTableStats(table);
+        } else {
+            getSingleDbStats(db);
+        }
+        return;
+    }
 
-            OlapTable olapTable = (OlapTable) db
-                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
-            long totalSize = 0;
-            long totalReplicaCount = 0;
-            long totalRemoteSize = 0;
-            olapTable.readLock();
-            try {
-                // sort by index name
-                Map<String, Long> indexNames = olapTable.getIndexNameToId();
-                Map<String, Long> sortedIndexNames = new TreeMap<String, Long>();
-                for (Map.Entry<String, Long> entry : indexNames.entrySet()) {
-                    sortedIndexNames.put(entry.getKey(), entry.getValue());
-                }
-
-                for (Long indexId : sortedIndexNames.values()) {
-                    long indexSize = 0;
-                    long indexReplicaCount = 0;
-                    long indexRowCount = 0;
-                    long indexRemoteSize = 0;
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        MaterializedIndex mIndex = partition.getIndex(indexId);
-                        indexSize += mIndex.getDataSize(false);
-                        indexReplicaCount += mIndex.getReplicaCount();
-                        indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
-                        indexRemoteSize += mIndex.getRemoteDataSize();
-                    }
-
-                    String indexName = olapTable.getIndexNameById(indexId);
-                    // .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
-                    //      .add("RemoteSize")
-                    List<Object> row = Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
-                             indexRowCount, indexRemoteSize);
-                    totalRowsObject.add(row);
-
-                    totalSize += indexSize;
-                    totalReplicaCount += indexReplicaCount;
-                    totalRemoteSize += indexRemoteSize;
-                } // end for indices
-
-                // sort by
-                if (orderByPairs != null && !orderByPairs.isEmpty()) {
-                    // k-> index, v-> isDesc
-                    Map<Integer, Boolean> sortMap = Maps.newLinkedHashMap();
-                    for (OrderByPair orderByPair : orderByPairs) {
-                        sortMap.put(orderByPair.getIndex(), orderByPair.isDesc());
-
-                    }
-                    totalRowsObject.sort(sortRows(sortMap));
-                }
-
-                // for output
-                for (int index = 0; index <= totalRowsObject.size() - 1; index++) {
-                    //| TableName| IndexName | Size | ReplicaCount | RowCount | RemoteSize
-                    List<Object> row = totalRowsObject.get(index);
-                    List<String> result;
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(2));
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first)
-                            + " " + tableSizePair.second;
-                    Pair<Double, String> remoteSizePair = DebugUtil.getByteUint((long) row.get(5));
-                    String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(remoteSizePair.first) + " "
-                            + remoteSizePair.second;
-                    if (index == 0) {
-                        result = Arrays.asList(tableName.getTbl(), String.valueOf(row.get(1)),
-                                readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)), remoteReadableSize);
-                    } else {
-                        result = Arrays.asList("", String.valueOf(row.get(1)),
-                                readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)), remoteReadableSize);
-                    }
-                    totalRows.add(result);
-                }
-
-                Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
-                String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
-                        + totalSizePair.second;
-                Pair<Double, String> totalRemoteSizePair = DebugUtil.getByteUint(totalRemoteSize);
-                String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteSizePair.first) + " "
-                        + totalRemoteSizePair.second;
-                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "",
-                         remoteReadableSize);
-                totalRows.add(row);
-            } finally {
-                olapTable.readUnlock();
+    private void collectDbStats(Database db) {
+        // sort by table name
+        List<Table> tables = db.getTables();
+        SortedSet<Table> sortedTables = new TreeSet<>(new Comparator<Table>() {
+            @Override
+            public int compare(Table t1, Table t2) {
+                return t1.getName().compareTo(t2.getName());
             }
+        });
+
+        for (Table table : tables) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            table.getName(),
+                            PrivPredicate.SHOW)) {
+                continue;
+            }
+            sortedTables.add(table);
+        }
+
+        for (Table table : sortedTables) {
+            if (!table.isManagedTable()) {
+                continue;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            long tableSize = 0;
+            long replicaCount = 0;
+            long remoteSize = 0;
+
+            tableSize = olapTable.getDataSize();
+            replicaCount = olapTable.getReplicaCount();
+            remoteSize = olapTable.getRemoteDataSize();
+
+            if (!detailed) {
+                totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize));
+            } else {
+                long localIndexSize = olapTable.getLocalIndexFileSize();
+                long localSegmentSize = olapTable.getLocalSegmentSize();
+                long remoteIndexSize = olapTable.getRemoteIndexFileSize();
+                long remoteSegmentSize = olapTable.getRemoteSegmentSize();
+                totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize,
+                        localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
+                totalLocalInvertedSize += localIndexSize;
+                totalLocalSegmentSize += localSegmentSize;
+                totalRemoteInvertedSize += remoteIndexSize;
+                totalRemoteSegmentSize += remoteSegmentSize;
+            }
+
+            totalSize += tableSize;
+            totalReplicaCount += replicaCount;
+            totalRemoteSize += remoteSize;
+        } // end for tables
+    }
+
+    private void collectTableStats(OlapTable table) {
+        // sort by index name
+        Map<String, Long> indexNames = table.getIndexNameToId();
+        Map<String, Long> sortedIndexNames = new TreeMap<String, Long>();
+        for (Map.Entry<String, Long> entry : indexNames.entrySet()) {
+            sortedIndexNames.put(entry.getKey(), entry.getValue());
+        }
+
+        for (Long indexId : sortedIndexNames.values()) {
+            long indexSize = 0;
+            long indexReplicaCount = 0;
+            long indexRowCount = 0;
+            long indexRemoteSize = 0;
+            long localIndexSize = 0;
+            long localSegmentSize = 0;
+            long remoteIndexSize = 0;
+            long remoteSegmentSize = 0;
+            for (Partition partition : table.getAllPartitions()) {
+                MaterializedIndex mIndex = partition.getIndex(indexId);
+                indexSize += mIndex.getDataSize(false);
+                indexReplicaCount += mIndex.getReplicaCount();
+                indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
+                indexRemoteSize += mIndex.getRemoteDataSize();
+                localIndexSize += mIndex.getLocalIndexSize();
+                localSegmentSize += mIndex.getLocalSegmentSize();
+                remoteIndexSize += mIndex.getRemoteIndexSize();
+                remoteSegmentSize += mIndex.getRemoteSegmentSize();
+            }
+
+            String indexName = table.getIndexNameById(indexId);
+            if (!detailed) {
+                totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
+                        indexRowCount, indexRemoteSize));
+            } else {
+                totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount, indexRowCount,
+                            indexRemoteSize, localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
+            }
+
+            totalSize += indexSize;
+            totalReplicaCount += indexReplicaCount;
+            totalRemoteSize += indexRemoteSize;
+            totalLocalInvertedSize += localIndexSize;
+            totalLocalSegmentSize += localSegmentSize;
+            totalRemoteInvertedSize += remoteIndexSize;
+            totalRemoteSegmentSize += remoteSegmentSize;
+        } // end for indices
+    }
+
+    private void sortResult() {
+        if (orderByPairs != null && !orderByPairs.isEmpty()) {
+            // k-> index, v-> isDesc
+            Map<Integer, Boolean> sortMap = Maps.newLinkedHashMap();
+            for (OrderByPair orderByPair : orderByPairs) {
+                sortMap.put(orderByPair.getIndex(), orderByPair.isDesc());
+
+            }
+            totalRowsObject.sort(sortRows(sortMap));
         }
     }
 
-    public static int analyzeColumn(String columnName, String tableName) throws AnalysisException {
+    private void buildDbStatsOutput(long quota, long replicaQuota) {
+        // for output
+        for (List<Object> row : totalRowsObject) {
+            if (!detailed) {
+                totalRows.add(Arrays.asList(String.valueOf(row.get(0)),
+                        DebugUtil.printByteWithUnit((long) row.get(1)), String.valueOf(row.get(2)),
+                        DebugUtil.printByteWithUnit((long) row.get(3))));
+            } else {
+                totalRows.add(Arrays.asList(String.valueOf(row.get(0)), String.valueOf(row.get(2)),
+                        DebugUtil.printByteWithUnit((long) row.get(1)), DebugUtil.printByteWithUnit((long) row.get(5)),
+                        DebugUtil.printByteWithUnit((long) row.get(4)), DebugUtil.printByteWithUnit((long) row.get(3)),
+                        DebugUtil.printByteWithUnit((long) row.get(7)),
+                        DebugUtil.printByteWithUnit((long) row.get(6))));
+            }
+        }
+
+        long left = Math.max(0, quota - totalSize);
+        long replicaCountLeft = Math.max(0, replicaQuota - totalReplicaCount);
+
+        if (!detailed) {
+            totalRows.add(Arrays.asList("Total", DebugUtil.printByteWithUnit(totalSize),
+                    String.valueOf(totalReplicaCount), DebugUtil.printByteWithUnit(totalRemoteSize)));
+            totalRows.add(Arrays.asList("Quota", DebugUtil.printByteWithUnit(quota),
+                                                                    String.valueOf(replicaQuota), ""));
+            totalRows.add(Arrays.asList("Left", DebugUtil.printByteWithUnit(left),
+                                                                String.valueOf(replicaCountLeft), ""));
+        } else {
+            totalRows.add(Arrays.asList("Total", String.valueOf(totalReplicaCount),
+                    DebugUtil.printByteWithUnit(totalSize),
+                    DebugUtil.printByteWithUnit(totalLocalSegmentSize),
+                    DebugUtil.printByteWithUnit(totalLocalInvertedSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+            totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
+                                                DebugUtil.printByteWithUnit(quota), "", "", "", "", ""));
+            totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
+                                                DebugUtil.printByteWithUnit(left), "", "", "", "", ""));
+        }
+    }
+
+    private void buildTableStatsOutput() {
+        for (int index = 0; index < totalRowsObject.size(); index++) {
+            List<Object> row = totalRowsObject.get(index);
+            String indexName = index == 0 ? tableName.getTbl() : "";
+            if (!detailed) {
+                totalRows.add(Arrays.asList(indexName, String.valueOf(row.get(1)),
+                        DebugUtil.printByteWithUnit((long) row.get(2)), String.valueOf(row.get(3)),
+                        String.valueOf(row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5))));
+            } else {
+                totalRows.add(Arrays.asList(indexName, String.valueOf(row.get(1)),
+                        String.valueOf(row.get(3)), String.valueOf(row.get(4)),
+                        DebugUtil.printByteWithUnit((long) row.get(2)), DebugUtil.printByteWithUnit((long) row.get(7)),
+                        DebugUtil.printByteWithUnit((long) row.get(6)), DebugUtil.printByteWithUnit((long) row.get(5)),
+                        DebugUtil.printByteWithUnit((long) row.get(9)),
+                        DebugUtil.printByteWithUnit((long) row.get(8))));
+            }
+        }
+
+        // Total
+        if (!detailed) {
+            totalRows.add(Arrays.asList("", "Total", DebugUtil.printByteWithUnit(totalSize),
+                    String.valueOf(totalReplicaCount), "", DebugUtil.printByteWithUnit(totalRemoteSize)));
+        } else {
+            totalRows.add(Arrays.asList("", "Total", String.valueOf(totalReplicaCount), "",
+                    DebugUtil.printByteWithUnit(totalSize), DebugUtil.printByteWithUnit(totalLocalSegmentSize),
+                    DebugUtil.printByteWithUnit(totalLocalInvertedSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+        }
+    }
+
+    // |TableName|Size|ReplicaCount|RemoteSize|
+    // |TableName|ReplicaCount|LocalTotalSize|LocalDataSize|LocalIndexSize|
+    //                        |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
+    private void getSingleDbStats(Database db) {
+        db.readLock();
+        long quota = 0;
+        long replicaQuota = 0;
+        try {
+            collectDbStats(db);
+            quota = db.getDataQuota();
+            replicaQuota = db.getReplicaQuota();
+        } finally {
+            db.readUnlock();
+        }
+        // sort by
+        sortResult();
+        buildDbStatsOutput(quota, replicaQuota);
+    }
+
+    // |TableName|IndexName|Size|ReplicaCount|RowCount|RemoteSize|
+    // |TableName|IndexName|ReplicaCount||RowCount|LocalTotalSize |LocalDataSize |LocalIndexSize|
+    //                                            |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
+    private void getSingleTableStats(OlapTable table) {
+        table.readLock();
+        try {
+            collectTableStats(table);
+        } finally {
+            table.readUnlock();
+        }
+        // sort by
+        sortResult();
+        buildTableStatsOutput();
+    }
+
+    private int analyzeColumn(String columnName, String tableName) throws AnalysisException {
         ImmutableList<String> titles = SHOW_TABLE_DATA_META_DATA_ORIGIN;
         if (tableName != null) {
             titles = SHOW_INDEX_DATA_META_DATA_ORIGIN;
@@ -371,7 +446,7 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
         throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 
-    private static Comparator<List<Object>> sortRows(Map<Integer, Boolean> sortMap) {
+    private Comparator<List<Object>> sortRows(Map<Integer, Boolean> sortMap) {
         Ordering ordering = Ordering.natural();
 
         return new Comparator<List<Object>>() {
@@ -400,28 +475,41 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        String value = null;
         if (properties != null) {
-            value = properties.get(WAREHOUSE);
-        }
-        if (value != null && value.equals("true")) {
-            return SHOW_WAREHOUSE_DATA_META_DATA;
+            String value = properties.get(WAREHOUSE);
+            if (value != null && value.equals("true")) {
+                return SHOW_WAREHOUSE_DATA_META_DATA;
+            }
         }
 
         if (Strings.isNullOrEmpty(dbName)) {
             return SHOW_DATABASE_DATA_META_DATA;
         }
-        if (tableName != null) {
-            return SHOW_INDEX_DATA_META_DATA;
+
+        if (hasTable()) {
+            if (!detailed) {
+                return SHOW_INDEX_DATA_META_DATA;
+            } else {
+                return SHOW_DETAILED_INDEX_DATA_META_DATA;
+            }
         } else {
-            return SHOW_TABLE_DATA_META_DATA;
+            if (!detailed) {
+                return SHOW_TABLE_DATA_META_DATA;
+            } else {
+                return SHOW_DETAILED_TABLE_DATA_META_DATA;
+            }
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        builder.append("SHOW DATA");
+        builder.append("SHOW ");
+        if (detailed) {
+            builder.append("DETAILED DATA");
+        } else {
+            builder.append("DATA");
+        }
 
         if (tableName != null) {
             builder.append(" FROM ");
@@ -445,6 +533,7 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
         return toSql();
     }
 
+    // |DBName|DataSize|RecycleSize|
     private boolean getDbStatsByProperties() {
         if (properties == null) {
             return false;
@@ -507,6 +596,7 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
         return false;
     }
 
+    // |DbId|DbName|Size|RemoteSize|RecycleSize|RecycleRemoteSize|
     private void getAllDbStats() throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {

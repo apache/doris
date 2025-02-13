@@ -73,6 +73,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private volatile ConcurrentHashMap<Long, List<Tablet>> beToColocateTabletsGlobal =
             new ConcurrentHashMap<Long, List<Tablet>>();
 
+    // used for cloud tablet report
+    private volatile ConcurrentHashMap<Long, List<Tablet>> beToTabletsGlobalInSecondary =
+            new ConcurrentHashMap<Long, List<Tablet>>();
+
     private Map<Long, List<Tablet>> futureBeToTabletsGlobal;
 
     private Map<String, List<Long>> clusterToBes;
@@ -164,7 +168,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public boolean srcDecommissioned;
     }
 
-    public Set<Long> getSnapshotTabletsByBeId(Long beId) {
+    public Set<Long> getSnapshotTabletsInPrimaryByBeId(Long beId) {
         Set<Long> tabletIds = Sets.newHashSet();
         List<Tablet> tablets = beToTabletsGlobal.get(beId);
         if (tablets != null) {
@@ -180,6 +184,24 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         }
 
+        return tabletIds;
+    }
+
+    public Set<Long> getSnapshotTabletsInSecondaryByBeId(Long beId) {
+        Set<Long> tabletIds = Sets.newHashSet();
+        List<Tablet> tablets = beToTabletsGlobalInSecondary.get(beId);
+        if (tablets != null) {
+            for (Tablet tablet : tablets) {
+                tabletIds.add(tablet.getId());
+            }
+        }
+        return tabletIds;
+    }
+
+    public Set<Long> getSnapshotTabletsInPrimaryAndSecondaryByBeId(Long beId) {
+        Set<Long> tabletIds = Sets.newHashSet();
+        tabletIds.addAll(getSnapshotTabletsInPrimaryByBeId(beId));
+        tabletIds.addAll(getSnapshotTabletsInSecondaryByBeId(beId));
         return tabletIds;
     }
 
@@ -461,46 +483,53 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     LOG.info("backend {} not found", beId);
                     continue;
                 }
-                if ((backend.isDecommissioned() && tabletNum == 0 && !backend.isActive())
-                        || (backend.isDecommissioned() && beList.size() == 1)) {
-                    LOG.info("check decommission be {} state {} tabletNum {} isActive {} beList {}",
-                            backend.getId(), backend.isDecommissioned(), tabletNum, backend.isActive(), beList);
-                    if (!beToDecommissionedTime.containsKey(beId)) {
-                        LOG.info("prepare to notify meta service be {} decommissioned", backend.getId());
-                        Cloud.AlterClusterRequest.Builder builder =
-                                Cloud.AlterClusterRequest.newBuilder();
-                        builder.setCloudUniqueId(Config.cloud_unique_id);
-                        builder.setOp(Cloud.AlterClusterRequest.Operation.NOTIFY_DECOMMISSIONED);
-
-                        Cloud.ClusterPB.Builder clusterBuilder =
-                                Cloud.ClusterPB.newBuilder();
-                        clusterBuilder.setClusterName(backend.getCloudClusterName());
-                        clusterBuilder.setClusterId(backend.getCloudClusterId());
-                        clusterBuilder.setType(Cloud.ClusterPB.Type.COMPUTE);
-
-                        Cloud.NodeInfoPB.Builder nodeBuilder = Cloud.NodeInfoPB.newBuilder();
-                        nodeBuilder.setIp(backend.getHost());
-                        nodeBuilder.setHeartbeatPort(backend.getHeartbeatPort());
-                        nodeBuilder.setCloudUniqueId(backend.getCloudUniqueId());
-                        nodeBuilder.setStatus(Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONED);
-
-                        clusterBuilder.addNodes(nodeBuilder);
-                        builder.setCluster(clusterBuilder);
-
-                        Cloud.AlterClusterResponse response;
-                        try {
-                            response = MetaServiceProxy.getInstance().alterCluster(builder.build());
-                            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                                LOG.warn("notify decommission response: {}", response);
-                            }
-                            LOG.info("notify decommission response: {} ", response);
-                        } catch (RpcException e) {
-                            LOG.info("failed to notify decommission", e);
-                            return;
-                        }
-                        beToDecommissionedTime.put(beId, System.currentTimeMillis() / 1000);
-                    }
+                if (!backend.isDecommissioning()) {
+                    continue;
                 }
+                // here check wal
+                long walNum = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
+                LOG.info("check decommissioning be {} state {} tabletNum {} isActive {} beList {}, wal num {}",
+                        backend.getId(), backend.isDecommissioning(), tabletNum, backend.isActive(), beList, walNum);
+                if ((tabletNum != 0 || backend.isActive() || walNum != 0) && beList.size() != 1) {
+                    continue;
+                }
+                if (beToDecommissionedTime.containsKey(beId)) {
+                    continue;
+                }
+                LOG.info("prepare to notify meta service be {} decommissioned", backend.getAddress());
+                Cloud.AlterClusterRequest.Builder builder =
+                        Cloud.AlterClusterRequest.newBuilder();
+                builder.setCloudUniqueId(Config.cloud_unique_id);
+                builder.setOp(Cloud.AlterClusterRequest.Operation.NOTIFY_DECOMMISSIONED);
+
+                Cloud.ClusterPB.Builder clusterBuilder =
+                        Cloud.ClusterPB.newBuilder();
+                clusterBuilder.setClusterName(backend.getCloudClusterName());
+                clusterBuilder.setClusterId(backend.getCloudClusterId());
+                clusterBuilder.setType(Cloud.ClusterPB.Type.COMPUTE);
+
+                Cloud.NodeInfoPB.Builder nodeBuilder = Cloud.NodeInfoPB.newBuilder();
+                nodeBuilder.setIp(backend.getHost());
+                nodeBuilder.setHeartbeatPort(backend.getHeartbeatPort());
+                nodeBuilder.setCloudUniqueId(backend.getCloudUniqueId());
+                nodeBuilder.setStatus(Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONED);
+
+                clusterBuilder.addNodes(nodeBuilder);
+                builder.setCluster(clusterBuilder);
+
+                Cloud.AlterClusterResponse response;
+                try {
+                    response = MetaServiceProxy.getInstance().alterCluster(builder.build());
+                    if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                        LOG.warn("notify decommission response: {}", response);
+                        continue;
+                    }
+                    LOG.info("notify decommission response: {} ", response);
+                } catch (RpcException e) {
+                    LOG.warn("failed to notify decommission", e);
+                    continue;
+                }
+                beToDecommissionedTime.put(beId, System.currentTimeMillis() / 1000);
             }
         }
     }
@@ -617,6 +646,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     public void statRouteInfo() {
         ConcurrentHashMap<Long, List<Tablet>> tmpBeToTabletsGlobal = new ConcurrentHashMap<Long, List<Tablet>>();
+        ConcurrentHashMap<Long, List<Tablet>> tmpBeToTabletsGlobalInSecondary
+                = new ConcurrentHashMap<Long, List<Tablet>>();
         ConcurrentHashMap<Long, List<Tablet>> tmpBeToColocateTabletsGlobal
                 = new ConcurrentHashMap<Long, List<Tablet>>();
 
@@ -641,11 +672,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                             continue;
                         }
                         if (allBes.contains(beId)) {
-                            List<Tablet> colocateTablets = tmpBeToColocateTabletsGlobal.get(beId);
-                            if (colocateTablets == null) {
-                                colocateTablets = new ArrayList<Tablet>();
-                                tmpBeToColocateTabletsGlobal.put(beId, colocateTablets);
-                            }
+                            List<Tablet> colocateTablets =
+                                    tmpBeToColocateTabletsGlobal.computeIfAbsent(beId, k -> new ArrayList<>());
                             colocateTablets.add(tablet);
                         }
                         continue;
@@ -655,6 +683,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     long beId = be == null ? -1L : be.getId();
                     if (!allBes.contains(beId)) {
                         continue;
+                    }
+
+                    Backend secondaryBe = replica.getSecondaryBackend(cluster);
+                    long secondaryBeId = secondaryBe == null ? -1L : secondaryBe.getId();
+                    if (allBes.contains(secondaryBeId)) {
+                        List<Tablet> tablets = tmpBeToTabletsGlobalInSecondary
+                                .computeIfAbsent(secondaryBeId, k -> new ArrayList<>());
+                        tablets.add(tablet);
                     }
 
                     InfightTablet taskKey = new InfightTablet(tablet.getId(), cluster);
@@ -670,6 +706,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         });
 
         beToTabletsGlobal = tmpBeToTabletsGlobal;
+        beToTabletsGlobalInSecondary = tmpBeToTabletsGlobalInSecondary;
         beToColocateTabletsGlobal = tmpBeToColocateTabletsGlobal;
     }
 
@@ -854,7 +891,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 LOG.info("backend {} not found", be);
                 continue;
             }
-            if (tabletNum < minTabletsNum && backend.isAlive() && !backend.isDecommissioned()
+            if (tabletNum < minTabletsNum && backend.isAlive() && !backend.isDecommissioning()
                     && !backend.isSmoothUpgradeSrc()) {
                 destBe = be;
                 minTabletsNum = tabletNum;
@@ -868,7 +905,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 LOG.info("backend {} not found", be);
                 continue;
             }
-            if (backend.isDecommissioned() && tabletNum > 0) {
+            if (backend.isDecommissioning() && tabletNum > 0) {
                 srcBe = be;
                 srcDecommissioned = true;
                 break;
@@ -937,7 +974,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         for (Long be : bes) {
             long tabletNum = beToTablets.get(be) == null ? 0 : beToTablets.get(be).size();
             Backend backend = cloudSystemInfoService.getBackend(be);
-            if (backend != null && !backend.isDecommissioned()) {
+            if (backend != null && !backend.isDecommissioning()) {
                 beNum++;
             }
             totalTabletsNum += tabletNum;

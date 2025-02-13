@@ -105,8 +105,8 @@ public class RepairVersionTest extends TestWithFeService {
         Map<Long, TTablet> tablets = Maps.newHashMap();
         tablets.put(tablet.getId(), tTablet);
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
-
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L);
+        ReportHandler reportHandler = new ReportHandler();
+        reportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L, tablets.size());
 
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
@@ -135,12 +135,12 @@ public class RepairVersionTest extends TestWithFeService {
         tTablet.addToTabletInfos(tTabletInfo);
         Map<Long, TTablet> tablets = Maps.newHashMap();
         tablets.put(tablet.getId(), tTablet);
-
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L);
+        ReportHandler reportHandler = new ReportHandler();
+        reportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L, tablets.size());
         Assertions.assertEquals(-1L, replica.getLastFailedVersion());
 
         DebugPointUtil.addDebugPoint("Replica.regressive_version_immediately", new DebugPoint());
-        ReportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L);
+        reportHandler.tabletReport(replica.getBackendId(), tablets, Maps.newHashMap(), 100L, tablets.size());
         Assertions.assertEquals(replica.getVersion() + 1, replica.getLastFailedVersion());
 
         Assertions.assertEquals(partition.getVisibleVersion(), replica.getVersion());

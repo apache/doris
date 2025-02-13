@@ -40,6 +40,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class IndexChannel;
 class VNodeChannel;
@@ -47,7 +48,7 @@ class VNodeChannel;
 // <row_idx, partition_id, tablet_id>
 class RowPartTabletIds {
 public:
-    std::vector<int64_t> row_ids;
+    std::vector<uint32_t> row_ids;
     std::vector<int64_t> partition_ids;
     std::vector<int64_t> tablet_ids;
 
@@ -131,6 +132,7 @@ public:
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
+    size_t batching_rows() const { return _batching_rows; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
@@ -143,7 +145,7 @@ private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
     Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, std::vector<int64_t> filter,
+                                Block* block, const std::vector<int64_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
@@ -230,3 +232,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

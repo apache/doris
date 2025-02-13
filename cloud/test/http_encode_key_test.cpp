@@ -310,7 +310,7 @@ txn_id=126419752960)",
         },
         R"({"creation_time":"12345","label":"label_1"})",
     },
-    Input { // aggregated_stats + full detached_stats, there are 5 KVs in total
+    Input { // aggregated_stats + full detached_stats, there are 7 KVs in total
         "StatsTabletKey",
         "instance_id=gavin-instance&table_id=10086&index_id=10010&part_id=10000&tablet_id=1008601",
         {
@@ -327,15 +327,17 @@ txn_id=126419752960)",
             idx->set_index_id(100010);
             idx->set_partition_id(10000);
             idx->set_tablet_id(1008601);
-            pb.set_data_size(1);
+            pb.set_data_size(2);
             pb.set_num_rows(10);
             pb.set_num_rowsets(11);
             pb.set_num_segments(12);
+            pb.set_index_size(1);
+            pb.set_segment_size(1);
             return {pb.SerializeAsString(), {"\x01\x00\x00\x00\x00\x00\x00\x00",8}, {"\x02\x00\x00\x00\x00\x00\x00\x00",8}, {"\x03\x00\x00\x00\x00\x00\x00\x00",8}, {"\x04\x00\x00\x00\x00\x00\x00\x00",8}};
         },
-        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12"}
-detached_stats: {"data_size":"1","num_rows":"2","num_rowsets":"3","num_segments":"4"}
-merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"2","num_rows":"12","num_rowsets":"14","num_segments":"16"}
+        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
+detached_stats: {"data_size":"1","num_rows":"2","num_rowsets":"3","num_segments":"4","index_size":"0","segment_size":"0"}
+merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"3","num_rows":"12","num_rowsets":"14","num_segments":"16","index_size":"1","segment_size":"1"}
 )",
     },
     Input { // aggregated_stats + half detached_stats (num_segs == 0, there is num_rowsets detached stats)
@@ -352,15 +354,17 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
             idx->set_index_id(100010);
             idx->set_partition_id(10000);
             idx->set_tablet_id(1008602);
-            pb.set_data_size(1);
+            pb.set_data_size(2);
             pb.set_num_rows(10);
             pb.set_num_rowsets(11);
             pb.set_num_segments(12);
+            pb.set_index_size(1);
+            pb.set_segment_size(1);
             return {pb.SerializeAsString(), {"\x03\x00\x00\x00\x00\x00\x00\x00",8}};
         },
-        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12"}
-detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"3","num_segments":"0"}
-merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"14","num_segments":"12"}
+        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
+detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"3","num_segments":"0","index_size":"0","segment_size":"0"}
+merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"2","num_rows":"10","num_rowsets":"14","num_segments":"12","index_size":"1","segment_size":"1"}
 )",
     },
     Input { // aggregated_stats only, the legacy
@@ -376,15 +380,17 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
             idx->set_index_id(100010);
             idx->set_partition_id(10000);
             idx->set_tablet_id(1008602);
-            pb.set_data_size(1);
+            pb.set_data_size(2);
             pb.set_num_rows(10);
             pb.set_num_rowsets(11);
             pb.set_num_segments(12);
+            pb.set_index_size(1);
+            pb.set_segment_size(1);
             return {pb.SerializeAsString()};
         },
-        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12"}
-detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"0","num_segments":"0"}
-merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12"}
+        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
+detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"0","num_segments":"0","index_size":"0","segment_size":"0"}
+merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
 )",
     },
     Input {

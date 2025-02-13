@@ -55,8 +55,6 @@ import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletStatResult;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
@@ -133,11 +131,6 @@ public class GenericPoolTest {
         @Override
         public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) {
             return new TCancelPlanFragmentResult();
-        }
-
-        @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) {
-            return new TTransmitDataResult();
         }
 
         @Override

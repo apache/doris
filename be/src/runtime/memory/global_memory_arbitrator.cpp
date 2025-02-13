@@ -24,9 +24,6 @@
 
 namespace doris {
 
-bvar::PassiveStatus<int64_t> g_vm_rss_sub_allocator_cache(
-        "meminfo_vm_rss_sub_allocator_cache",
-        [](void*) { return GlobalMemoryArbitrator::vm_rss_sub_allocator_cache(); }, nullptr);
 bvar::PassiveStatus<int64_t> g_process_memory_usage(
         "meminfo_process_memory_usage",
         [](void*) { return GlobalMemoryArbitrator::process_memory_usage(); }, nullptr);
@@ -53,7 +50,7 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     int64_t new_reserved_mem = 0;
     do {
         new_reserved_mem = old_reserved_mem + bytes;
-        if (UNLIKELY(vm_rss_sub_allocator_cache() +
+        if (UNLIKELY(PerfCounters::get_vm_rss() +
                              refresh_interval_memory_growth.load(std::memory_order_relaxed) +
                              new_reserved_mem >=
                      MemInfo::soft_mem_limit())) {
@@ -65,7 +62,7 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     return true;
 }
 
-void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
+void GlobalMemoryArbitrator::shrink_process_reserved(int64_t bytes) {
     _process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
 }
 

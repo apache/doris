@@ -17,6 +17,7 @@
 
 #include "exec/tablet_info.h"
 
+#include <butil/logging.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Partitions_types.h>
@@ -180,6 +181,17 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                 auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
                                          is_null_str);
                 if (it == std::end(slots_map)) {
+                    std::string keys {};
+                    for (const auto& [key, _] : slots_map) {
+                        keys += fmt::format("{},", key);
+                    }
+                    LOG_EVERY_SECOND(WARNING) << fmt::format(
+                            "[OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema)]: "
+                            "unknown index column, column={}, type={}, data_type_str={}, "
+                            "is_null_str={}, slots_map.keys()=[{}], {}\npschema={}",
+                            pcolumn_desc.name(), pcolumn_desc.type(), data_type_str, is_null_str,
+                            keys, debug_string(), pschema.ShortDebugString());
+
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
                 }
@@ -286,6 +298,18 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
                                          is_null_str);
                 if (it == slots_map.end()) {
+                    std::stringstream ss;
+                    ss << tschema;
+                    std::string keys {};
+                    for (const auto& [key, _] : slots_map) {
+                        keys += fmt::format("{},", key);
+                    }
+                    LOG_EVERY_SECOND(WARNING) << fmt::format(
+                            "[OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema)]: "
+                            "unknown index column, column={}, type={}, data_type_str={}, "
+                            "is_null_str={}, slots_map.keys()=[{}], {}\ntschema={}",
+                            tcolumn_desc.column_name, tcolumn_desc.column_type.type, data_type_str,
+                            is_null_str, keys, debug_string(), ss.str());
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);

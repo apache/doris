@@ -70,17 +70,25 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    Status res = local_state._table_func->get_next(state, block, eos);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    {
+        SCOPED_TIMER(local_state._table_function_execution_timer);
+        RETURN_IF_ERROR(local_state._table_func->get_next(state, block, eos));
+    }
+    {
+        SCOPED_TIMER(local_state._filter_timer);
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
+    }
     local_state.reached_limit(block, eos);
-    return res;
+    return Status::OK();
 }
 
 Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    _table_function_execution_timer = ADD_TIMER(profile(), "TableFunctionExecutionTime");
+    _filter_timer = ADD_TIMER(profile(), "FilterTime");
     auto& p = _parent->cast<DataGenSourceOperatorX>();
     _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
     _table_func->set_tuple_desc(p._tuple_desc);

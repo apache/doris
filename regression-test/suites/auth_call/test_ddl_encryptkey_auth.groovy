@@ -28,7 +28,7 @@ suite("test_ddl_encryptkey_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -38,7 +38,7 @@ suite("test_ddl_encryptkey_auth","p0,auth_call") {
     sql """create database ${dbName}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
             exception "denied"
@@ -53,7 +53,7 @@ suite("test_ddl_encryptkey_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
         def res = sql """SHOW ENCRYPTKEYS FROM ${dbName}"""

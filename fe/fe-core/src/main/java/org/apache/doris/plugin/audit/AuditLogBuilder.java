@@ -116,7 +116,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
             if (af.value().equals("Time(ms)")) {
                 queryTime = (long) f.get(event);
             }
-            sb.append("|").append(af.value()).append("=").append(String.valueOf(f.get(event)));
+            sb.append("|").append(af.value()).append("=").append(f.get(event));
         }
 
         String auditLog = sb.toString();

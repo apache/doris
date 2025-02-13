@@ -166,7 +166,7 @@ CompactionScoreAction::CompactionScoreAction(ExecEnv* exec_env, TPrivilegeHier::
           _accessor(std::make_unique<CloudCompactionScoresAccessor>(tablet_mgr)) {}
 
 void CompactionScoreAction::handle(HttpRequest* req) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, HttpHeaders::JsonType.data());
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HttpHeaders::JSON_TYPE.data());
     auto top_n_param = req->param(TOP_N);
 
     size_t top_n = DEFAULT_TOP_N;

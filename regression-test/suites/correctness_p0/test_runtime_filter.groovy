@@ -20,7 +20,7 @@
 // and modified by Doris.
 
 suite("test_runtime_filter") {
-
+    sql "set enable_runtime_filter_prune=false;"
     sql """ DROP TABLE IF EXISTS rf_tblA """
     sql """
             CREATE TABLE IF NOT EXISTS rf_tblA (
@@ -109,5 +109,45 @@ suite("test_runtime_filter") {
         contains "runtime filters: RF001[max] <- c"
         contains "runtime filters: RF002[max] <- c"
 
-    }   
+    }
+
+    sql """ DROP TABLE IF EXISTS v_table """
+    sql """
+            create table v_table (
+                kc char(100),
+                kv varchar(100)
+            )
+            duplicate key (kc)
+            distributed BY hash(kv) buckets 1
+            properties("replication_num" = "1");
+        """
+
+    sql """ DROP TABLE IF EXISTS c_table """
+    sql """
+            create table c_table (
+                kc char(100),
+                kv varchar(100)
+            )
+            duplicate key (kc)
+            distributed BY hash(kv) buckets 1
+            properties("replication_num" = "1");
+        """
+    sql """
+    insert into c_table values ('a','a'),('b','b');
+    """
+    sql """
+    insert into v_table values ('a','a'),('b','b'),('c','c');
+    """
+    sql "set runtime_filter_type='1';"
+    qt_test "select * from c_table,v_table where c_table.kc=v_table.kv;"
+    qt_test "select * from c_table,v_table where c_table.kv=v_table.kc;"
+    sql "set runtime_filter_type='2';"
+    qt_test "select * from c_table,v_table where c_table.kc=v_table.kv;"
+    qt_test "select * from c_table,v_table where c_table.kv=v_table.kc;"
+    sql "set runtime_filter_type='4';"
+    qt_test "select * from c_table,v_table where c_table.kc=v_table.kv;"
+    qt_test "select * from c_table,v_table where c_table.kv=v_table.kc;"
+    sql "set runtime_filter_type='8';"
+    qt_test "select * from c_table,v_table where c_table.kc=v_table.kv;"
+    qt_test "select * from c_table,v_table where c_table.kv=v_table.kc;"
 }

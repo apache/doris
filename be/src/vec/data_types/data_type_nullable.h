@@ -92,7 +92,6 @@ public:
         return nested_data_type->is_value_unambiguously_represented_in_contiguous_memory_region();
     }
 
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
     bool should_align_right_in_pretty_formats() const override {
         return nested_data_type->should_align_right_in_pretty_formats();
@@ -104,8 +103,8 @@ public:
     bool have_maximum_size_of_value() const override {
         return nested_data_type->have_maximum_size_of_value();
     }
-    size_t get_maximum_size_of_value_in_memory() const override {
-        return 1 + nested_data_type->get_maximum_size_of_value_in_memory();
+    size_t get_size_of_value_in_memory() const override {
+        return 1 + nested_data_type->get_size_of_value_in_memory();
     }
     bool is_nullable() const override { return true; }
     bool can_be_inside_low_cardinality() const override {

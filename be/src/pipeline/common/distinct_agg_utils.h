@@ -26,13 +26,45 @@
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/ph_hash_set.h"
 #include "vec/common/hash_table/string_hash_map.h"
+#include "vec/core/types.h"
 
 namespace doris {
-template <typename T>
-using DistinctData = PHHashSet<T, HashCRC32<T>>;
 
 template <typename T>
-using DistinctDataPhase2 = PHHashSet<T, HashMixWrapper<T>>;
+struct DistinctHashSetType {
+    using HashSet = PHHashSet<T, HashCRC32<T>>;
+};
+
+template <>
+struct DistinctHashSetType<vectorized::UInt8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::UInt8>;
+};
+
+template <>
+struct DistinctHashSetType<vectorized::Int8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::Int8>;
+};
+
+template <typename T>
+struct DistinctPhase2HashSetType {
+    using HashSet = PHHashSet<T, HashMixWrapper<T>>;
+};
+
+template <>
+struct DistinctPhase2HashSetType<vectorized::UInt8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::UInt8>;
+};
+
+template <>
+struct DistinctPhase2HashSetType<vectorized::Int8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::Int8>;
+};
+
+template <typename T>
+using DistinctData = typename DistinctHashSetType<T>::HashSet;
+
+template <typename T>
+using DistinctDataPhase2 = typename DistinctPhase2HashSetType<T>::HashSet;
 
 using DistinctDataWithStringKey = PHHashSet<StringRef>;
 
@@ -72,48 +104,43 @@ using DistinctMethodVariants = std::variant<
                 vectorized::DataWithNullKey<DistinctData<vectorized::UInt256>>>>,
         vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
                 vectorized::DataWithNullKey<DistinctDataWithShortStringKey>>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>, false>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>, true>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>, false>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>, true>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>, false>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>, true>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>, false>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>, true>>;
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>>,
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>>,
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>>,
+        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>>>;
 
 struct DistinctDataVariants
         : public DataVariants<DistinctMethodVariants, vectorized::MethodSingleNullableColumn,
-                              vectorized::MethodOneNumber, vectorized::MethodKeysFixed,
-                              vectorized::DataWithNullKey> {
-    template <bool nullable>
+                              vectorized::MethodOneNumber, vectorized::DataWithNullKey> {
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
         switch (type) {
         case HashKeyType::serialized:
             method_variant.emplace<vectorized::MethodSerialized<DistinctDataWithStringKey>>();
             break;
         case HashKeyType::int8_key:
-            emplace_single<vectorized::UInt8, DistinctData<vectorized::UInt8>, nullable>();
+            emplace_single<vectorized::UInt8, DistinctData<vectorized::UInt8>>(nullable);
             break;
         case HashKeyType::int16_key:
-            emplace_single<vectorized::UInt16, DistinctData<vectorized::UInt16>, nullable>();
+            emplace_single<vectorized::UInt16, DistinctData<vectorized::UInt16>>(nullable);
             break;
         case HashKeyType::int32_key:
-            emplace_single<vectorized::UInt32, DistinctData<vectorized::UInt32>, nullable>();
+            emplace_single<vectorized::UInt32, DistinctData<vectorized::UInt32>>(nullable);
             break;
         case HashKeyType::int32_key_phase2:
-            emplace_single<vectorized::UInt32, DistinctDataPhase2<vectorized::UInt32>, nullable>();
+            emplace_single<vectorized::UInt32, DistinctDataPhase2<vectorized::UInt32>>(nullable);
             break;
         case HashKeyType::int64_key:
-            emplace_single<vectorized::UInt64, DistinctData<vectorized::UInt64>, nullable>();
+            emplace_single<vectorized::UInt64, DistinctData<vectorized::UInt64>>(nullable);
             break;
         case HashKeyType::int64_key_phase2:
-            emplace_single<vectorized::UInt64, DistinctDataPhase2<vectorized::UInt64>, nullable>();
+            emplace_single<vectorized::UInt64, DistinctDataPhase2<vectorized::UInt64>>(nullable);
             break;
         case HashKeyType::int128_key:
-            emplace_single<vectorized::UInt128, DistinctData<vectorized::UInt128>, nullable>();
+            emplace_single<vectorized::UInt128, DistinctData<vectorized::UInt128>>(nullable);
             break;
         case HashKeyType::int256_key:
-            emplace_single<vectorized::UInt256, DistinctData<vectorized::UInt256>, nullable>();
+            emplace_single<vectorized::UInt256, DistinctData<vectorized::UInt256>>(nullable);
             break;
         case HashKeyType::string_key:
             if (nullable) {
@@ -126,23 +153,19 @@ struct DistinctDataVariants
             }
             break;
         case HashKeyType::fixed64:
-            method_variant.emplace<
-                    vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>, nullable>>(
+            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant.emplace<
-                    vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>, nullable>>(
+            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant.emplace<
-                    vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>, nullable>>(
+            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant.emplace<
-                    vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>, nullable>>(
+            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>>>(
                     get_key_sizes(data_types));
             break;
         default:

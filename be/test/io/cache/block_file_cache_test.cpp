@@ -81,7 +81,7 @@ constexpr unsigned long long operator"" _kb(unsigned long long m) {
 void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_block,
                   const io::FileBlock::Range& expected_range, io::FileBlock::State expected_state) {
     auto range = file_block->range();
-
+    std::cout << "assert_range num: " << assert_n << std::endl;
     ASSERT_EQ(range.left, expected_range.left);
     ASSERT_EQ(range.right, expected_range.right);
     ASSERT_EQ(file_block->state(), expected_state);
@@ -139,7 +139,10 @@ class BlockFileCacheTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
-        config::enable_ttl_cache_evict_using_lru = false;
+        config::enable_evict_file_cache_in_advance = false; // disable evict in
+                                                            // advance for most
+                                                            // cases for simple
+                                                            // verification
         bool exists {false};
         ASSERT_TRUE(global_local_filesystem()->exists(caches_dir, &exists).ok());
         if (!exists) {
@@ -257,6 +260,9 @@ void test_file_cache(io::FileCacheType cache_type) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context, other_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
     context.cache_type = other_context.cache_type = cache_type;
     context.query_id = query_id;
     other_context.query_id = other_query_id;
@@ -688,6 +694,9 @@ void test_file_cache_memory_storage(io::FileCacheType cache_type) {
     settings.max_query_cache_size = 30;
     settings.storage = "memory";
     io::CacheContext context, other_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
     context.cache_type = other_context.cache_type = cache_type;
     context.query_id = query_id;
     other_context.query_id = other_query_id;
@@ -1110,12 +1119,16 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
     query_id.hi = 1;
     query_id.lo = 1;
     io::FileCacheSettings settings;
-    settings.query_queue_size = 100000000;
-    settings.query_queue_elements = 100000;
+    settings.query_queue_size = 50000000;
+    settings.query_queue_elements = 50000;
+    settings.ttl_queue_size = 50000000;
+    settings.ttl_queue_elements = 50000;
     settings.capacity = 100000000;
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -1136,7 +1149,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
         auto holder = cache.get_or_set(key1, offset, 100000, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
-        if (offset < 90000000) {
+        if (offset < 50000000) {
             assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
                          io::FileBlock::State::EMPTY);
             ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
@@ -1145,7 +1158,81 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
                          io::FileBlock::State::DOWNLOADED);
         } else {
             assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
-                         io::FileBlock::State::SKIP_CACHE);
+                         io::FileBlock::State::EMPTY);
+        }
+        blocks.clear();
+    }
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, max_ttl_size_with_other_cache_exist) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 50000000;
+    settings.query_queue_elements = 50000;
+    settings.ttl_queue_size = 50000000;
+    settings.ttl_queue_elements = 50000;
+    settings.capacity = 100000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    auto key1 = io::BlockFileCache::hash("key5");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    // populate the cache with other cache type
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id = query_id;
+    int64_t offset = 100000000;
+    for (; offset < 180000000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        blocks.clear();
+    }
+
+    // then get started with TTL
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t cur_time = UnixSeconds();
+    context.expiration_time = cur_time + 120;
+    offset = 0;
+    for (; offset < 100000000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        if (offset < 50000000) {
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+        } else {
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
         }
         blocks.clear();
     }
@@ -1166,6 +1253,8 @@ TEST_F(BlockFileCacheTest, max_ttl_size_memory_storage) {
     settings.max_query_cache_size = 30;
     settings.storage = "memory";
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -1195,7 +1284,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size_memory_storage) {
                          io::FileBlock::State::DOWNLOADED);
         } else {
             assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
-                         io::FileBlock::State::SKIP_CACHE);
+                         io::FileBlock::State::EMPTY);
         }
         blocks.clear();
     }
@@ -1226,6 +1315,8 @@ TEST_F(BlockFileCacheTest, query_limit_heap_use_after_free) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     {
@@ -1311,6 +1402,8 @@ TEST_F(BlockFileCacheTest, query_limit_dcheck) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     {
@@ -1428,6 +1521,8 @@ TEST_F(BlockFileCacheTest, reset_range) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     {
@@ -1478,6 +1573,8 @@ TEST_F(BlockFileCacheTest, change_cache_type) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     {
@@ -1526,6 +1623,8 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     {
@@ -1570,6 +1669,8 @@ TEST_F(BlockFileCacheTest, fd_cache_remove) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     {
@@ -1652,6 +1753,8 @@ TEST_F(BlockFileCacheTest, fd_cache_evict) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     auto key = io::BlockFileCache::hash("key1");
     config::file_cache_max_file_reader_cache_size = 2;
@@ -1782,6 +1885,10 @@ void test_file_cache_run_in_resource_limit(io::FileCacheType cache_type) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context, other_context, index_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
+    index_context.stats = &rstats;
     context.cache_type = other_context.cache_type = cache_type;
     context.query_id = query_id;
     other_context.query_id = other_query_id;
@@ -1884,6 +1991,9 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context, other_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
     context.cache_type = other_context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
@@ -1942,6 +2052,9 @@ TEST_F(BlockFileCacheTest, test_async_load) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context, other_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
     context.cache_type = other_context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
@@ -2003,6 +2116,9 @@ TEST_F(BlockFileCacheTest, test_async_load_with_limit) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context, other_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
     context.cache_type = other_context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
@@ -2065,10 +2181,14 @@ TEST_F(BlockFileCacheTest, ttl_normal) {
     io::FileCacheSettings settings;
     settings.query_queue_size = 50;
     settings.query_queue_elements = 5;
-    settings.capacity = 50;
+    settings.ttl_queue_size = 50;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 100;
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2160,10 +2280,14 @@ TEST_F(BlockFileCacheTest, ttl_modify) {
     io::FileCacheSettings settings;
     settings.query_queue_size = 30;
     settings.query_queue_elements = 5;
-    settings.capacity = 30;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2244,6 +2368,8 @@ TEST_F(BlockFileCacheTest, ttl_modify_memory_storage) {
     settings.max_query_cache_size = 30;
     settings.storage = "memory";
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2314,10 +2440,14 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal) {
     io::FileCacheSettings settings;
     settings.query_queue_size = 30;
     settings.query_queue_elements = 5;
-    settings.capacity = 30;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2378,6 +2508,8 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal_memory_storage) {
     settings.max_query_cache_size = 30;
     settings.storage = "memory";
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2428,10 +2560,14 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
     io::FileCacheSettings settings;
     settings.query_queue_size = 30;
     settings.query_queue_elements = 5;
-    settings.capacity = 30;
+    settings.ttl_queue_size = 30;
+    settings.ttl_queue_elements = 5;
+    settings.capacity = 60;
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2450,6 +2586,16 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
         auto holder = cache.get_or_set(key2, 50, 10, context); /// Add range [50, 59]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
+        // std::cout << "current cache size:"  << cache.get_used_cache_size() << std::endl;
+        std::cout << "cache capacity:" << cache.capacity() << std::endl;
+        auto map = cache.get_stats_unsafe();
+        for (auto& [key, value] : map) {
+            std::cout << key << " : " << value << std::endl;
+        }
+        auto key1 = io::BlockFileCache::hash("key1");
+        std::cout << cache.dump_structure(key1) << std::endl;
+        std::cout << cache.dump_structure(key2) << std::endl;
+
         assert_range(1, blocks[0], io::FileBlock::Range(50, 59), io::FileBlock::State::EMPTY);
         ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
         download(blocks[0]);
@@ -2493,6 +2639,8 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time_memory_storage) {
     settings.max_query_cache_size = 30;
     settings.storage = "memory";
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -2532,105 +2680,6 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time_memory_storage) {
     }
 }
 
-TEST_F(BlockFileCacheTest, ttl_reverse) {
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    test_file_cache(io::FileCacheType::NORMAL);
-    TUniqueId query_id;
-    query_id.hi = 1;
-    query_id.lo = 1;
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 36;
-    settings.query_queue_elements = 5;
-    settings.capacity = 36;
-    settings.max_file_block_size = 7;
-    settings.max_query_cache_size = 30;
-    io::CacheContext context;
-    context.cache_type = io::FileCacheType::TTL;
-    context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 180;
-    auto key2 = io::BlockFileCache::hash("key2");
-    io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(cache.get_async_open_success());
-    for (size_t offset = 0; offset < 30; offset += 6) {
-        auto holder = cache.get_or_set(key2, offset, 6, context);
-        auto blocks = fromHolder(holder);
-        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(blocks[0]);
-    }
-    {
-        auto holder = cache.get_or_set(key2, 50, 7, context); /// Add range [50, 57]
-        auto blocks = fromHolder(holder);
-        assert_range(1, blocks[0], io::FileBlock::Range(50, 56), io::FileBlock::State::SKIP_CACHE);
-    }
-    {
-        context.cache_type = io::FileCacheType::NORMAL;
-        auto holder = cache.get_or_set(key2, 50, 7, context); /// Add range [50, 57]
-        auto blocks = fromHolder(holder);
-        assert_range(1, blocks[0], io::FileBlock::Range(50, 56), io::FileBlock::State::SKIP_CACHE);
-    }
-
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-}
-
-TEST_F(BlockFileCacheTest, ttl_reverse_memory_storage) {
-    test_file_cache_memory_storage(io::FileCacheType::NORMAL);
-    TUniqueId query_id;
-    query_id.hi = 1;
-    query_id.lo = 1;
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 36;
-    settings.query_queue_elements = 5;
-    settings.capacity = 36;
-    settings.max_file_block_size = 7;
-    settings.max_query_cache_size = 30;
-    settings.storage = "memory";
-    io::CacheContext context;
-    context.cache_type = io::FileCacheType::TTL;
-    context.query_id = query_id;
-    int64_t cur_time = UnixSeconds();
-    context.expiration_time = cur_time + 180;
-    auto key2 = io::BlockFileCache::hash("key2");
-    io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(cache.get_async_open_success());
-    for (size_t offset = 0; offset < 30; offset += 6) {
-        auto holder = cache.get_or_set(key2, offset, 6, context);
-        auto blocks = fromHolder(holder);
-        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download_into_memory(blocks[0]);
-    }
-    {
-        auto holder = cache.get_or_set(key2, 50, 7, context); /// Add range [50, 57]
-        auto blocks = fromHolder(holder);
-        assert_range(1, blocks[0], io::FileBlock::Range(50, 56), io::FileBlock::State::SKIP_CACHE);
-    }
-    {
-        context.cache_type = io::FileCacheType::NORMAL;
-        auto holder = cache.get_or_set(key2, 50, 7, context); /// Add range [50, 57]
-        auto blocks = fromHolder(holder);
-        assert_range(1, blocks[0], io::FileBlock::Range(50, 56), io::FileBlock::State::SKIP_CACHE);
-    }
-}
-
 TEST_F(BlockFileCacheTest, io_error) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -2648,6 +2697,9 @@ TEST_F(BlockFileCacheTest, io_error) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context, other_context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    other_context.stats = &rstats;
     context.cache_type = other_context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
@@ -2805,6 +2857,8 @@ TEST_F(BlockFileCacheTest, remove_directly_when_normal_change_to_ttl) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -2863,26 +2917,24 @@ TEST_F(BlockFileCacheTest, recyle_cache_async) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     auto sp = SyncPoint::get_instance();
+    FileBlocksHolder* holder;
     SyncPoint::CallbackGuard guard1;
+    // use first block before clean cache
     sp->set_call_back(
-            "BlockFileCache::set_sleep_time",
-            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
-    SyncPoint::CallbackGuard guard2;
-    sp->set_call_back(
-            "BlockFileCache::set_remove_batch",
-            [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; }, &guard2);
-    SyncPoint::CallbackGuard guard3;
-    sp->set_call_back(
-            "BlockFileCache::recycle_deleted_blocks",
+            "BlockFileCache::clear_file_cache_async",
             [&](auto&&) {
                 context.cache_type = io::FileCacheType::NORMAL;
-                cache.get_or_set(key, 0, 5, context);
+                FileBlocksHolder h = cache.get_or_set(key, 0, 5, context);
+                holder = new FileBlocksHolder(std::move(h));
             },
-            &guard3);
+            &guard1);
+
     sp->enable_processing();
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
@@ -2904,12 +2956,12 @@ TEST_F(BlockFileCacheTest, recyle_cache_async) {
                      io::FileBlock::State::DOWNLOADED);
     }
     cache.clear_file_cache_async();
-    while (cache._async_clear_file_cache)
-        ;
-    EXPECT_EQ(cache._cur_cache_size, 5);
+
+    EXPECT_EQ(cache._cur_cache_size, 5); // only one block is used, other is cleared
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+    delete holder;
 }
 
 TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
@@ -2931,12 +2983,15 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
     context.cache_type = io::FileCacheType::TTL;
     context.expiration_time = UnixSeconds() + 3600;
+    FileBlocksHolder* holder;
     auto sp = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard1;
     sp->set_call_back(
@@ -2948,10 +3003,11 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
             [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; }, &guard2);
     SyncPoint::CallbackGuard guard3;
     sp->set_call_back(
-            "BlockFileCache::recycle_deleted_blocks",
+            "BlockFileCache::clear_file_cache_async",
             [&](auto&&) {
                 context.cache_type = io::FileCacheType::NORMAL;
-                cache.get_or_set(key, 0, 5, context);
+                FileBlocksHolder h = cache.get_or_set(key, 0, 5, context);
+                holder = new FileBlocksHolder(std::move(h));
             },
             &guard3);
     sp->enable_processing();
@@ -2985,12 +3041,12 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
                      io::FileBlock::State::DOWNLOADED);
     }
     cache.clear_file_cache_async();
-    while (cache._async_clear_file_cache)
-        ;
+
     EXPECT_EQ(cache._cur_cache_size, 5);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+    delete holder;
 }
 
 TEST_F(BlockFileCacheTest, remove_directly) {
@@ -3012,6 +3068,8 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key1 = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
@@ -3094,6 +3152,8 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
     EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_path3), nullptr);
 
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     auto cache = FileCacheFactory::instance()->get_by_path(key1);
     int i = 0;
     while (i++ < 1000) {
@@ -3116,8 +3176,7 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
                      io::FileBlock::State::DOWNLOADED);
     }
     FileCacheFactory::instance()->clear_file_caches(false);
-    while (cache->_async_clear_file_cache)
-        ;
+
     EXPECT_EQ(cache->_cur_cache_size, 0);
 
     for (int64_t offset = 0; offset < 60; offset += 5) {
@@ -3269,6 +3328,8 @@ TEST_F(BlockFileCacheTest, test_disposable) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = FileCacheType::DISPOSABLE;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -3313,6 +3374,8 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
         settings.max_file_block_size = 30;
         settings.max_query_cache_size = 15;
         io::CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
         context.cache_type = FileCacheType::NORMAL;
         context.query_id = query_id;
         auto key = io::BlockFileCache::hash("key1");
@@ -3381,6 +3444,8 @@ TEST_F(BlockFileCacheTest, append_many_time) {
     settings.max_query_cache_size = 15;
     auto key = io::BlockFileCache::hash("key1");
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = FileCacheType::NORMAL;
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -3496,6 +3561,8 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
     settings.max_query_cache_size = 15;
     auto key = io::BlockFileCache::hash("key1");
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = FileCacheType::NORMAL;
     {
         io::BlockFileCache cache(cache_base_path, settings);
@@ -3563,6 +3630,8 @@ TEST_F(BlockFileCacheTest, query_file_cache_reserve) {
     auto key = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = FileCacheType::NORMAL;
     context.query_id = id;
     config::enable_file_cache_query_limit = true;
@@ -3642,6 +3711,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     FileReaderSPtr local_reader;
@@ -3744,6 +3815,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     FileReaderSPtr local_reader;
@@ -3806,6 +3879,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     auto cache = FileCacheFactory::instance()->_caches[0].get();
@@ -3884,6 +3959,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     FileReaderSPtr local_reader;
@@ -3935,6 +4012,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     FileReaderSPtr local_reader;
@@ -4007,6 +4086,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     FileReaderSPtr local_reader;
@@ -4075,6 +4156,8 @@ TEST_F(BlockFileCacheTest, test_hot_data) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     auto key1 = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
     int64_t expiration_time = UnixSeconds() + 300;
@@ -4159,6 +4242,8 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_1) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::INDEX;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -4232,6 +4317,8 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::INDEX;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -4319,7 +4406,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    EXPECT_EQ(config::file_cache_enter_disk_resource_limit_mode_percent, 90);
+    EXPECT_EQ(config::file_cache_enter_disk_resource_limit_mode_percent, 88);
     EXPECT_EQ(config::file_cache_exit_disk_resource_limit_mode_percent, 80);
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     if (fs::exists(cache_base_path)) {
@@ -4468,6 +4555,8 @@ TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::NORMAL;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
@@ -4509,6 +4598,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
     settings.max_file_block_size = 1048576;
     settings.max_query_cache_size = 0;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     io::FileReaderOptions opts;
@@ -4616,6 +4707,8 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_1) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -4687,6 +4780,8 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_2) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
@@ -4773,273 +4868,6 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_2) {
     }
 }
 
-TEST_F(BlockFileCacheTest, recyle_unvalid_ttl_async) {
-    config::file_cache_ttl_valid_check_interval_second = 4;
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    TUniqueId query_id;
-    query_id.hi = 1;
-    query_id.lo = 1;
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
-    settings.query_queue_elements = 5;
-    settings.index_queue_size = 30;
-    settings.index_queue_elements = 5;
-    settings.disposable_queue_size = 30;
-    settings.disposable_queue_elements = 5;
-    settings.capacity = 90;
-    settings.max_file_block_size = 30;
-    settings.max_query_cache_size = 30;
-    io::CacheContext context;
-    context.query_id = query_id;
-    auto key = io::BlockFileCache::hash("key1");
-    io::BlockFileCache cache(cache_base_path, settings);
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-    auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
-        sp->clear_call_back("BlockFileCache::set_remove_batch");
-        sp->clear_call_back("BlockFileCache::recycle_deleted_blocks");
-        sp->clear_call_back("BlockFileCache::set_sleep_time");
-    }};
-    sp->set_call_back("BlockFileCache::set_sleep_time",
-                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; });
-    sp->set_call_back("BlockFileCache::set_remove_batch",
-                      [](auto&& args) { *try_any_cast<int*>(args[0]) = 2; });
-    sp->set_call_back("BlockFileCache::recycle_deleted_blocks",
-                      [&](auto&&) { cache.get_or_set(key, 0, 5, context); });
-    sp->enable_processing();
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    for (int64_t offset = 0; offset < 60; offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(segments[0]);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::DOWNLOADED);
-    }
-    std::this_thread::sleep_for(
-            std::chrono::seconds(config::file_cache_ttl_valid_check_interval_second + 2));
-    config::file_cache_ttl_valid_check_interval_second = 0;
-    EXPECT_EQ(cache._cur_cache_size, 5);
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-}
-
-TEST_F(BlockFileCacheTest, ttl_reserve_wo_evict_using_lru) {
-    config::file_cache_ttl_valid_check_interval_second = 4;
-    config::enable_ttl_cache_evict_using_lru = false;
-
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    TUniqueId query_id;
-    query_id.hi = 1;
-    query_id.lo = 1;
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
-    settings.query_queue_elements = 5;
-    settings.index_queue_size = 30;
-    settings.index_queue_elements = 5;
-    settings.disposable_queue_size = 0;
-    settings.disposable_queue_elements = 0;
-    settings.capacity = 60;
-    settings.max_file_block_size = 30;
-    settings.max_query_cache_size = 30;
-    io::CacheContext context;
-    context.query_id = query_id;
-    auto key = io::BlockFileCache::hash("key1");
-    io::BlockFileCache cache(cache_base_path, settings);
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    for (int64_t offset = 0; offset < (60 * config::max_ttl_cache_ratio / 100 - 5); offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(segments[0]);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::DOWNLOADED);
-    }
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-    for (int64_t offset = 60; offset < 70; offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::SKIP_CACHE);
-    }
-
-    EXPECT_EQ(cache._cur_cache_size, 50);
-    EXPECT_EQ(cache._ttl_queue.cache_size, 0);
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-}
-
-TEST_F(BlockFileCacheTest, ttl_reserve_with_evict_using_lru) {
-    config::file_cache_ttl_valid_check_interval_second = 4;
-    config::enable_ttl_cache_evict_using_lru = true;
-
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    TUniqueId query_id;
-    query_id.hi = 1;
-    query_id.lo = 1;
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
-    settings.query_queue_elements = 5;
-    settings.index_queue_size = 30;
-    settings.index_queue_elements = 5;
-    settings.disposable_queue_size = 0;
-    settings.disposable_queue_elements = 0;
-    settings.capacity = 60;
-    settings.max_file_block_size = 30;
-    settings.max_query_cache_size = 30;
-    io::CacheContext context;
-    context.query_id = query_id;
-    auto key = io::BlockFileCache::hash("key1");
-    io::BlockFileCache cache(cache_base_path, settings);
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    for (int64_t offset = 0; offset < (60 * config::max_ttl_cache_ratio / 100); offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(segments[0]);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::DOWNLOADED);
-    }
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-    for (int64_t offset = 60; offset < 70; offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(segments[0]);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::DOWNLOADED);
-    }
-
-    EXPECT_EQ(cache._cur_cache_size, 50);
-    EXPECT_EQ(cache._ttl_queue.cache_size, 50);
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-}
-
-TEST_F(BlockFileCacheTest, ttl_reserve_with_evict_using_lru_meet_max_ttl_cache_ratio_limit) {
-    config::file_cache_ttl_valid_check_interval_second = 4;
-    config::enable_ttl_cache_evict_using_lru = true;
-    int old = config::max_ttl_cache_ratio;
-    config::max_ttl_cache_ratio = 50;
-
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    TUniqueId query_id;
-    query_id.hi = 1;
-    query_id.lo = 1;
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
-    settings.query_queue_elements = 5;
-    settings.index_queue_size = 30;
-    settings.index_queue_elements = 5;
-    settings.disposable_queue_size = 0;
-    settings.disposable_queue_elements = 0;
-    settings.capacity = 60;
-    settings.max_file_block_size = 30;
-    settings.max_query_cache_size = 30;
-    io::CacheContext context;
-    context.query_id = query_id;
-    auto key = io::BlockFileCache::hash("key1");
-    io::BlockFileCache cache(cache_base_path, settings);
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    for (int64_t offset = 0; offset < (60 * config::max_ttl_cache_ratio / 100); offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(segments[0]);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::DOWNLOADED);
-    }
-    EXPECT_EQ(cache._cur_cache_size, 30);
-    EXPECT_EQ(cache._ttl_queue.cache_size, 30);
-    context.cache_type = io::FileCacheType::TTL;
-    context.expiration_time = UnixSeconds() + 3600;
-    for (int64_t offset = 60; offset < 70; offset += 5) {
-        auto holder = cache.get_or_set(key, offset, 5, context);
-        auto segments = fromHolder(holder);
-        ASSERT_EQ(segments.size(), 1);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(segments[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(segments[0]);
-        assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
-                     io::FileBlock::State::DOWNLOADED);
-    }
-
-    EXPECT_EQ(cache._cur_cache_size, 30);
-    EXPECT_EQ(cache._ttl_queue.cache_size, 30);
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    config::max_ttl_cache_ratio = old;
-}
-
 TEST_F(BlockFileCacheTest, reset_capacity) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5059,6 +4887,8 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     auto key = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
@@ -5107,8 +4937,7 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
                      io::FileBlock::State::DOWNLOADED);
     }
     std::cout << cache.reset_capacity(30) << std::endl;
-    while (cache._async_clear_file_cache)
-        ;
+
     EXPECT_EQ(cache._cur_cache_size, 30);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5135,6 +4964,8 @@ TEST_F(BlockFileCacheTest, change_cache_type1) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
@@ -5209,6 +5040,8 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.query_id = query_id;
     int64_t cur_time = UnixSeconds();
     context.cache_type = io::FileCacheType::NORMAL;
@@ -5390,6 +5223,8 @@ TEST_F(BlockFileCacheTest, test_load) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
     context.cache_type = io::FileCacheType::TTL;
     context.expiration_time = expiration;
     auto key = io::BlockFileCache::hash("key1");
@@ -5491,6 +5326,1661 @@ TEST_F(BlockFileCacheTest, file_cache_path_storage_parse) {
         ASSERT_TRUE(cache_paths[0].total_bytes == 102400);
         ASSERT_TRUE(cache_paths[0].storage == "disk");
     }
+}
+
+TEST_F(BlockFileCacheTest, populate_empty_cache_with_disposable) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    size_t limit = 1000000;
+    size_t cache_max = 10000000;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::DISPOSABLE;
+    context.query_id = query_id;
+    // int64_t cur_time = UnixSeconds();
+    // context.expiration_time = cur_time + 120;
+    auto key1 = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+    int64_t offset = 0;
+    // fill the cache to its limit
+    for (; offset < limit; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    // grab more exceed the limit to max cache capacity
+    for (; offset < cache_max; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE]->get_value(), 0);
+
+    // grab more exceed the cache capacity
+    size_t exceed = 2000000;
+    for (; offset < (cache_max + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE]->get_value(),
+              exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, populate_empty_cache_with_normal) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    size_t limit = 3000000;
+    size_t cache_max = 10000000;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id = query_id;
+    // int64_t cur_time = UnixSeconds();
+    // context.expiration_time = cur_time + 120;
+    auto key1 = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+    int64_t offset = 0;
+    // fill the cache to its limit
+    for (; offset < limit; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    // grab more exceed the limit to max cache capacity
+    for (; offset < cache_max; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::NORMAL]->get_value(), 0);
+
+    // grab more exceed the cache capacity
+    size_t exceed = 2000000;
+    for (; offset < (cache_max + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::NORMAL]->get_value(), exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, populate_empty_cache_with_index) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    size_t limit = 1000000;
+    size_t cache_max = 10000000;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::INDEX;
+    context.query_id = query_id;
+    // int64_t cur_time = UnixSeconds();
+    // context.expiration_time = cur_time + 120;
+    auto key1 = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+    int64_t offset = 0;
+    // fill the cache to its limit
+    for (; offset < limit; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    // grab more exceed the limit to max cache capacity
+    for (; offset < cache_max; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::INDEX]->get_value(), 0);
+
+    // grab more exceed the cache capacity
+    size_t exceed = 2000000;
+    for (; offset < (cache_max + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::INDEX]->get_value(), exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, populate_empty_cache_with_ttl) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    size_t limit = 5000000;
+    size_t cache_max = 10000000;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t cur_time = UnixSeconds();
+    context.expiration_time = cur_time + 120;
+    auto key1 = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+    int64_t offset = 0;
+    // fill the cache to its limit
+    for (; offset < limit; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    // grab more exceed the limit to max cache capacity
+    for (; offset < cache_max; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::TTL]->get_value(), 0);
+
+    // grab more exceed the cache capacity
+    size_t exceed = 2000000;
+    for (; offset < (cache_max + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::TTL]->get_value(), exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, disposable_seize_after_normal) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    size_t limit = 1000000;
+    size_t cache_max = 10000000;
+
+    io::CacheContext context1;
+    ReadStatistics rstats;
+    context1.stats = &rstats;
+    context1.cache_type = io::FileCacheType::NORMAL;
+    context1.query_id = query_id;
+    auto key1 = io::BlockFileCache::hash("key1");
+
+    int64_t offset = 0;
+    // fill the cache
+    for (; offset < cache_max; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max);
+    // our hero comes to the stage
+    io::CacheContext context2;
+    context2.stats = &rstats;
+    context2.cache_type = io::FileCacheType::DISPOSABLE;
+    context2.query_id = query_id;
+    auto key2 = io::BlockFileCache::hash("key2");
+    offset = 0;
+    for (; offset < limit; offset += 100000) {
+        auto holder = cache.get_or_set(key2, offset, 100000, context2);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], limit);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max - limit);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              limit);
+
+    // grab more exceed the limit
+    size_t exceed = 2000000;
+    for (; offset < (limit + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key2, offset, 100000, context2);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], limit);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max - limit);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE]->get_value(),
+              exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, seize_after_full) {
+    struct Args {
+        io::FileCacheType first_type;
+        io::FileCacheType second_type;
+        size_t second_limit;
+        std::string first_metrics;
+        std::string second_metrics;
+    };
+
+    std::vector<Args> args_vec = {
+            {io::FileCacheType::NORMAL, io::FileCacheType::DISPOSABLE, 1000000,
+             "normal_queue_curr_size", "disposable_queue_curr_size"},
+            {io::FileCacheType::NORMAL, io::FileCacheType::INDEX, 1000000, "normal_queue_curr_size",
+             "index_queue_curr_size"},
+            {io::FileCacheType::NORMAL, io::FileCacheType::TTL, 5000000, "normal_queue_curr_size",
+             "ttl_queue_curr_size"},
+            {io::FileCacheType::DISPOSABLE, io::FileCacheType::NORMAL, 3000000,
+             "disposable_queue_curr_size", "normal_queue_curr_size"},
+            {io::FileCacheType::DISPOSABLE, io::FileCacheType::INDEX, 1000000,
+             "disposable_queue_curr_size", "index_queue_curr_size"},
+            {io::FileCacheType::DISPOSABLE, io::FileCacheType::TTL, 5000000,
+             "disposable_queue_curr_size", "ttl_queue_curr_size"},
+            {io::FileCacheType::INDEX, io::FileCacheType::NORMAL, 3000000, "index_queue_curr_size",
+             "normal_queue_curr_size"},
+            {io::FileCacheType::INDEX, io::FileCacheType::DISPOSABLE, 1000000,
+             "index_queue_curr_size", "disposable_queue_curr_size"},
+            {io::FileCacheType::INDEX, io::FileCacheType::TTL, 5000000, "index_queue_curr_size",
+             "ttl_queue_curr_size"},
+            {io::FileCacheType::TTL, io::FileCacheType::NORMAL, 3000000, "ttl_queue_curr_size",
+             "normal_queue_curr_size"},
+            {io::FileCacheType::TTL, io::FileCacheType::DISPOSABLE, 1000000, "ttl_queue_curr_size",
+             "disposable_queue_curr_size"},
+            {io::FileCacheType::TTL, io::FileCacheType::INDEX, 1000000, "ttl_queue_curr_size",
+             "index_queue_curr_size"},
+    };
+
+    for (auto& args : args_vec) {
+        std::cout << "filled with " << io::BlockFileCache::cache_type_to_string(args.first_type)
+                  << " and seize with "
+                  << io::BlockFileCache::cache_type_to_string(args.second_type) << std::endl;
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+        fs::create_directories(cache_base_path);
+        TUniqueId query_id;
+        query_id.hi = 1;
+        query_id.lo = 1;
+        io::FileCacheSettings settings;
+
+        settings.ttl_queue_size = 5000000;
+        settings.ttl_queue_elements = 50000;
+        settings.query_queue_size = 3000000;
+        settings.query_queue_elements = 30000;
+        settings.index_queue_size = 1000000;
+        settings.index_queue_elements = 10000;
+        settings.disposable_queue_size = 1000000;
+        settings.disposable_queue_elements = 10000;
+        settings.capacity = 10000000;
+        settings.max_file_block_size = 100000;
+        settings.max_query_cache_size = 30;
+
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        int i = 0;
+        for (; i < 100; i++) {
+            if (cache.get_async_open_success()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        ASSERT_TRUE(cache.get_async_open_success());
+
+        size_t limit = args.second_limit;
+        size_t cache_max = 10000000;
+
+        io::CacheContext context1;
+        ReadStatistics rstats;
+        context1.stats = &rstats;
+        context1.cache_type = args.first_type;
+        context1.query_id = query_id;
+        if (args.first_type == io::FileCacheType::TTL) {
+            int64_t cur_time = UnixSeconds();
+            context1.expiration_time = cur_time + 120;
+        }
+        auto key1 = io::BlockFileCache::hash("key1");
+
+        int64_t offset = 0;
+        // fill the cache
+        for (; offset < cache_max; offset += 100000) {
+            auto holder = cache.get_or_set(key1, offset, 100000, context1);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+
+            blocks.clear();
+        }
+        ASSERT_EQ(cache.get_stats_unsafe()[args.first_metrics], cache_max);
+        // our hero comes to the stage
+        io::CacheContext context2;
+        context2.stats = &rstats;
+        context2.cache_type = args.second_type;
+        context2.query_id = query_id;
+        if (context2.cache_type == io::FileCacheType::TTL) {
+            int64_t cur_time = UnixSeconds();
+            context2.expiration_time = cur_time + 120;
+        }
+        auto key2 = io::BlockFileCache::hash("key2");
+        offset = 0;
+        for (; offset < limit; offset += 100000) {
+            auto holder = cache.get_or_set(key2, offset, 100000, context2);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+
+            assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+
+            blocks.clear();
+        }
+        ASSERT_EQ(cache.get_stats_unsafe()[args.second_metrics], limit);
+        ASSERT_EQ(cache.get_stats_unsafe()[args.first_metrics], cache_max - limit);
+        ASSERT_EQ(
+                cache._evict_by_size_metrics_matrix[args.first_type][args.second_type]->get_value(),
+                limit);
+
+        // grab more exceed the limit
+        size_t exceed = 2000000;
+        for (; offset < (limit + exceed); offset += 100000) {
+            auto holder = cache.get_or_set(key2, offset, 100000, context2);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+
+            assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+
+            blocks.clear();
+        }
+        ASSERT_EQ(cache.get_stats_unsafe()[args.second_metrics], limit);
+        ASSERT_EQ(cache.get_stats_unsafe()[args.first_metrics], cache_max - limit);
+        ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[args.second_type]->get_value(), exceed);
+
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+    }
+}
+
+TEST_F(BlockFileCacheTest, evict_privilege_order_for_disposable) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context1;
+    ReadStatistics rstats;
+    context1.stats = &rstats;
+    context1.cache_type = io::FileCacheType::NORMAL;
+    context1.query_id = query_id;
+    auto key1 = io::BlockFileCache::hash("key1");
+
+    int64_t offset = 0;
+
+    for (; offset < 3500000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context2;
+    context2.stats = &rstats;
+    context2.cache_type = io::FileCacheType::INDEX;
+    context2.query_id = query_id;
+    auto key2 = io::BlockFileCache::hash("key2");
+
+    offset = 0;
+
+    for (; offset < 1300000; offset += 100000) {
+        auto holder = cache.get_or_set(key2, offset, 100000, context2);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context3;
+    context3.stats = &rstats;
+    context3.cache_type = io::FileCacheType::TTL;
+    context3.query_id = query_id;
+    context3.expiration_time = UnixSeconds() + 120;
+    auto key3 = io::BlockFileCache::hash("key3");
+
+    offset = 0;
+
+    for (; offset < 5200000; offset += 100000) {
+        auto holder = cache.get_or_set(key3, offset, 100000, context3);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5200000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1300000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3500000);
+
+    // our hero comes to the stage
+    io::CacheContext context4;
+    context4.stats = &rstats;
+    context4.cache_type = io::FileCacheType::DISPOSABLE;
+    context4.query_id = query_id;
+    auto key4 = io::BlockFileCache::hash("key4");
+
+    offset = 0;
+
+    for (; offset < 1000000; offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              200000);
+
+    size_t exceed = 200000;
+    for (; offset < (1000000 + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE]
+                      ->get_value(),
+              200000);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE]->get_value(),
+              exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, evict_privilege_order_for_normal) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context1;
+    ReadStatistics rstats;
+    context1.stats = &rstats;
+    context1.cache_type = io::FileCacheType::DISPOSABLE;
+    context1.query_id = query_id;
+    auto key1 = io::BlockFileCache::hash("key1");
+
+    int64_t offset = 0;
+
+    for (; offset < 1500000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context2;
+    context2.stats = &rstats;
+    context2.cache_type = io::FileCacheType::INDEX;
+    context2.query_id = query_id;
+    auto key2 = io::BlockFileCache::hash("key2");
+
+    offset = 0;
+
+    for (; offset < 1300000; offset += 100000) {
+        auto holder = cache.get_or_set(key2, offset, 100000, context2);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context3;
+    context3.stats = &rstats;
+    context3.cache_type = io::FileCacheType::TTL;
+    context3.query_id = query_id;
+    context3.expiration_time = UnixSeconds() + 120;
+    auto key3 = io::BlockFileCache::hash("key3");
+
+    offset = 0;
+
+    for (; offset < 7200000; offset += 100000) {
+        auto holder = cache.get_or_set(key3, offset, 100000, context3);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1500000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 7200000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1300000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 0);
+
+    // our hero comes to the stage
+    io::CacheContext context4;
+    context4.stats = &rstats;
+    context4.cache_type = io::FileCacheType::NORMAL;
+    context4.query_id = query_id;
+    auto key4 = io::BlockFileCache::hash("key4");
+
+    offset = 0;
+
+    for (; offset < 3000000; offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL]
+                      ->get_value(),
+              2200000);
+
+    size_t exceed = 200000;
+    for (; offset < (3000000 + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL]
+                      ->get_value(),
+              2200000);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::NORMAL]->get_value(), exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, evict_privilege_order_for_index) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context1;
+    ReadStatistics rstats;
+    context1.stats = &rstats;
+    context1.cache_type = io::FileCacheType::DISPOSABLE;
+    context1.query_id = query_id;
+    auto key1 = io::BlockFileCache::hash("key1");
+
+    int64_t offset = 0;
+
+    for (; offset < 1500000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context2;
+    context2.stats = &rstats;
+    context2.cache_type = io::FileCacheType::NORMAL;
+    context2.query_id = query_id;
+    auto key2 = io::BlockFileCache::hash("key2");
+
+    offset = 0;
+
+    for (; offset < 3300000; offset += 100000) {
+        auto holder = cache.get_or_set(key2, offset, 100000, context2);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context3;
+    context3.stats = &rstats;
+    context3.cache_type = io::FileCacheType::TTL;
+    context3.query_id = query_id;
+    context3.expiration_time = UnixSeconds() + 120;
+    auto key3 = io::BlockFileCache::hash("key3");
+
+    offset = 0;
+
+    for (; offset < 5200000; offset += 100000) {
+        auto holder = cache.get_or_set(key3, offset, 100000, context3);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1500000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5200000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3300000);
+
+    // our hero comes to the stage
+    io::CacheContext context4;
+    context4.stats = &rstats;
+    context4.cache_type = io::FileCacheType::INDEX;
+    context4.query_id = query_id;
+    auto key4 = io::BlockFileCache::hash("key4");
+
+    offset = 0;
+
+    for (; offset < 1000000; offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX]
+                      ->get_value(),
+              200000);
+
+    size_t exceed = 200000;
+    for (; offset < (1000000 + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX]
+                      ->get_value(),
+              200000);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::INDEX]->get_value(), exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, evict_privilege_order_for_ttl) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context1;
+    ReadStatistics rstats;
+    context1.stats = &rstats;
+    context1.cache_type = io::FileCacheType::DISPOSABLE;
+    context1.query_id = query_id;
+    auto key1 = io::BlockFileCache::hash("key1");
+
+    int64_t offset = 0;
+
+    for (; offset < 1500000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context2;
+    context2.stats = &rstats;
+    context2.cache_type = io::FileCacheType::INDEX;
+    context2.query_id = query_id;
+    auto key2 = io::BlockFileCache::hash("key2");
+
+    offset = 0;
+
+    for (; offset < 1300000; offset += 100000) {
+        auto holder = cache.get_or_set(key2, offset, 100000, context2);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    io::CacheContext context3;
+    context3.stats = &rstats;
+    context3.cache_type = io::FileCacheType::NORMAL;
+    context3.query_id = query_id;
+    auto key3 = io::BlockFileCache::hash("key3");
+
+    offset = 0;
+
+    for (; offset < 7200000; offset += 100000) {
+        auto holder = cache.get_or_set(key3, offset, 100000, context3);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1500000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1300000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 7200000);
+
+    // our hero comes to the stage
+    io::CacheContext context4;
+    context4.stats = &rstats;
+    context4.cache_type = io::FileCacheType::TTL;
+    context4.query_id = query_id;
+    context4.expiration_time = UnixSeconds() + 120;
+    auto key4 = io::BlockFileCache::hash("key4");
+
+    offset = 0;
+
+    for (; offset < 5000000; offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL]
+                      ->get_value(),
+              4200000);
+
+    size_t exceed = 200000;
+    for (; offset < (5000000 + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key4, offset, 100000, context4);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL]
+                      ->get_value(),
+              500000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL]
+                      ->get_value(),
+              300000);
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL]
+                      ->get_value(),
+              4200000);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::TTL]->get_value(), exceed);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, evict_in_advance) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard1;
+    sp->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 1; }, &guard1);
+    sp->enable_processing();
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 3000000;
+    settings.query_queue_elements = 30000;
+    settings.index_queue_size = 1000000;
+    settings.index_queue_elements = 10000;
+    settings.disposable_queue_size = 1000000;
+    settings.disposable_queue_elements = 10000;
+    settings.capacity = 10000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    size_t limit = 1000000;
+    size_t cache_max = 10000000;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id = query_id;
+    // int64_t cur_time = UnixSeconds();
+    // context.expiration_time = cur_time + 120;
+    auto key1 = io::BlockFileCache::hash("key1");
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+    int64_t offset = 0;
+    // fill the cache to its limit
+    for (; offset < limit; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    // grab more exceed the limit to max cache capacity
+    for (; offset < cache_max; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(3, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(4, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max);
+    ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::INDEX]->get_value(), 0);
+
+    // grab more exceed the cache capacity
+    size_t exceed = 2000000;
+    for (; offset < (cache_max + exceed); offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(5, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(6, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max);
+
+    config::file_cache_evict_in_advance_batch_bytes = 200000;     // evict 2 100000 blocks
+    config::enable_evict_file_cache_in_advance = true;            // enable evict in advance
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // wait for clear
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max - 200000);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
+    std::string cache_base_path = "./ut_file_cache_dir";
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.capacity = 100_mb;
+    settings.storage = "disk";
+    settings.query_queue_size = 50_mb;
+    settings.index_queue_size = 20_mb;
+    settings.disposable_queue_size = 20_mb;
+    settings.ttl_queue_size = 10_mb;
+
+    // this one for memory storage
+    {
+        settings.storage = "memory";
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+    }
+
+    // the rest for disk
+    settings.storage = "disk";
+
+    // bad disk path
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+
+        cache._cache_base_path = "/non/existent/path/OOXXOO";
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+    }
+
+    // conditions for enter need evict cache in advance
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+
+        // condition1 space usage rate exceed threshold
+        config::file_cache_enter_need_evict_cache_in_advance_percent = 70;
+        config::file_cache_exit_need_evict_cache_in_advance_percent = 65;
+
+        SyncPoint::get_instance()->set_call_back(
+                "BlockFileCache::disk_used_percentage:1", [](std::vector<std::any>&& values) {
+                    auto* percent = try_any_cast<std::pair<int, int>*>(values.back());
+                    percent->first = 75; // set high
+                    percent->second = 60;
+                });
+
+        SyncPoint::get_instance()->enable_processing();
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+
+        // condition2 inode usage rate exceed threshold
+        cache._need_evict_cache_in_advance = false;
+
+        SyncPoint::get_instance()->set_call_back(
+                "BlockFileCache::disk_used_percentage:1", [](std::vector<std::any>&& values) {
+                    auto* percent = try_any_cast<std::pair<int, int>*>(values.back());
+                    percent->first = 60;
+                    percent->second = 75; // set high
+                });
+
+        SyncPoint::get_instance()->enable_processing();
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+
+        // condition3 cache size usage rate exceed threshold
+        cache._need_evict_cache_in_advance = false;
+        cache._cur_cache_size = 80_mb; // set high
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+    }
+
+    // conditions for exit need evict cache in advance
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        cache._need_evict_cache_in_advance = true;
+        cache._cur_cache_size = 50_mb; // set low
+
+        SyncPoint::get_instance()->set_call_back(
+                "BlockFileCache::disk_used_percentage:1", [](std::vector<std::any>&& values) {
+                    auto* percent = try_any_cast<std::pair<int, int>*>(values.back());
+                    percent->first = 50;  // set low
+                    percent->second = 50; // set low
+                });
+
+        SyncPoint::get_instance()->enable_processing();
+        cache.check_need_evict_cache_in_advance();
+        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+    }
+
+    // config parameter validation
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+
+        // set wrong config value
+        config::file_cache_enter_need_evict_cache_in_advance_percent = 70;
+        config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
+
+        cache.check_need_evict_cache_in_advance();
+
+        // reset to default value
+        ASSERT_EQ(config::file_cache_enter_need_evict_cache_in_advance_percent, 78);
+        ASSERT_EQ(config::file_cache_exit_need_evict_cache_in_advance_percent, 75);
+    }
+
+    fs::remove_all(cache_base_path);
 }
 
 } // namespace doris::io

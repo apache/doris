@@ -54,10 +54,9 @@ public class ExportJobStateTransfer implements Writable {
     }
 
     // used for persisting one log
-    public ExportJobStateTransfer(long jobId, ExportJobState state) {
-        this.jobId = jobId;
+    public ExportJobStateTransfer(ExportJob job, ExportJobState state) {
+        this.jobId = job.getId();
         this.state = state;
-        ExportJob job = Env.getCurrentEnv().getExportMgr().getJob(jobId);
         this.startTimeMs = job.getStartTimeMs();
         this.finishTimeMs = job.getFinishTimeMs();
         this.failMsg = job.getFailMsg();

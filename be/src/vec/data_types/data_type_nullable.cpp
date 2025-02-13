@@ -30,6 +30,7 @@
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/cast_set.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -37,12 +38,13 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         : nested_data_type {nested_data_type_} {
     if (!nested_data_type) {
@@ -114,8 +116,10 @@ int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& colum
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += mem_size;
         } else {
+            // Throw exception if mem_size is large than UINT32_MAX
             size = size + sizeof(size_t) +
-                   std::max(mem_size, streamvbyte_max_compressedbytes(upper_int32(mem_size)));
+                   std::max(mem_size, streamvbyte_max_compressedbytes(
+                                              cast_set<UInt32>(upper_int32(mem_size))));
         }
         const auto& col = assert_cast<const ColumnNullable&>(*data_column);
         size = size + nested_data_type->get_uncompressed_serialized_bytes(col.get_nested_column(),
@@ -126,8 +130,10 @@ int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& colum
         if (size_t size = sizeof(bool) * column.size(); size <= SERIALIZED_MEM_SIZE_LIMIT) {
             ret += size + sizeof(uint32_t);
         } else {
+            // Throw exception if mem_size is large than UINT32_MAX
             ret += (sizeof(uint32_t) + sizeof(size_t) +
-                    std::max(size, streamvbyte_max_compressedbytes(upper_int32(size))));
+                    std::max(size,
+                             streamvbyte_max_compressedbytes(cast_set<UInt32>(upper_int32(size)))));
         }
         ret += nested_data_type->get_uncompressed_serialized_bytes(
                 assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const())
@@ -151,9 +157,10 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
             memcpy(buf, col.get_null_map_data().data(), mem_size);
             buf += mem_size;
         } else {
+            // Throw exception if mem_size is large than UINT32_MAX
             auto encode_size = streamvbyte_encode(
                     reinterpret_cast<const uint32_t*>(col.get_null_map_data().data()),
-                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+                    cast_set<UInt32>(upper_int32(mem_size)), (uint8_t*)(buf + sizeof(size_t)));
             *reinterpret_cast<size_t*>(buf) = encode_size;
             buf += (sizeof(size_t) + encode_size);
         }
@@ -165,16 +172,17 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 
         // row num
         auto mem_size = col.size() * sizeof(bool);
-        *reinterpret_cast<uint32_t*>(buf) = mem_size;
+        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(mem_size);
         buf += sizeof(uint32_t);
         // null flags
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(buf, col.get_null_map_data().data(), mem_size);
             buf += mem_size;
         } else {
+            // Throw exception if mem_size is large than UINT32_MAX
             auto encode_size = streamvbyte_encode(
                     reinterpret_cast<const uint32_t*>(col.get_null_map_data().data()),
-                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+                    cast_set<UInt32>(upper_int32(mem_size)), (uint8_t*)(buf + sizeof(size_t)));
             *reinterpret_cast<size_t*>(buf) = encode_size;
             buf += (sizeof(size_t) + encode_size);
         }
@@ -200,8 +208,9 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         } else {
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
+            // Throw exception if mem_size is large than UINT32_MAX
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(col->get_null_map_data().data()),
-                               upper_int32(mem_size));
+                               cast_set<UInt32>(upper_int32(mem_size)));
             buf += encode_size;
         }
         // column data values
@@ -221,8 +230,9 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         } else {
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
+            // Throw exception if mem_size is large than UINT32_MAX
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(col->get_null_map_data().data()),
-                               upper_int32(mem_size));
+                               cast_set<UInt32>(upper_int32(mem_size)));
             buf += encode_size;
         }
         // data values

@@ -33,23 +33,19 @@ Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* stat
 
     PipelineXSinkLocalState<SharedStateArg>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<SharedStateArg>::profile(),
-                                      "BuildRows", TUnit::UNIT);
 
     _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
                                               "PublishRuntimeFilterTime");
-    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
-                                              "RuntimeFilterComputeTime");
-    _runtime_filter_init_timer =
-            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "RuntimeFilterInitTime");
+    _runtime_filter_compute_timer =
+            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "BuildRuntimeFilterTime");
     return Status::OK();
 }
 
 template <typename LocalStateType>
 JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                               const TPlanNode& tnode,
+                                                               int dest_id, const TPlanNode& tnode,
                                                                const DescriptorTbl& descs)
-        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
+        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id, dest_id),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 
@@ -30,7 +31,7 @@ import java.util.List;
 
 /** CryptoFunction */
 public abstract class CryptoFunction extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable {
+        implements ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
     public CryptoFunction(String name, Expression... arguments) {
         super(name, arguments);
@@ -41,7 +42,7 @@ public abstract class CryptoFunction extends ScalarFunction
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         List<String> args = Lists.newArrayList();
         for (int i = 0; i < arity(); i++) {
             if (i == 1) {

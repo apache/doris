@@ -27,11 +27,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
+import org.apache.doris.datasource.mapping.IdentifierMapping;
+import org.apache.doris.datasource.mapping.JdbcIdentifierMapping;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
@@ -53,6 +57,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -71,12 +76,17 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // Must add "transient" for Gson to ignore this field,
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
+    private IdentifierMapping identifierMapping;
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment)
             throws DdlException {
         super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
+        this.identifierMapping = new JdbcIdentifierMapping(
+                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                Boolean.parseBoolean(getLowerCaseMetaNames()),
+                getMetaNamesMapping());
     }
 
     @Override
@@ -93,8 +103,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         JdbcResource.checkBooleanProperty(JdbcResource.CONNECTION_POOL_KEEP_ALIVE,
                 String.valueOf(isConnectionPoolKeepAlive()));
         JdbcResource.checkBooleanProperty(JdbcResource.TEST_CONNECTION, String.valueOf(isTestConnection()));
-        JdbcResource.checkBooleanProperty(JdbcResource.ENABLE_CONNECTION_POOL,
-                String.valueOf(isEnableConnectionPool()));
         JdbcResource.checkDatabaseListProperties(getOnlySpecifiedDatabase(), getIncludeDatabaseMap(),
                 getExcludeDatabaseMap());
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
@@ -114,27 +122,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             throw new IllegalArgumentException("Jdbc catalog property lower_case_table_names is not supported,"
                     + " please use lower_case_meta_names instead.");
         }
-        if (catalogProperty.getOrDefault(JdbcResource.ENABLE_CONNECTION_POOL, "").isEmpty()) {
-            // If not setting enable_connection_pool in replay logic,
-            // set default value true to be compatible with older version.
-            catalogProperty.addProperty(JdbcResource.ENABLE_CONNECTION_POOL,
-                    isReplay ? "true" : String.valueOf(JdbcResource
-                            .getDefaultPropertyValue(JdbcResource.ENABLE_CONNECTION_POOL)));
-        }
-    }
-
-    @Override
-    public void tryModifyCatalogProps(Map<String, String> props) {
-        // It is forbidden to modify the enable_connection_pool attribute and driver_url attribute of jdbc catalog
-        if (props.containsKey(JdbcResource.ENABLE_CONNECTION_POOL)) {
-            throw new IllegalArgumentException("Can not modify enable_connection_pool property of jdbc catalog,"
-                    + "please re-create the catalog");
-        }
-        if (props.containsKey(JdbcResource.DRIVER_URL)) {
-            throw new IllegalArgumentException("Can not modify driver_url property of jdbc catalog"
-                    + "please re-create the catalog");
-        }
-        super.tryModifyCatalogProps(props);
     }
 
     @Override
@@ -142,12 +129,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.onRefresh(invalidCache);
         if (jdbcClient != null) {
             jdbcClient.closeClient();
+            jdbcClient = null;
         }
-    }
-
-    @Override
-    public void onRefreshCache(boolean invalidCache) {
-        onRefresh(invalidCache);
+        this.identifierMapping = new JdbcIdentifierMapping(
+                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                Boolean.parseBoolean(getLowerCaseMetaNames()),
+                getMetaNamesMapping());
     }
 
     @Override
@@ -155,6 +142,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         super.onClose();
         if (jdbcClient != null) {
             jdbcClient.closeClient();
+            jdbcClient = null;
         }
     }
 
@@ -205,16 +193,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 JdbcResource.ONLY_SPECIFIED_DATABASE));
     }
 
-    public String getLowerCaseMetaNames() {
-        return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_META_NAMES, JdbcResource.getDefaultPropertyValue(
-                JdbcResource.LOWER_CASE_META_NAMES));
-    }
-
-    public String getMetaNamesMapping() {
-        return catalogProperty.getOrDefault(JdbcResource.META_NAMES_MAPPING, JdbcResource.getDefaultPropertyValue(
-                JdbcResource.META_NAMES_MAPPING));
-    }
-
     public int getConnectionPoolMinSize() {
         return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.CONNECTION_POOL_MIN_SIZE, JdbcResource
                 .getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE)));
@@ -245,11 +223,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .getDefaultPropertyValue(JdbcResource.TEST_CONNECTION)));
     }
 
-    public boolean isEnableConnectionPool() {
-        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.ENABLE_CONNECTION_POOL, JdbcResource
-                .getDefaultPropertyValue(JdbcResource.ENABLE_CONNECTION_POOL)));
-    }
-
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
@@ -260,22 +233,36 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setDriverUrl(getDriverUrl())
                 .setDriverClass(getDriverClass())
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
-                .setIsLowerCaseMetaNames(getLowerCaseMetaNames())
-                .setMetaNamesMapping(getMetaNamesMapping())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
                 .setExcludeDatabaseMap(getExcludeDatabaseMap())
                 .setConnectionPoolMinSize(getConnectionPoolMinSize())
                 .setConnectionPoolMaxSize(getConnectionPoolMaxSize())
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
-                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
-                .setEnableConnectionPool(isEnableConnectionPool());
+                .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }
 
-    protected List<String> listDatabaseNames() {
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (this.identifierMapping == null) {
+            identifierMapping = new JdbcIdentifierMapping(
+                    (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                    Boolean.parseBoolean(getLowerCaseMetaNames()),
+                    getMetaNamesMapping());
+        }
+    }
+
+    @Override
+    public List<String> listDatabaseNames() {
         return jdbcClient.getDatabaseNameList();
+    }
+
+    @Override
+    public String fromRemoteDatabaseName(String remoteDatabaseName) {
+        return identifierMapping.fromRemoteDatabaseName(remoteDatabaseName);
     }
 
     @Override
@@ -285,9 +272,29 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+        return identifierMapping.fromRemoteTableName(remoteDatabaseName, remoteTableName);
+    }
+
+    @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return jdbcClient.isTableExist(dbName, tblName);
+        ExternalDatabase<?> database = this.getDbNullable(dbName);
+        if (database == null) {
+            return false;
+        }
+        ExternalTable tbl = database.getTableNullable(tblName);
+        if (tbl == null) {
+            return false;
+        }
+        String remoteDbName = ((ExternalDatabase<?>) tbl.getDatabase()).getRemoteName();
+        String remoteTblName = tbl.getRemoteName();
+        return jdbcClient.isTableExist(remoteDbName, remoteTblName);
+    }
+
+    public List<Column> listColumns(String remoteDbName, String remoteTblName) {
+        makeSureInitialized();
+        return jdbcClient.getColumnsFromJdbc(remoteDbName, remoteTblName);
     }
 
     @Override
@@ -349,7 +356,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
         jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
         jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
-        jdbcTable.setEnableConnectionPool(this.isEnableConnectionPool());
     }
 
     private void testJdbcConnection() throws DdlException {
@@ -376,7 +382,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             jdbcClient.testConnection();
         } catch (JdbcClientException e) {
             String errorMessage = "Test FE Connection to JDBC Failed: " + e.getMessage();
-            LOG.error(errorMessage, e);
+            LOG.warn(errorMessage, e);
             throw new DdlException(errorMessage, e);
         }
     }

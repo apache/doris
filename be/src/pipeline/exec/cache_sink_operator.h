@@ -26,6 +26,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -48,7 +49,7 @@ public:
     using Base = DataSinkOperatorX<CacheSinkLocalState>;
 
     friend class CacheSinkLocalState;
-    CacheSinkOperatorX(int sink_id, int child_id);
+    CacheSinkOperatorX(int sink_id, int child_id, int dest_id);
     ~CacheSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -70,4 +71,5 @@ public:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

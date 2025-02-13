@@ -236,6 +236,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
                             .region = "region",
                             .ak = "ak",
                             .sk = "sk",
+                            .token = "",
+                            .bucket = "",
                     }};
     std::string resource_id = "10000";
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
@@ -290,6 +292,16 @@ TEST_F(BetaRowsetTest, ReadTest) {
         Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
+}
+
+TEST_F(BetaRowsetTest, AddToBinlogTest) {
+    RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
+    BetaRowset rowset(nullptr, rowset_meta, "");
+    std::string resource_id = "10000";
+    Status s = rowset.add_to_binlog();
+    ASSERT_TRUE(s.ok()) << "first add_to_binlog(): " << s;
+    s = rowset.add_to_binlog();
+    ASSERT_TRUE(s.ok()) << "second add_to_binlog(): " << s;
 }
 
 } // namespace doris

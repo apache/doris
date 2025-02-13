@@ -33,7 +33,6 @@
 
 #include "common/logging.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -51,7 +50,7 @@ TaskScheduler::~TaskScheduler() {
 }
 
 Status TaskScheduler::start() {
-    int cores = _task_queue->cores();
+    int cores = _task_queue.cores();
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
@@ -67,7 +66,7 @@ Status TaskScheduler::start() {
 }
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
-    return _task_queue->push_back(task);
+    return _task_queue.push_back(task);
 }
 
 // after _close_task, task maybe destructed.
@@ -99,17 +98,20 @@ void _close_task(PipelineTask* task, Status exec_status) {
 
 void TaskScheduler::_do_work(int index) {
     while (_markers[index]) {
-        auto* task = _task_queue->take(index);
+        auto* task = _task_queue.take(index);
         if (!task) {
             continue;
         }
+        // The task is already running, maybe block in now dependency wake up by other thread
+        // but the block thread still hold the task, so put it back to the queue, until the hold
+        // thread set task->set_running(false)
         if (task->is_running()) {
-            static_cast<void>(_task_queue->push_back(task, index));
+            static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
         task->log_detail_if_need();
         task->set_running(true);
-        task->set_task_queue(_task_queue.get());
+        task->set_task_queue(&_task_queue);
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
 
@@ -129,12 +131,8 @@ void TaskScheduler::_do_work(int index) {
         // task exec
         bool eos = false;
         auto status = Status::OK();
+        task->set_core_id(index);
 
-#ifdef __APPLE__
-        uint32_t core_id = 0;
-#else
-        uint32_t core_id = sched_getcpu();
-#endif
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(
                 //TODO: use a better enclose to abstracting these
                 if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
@@ -149,11 +147,10 @@ void TaskScheduler::_do_work(int index) {
 
                     uint64_t end_time = MonotonicMicros();
                     ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                            {query_id, task_name, core_id, thread_id, start_time, end_time});
+                            {query_id, task_name, static_cast<uint32_t>(index), thread_id,
+                             start_time, end_time});
                 } else { status = task->execute(&eos); },
                 status);
-
-        task->set_previous_core_id(index);
 
         if (!status.ok()) {
             // Print detail informations below when you debugging here.
@@ -173,14 +170,11 @@ void TaskScheduler::_do_work(int index) {
         if (eos) {
             // is pending finish will add the task to dependency's blocking queue, and then the task will be
             // added to running queue when dependency is ready.
-            if (task->is_pending_finish()) {
-                // Only meet eos, should set task to PENDING_FINISH state
-                task->set_running(false);
-            } else {
+            if (!task->is_pending_finish()) {
                 Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
                 _close_task(task, exec_status);
+                continue;
             }
-            continue;
         }
 
         task->set_running(false);
@@ -189,9 +183,7 @@ void TaskScheduler::_do_work(int index) {
 
 void TaskScheduler::stop() {
     if (!_shutdown) {
-        if (_task_queue) {
-            _task_queue->close();
-        }
+        _task_queue.close();
         if (_fix_thread_pool) {
             for (size_t i = 0; i < _markers.size(); ++i) {
                 _markers[i] = false;

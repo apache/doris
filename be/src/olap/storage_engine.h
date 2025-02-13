@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -72,6 +73,7 @@ class ReportWorker;
 class CreateTabletRRIdxCache;
 struct DirInfo;
 class SnapshotManager;
+class WorkloadGroup;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -105,7 +107,7 @@ public:
     virtual bool stopped() = 0;
 
     // start all background threads. This should be call after env is ready.
-    virtual Status start_bg_threads() = 0;
+    virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) = 0;
 
@@ -167,6 +169,9 @@ protected:
     int _disk_num {-1};
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
 };
 
 class CompactionSubmitRegistry {
@@ -278,7 +283,7 @@ public:
         return _default_rowset_type;
     }
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
@@ -429,6 +434,8 @@ private:
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
+    void _check_tablet_delete_bitmap_score_callback();
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -535,6 +542,9 @@ private:
     std::unique_ptr<CreateTabletRRIdxCache> _create_tablet_idx_lru_cache;
 
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
+
+    // thread to check tablet delete bitmap count tasks
+    scoped_refptr<Thread> _check_delete_bitmap_score_thread;
 };
 
 // lru cache for create tabelt round robin in disks

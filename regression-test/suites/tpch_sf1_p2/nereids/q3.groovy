@@ -54,7 +54,7 @@ suite("tpch_sf1_q3_nereids") {
     """
 
     qt_select """
-    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
+    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_pipeline_task_num=8, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */
         l_orderkey,
         sum(l_extendedprice * (1 - l_discount)) as revenue,
         o_orderdate,

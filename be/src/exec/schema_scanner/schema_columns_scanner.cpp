@@ -30,6 +30,8 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 
 namespace vectorized {
@@ -411,7 +413,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         std::vector<StringRef> strs(columns_num);
         int offset_index = 0;
-        int cur_table_index = _table_index - _desc_result.tables_offset.size();
+        int cur_table_index = int(_table_index - _desc_result.tables_offset.size());
 
         for (int i = 0; i < columns_num; ++i) {
             while (_desc_result.tables_offset[offset_index] <= i) {
@@ -450,7 +452,19 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // COLUMN_DEFAULT
-    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, null_datas)); }
+    {
+        std::vector<StringRef> strs(columns_num);
+        for (int i = 0; i < columns_num; ++i) {
+            if (_desc_result.columns[i].columnDesc.__isset.defaultValue) {
+                strs[i] = StringRef(_desc_result.columns[i].columnDesc.defaultValue.c_str(),
+                                    _desc_result.columns[i].columnDesc.defaultValue.length());
+                datas[i] = strs.data() + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+    }
     // IS_NULLABLE
     {
         StringRef str_yes = StringRef("YES", 3);
@@ -597,14 +611,14 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     // EXTRA
     {
         StringRef str = StringRef("", 0);
-        std::vector<void*> datas(columns_num, &str);
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
+        std::vector<void*> filled_values(columns_num, &str);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, filled_values));
     }
     // PRIVILEGES
     {
         StringRef str = StringRef("", 0);
-        std::vector<void*> datas(columns_num, &str);
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas));
+        std::vector<void*> filled_values(columns_num, &str);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, filled_values));
     }
     // COLUMN_COMMENT
     {

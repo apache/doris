@@ -29,6 +29,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /**
  * For low cardinality string columns, using ColumnDictionary can reduce memory
@@ -115,6 +116,12 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "has_enough_capacity not supported in ColumnDictionary");
+        __builtin_unreachable();
+    }
+
     void pop_back(size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "pop_back not supported in ColumnDictionary");
@@ -122,7 +129,7 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    const char* get_family_name() const override { return "ColumnDictionary"; }
+    std::string get_name() const override { return "ColumnDictionary"; }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -158,10 +165,6 @@ public:
         __builtin_unreachable();
     }
 
-    bool is_fixed_and_contiguous() const override { return true; }
-
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
-
     [[noreturn]] StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_raw_data not supported in ColumnDictionary");
@@ -196,20 +199,6 @@ public:
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "replicate not supported in ColumnDictionary");
-        __builtin_unreachable();
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in ColumnDictionary!");
-        __builtin_unreachable();
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in ColumnDictionary!");
         __builtin_unreachable();
     }
 
@@ -283,9 +272,9 @@ public:
         }
     }
 
-    int32_t find_code(const StringRef& value) const { return _dict.find_code(value); }
+    T find_code(const StringRef& value) const { return _dict.find_code(value); }
 
-    int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
+    T find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
@@ -364,8 +353,9 @@ public:
             _total_str_len += value.size;
         }
 
-        int32_t find_code(const StringRef& value) const {
-            for (size_t i = 0; i < _dict_data->size(); i++) {
+        T find_code(const StringRef& value) const {
+            // _dict_data->size will not exceed the range of T.
+            for (T i = 0; i < _dict_data->size(); i++) {
                 if ((*_dict_data)[i] == value) {
                     return i;
                 }
@@ -402,11 +392,11 @@ public:
 
                 // For dictionary data of char type, sv.size is the schema length,
                 // so use strnlen to remove the 0 at the end to get the actual length.
-                int32_t len = sv.size;
+                size_t len = sv.size;
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     len = strnlen(sv.data, sv.size);
                 }
-                uint32_t hash_val = HashUtil::crc_hash(sv.data, len, 0);
+                uint32_t hash_val = HashUtil::crc_hash(sv.data, static_cast<uint32_t>(len), 0);
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];
@@ -430,13 +420,14 @@ public:
         //  so upper_bound is the code 0 of b, then evaluate code < 0 and returns empty
         // If the predicate is col <= 'a' and upper_bound-1 is -1,
         //  then evaluate code <= -1 and returns empty
-        int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
+        T find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
                 return code;
             }
-            auto bound = std::upper_bound(_dict_data->begin(), _dict_data->end(), value) -
-                         _dict_data->begin();
+            auto bound =
+                    static_cast<T>(std::upper_bound(_dict_data->begin(), _dict_data->end(), value) -
+                                   _dict_data->begin());
             return greater ? bound - greater + eq : bound - eq;
         }
 
@@ -554,3 +545,4 @@ template class ColumnDictionary<int32_t>;
 using ColumnDictI32 = vectorized::ColumnDictionary<doris::vectorized::Int32>;
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

@@ -172,7 +172,7 @@ public class HdfsStorageVaultTest {
             private HashSet<String> existed = new HashSet<>();
 
             @Mock
-            public Pair getDefaultStorageVaultInfo() {
+            public Pair getDefaultStorageVault() {
                 return defaultVaultInfo;
             }
 
@@ -210,8 +210,8 @@ public class HdfsStorageVaultTest {
                 "type", "hdfs",
                 "path", "abs/"));
         mgr.createHdfsVault(vault);
-        Assertions.assertTrue(mgr.getDefaultStorageVaultInfo() == null);
+        Assertions.assertTrue(mgr.getDefaultStorageVault() == null);
         mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
-        Assertions.assertTrue(mgr.getDefaultStorageVaultInfo().first.equals(vault.getName()));
+        Assertions.assertTrue(mgr.getDefaultStorageVault().first.equals(vault.getName()));
     }
 }

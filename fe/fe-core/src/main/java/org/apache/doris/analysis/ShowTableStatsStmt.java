@@ -62,6 +62,7 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
                     .add("new_partition")
                     .add("user_inject")
                     .add("enable_auto_analyze")
+                    .add("last_analyze_time")
                     .build();
 
     private static final ImmutableList<String> PARTITION_TITLE_NAMES =
@@ -230,6 +231,7 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
             row.add("");
             row.add("");
             row.add(String.valueOf(table.autoAnalyzeEnabled()));
+            row.add("");
             result.add(row);
             return new ShowResultSet(getMetaData(), result);
         }
@@ -242,13 +244,16 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         LocalDateTime dateTime =
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
                 java.time.ZoneId.systemDefault());
-        String formattedDateTime = dateTime.format(formatter);
-        row.add(formattedDateTime);
+        LocalDateTime lastAnalyzeTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.lastAnalyzeTime),
+                    java.time.ZoneId.systemDefault());
+        row.add(dateTime.format(formatter));
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));
+        row.add(lastAnalyzeTime.format(formatter));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
