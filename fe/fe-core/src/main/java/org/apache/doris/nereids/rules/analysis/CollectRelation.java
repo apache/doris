@@ -207,15 +207,18 @@ public class CollectRelation implements AnalysisRuleFactory {
                 mtmv.readMvLock();
                 try {
                     for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
+                        if (!baseTableInfo.isValid()) {
+                            continue;
+                        }
                         if (LOG.isDebugEnabled()) {
-                            LOG.info("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
+                            LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
                         }
                         try {
                             cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
                                     TableFrom.MTMV);
                         } catch (AnalysisException exception) {
-                            LOG.warn("mtmv related base table get err, related table is "
-                                            + baseTableInfo.toList(), exception);
+                            LOG.warn("mtmv related base table get err, related table is {}",
+                                    baseTableInfo.toList(), exception);
                         }
                     }
                 } finally {
