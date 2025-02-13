@@ -55,7 +55,6 @@ public class QeService {
             HelpModule.getInstance().setUpModule(HelpModule.HELP_ZIP_FILE_NAME);
         } catch (Exception e) {
             LOG.warn("Help module failed, because:", e);
-            throw e;
         }
 
         if (!mysqlServer.start()) {
