@@ -59,7 +59,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     for (size_t i = 0; i < _tablet_sink_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
     }
-    // if _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // if _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor =
             std::make_unique<vectorized::OlapTableBlockConvertor>(_tablet_sink_tuple_desc);

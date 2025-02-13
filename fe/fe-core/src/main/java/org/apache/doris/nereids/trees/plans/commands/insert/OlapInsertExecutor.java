@@ -125,7 +125,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
-                    && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
+                    && fragment.getDataPartition().getType() == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED) {
                 DataSink childFragmentSink = fragment.getChild(0).getSink();
                 DataStreamSink dataStreamSink = null;
                 if (childFragmentSink instanceof MultiCastDataSink) {

@@ -102,9 +102,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
     _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
-    // do the shufffle make sure enough random
+    // Shuffle the channels randomly
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
-        _part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
+        _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         std::random_device rd;
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
@@ -146,7 +146,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
-    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+    } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         _partition_count = channels.size();
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
@@ -155,7 +155,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
         RETURN_IF_ERROR(_partitioner->init({}));
         RETURN_IF_ERROR(_partitioner->prepare(state, {}));
-    } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
+    } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
         _partition_count =
                 channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
         _partitioner = std::make_unique<vectorized::ScaleWriterPartitioner>(
@@ -239,8 +239,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-        _part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED ||
-        _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+        _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->open(state));
     }
     return Status::OK();
@@ -283,10 +283,10 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::RANDOM ||
            sink.output_partition.type == TPartitionType::RANGE_PARTITIONED ||
-           sink.output_partition.type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED ||
+           sink.output_partition.type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-           sink.output_partition.type == TPartitionType::TABLE_SINK_HASH_PARTITIONED ||
-           sink.output_partition.type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED);
+           sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+           sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED);
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
     if (sink.__isset.output_tuple_id) {
@@ -299,7 +299,7 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     }
-    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+    if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(*_t_tablet_sink_exprs,
                                                              _tablet_sink_expr_ctxs));
     }
@@ -310,7 +310,7 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
     _state = state;
     _compression_type = state->fragement_transmission_compression_type();
-    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+    if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         if (_output_tuple_id == -1) {
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
@@ -442,10 +442,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-               _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED ||
-               _part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
+               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
+               _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
         RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block, eos));
-    } else if (_part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
+    } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel
         auto& current_channel = local_state.channels[local_state.current_channel_idx];

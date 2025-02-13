@@ -18,19 +18,19 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * use for Round Robin by data sink.
+ * use for shuffle data by tablet-id before sink.
  */
-public class DistributionSpecTableSinkRandomPartitioned extends DistributionSpec {
+public class DistributionSpecOlapTableSinkHashPartitioned extends DistributionSpec {
 
-    public static final DistributionSpecTableSinkRandomPartitioned INSTANCE =
-            new DistributionSpecTableSinkRandomPartitioned();
+    public static final DistributionSpecOlapTableSinkHashPartitioned
+            INSTANCE = new DistributionSpecOlapTableSinkHashPartitioned();
 
-    private DistributionSpecTableSinkRandomPartitioned() {
+    private DistributionSpecOlapTableSinkHashPartitioned() {
         super();
     }
 
     @Override
     public boolean satisfy(DistributionSpec other) {
-        return other instanceof DistributionSpecTableSinkRandomPartitioned;
+        return other instanceof DistributionSpecOlapTableSinkHashPartitioned;
     }
 }
