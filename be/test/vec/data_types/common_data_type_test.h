@@ -183,15 +183,15 @@ public:
                           bool assert_false = false) {
         if (assert_false) {
             EXPECT_ANY_THROW(data_type->get_field(node))
-                    << "get_field_assert: " << " datatype:" + data_type->get_name()
-                    << " node_type:" << node.node_type << " field: " << assert_field.get_type()
-                    << std::endl;
+                    << "get_field_assert: "
+                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
+                    << " field: " << assert_field.get_type() << std::endl;
         } else {
             Field field = data_type->get_field(node);
             ASSERT_EQ(field, assert_field)
-                    << "get_field_assert: " << " datatype:" + data_type->get_name()
-                    << " node_type:" << node.node_type << " field: " << assert_field.get_type()
-                    << std::endl;
+                    << "get_field_assert: "
+                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
+                    << " field: " << assert_field.get_type() << std::endl;
         }
     }
 
