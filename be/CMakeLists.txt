@@ -92,6 +92,7 @@ message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -328,13 +329,17 @@ endif()
 # simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
+    add_definitions(-DLIBDIVIDE_SSE2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
+        add_definitions(-DUSE_AVX2)
+        add_definitions(-DLIBDIVIDE_AVX2)
     endif()
 endif()
 
 if (ARCH_ARM)
     add_compile_options(-march=armv8-a+crc)
+    add_definitions(-DLIBDIVIDE_NEON)
 endif()
 #
 
