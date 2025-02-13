@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_overwrite_recover") {
-    def table = "test_insert_overwrite_recover"
-
-    // create table and insert data
+suite("test_truncate_recover_no_partition") {
+    def table = "test_truncate_recover_no_partition"
+    def table_bk = "test_truncate_no_partition_backup"
+    // create table and insert data for range.
     sql """ drop table if exists ${table}"""
     sql """
     create table ${table} (
@@ -28,11 +28,6 @@ suite("test_insert_overwrite_recover") {
     )
     engine=olap
     duplicate key(id)
-    partition by range(da)(
-        PARTITION p3 VALUES LESS THAN ('2023-01-01'),
-        PARTITION p4 VALUES LESS THAN ('2024-01-01'),
-        PARTITION p5 VALUES LESS THAN ('2025-01-01')
-    )
     distributed by hash(id) buckets 2
     properties(
         "replication_num"="1",
@@ -47,18 +42,35 @@ suite("test_insert_overwrite_recover") {
 
     qt_select_check_1 """ select * from  ${table} order by id,name,da; """
 
-    sql """ insert overwrite  table ${table} values(3, 'a', '2024-01-02'); """
+    sql """ truncate  table ${table}; """
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
     
-    sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
-    sql """ ALTER TABLE ${table} DROP PARTITION p4 force; """
-    sql """ ALTER TABLE ${table} DROP PARTITION p5 force; """
+    qt_select_check_2 """ select * from  ${table} order by id,name,da; """
+    
+    // now unpartition data is kept inside the recycle bin.
+    // we need to recover it as another partition in the table.
+    sql """ recover partition ${table} as p2  from ${table}; """
 
-    sql """ recover partition p3  from ${table}; """
-    sql """ recover partition p4  from ${table}; """
-    sql """ recover partition p5  from ${table}; """    
+    // create a table to copy the data only for partition p2.
+    sql """ drop table if exists ${table_bk} force"""
+    sql """
+    create table ${table_bk} (
+        `id` int(11),
+        `name` varchar(128),
+        `da` date
+    )
+    engine=olap
+    duplicate key(id)
+    distributed by hash(id) buckets 2
+    properties(
+        "replication_num"="1",
+        "light_schema_change"="true"
+    );
+    """
+    sql """ insert into ${table_bk} select * from ${table} partition p2; """
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
+    sql """ alter table ${table} replace with table ${table_bk}; """
 
+    // data from the select should be same as data before truncate
+    qt_select_check_3 """ select * from  ${table} order by id,name,da; """
 }
