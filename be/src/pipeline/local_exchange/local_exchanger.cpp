@@ -435,7 +435,7 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                         "is false",
                         local_state->debug_string(0));
             }
-            *eos = _eos[id];
+            *eos = _eos[id] || *eos;
             return Status::OK();
         };
         child_block_suppliers.push_back(block_supplier);
