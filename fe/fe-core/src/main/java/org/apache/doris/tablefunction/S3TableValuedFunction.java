@@ -121,12 +121,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // get endpoint first from properties, if not present, get it from s3 uri.
         String endpoint = getOrDefaultAndRemove(properties, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
         if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
-            String bucket = s3uri.getBucket();
             String accountName = properties.getOrDefault(S3Properties.ACCESS_KEY, "");
             if (accountName.isEmpty()) {
                 throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
             }
-            endpoint = AzureProperties.formatAzureUri(endpoint, bucket, accountName);
+            endpoint = AzureProperties.formatAzureEndpoint(endpoint, accountName);
         } else if (Strings.isNullOrEmpty(endpoint)) {
             throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
         }
