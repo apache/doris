@@ -96,6 +96,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -603,7 +604,10 @@ public class Alter {
                 OlapTable olapTable = (OlapTable) tableIf;
                 olapTable.writeLockOrDdlException();
                 try {
+                    Map<String, String> newProperties = new HashMap<>(properties);
                     modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
+                    ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
+                            db, tableName, partitionNames, newProperties);
                 } finally {
                     olapTable.writeUnlock();
                 }
