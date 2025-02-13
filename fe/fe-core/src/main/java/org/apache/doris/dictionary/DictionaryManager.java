@@ -111,6 +111,13 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     private void registerLoadJob() {
+        // get from presist data
+        if (Env.getCurrentEnv().getJobManager().getJob(DICTIONARY_JOB_ID) != null) {
+            job = (DictionaryJob) Env.getCurrentEnv().getJobManager().getJob(DICTIONARY_JOB_ID);
+            LOG.info("replay got dictionary job succeed");
+            return;
+        }
+        // only for new cluster we register it.
         job = new DictionaryJob();
         job.setJobId(DICTIONARY_JOB_ID);
         job.setJobName(DICTIONARY_JOB_NAME);
@@ -119,6 +126,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         job.setJobConfig(getJobConfig());
         try {
             Env.getCurrentEnv().getJobManager().registerJob(job);
+            LOG.info("register dictionary job succeed");
         } catch (JobException e) {
             LOG.warn("Failed to register dictionary job", e);
             job = null; // wait re-register it
