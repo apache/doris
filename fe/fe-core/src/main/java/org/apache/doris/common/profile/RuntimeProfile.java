@@ -272,7 +272,8 @@ public class RuntimeProfile {
         // update this level's counters
         if (node.counters != null) {
             for (TCounter tcounter : node.counters) {
-                Counter counter = counterMap.get(tcounter.name);
+                // If different node has counter with the same name, it will lead to chaos.
+                Counter counter = this.counterMap.get(tcounter.name);
                 if (counter == null) {
                     counterMap.put(tcounter.name, new Counter(tcounter.type, tcounter.value, tcounter.level));
                 } else {
@@ -460,10 +461,10 @@ public class RuntimeProfile {
         if (planNodeInfos.isEmpty()) {
             return;
         }
-        builder.append(prefix + "- " + "PlanInfo\n");
+        builder.append(prefix).append("- ").append("PlanInfo\n");
 
         for (String info : planNodeInfos) {
-            builder.append(prefix + "   - " + info + "\n");
+            builder.append(prefix).append("   - ").append(info).append("\n");
         }
     }
 
@@ -488,8 +489,7 @@ public class RuntimeProfile {
         return builder.toString();
     }
 
-    public static void mergeProfiles(List<RuntimeProfile> profiles,
-            RuntimeProfile simpleProfile, Map<Integer, String> planNodeMap) {
+    public static void mergeProfiles(List<RuntimeProfile> profiles, RuntimeProfile simpleProfile) {
         mergeCounters(ROOT_COUNTER, profiles, simpleProfile);
         if (profiles.isEmpty()) {
             return;
@@ -497,19 +497,19 @@ public class RuntimeProfile {
         RuntimeProfile templateProfile = profiles.get(0);
         for (int i = 0; i < templateProfile.childList.size(); i++) {
             RuntimeProfile templateChildProfile = templateProfile.childList.get(i).first;
+            // Traverse all profiles and get the child profile with the same name
             List<RuntimeProfile> allChilds = getChildListFromLists(templateChildProfile.name, profiles);
             RuntimeProfile newCreatedMergedChildProfile = new RuntimeProfile(templateChildProfile.name,
                     templateChildProfile.nodeId());
-            mergeProfiles(allChilds, newCreatedMergedChildProfile, planNodeMap);
+            mergeProfiles(allChilds, newCreatedMergedChildProfile);
             // RuntimeProfile has at least one counter named TotalTime, should exclude it.
             if (newCreatedMergedChildProfile.counterMap.size() > 1) {
-                simpleProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap);
                 simpleProfile.rowsProducedMap.putAll(newCreatedMergedChildProfile.rowsProducedMap);
             }
         }
     }
 
-    private static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
+    static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
             RuntimeProfile simpleProfile) {
         if (profiles.isEmpty()) {
             return;
@@ -539,7 +539,7 @@ public class RuntimeProfile {
                 Counter oldCounter = templateCounterMap.get(childCounterName);
                 AggCounter aggCounter = new AggCounter(oldCounter.getType());
                 for (RuntimeProfile profile : profiles) {
-                    // orgCounter could be null if counter structure is changed
+                    // orgCounter could be null if counter-structure is changed
                     // change of counter structure happens when NonZeroCounter is involved.
                     // So here we have to ignore the counter if it is not found in the profile.
                     Counter orgCounter = profile.counterMap.get(childCounterName);
@@ -698,7 +698,7 @@ public class RuntimeProfile {
         } finally {
             childLock.writeLock().unlock();
         }
-        // insert plan node info to profile strinfo
+        // insert plan node info to profile string info
         if (planNodeMap == null || !planNodeMap.containsKey(child.nodeId())) {
             return;
         }

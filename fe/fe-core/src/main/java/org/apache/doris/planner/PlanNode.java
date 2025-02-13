@@ -610,13 +610,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
-    public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
-        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
-        for (int i = 0; i < children.size(); ++i) {
-            children.get(i).getExplainStringMap(detailLevel, planNodeMap);
-        }
-    }
-
     /**
      * Return the node-specific details.
      * Subclass should override this function.
