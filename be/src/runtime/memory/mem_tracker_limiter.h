@@ -35,7 +35,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_counter.h"
-#include "runtime/query_statistics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -139,7 +138,6 @@ public:
 
     Type type() const { return _type; }
     const std::string& label() const { return _label; }
-    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
     int64_t group_num() const { return _group_num; }
     bool has_limit() const { return _limit >= 0; }
     int64_t limit() const { return _limit; }
@@ -166,13 +164,7 @@ public:
 
     // Use carefully! only memory that cannot be allocated using Doris Allocator needs to be consumed manually.
     // Ideally, all memory should use Doris Allocator.
-    void consume(int64_t bytes) {
-        _mem_counter.add(bytes);
-        if (_query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
-        }
-    }
+    void consume(int64_t bytes) { _mem_counter.add(bytes); }
 
     void consume_no_update_peak(int64_t bytes) { _mem_counter.add_no_update_peak(bytes); }
 
@@ -187,10 +179,6 @@ public:
             rt = _mem_counter.try_add(bytes, _limit);
         } else {
             _mem_counter.add(bytes);
-        }
-        if (rt && _query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
         }
         return rt;
     }
@@ -332,8 +320,6 @@ private:
 
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     struct AddressSanitizer {
         size_t size;

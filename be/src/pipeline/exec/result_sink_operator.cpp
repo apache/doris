@@ -198,7 +198,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         if (_writer) {
-            _sender->update_return_rows(_writer->get_written_rows());
+            int64_t written_rows = _writer->get_written_rows();
+            _sender->update_return_rows(written_rows);
+            state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(
+                    written_rows);
         }
         RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
     }

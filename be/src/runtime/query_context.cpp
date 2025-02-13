@@ -141,8 +141,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
         DCHECK_EQ(is_report_fe_addr_valid, true);
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
-    register_memory_statistics();
-    register_cpu_statistics();
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
@@ -176,18 +174,24 @@ void QueryContext::_init_query_mem_tracker() {
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
-    resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
+    _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
 }
 
 void QueryContext::_init_resource_context() {
-    resource_ctx = ResourceContext::create_shared();
-    resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
+    _resource_ctx = ResourceContext::create_shared();
+    _resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
+#ifndef BE_TEST
+    _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
+                                                                         _resource_ctx);
+#endif
 }
 
 void QueryContext::init_query_task_controller() {
-    resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
-    resource_ctx->task_controller()->set_task_id(_query_id);
+    _resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
+    _resource_ctx->task_controller()->set_task_id(_query_id);
+    _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
+    _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
 }
 
 QueryContext::~QueryContext() {
@@ -210,9 +214,7 @@ QueryContext::~QueryContext() {
         group_id = workload_group()->id(); // before remove
     }
 
-#ifndef BE_TEST
-    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
-#endif
+    _resource_ctx->task_controller()->finish();
 
     if (enable_profile()) {
         _report_query_profile();
@@ -331,44 +333,6 @@ void QueryContext::set_pipeline_context(
     _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }
 
-void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
-#ifndef BE_TEST
-    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-            print_id(_query_id), qs, current_connect_fe, _query_options.query_type);
-#endif
-}
-
-std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
-    return _exec_env->runtime_query_statistics_mgr()->get_runtime_query_statistics(
-            print_id(_query_id));
-}
-
-void QueryContext::register_memory_statistics() {
-    if (query_mem_tracker()) {
-        std::shared_ptr<QueryStatistics> qs = query_mem_tracker()->get_query_statistics();
-        std::string query_id = print_id(_query_id);
-        if (qs) {
-#ifndef BE_TEST
-            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                    query_id, qs, current_connect_fe, _query_options.query_type);
-#endif
-        } else {
-            LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
-        }
-    }
-}
-
-void QueryContext::register_cpu_statistics() {
-    if (!_cpu_statistics) {
-        _cpu_statistics = std::make_shared<QueryStatistics>();
-#ifndef BE_TEST
-        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                print_id(_query_id), _cpu_statistics, current_connect_fe,
-                _query_options.query_type);
-#endif
-    }
-}
-
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (workload_group()) {
         if (_task_scheduler) {
@@ -386,8 +350,8 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
     }
 }
 
-void QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
-    resource_ctx->workload_group_context()->set_workload_group(tg);
+void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
+    _resource_ctx->workload_group_context()->set_workload_group(wg);
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     workload_group()->add_mem_tracker_limiter(query_mem_tracker());

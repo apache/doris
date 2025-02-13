@@ -15,31 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "runtime/workload_management/cpu_context.h"
 
-#include "common/factory_creator.h"
-#include "runtime/workload_group/workload_group.h"
+#include <glog/logging.h>
+
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
-class WorkloadGroupContext {
-    ENABLE_FACTORY_CREATOR(WorkloadGroupContext);
-
-public:
-    WorkloadGroupContext() = default;
-    virtual ~WorkloadGroupContext() = default;
-
-    int64_t workload_group_id() {
-        if (workload_group() != nullptr) {
-            return workload_group()->id();
-        }
-        return -1;
+void CPUContext::update_cpu_cost_ms(int64_t delta) const {
+    stats_.cpu_cost_ms_counter_->update(delta);
+    if (resource_ctx_ != nullptr &&
+        resource_ctx_->workload_group_context()->workload_group() != nullptr) {
+        resource_ctx_->workload_group_context()->workload_group()->update_cpu_time(delta);
     }
-    WorkloadGroupPtr workload_group() { return _workload_group; }
-    void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
-
-protected:
-    WorkloadGroupPtr _workload_group = nullptr;
-};
+}
 
 } // namespace doris
