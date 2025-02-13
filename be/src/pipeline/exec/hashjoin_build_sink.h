@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "exprs/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
+#include "runtime_filter/runtime_filter_slots.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -54,8 +54,6 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status disable_runtime_filters(RuntimeState* state);
-
 protected:
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
@@ -78,12 +76,10 @@ protected:
 
     bool _should_build_hash_table = true;
 
-    bool _runtime_filters_disabled = false;
-
     size_t _build_side_rows = 0;
 
     vectorized::MutableBlock _build_side_mutable_block;
-    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
+    std::shared_ptr<RuntimeFilterSlots> _runtime_filter_slots;
 
     /*
      * The comparison result of a null value with any other value is null,
@@ -103,7 +99,6 @@ protected:
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX final
