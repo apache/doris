@@ -596,6 +596,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     @Override
+    public T getNonTempTableNullable(String tableName) {
+        throw new NotImplementedException("getNonTempTableNullable() is not implemented");
+    }
+
+    @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
         if (extCatalog.getUseMetaCache().get()) {
