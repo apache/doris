@@ -190,6 +190,8 @@ void QueryContext::_init_resource_context() {
 void QueryContext::init_query_task_controller() {
     _resource_ctx->set_task_controller(QueryContext::QueryTaskController::create(this));
     _resource_ctx->task_controller()->set_task_id(_query_id);
+    _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
+    _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
 }
 
 QueryContext::~QueryContext() {

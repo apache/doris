@@ -41,14 +41,6 @@ class ResourceContext : public std::enable_shared_from_this<ResourceContext> {
     ENABLE_FACTORY_CREATOR(ResourceContext);
 
 public:
-    static std::shared_ptr<ResourceContext> create_shared() {
-        std::shared_ptr<ResourceContext> resource_ctx = std::make_shared<ResourceContext>();
-        resource_ctx->cpu_context()->set_resource_ctx(resource_ctx.get());
-        resource_ctx->memory_context()->set_resource_ctx(resource_ctx.get());
-        resource_ctx->io_context()->set_resource_ctx(resource_ctx.get());
-        return resource_ctx;
-    }
-
     ResourceContext() {
         // These all default values, it may be reset.
         cpu_context_ = CPUContext::create_unique();
@@ -56,6 +48,10 @@ public:
         io_context_ = IOContext::create_unique();
         workload_group_context_ = WorkloadGroupContext::create_unique();
         task_controller_ = TaskController::create_unique();
+
+        cpu_context_->set_resource_ctx(this);
+        memory_context_->set_resource_ctx(this);
+        io_context_->set_resource_ctx(this);
     }
     ~ResourceContext() = default;
 

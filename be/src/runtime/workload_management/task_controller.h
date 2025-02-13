@@ -42,20 +42,24 @@ public:
         is_cancelled_ = true;
         return Status::OK();
     }
+
     virtual bool is_finished() const { return is_finished_; }
     virtual void finish() {
         is_finished_ = true;
         finish_time_ = MonotonicMillis();
     }
 
-    virtual int64_t start_time() { return start_time_; }
-    virtual int64_t finish_time() { return finish_time_; }
-    virtual Status running_time(int64_t* running_time_msecs) {
+    int64_t start_time() const { return start_time_; }
+    int64_t finish_time() const { return finish_time_; }
+    Status running_time(int64_t* running_time_msecs) const {
         *running_time_msecs = finish_time_ - start_time_;
         return Status::OK();
     }
     TNetworkAddress fe_addr() { return fe_addr_; }
     TQueryType::type query_type() { return query_type_; }
+
+    void set_fe_addr(TNetworkAddress fe_addr) { fe_addr_ = fe_addr; }
+    void set_query_type(TQueryType::type query_type) { query_type_ = query_type; }
 
 protected:
     TUniqueId task_id_;
@@ -63,7 +67,6 @@ protected:
     bool is_finished_ = false;
     int64_t start_time_;
     int64_t finish_time_;
-
     TNetworkAddress fe_addr_;
     TQueryType::type query_type_;
 };
