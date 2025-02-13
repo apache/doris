@@ -159,7 +159,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitCovarSamp(CovarSamp covarSamp, C context) {
-        return visitNullableAggregateFunction(covarSamp, context);
+        return visitAggregateFunction(covarSamp, context);
     }
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
@@ -315,7 +315,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitStddevSamp(StddevSamp stddevSamp, C context) {
-        return visitNullableAggregateFunction(stddevSamp, context);
+        return visitAggregateFunction(stddevSamp, context);
     }
 
     default R visitSum(Sum sum, C context) {
@@ -343,7 +343,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitVarianceSamp(VarianceSamp varianceSamp, C context) {
-        return visitNullableAggregateFunction(varianceSamp, context);
+        return visitAggregateFunction(varianceSamp, context);
     }
 
     default R visitWindowFunnel(WindowFunnel windowFunnel, C context) {
