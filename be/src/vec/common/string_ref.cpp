@@ -69,7 +69,9 @@ bool StringRef::end_with(char ch) const {
 }
 
 bool StringRef::start_with(const StringRef& search_string) const {
-    DCHECK(size >= search_string.size);
+    if (size < search_string.size) {
+        throw Exception(Status::FatalError("Check failed: size >= search_string.size"));
+    }
     if (search_string.size == 0) {
         return true;
     }
@@ -81,7 +83,9 @@ bool StringRef::start_with(const StringRef& search_string) const {
 #endif
 }
 bool StringRef::end_with(const StringRef& search_string) const {
-    DCHECK(size >= search_string.size);
+    if (size < search_string.size) {
+        throw Exception(Status::FatalError("Check failed: size >= search_string.size"));
+    }
     if (search_string.size == 0) {
         return true;
     }

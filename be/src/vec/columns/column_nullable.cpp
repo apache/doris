@@ -45,9 +45,7 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 
     if (is_column_const(get_null_map_column())) [[unlikely]] {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "ColumnNullable cannot have constant null map");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("ColumnNullable cannot have constant null map"));
     }
     _need_update_has_null = true;
 }
@@ -99,9 +97,13 @@ void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
 void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
                                             uint32_t rows, uint32_t offset,
                                             const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
+    if (null_data != nullptr) {
+        throw Exception(Status::FatalError("Check failed: null_data == nullptr"));
+    }
     auto s = rows;
-    DCHECK(s == size());
+    if (s != size()) {
+        throw Exception(Status::FatalError("Check failed: s == size()"));
+    }
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     if (!has_null()) {
@@ -118,7 +120,9 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
 
 void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
                                               const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
+    if (null_data != nullptr) {
+        throw Exception(Status::FatalError("Check failed: null_data == nullptr"));
+    }
     auto s = size();
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
@@ -372,7 +376,9 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
 
     RETURN_IF_ERROR(get_nested_column().filter_by_selector(
             sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
-    DCHECK(res_nullmap.empty());
+    if (!res_nullmap.empty()) {
+        throw Exception(Status::FatalError("Check failed: res_nullmap.empty()"));
+    }
     res_nullmap.resize(sel_size);
     auto& cur_nullmap = get_null_map_column().get_data();
     for (size_t i = 0; i < sel_size; i++) {
@@ -418,7 +424,9 @@ void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int
                                              nan_direction_hint, direction, cmp_res, filter);
     } else {
         auto sz = this->size();
-        DCHECK(cmp_res.size() == sz);
+        if (cmp_res.size() != sz) {
+            throw Exception(Status::FatalError("Check failed: cmp_res.size() == sz"));
+        }
 
         size_t begin = simd::find_zero(cmp_res, 0);
         while (begin < sz) {
@@ -557,9 +565,7 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     const NullMap& arr2 = map.get_data();
 
     if (arr1.size() != arr2.size()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Inconsistent sizes of ColumnNullable objects");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Inconsistent sizes of ColumnNullable objects"));
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {
@@ -581,8 +587,8 @@ void ColumnNullable::apply_null_map(const ColumnNullable& other) {
 
 void ColumnNullable::check_consistency() const {
     if (get_null_map_column().size() != get_nested_column().size()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "Sizes of nested column and null map of Nullable column are not equal");
+        throw Exception(Status::FatalError(
+                "Sizes of nested column and null map of Nullable column are not equal"));
     }
 }
 

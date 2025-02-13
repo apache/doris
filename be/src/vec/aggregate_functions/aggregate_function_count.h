@@ -101,8 +101,11 @@ public:
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
-        DCHECK(col.item_size() == sizeof(Data))
-                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
+        if (col.item_size() != sizeof(Data)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: col.item_size() == sizeof(Data), size is not equal: {} {}",
+                    col.item_size(), sizeof(Data)));
+        }
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -114,8 +117,11 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena*) const override {
         auto& dst_col = assert_cast<ColumnFixedLengthObject&>(*dst);
-        DCHECK(dst_col.item_size() == sizeof(Data))
-                << "size is not equal: " << dst_col.item_size() << " " << sizeof(Data);
+        if (dst_col.item_size() != sizeof(Data)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: dst_col.item_size() == sizeof(Data) size is not equal: {} {}",
+                    dst_col.item_size(), sizeof(Data)));
+        }
         dst_col.resize(num_rows);
         auto* data = dst_col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -137,8 +143,12 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > column.size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end , "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
@@ -165,8 +175,11 @@ public:
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
-        DCHECK(col.item_size() == sizeof(Data))
-                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
+        if (col.item_size() != sizeof(Data)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: col.item_size() == sizeof(Data) size is not equal: {} {}",
+                    col.item_size(), sizeof(Data)));
+        }
         size_t old_size = col.size();
         col.resize(old_size + 1);
         (reinterpret_cast<Data*>(col.get_data().data()) + old_size)->count =
@@ -239,8 +252,11 @@ public:
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
-        DCHECK(col.item_size() == sizeof(Data))
-                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
+        if (col.item_size() != sizeof(Data)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: col.item_size() == sizeof(Data) size is not equal: {} {}",
+                    col.item_size(), sizeof(Data)));
+        }
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -252,8 +268,11 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena*) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
-        DCHECK(col.item_size() == sizeof(Data))
-                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
+        if (col.item_size() != sizeof(Data)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: col.item_size() == sizeof(Data) size is not equal: {} {}",
+                    col.item_size(), sizeof(Data)));
+        }
         col.resize(num_rows);
         auto& data = col.get_data();
         const ColumnNullable& input_col = assert_cast<const ColumnNullable&>(*columns[0]);
@@ -276,8 +295,12 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > column.size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end , "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
@@ -305,8 +328,11 @@ public:
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
-        DCHECK(col.item_size() == sizeof(Data))
-                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
+        if (col.item_size() != sizeof(Data)) {
+            throw Exception(Status::FatalError(
+                    "Check failed: col.item_size() == sizeof(Data) size is not equal: {} {}",
+                    col.item_size(), sizeof(Data)));
+        }
         col.resize(1);
         reinterpret_cast<Data*>(col.get_data().data())->count =
                 AggregateFunctionCountNotNullUnary::data(place).count;

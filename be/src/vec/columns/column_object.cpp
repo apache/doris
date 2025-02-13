@@ -740,35 +740,35 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
 
 IColumn& ColumnObject::Subcolumn::get_finalized_column() {
     if (!is_finalized()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+        throw Exception(Status::FatalError("Subcolumn is not finalized"));
     }
     return *data[0];
 }
 
 const IColumn& ColumnObject::Subcolumn::get_finalized_column() const {
     if (!is_finalized()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+        throw Exception(Status::FatalError("Subcolumn is not finalized"));
     }
     return *data[0];
 }
 
 const ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() const {
     if (!is_finalized()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+        throw Exception(Status::FatalError("Subcolumn is not finalized"));
     }
     return data[0];
 }
 
 ColumnPtr& ColumnObject::Subcolumn::get_finalized_column_ptr() {
     if (!is_finalized()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+        throw Exception(Status::FatalError("Subcolumn is not finalized"));
     }
     return data[0];
 }
 
 void ColumnObject::Subcolumn::remove_nullable() {
     if (!is_finalized()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
+        throw Exception(Status::FatalError("Subcolumn is not finalized"));
     }
     data[0] = doris::vectorized::remove_nullable(data[0]);
     least_common_type.remove_nullable();
@@ -1813,7 +1813,9 @@ size_t ColumnObject::filter(const Filter& filter) {
 void ColumnObject::clear_subcolumns_data() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            DCHECK_EQ(part->use_count(), 1);
+            if (part->use_count() != 1) {
+                throw Exception(Status::FatalError("Check failed: part->use_count() == 1"));
+            }
             (*std::move(part)).clear();
         }
         entry->data.num_of_defaults_in_prefix = 0;

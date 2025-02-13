@@ -22,6 +22,7 @@
 
 #include <functional>
 
+#include "common/exception.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 
@@ -53,9 +54,8 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     columns.reserve(mutable_columns.size());
     for (auto& column : mutable_columns) {
         if (is_column_const(*column)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "ColumnStruct cannot have ColumnConst as its element");
-            __builtin_unreachable();
+            throw Exception(
+                    Status::FatalError("ColumnStruct cannot have ColumnConst as its element"));
         }
         columns.push_back(std::move(column));
     }
@@ -64,9 +64,8 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
 ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
     for (const auto& column : columns) {
         if (is_column_const(*column)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "ColumnStruct cannot have ColumnConst as its element");
-            __builtin_unreachable();
+            throw Exception(
+                    Status::FatalError("ColumnStruct cannot have ColumnConst as its element"));
         }
     }
     auto column_struct = ColumnStruct::create(MutableColumns());
@@ -77,9 +76,8 @@ ColumnStruct::Ptr ColumnStruct::create(const Columns& columns) {
 ColumnStruct::Ptr ColumnStruct::create(const TupleColumns& tuple_columns) {
     for (const auto& column : tuple_columns) {
         if (is_column_const(*column)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "ColumnStruct cannot have ColumnConst as its element");
-            __builtin_unreachable();
+            throw Exception(
+                    Status::FatalError("ColumnStruct cannot have ColumnConst as its element"));
         }
     }
     auto column_struct = ColumnStruct::create(MutableColumns());
@@ -127,10 +125,10 @@ void ColumnStruct::insert(const Field& x) {
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Cannot insert value of different size into tuple. field tuple size "
-                               "{}, columns size {}",
-                               tuple.size(), tuple_size);
+        throw Exception(Status::FatalError(
+                "Cannot insert value of different size into tuple. field tuple size "
+                "{}, columns size {}",
+                tuple.size(), tuple_size));
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -143,9 +141,7 @@ void ColumnStruct::insert_from(const IColumn& src_, size_t n) {
 
     const size_t tuple_size = columns.size();
     if (src.columns.size() != tuple_size) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Cannot insert value of different size into tuple.");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Cannot insert value of different size into tuple."));
     }
 
     for (size_t i = 0; i < tuple_size; ++i) {

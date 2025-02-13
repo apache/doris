@@ -341,7 +341,10 @@ struct AggregateFunctionArrayAggData {
                         .get_data();
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->get_data().push_back(vec[row_num]);
-        DCHECK(null_map->size() == nested_column->size());
+        if (null_map->size() != nested_column->size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: null_map->size() == nested_column->size()"));
+        }
     }
 
     void deserialize_and_merge(const IColumn& column, size_t row_num) {
@@ -390,8 +393,12 @@ struct AggregateFunctionArrayAggData {
     }
 
     void read(BufferReadable& buf) {
-        DCHECK(null_map);
-        DCHECK(null_map->empty());
+        if (!null_map) {
+            throw Exception(Status::FatalError("Check failed: null_map"));
+        }
+        if (!null_map->empty()) {
+            throw Exception(Status::FatalError("Check failed: null_map->empty()"));
+        }
         size_t size = 0;
         read_binary(size, buf);
         null_map->resize(size);
@@ -442,7 +449,10 @@ struct AggregateFunctionArrayAggData<StringRef> {
                 col.get_nested_column());
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->insert_from(vec, row_num);
-        DCHECK(null_map->size() == nested_column->size());
+        if (null_map->size() != nested_column->size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: null_map->size() == nested_column->size()"));
+        }
     }
 
     void deserialize_and_merge(const IColumn& column, size_t row_num) {
@@ -487,8 +497,12 @@ struct AggregateFunctionArrayAggData<StringRef> {
         }
     }
     void read(BufferReadable& buf) {
-        DCHECK(null_map);
-        DCHECK(null_map->empty());
+        if (!null_map) {
+            throw Exception(Status::FatalError("Check failed: null_map"));
+        }
+        if (!null_map->empty()) {
+            throw Exception(Status::FatalError("Check failed: null_map->empty()"));
+        }
         size_t size = 0;
         read_binary(size, buf);
         null_map->resize(size);
@@ -676,7 +690,9 @@ public:
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         if constexpr (ShowNull::value) {
-            DCHECK(to_nested_col.is_nullable());
+            if (!to_nested_col.is_nullable()) {
+                throw Exception(Status::FatalError("Check failed: to_nested_col.is_nullable()"));
+            }
             this->data(place).insert_result_into(to);
         } else {
             if (to_nested_col.is_nullable()) {
@@ -739,8 +755,12 @@ public:
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena* arena) const override {
         if constexpr (ShowNull::value) {
-            DCHECK(end <= column.size() && begin <= end) << ", begin:" << begin << ", end:" << end
-                                                         << ", column.size():" << column.size();
+            if (end > column.size() || begin > column.size()) {
+                throw Exception(
+                        Status::FatalError("Check failed: end <= column.size() && begin <= end, "
+                                           "begin: {}, end: {}, column.size(): {}",
+                                           begin, end, column.size()));
+            }
             for (size_t i = begin; i <= end; ++i) {
                 this->data(place).deserialize_and_merge(column, i);
             }
@@ -782,7 +802,9 @@ public:
         if constexpr (ShowNull::value) {
             auto& to_arr = assert_cast<ColumnArray&>(*dst);
             auto& to_nested_col = to_arr.get_data();
-            DCHECK(num_rows == columns[0]->size());
+            if (num_rows != columns[0]->size()) {
+                throw Exception(Status::FatalError("Check failed: num_rows == columns[0]->size()"));
+            }
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             const auto& col_src = assert_cast<const ColumnNullable&>(*(columns[0]));
 

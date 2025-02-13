@@ -83,15 +83,21 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
                 dataTypes, col_desc.get_result_is_nullable(), col_desc.get_aggregation_name(),
                 col_desc.get_be_exec_version());
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        DCHECK(col_desc.get_subtype_count() == 1);
+        if (col_desc.get_subtype_count() != 1) {
+            throw Exception(Status::FatalError("Check failed: col_desc.get_subtype_count() == 1"));
+        }
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-        DCHECK(col_desc.get_subtype_count() == 2);
+        if (col_desc.get_subtype_count() != 2) {
+            throw Exception(Status::FatalError("Check failed: col_desc.get_subtype_count() == 2"));
+        }
         nested = std::make_shared<vectorized::DataTypeMap>(
                 create_data_type(col_desc.get_sub_column(0)),
                 create_data_type(col_desc.get_sub_column(1)));
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-        DCHECK(col_desc.get_subtype_count() >= 1);
+        if (col_desc.get_subtype_count() < 1) {
+            throw Exception(Status::FatalError("Check failed: col_desc.get_subtype_count() >= 1"));
+        }
         size_t col_size = col_desc.get_subtype_count();
         DataTypes dataTypes;
         Strings names;
@@ -210,21 +216,33 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
                 .set_null_literal(true);
         break;
     case TYPE_ARRAY:
-        DCHECK(col_desc.children.size() == 1);
+        if (col_desc.children.size() != 1) {
+            throw Exception(Status::FatalError("Check failed: col_desc.children.size() == 1"));
+        }
         nested = std::make_shared<vectorized::DataTypeArray>(
                 create_data_type(col_desc.children[0], col_desc.contains_nulls[0]));
         break;
     case TYPE_MAP:
-        DCHECK(col_desc.children.size() == 2);
-        DCHECK_EQ(col_desc.contains_nulls.size(), 2);
+        if (col_desc.children.size() != 2) {
+            throw Exception(Status::FatalError("Check failed: col_desc.children.size() == 2"));
+        }
+        if (col_desc.contains_nulls.size() != 2) {
+            throw Exception(
+                    Status::FatalError("Check failed: col_desc.contains_nulls.size() == 2"));
+        }
         nested = std::make_shared<vectorized::DataTypeMap>(
                 create_data_type(col_desc.children[0], col_desc.contains_nulls[0]),
                 create_data_type(col_desc.children[1], col_desc.contains_nulls[1]));
         break;
     case TYPE_STRUCT: {
-        DCHECK(col_desc.children.size() >= 1);
+        if (col_desc.children.size() < 1) {
+            throw Exception(Status::FatalError("Check failed: col_desc.children.size() >= 1"));
+        }
         size_t child_size = col_desc.children.size();
-        DCHECK_EQ(col_desc.field_names.size(), child_size);
+        if (col_desc.field_names.size() != child_size) {
+            throw Exception(
+                    Status::FatalError("Check failed: col_desc.field_names.size() == child_size"));
+        }
         DataTypes dataTypes;
         Strings names;
         dataTypes.reserve(child_size);
@@ -533,21 +551,27 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeHLL>();
         break;
     case PGenericType::LIST:
-        DCHECK(pcolumn.children_size() == 1);
+        if (pcolumn.children_size() != 1) {
+            throw Exception(Status::FatalError("Check failed: pcolumn.children_size() == 1"));
+        }
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children(0)));
         break;
     case PGenericType::FIXEDLENGTHOBJECT:
         nested = std::make_shared<DataTypeFixedLengthObject>();
         break;
     case PGenericType::MAP:
-        DCHECK(pcolumn.children_size() == 2);
+        if (pcolumn.children_size() != 2) {
+            throw Exception(Status::FatalError("Check failed: pcolumn.children_size() == 2"));
+        }
         // here to check pcolumn is list?
         nested = std::make_shared<vectorized::DataTypeMap>(create_data_type(pcolumn.children(0)),
                                                            create_data_type(pcolumn.children(1)));
         break;
     case PGenericType::STRUCT: {
         int col_size = pcolumn.children_size();
-        DCHECK(col_size >= 1);
+        if (col_size < 1) {
+            throw Exception(Status::FatalError("Check failed: col_size >= 1"));
+        }
         DataTypes dataTypes;
         Strings names;
         dataTypes.reserve(col_size);
@@ -606,15 +630,26 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
                 pcolumn.be_exec_version());
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
         // Item subcolumn and length subcolumn, for sparse columns only subcolumn
-        DCHECK_GE(pcolumn.children_columns().size(), 1) << pcolumn.DebugString();
+        if (pcolumn.children_columns().size() < 1) {
+            throw Exception(
+                    Status::FatalError("Check failed: pcolumn.children_columns().size() >= 1 {}",
+                                       pcolumn.DebugString()));
+        }
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children_columns(0)));
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_MAP)) {
-        DCHECK_GE(pcolumn.children_columns().size(), 2) << pcolumn.DebugString();
+        if (pcolumn.children_columns().size() < 2) {
+            throw Exception(
+                    Status::FatalError("Check failed: pcolumn.children_columns().size() >= 2 {}",
+                                       pcolumn.DebugString()));
+        }
         nested = std::make_shared<vectorized::DataTypeMap>(
                 create_data_type(pcolumn.children_columns(0)),
                 create_data_type(pcolumn.children_columns(1)));
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
-        DCHECK_GE(pcolumn.children_columns().size(), 1);
+        if (pcolumn.children_columns().size() < 1) {
+            throw Exception(
+                    Status::FatalError("Check failed: pcolumn.children_columns().size() >= 1"));
+        }
         Int32 col_size = pcolumn.children_columns().size();
         DataTypes dataTypes(col_size);
         Strings names(col_size);

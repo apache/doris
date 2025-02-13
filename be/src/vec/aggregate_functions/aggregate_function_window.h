@@ -465,7 +465,9 @@ struct WindowFunctionFirstImpl : Data {
             (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
             return;
         }
-        DCHECK_LE(frame_start, frame_end);
+        if (frame_start > frame_end) {
+            throw Exception(Status::FatalError("Check failed: frame_start <= frame_end"));
+        }
         if (frame_start >= partition_end || frame_end <= partition_start) {
             this->set_is_null();
             return;
@@ -492,7 +494,9 @@ template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        DCHECK_LE(frame_start, frame_end);
+        if (frame_start > frame_end) {
+            throw Exception(Status::FatalError("Check failed: frame_start <= frame_end"));
+        }
         if ((frame_end <= partition_start) ||
             (frame_start >= partition_end)) { //beyond or under partition, set null
             this->set_is_null();

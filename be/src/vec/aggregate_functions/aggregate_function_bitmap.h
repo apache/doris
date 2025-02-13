@@ -200,8 +200,12 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
-                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        if (end > column.size() || begin > column.size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: end <= column.size() && begin <= end, "
+                                       "begin: {}, end: {}, column.size(): {}",
+                                       begin, end, column.size()));
+        }
         auto& col = assert_cast<const ColumnBitmap&>(column);
         auto* data = col.get_data().data();
         for (size_t i = begin; i <= end; ++i) {
