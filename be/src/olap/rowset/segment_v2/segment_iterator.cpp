@@ -31,6 +31,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -1922,6 +1923,27 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 
         RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
                                                                _current_return_columns[cid]));
+        if (_is_compaction) {
+            _compaction_io_time_ns += _column_iterators[cid]->get_compaction_io_time_ns();
+            _compaction_cache_bytes += _column_iterators[cid]->get_compaction_cache_bytes();
+            _compaction_local_bytes += _column_iterators[cid]->get_compaction_local_bytes();
+            _compaction_s3_bytes += _column_iterators[cid]->get_compaction_s3_bytes();
+            if (config::is_cloud_mode()) {
+                int64_t total_bytes = _compaction_cache_bytes + _compaction_s3_bytes;
+                double cache_percent = total_bytes > 0 ? (_compaction_cache_bytes * 100.0 / total_bytes) : 0;
+                double s3_percent = 1 - cache_percent;
+                LOG(INFO) << "Compaction IO time: " << _compaction_io_time_ns << " ns, "
+                          << "Cache bytes: " << _compaction_cache_bytes << " bytes (" << std::fixed << std::setprecision(2) << cache_percent << "%), "
+                          << "S3 bytes: " << _compaction_s3_bytes << " bytes (" << std::fixed << std::setprecision(2) << s3_percent << "%)";
+            } else {
+                int64_t total_bytes = _compaction_cache_bytes + _compaction_local_bytes;
+                double cache_percent = total_bytes > 0 ? (_compaction_cache_bytes * 100.0 / total_bytes) : 0;
+                double local_percent = 1 - cache_percent;
+                LOG(INFO) << "Compaction IO time: " << _compaction_io_time_ns << " ns, "
+                          << "Cache bytes: " << _compaction_cache_bytes << " bytes (" << std::fixed << std::setprecision(2) << cache_percent << "%), "
+                          << "Local bytes: " << _compaction_local_bytes << " bytes (" << std::fixed << std::setprecision(2) << local_percent << "%)";
+            }
+        }
     }
 
     return Status::OK();
