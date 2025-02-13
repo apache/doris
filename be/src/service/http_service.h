@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/factory_creator.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 
@@ -34,6 +35,8 @@ class CloudStorageEngine;
 
 // HTTP service for Doris BE
 class HttpService {
+    ENABLE_FACTORY_CREATOR(HttpService);
+
 public:
     HttpService(ExecEnv* env, int port, int num_threads);
     ~HttpService();
