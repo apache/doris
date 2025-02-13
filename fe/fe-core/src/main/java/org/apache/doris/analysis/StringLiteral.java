@@ -135,6 +135,9 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public String toSqlImpl() {
+        if (value.equals("\\")) {
+            value = "\\\\";
+        }
         return "'" + value.replaceAll("'", "''") + "'";
     }
 
