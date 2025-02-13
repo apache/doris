@@ -70,9 +70,8 @@ public class AzureRemote extends RemoteBase {
         try {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
-            String containerName = obj.getBucket();
-            String uri = AzureProperties.formatAzureUri(obj.getEndpoint(), containerName, obj.getAk());
-            builder.endpoint(uri);
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            builder.endpoint(endpoint);
             BlobContainerClient containerClient = builder.buildClient();
 
             BlobClient blobClient = containerClient.getBlobClient(normalizePrefix(fileName));
@@ -131,9 +130,8 @@ public class AzureRemote extends RemoteBase {
         try {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
-            String containerName = obj.getBucket();
-            String uri = AzureProperties.formatAzureUri(obj.getEndpoint(), containerName, obj.getAk());
-            builder.endpoint(uri);
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            builder.endpoint(endpoint);
             BlobContainerClient containerClient = builder.buildClient();
             BlobServiceClient blobServiceClient = containerClient.getServiceClient();
 
@@ -225,9 +223,8 @@ public class AzureRemote extends RemoteBase {
             } else {
                 builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             }
-            String containerName = obj.getBucket();
-            String uri = AzureProperties.formatAzureUri(obj.getEndpoint(), containerName, obj.getAk());
-            builder.endpoint(uri);
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            builder.endpoint(endpoint);
             client = builder.buildClient();
         }
     }
