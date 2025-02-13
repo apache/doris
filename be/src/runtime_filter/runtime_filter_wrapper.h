@@ -186,9 +186,8 @@ public:
     }
 
     void _to_protobuf(PInFilter* filter);
-    
+
     void _to_protobuf(PMinMaxFilter* filter);
-    
 
 private:
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
