@@ -31,6 +31,7 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "gutil/integral_types.h"
@@ -300,9 +301,7 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
     }
-    if (this->is_set_sink()) {
-        child->set_is_sink(this->is_sink());
-    }
+
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -412,7 +411,8 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
         // TODO: FIX DUPLICATE COUNTERS
         // In production, we will return the existing counter.
         // This will not make be crash, but the result may be wrong.
-        return _counter_map[name];
+        throw Exception(
+                Status::InvalidArgument("Add Duplicate counter name {} to {} ", name, this->_name));
     }
 
     // Parent counter must already exist.
@@ -558,9 +558,6 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 pr
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-    if (this->is_set_sink()) {
-        node.__set_is_sink(this->is_sink());
-    }
 
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
