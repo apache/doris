@@ -25,7 +25,7 @@
 #include "schema_desc.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadata) {}
 
 Status FileMetaData::init_schema() {
@@ -46,5 +46,6 @@ std::string FileMetaData::debug_string() const {
     out << ")";
     return out.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
