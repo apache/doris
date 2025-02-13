@@ -472,7 +472,7 @@ struct ConvertImpl {
             // TODO: support boolean cast more reasonable
             if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
                 for (int i = 0; i < size; ++i) {
-                    vec_to[i] = static_cast<bool>(vec_to[i]);
+                    vec_to[i] = vec_from[i] != 0 ? 1 : 0;
                 }
             }
 
