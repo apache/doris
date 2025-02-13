@@ -21,6 +21,7 @@
 
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
+#include "runtime_filter/runtime_filter_slots_cross.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -40,18 +41,13 @@ public:
     Status open(RuntimeState* state) override;
 
     vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
-    RuntimeProfile::Counter* runtime_filter_compute_timer() {
-        return _runtime_filter_compute_timer;
-    }
     vectorized::Blocks& build_blocks() { return _shared_state->build_blocks; }
-    RuntimeProfile::Counter* publish_runtime_filter_timer() {
-        return _publish_runtime_filter_timer;
-    }
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
+    std::shared_ptr<RuntimeFilterSlotsCross> _runtime_filter_slots;
 };
 
 class NestedLoopJoinBuildSinkOperatorX final

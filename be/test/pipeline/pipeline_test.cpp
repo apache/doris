@@ -25,7 +25,6 @@
 #include "dummy_task_queue.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -33,6 +32,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime_filter/runtime_filter.h"
 #include "thrift_builder.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
@@ -1128,9 +1128,8 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]->get_real_type(),
                       j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
                     << "  " << j << " "
-                    << IRuntimeFilter::to_string(
-                               sink_local_state._runtime_filter_slots->_runtime_filters[0]
-                                       ->get_real_type());
+                    << to_string(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                         ->get_real_type());
             EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
                               ->_wrapper->is_ignored(),
                       false);

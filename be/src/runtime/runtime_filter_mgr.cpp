@@ -32,13 +32,15 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exprs/bloom_filter_func.h"
-#include "exprs/runtime_filter.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime_filter/role/consumer.h"
+#include "runtime_filter/role/merger.h"
+#include "runtime_filter/role/producer.h"
+#include "runtime_filter/role/runtime_filter.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
 
@@ -58,48 +60,29 @@ RuntimeFilterMgr::~RuntimeFilterMgr() {
     _pool.clear();
 }
 
-Status RuntimeFilterMgr::get_consume_filters(
-        const int filter_id, std::vector<std::shared_ptr<IRuntimeFilter>>& consumer_filters) {
-    DCHECK(_is_global);
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _consumer_map.find(filter_id);
-    if (iter == _consumer_map.end()) {
-        return Status::InternalError("get_consume_filters meet unknown filter: {}, role: CONSUMER.",
-                                     filter_id);
-    }
-    for (auto& holder : iter->second) {
-        consumer_filters.emplace_back(holder.filter);
-    }
-    return Status::OK();
-}
-
-std::vector<std::shared_ptr<IRuntimeFilter>> RuntimeFilterMgr::get_consume_filters(
-        const int filter_id) {
+std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consume_filters(
+        int filter_id) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
     if (iter == _consumer_map.end()) {
         return {};
     }
-    std::vector<std::shared_ptr<IRuntimeFilter>> consumer_filters;
-    for (auto& holder : iter->second) {
-        consumer_filters.emplace_back(holder.filter);
-    }
-    return consumer_filters;
+    return iter->second;
 }
 
-Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
-                                                  const TQueryOptions& options, int node_id,
-                                                  std::shared_ptr<IRuntimeFilter>* consumer_filter,
-                                                  bool need_local_merge) {
+Status RuntimeFilterMgr::register_consumer_filter(
+        const TRuntimeFilterDesc& desc, const TQueryOptions& options, int node_id,
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, bool need_local_merge,
+        RuntimeProfile* parent_profile) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
     bool has_exist = false;
 
     std::lock_guard<std::mutex> l(_lock);
     if (auto iter = _consumer_map.find(key); iter != _consumer_map.end()) {
-        for (auto holder : iter->second) {
-            if (holder.node_id == node_id) {
-                *consumer_filter = holder.filter;
+        for (auto filter : iter->second) {
+            if (filter->node_id() == node_id) {
+                *consumer_filter = filter;
                 has_exist = true;
             }
         }
@@ -108,10 +91,10 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
     DCHECK(!(_is_global xor need_local_merge))
             << " _is_global: " << _is_global << " need_local_merge: " << need_local_merge;
     if (!has_exist) {
-        std::shared_ptr<IRuntimeFilter> filter;
-        RETURN_IF_ERROR(IRuntimeFilter::create(_state, &desc, &options, RuntimeFilterRole::CONSUMER,
-                                               node_id, &filter));
-        _consumer_map[key].emplace_back(node_id, filter);
+        std::shared_ptr<RuntimeFilterConsumer> filter;
+        RETURN_IF_ERROR(
+                RuntimeFilterConsumer::create(_state, &desc, node_id, &filter, parent_profile));
+        _consumer_map[key].push_back(filter);
         *consumer_filter = filter;
     } else if (!need_local_merge) {
         return Status::InvalidArgument("filter has registered");
@@ -120,9 +103,9 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::register_local_merge_producer_filter(
+Status RuntimeFilterMgr::register_local_merger_filter(
         const doris::TRuntimeFilterDesc& desc, const doris::TQueryOptions& options,
-        std::shared_ptr<IRuntimeFilter> producer_filter) {
+        std::shared_ptr<RuntimeFilterProducer> producer_filter) {
     DCHECK(_is_global);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
@@ -140,16 +123,14 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
     DCHECK(_state != nullptr);
     {
         std::lock_guard<std::mutex> l(*iter->second.lock);
-        if (iter->second.filters.empty()) {
-            std::shared_ptr<IRuntimeFilter> merge_filter;
-            RETURN_IF_ERROR(IRuntimeFilter::create(_state, &desc, &options,
-                                                   RuntimeFilterRole::PRODUCER, -1, &merge_filter));
-            merge_filter->set_ignored();
-            iter->second.filters.emplace_back(merge_filter);
+        if (!iter->second.merger) {
+            std::shared_ptr<RuntimeFilterMerger> merge_filter;
+            RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, &desc, &merge_filter));
+            iter->second.merger = merge_filter;
         }
         iter->second.merge_time++;
         iter->second.merge_size_times++;
-        iter->second.filters.emplace_back(producer_filter);
+        iter->second.producers.emplace_back(producer_filter);
     }
     return Status::OK();
 }
@@ -166,13 +147,13 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
                 filter_id);
     }
     *local_merge_filters = &iter->second;
-    DCHECK(!iter->second.filters.empty());
+    DCHECK(iter->second.merger);
     return Status::OK();
 }
 
 Status RuntimeFilterMgr::register_producer_filter(
         const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-        std::shared_ptr<IRuntimeFilter>* producer_filter) {
+        std::shared_ptr<RuntimeFilterProducer>* producer_filter) {
     DCHECK(!_is_global);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
@@ -183,8 +164,7 @@ Status RuntimeFilterMgr::register_producer_filter(
     if (iter != _producer_map.end()) {
         return Status::InvalidArgument("filter has registed");
     }
-    RETURN_IF_ERROR(IRuntimeFilter::create(_state, &desc, &options, RuntimeFilterRole::PRODUCER, -1,
-                                           producer_filter));
+    RETURN_IF_ERROR(RuntimeFilterProducer::create(_state, &desc, producer_filter));
     _producer_map.emplace(key, *producer_filter);
     return Status::OK();
 }
@@ -208,7 +188,7 @@ Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {
 }
 
 Status RuntimeFilterMergeControllerEntity::_init_with_desc(
-        const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
+        const TRuntimeFilterDesc* runtime_filter_desc,
         const std::vector<doris::TRuntimeFilterTargetParamsV2>&& targetv2_info,
         const int producer_size) {
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val = std::make_shared<RuntimeFilterCntlVal>();
@@ -217,11 +197,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->producer_size = producer_size;
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
     cnt_val->targetv2_info = targetv2_info;
-    cnt_val->pool.reset(new ObjectPool());
-    cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
+    RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, runtime_filter_desc, &cnt_val->filter));
     auto filter_id = runtime_filter_desc->filter_id;
-    RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options));
-    cnt_val->filter->set_ignored();
 
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     _filter_map.emplace(filter_id, cnt_val);
@@ -247,10 +224,10 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
             }
 
             RETURN_IF_ERROR(_init_with_desc(
-                    &filterid_to_desc.second, &query_options,
+                    &filterid_to_desc.second,
                     targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()
                             ? std::vector<doris::TRuntimeFilterTargetParamsV2> {}
-                            : std::move(targetv2_iter->second),
+                            : targetv2_iter->second,
                     build_iter->second));
         }
     }
@@ -319,9 +296,8 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::weak_ptr<QueryC
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     LocalMergeFilters* local_merge_filters = nullptr;
     RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
-    // first filter size merged filter
-    for (size_t i = 1; i < local_merge_filters->filters.size(); i++) {
-        local_merge_filters->filters[i]->set_synced_size(request->filter_size());
+    for (auto producer : local_merge_filters->producers) {
+        producer->set_synced_size(request->filter_size());
     }
     return Status::OK();
 }
@@ -354,11 +330,13 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         if (cnt_val->arrive_id.size() == 1 && cnt_val->runtime_filter_desc.is_broadcast_join) {
             return Status::OK();
         }
-        MergeRuntimeFilterParams params(request, attach_data);
-        RuntimeFilterWrapperHolder holder;
-        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, holder.getHandle()));
+        std::shared_ptr<RuntimeFilterProducer> tmp_filter;
+        RETURN_IF_ERROR(
+                RuntimeFilterProducer::create(_state, &cnt_val->runtime_filter_desc, &tmp_filter));
 
-        RETURN_IF_ERROR(cnt_val->filter->merge_from(holder.getHandle()->get()));
+        RETURN_IF_ERROR(tmp_filter->assign_data_into_wrapper(*request, attach_data));
+
+        RETURN_IF_ERROR(cnt_val->filter->merge_from(tmp_filter.get()));
 
         cnt_val->arrive_id.insert(UniqueId(request->fragment_instance_id()));
         merged_size = cnt_val->arrive_id.size();
@@ -381,13 +359,8 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         void* data = nullptr;
         int len = 0;
         bool has_attachment = false;
-        if (!cnt_val->filter->get_ignored() && !cnt_val->filter->get_disabled()) {
-            RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
-        } else {
-            apply_request.set_ignored(cnt_val->filter->get_ignored());
-            apply_request.set_disabled(cnt_val->filter->get_disabled());
-            apply_request.set_filter_type(PFilterType::UNKNOW_FILTER);
-        }
+
+        RETURN_IF_ERROR(cnt_val->filter->serialize(&apply_request, &data, &len));
 
         if (data != nullptr && len > 0) {
             void* allocated = malloc(len);
@@ -407,7 +380,6 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
                     create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
                                   DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
 
-            closure->request_->set_filter_id(request->filter_id());
             closure->request_->set_merge_time(merge_time);
             closure->request_->set_local_merge_time(cnt_val->local_merge_time);
             *closure->request_->mutable_query_id() = request->query_id();
