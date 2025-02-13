@@ -1289,6 +1289,8 @@ void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
     ExecEnv::GetInstance()->dict_factory()->get_dictionary_status(dictionary_status,
                                                                   dictionary_ids);
     result.__set_dictionary_status_list(dictionary_status);
+    LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
+              << " rows";
 }
 
 } // namespace doris
