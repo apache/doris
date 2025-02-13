@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/core/call_on_type_index.h"
@@ -49,6 +50,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 enum class ScaleMode {
     Positive, // round to a number with N decimal places after the decimal point
@@ -79,8 +81,6 @@ template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode, typename U>
 struct IntegerRoundingComputation {
     static const size_t data_count = 1;
-
-    static size_t prepare(size_t scale) { return scale; }
 
     /// Integer overflow is Ok.
     static ALWAYS_INLINE T compute_impl(T x, T scale, T target_scale) {
@@ -150,7 +150,13 @@ struct IntegerRoundingComputation {
                 return;
             }
         }
-        *out = compute(*in, scale, target_scale);
+        if constexpr (!std::is_same_v<T, U>) {
+            // no need to check cast value for scale, since it's
+            // already checked before
+            *out = compute(*in, cast_set<T, U, false>(scale), cast_set<T>(target_scale));
+        } else {
+            *out = compute(*in, scale, target_scale);
+        }
     }
 };
 
@@ -164,8 +170,8 @@ private:
 
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
-                                Int16 out_scale) {
-        Int16 scale_arg = in_scale - out_scale;
+                                Int32 out_scale) {
+        Int32 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
             auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
 
@@ -193,8 +199,8 @@ public:
     }
 
     static NO_INLINE void apply(const NativeType& in, UInt32 in_scale, NativeType& out,
-                                Int16 out_scale) {
-        Int16 scale_arg = in_scale - out_scale;
+                                Int32 out_scale) {
+        Int32 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
             auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
             if (out_scale < 0) {
@@ -268,7 +274,7 @@ public:
         return roundWithMode<tie_breaking_mode>(val, mode);
     }
 
-    static VectorType prepare(size_t scale) { return load1(scale); }
+    static VectorType prepare(size_t scale) { return load1(static_cast<ScalarType>(scale)); }
 };
 
 /** Implementation of low-level round-off functions for floating-point values.
@@ -550,7 +556,7 @@ struct Dispatcher {
             return col_res;
         } else if constexpr (IsDecimalNumber<T>) {
             const auto* decimal_col = assert_cast<const ColumnDecimal<T>*>(col_general);
-            const Int32 input_scale = decimal_col->get_scale();
+            const auto input_scale = decimal_col->get_scale();
             auto col_res = ColumnDecimal<T>::create(input_row_count, result_scale);
 
             for (size_t i = 0; i < input_row_count; ++i) {
@@ -649,7 +655,7 @@ struct Dispatcher {
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
-                const Int16 scale_arg = col_scale_i32.get_data()[i];
+                const auto scale_arg = col_scale_i32.get_data()[i];
                 if (scale_arg == 0) {
                     size_t scale = 1;
                     FunctionRoundingImpl<ScaleMode::Zero>::apply(general_val, scale, vec_res[i]);
@@ -716,7 +722,8 @@ public:
                                            name, scale_arg);
         }
 
-        *scale = scale_arg;
+        // scale_arg value is already checked
+        *scale = static_cast<Int16>(scale_arg);
         return Status::OK();
     }
 
@@ -747,7 +754,7 @@ public:
 
             // For decimal, we will always make sure result Decimal has exactly same precision and scale with
             // arguments from query plan.
-            Int16 result_scale = 0;
+            UInt32 result_scale = 0;
             if constexpr (IsDataTypeDecimal<DataType>) {
                 if (column_result.type->get_type_id() == TypeIndex::Nullable) {
                     if (auto nullable_type = std::dynamic_pointer_cast<const DataTypeNullable>(
@@ -774,7 +781,7 @@ public:
                     }
 
                     res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
-                            col_general, scale_arg, result_scale);
+                            col_general, scale_arg, cast_set<Int16>(result_scale));
                 } else {
                     // the SECOND arugment is COLUMN
                     if (is_col_general_const) {
@@ -782,12 +789,12 @@ public:
                                 apply_const_vec(
                                         &assert_cast<const ColumnConst&>(*column_general.column),
                                         block.get_by_position(arguments[1]).column.get(),
-                                        result_scale);
+                                        cast_set<Int16>(result_scale));
                     } else {
                         res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
                                 apply_vec_vec(col_general,
                                               block.get_by_position(arguments[1]).column.get(),
-                                              result_scale);
+                                              cast_set<Int16>(result_scale));
                     }
                 }
                 return true;
@@ -877,3 +884,4 @@ struct DecimalRoundOneImpl {
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
