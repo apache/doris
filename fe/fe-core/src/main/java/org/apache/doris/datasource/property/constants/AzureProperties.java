@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.constants;
 
-
 import org.apache.doris.common.Config;
 import org.apache.doris.common.credentials.CloudCredential;
 
