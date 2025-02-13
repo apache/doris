@@ -37,8 +37,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class S3FileSystem extends ObjFileSystem {
 
@@ -78,6 +80,8 @@ public class S3FileSystem extends ObjFileSystem {
                     PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
                             .filter(entry -> entry.getKey() != null && entry.getValue() != null)
                             .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
+                    // disable cache
+                    disableCacheForFileSystems(conf);
                     // S3 does not support Kerberos authentication,
                     // so here we create a simple authentication
                     AuthenticationConfig authConfig = AuthenticationConfig.getSimpleAuthenticationConfig(conf);
@@ -137,6 +141,16 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
+    }
+
+    private void disableCacheForFileSystems(Configuration conf) {
+        Set<String> fileSystems = new HashSet<>();
+        fileSystems.add("fs.s3.impl.disable.cache");
+        fileSystems.add("fs.s3a.impl.disable.cache");
+        fileSystems.add("fs.cosn.impl.disable.cache");
+        fileSystems.add("fs.bos.impl.disable.cache");
+        fileSystems.add("fs.gcs.impl.disable.cache");
+        fileSystems.forEach(fileSystem -> conf.set(fileSystem, "true"));
     }
 
     @VisibleForTesting
