@@ -89,14 +89,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
-        PaimonSnapshot paimonSnapshot = getOrFetchSnapshotCacheValue(snapshot).getSnapshot();
-        Table table = paimonSnapshot.getTable();
-        // TODO mmc
-//        if (paimonSnapshot.getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
-//            Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-//                .invalidateTableCache(catalog.getId(), dbName, name);
-//        }
-        return table;
+        return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
     }
 
     public PaimonSchemaCacheValue getPaimonSchemaCacheValue(long schemaId) {

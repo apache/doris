@@ -18,15 +18,12 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.datasource.ExternalSchemaCache;
-import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
@@ -40,7 +37,6 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
@@ -66,15 +62,6 @@ public class PaimonMetadataCache {
                     .getTableOrAnalysisException(key.getTableName());
             List<Column> partitionColumns = table.getPaimonSchemaCacheValue(latestSnapshot.getSchemaId())
                     .getPartitionColumns();
-            // TODO mmc
-//            ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-//            Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-//                new PaimonSchemaCacheKey(dbName, name, schemaId));
-//            if (!schemaCacheValue.isPresent()) {
-//                throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-//                    null, catalog.getName(), dbName, name, schemaId);
-//            }
-//            return (PaimonSchemaCacheValue) schemaCacheValue.get();
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (IOException | AnalysisException e) {
