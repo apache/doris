@@ -148,7 +148,7 @@ public class S3FileSystem extends ObjFileSystem {
         fileSystems.add("fs.s3.impl.disable.cache");
         fileSystems.add("fs.s3a.impl.disable.cache");
         fileSystems.add("fs.cosn.impl.disable.cache");
-        fileSystems.add("fs.bos.impl.disable.cache");
+        fileSystems.add("fs.obs.impl.disable.cache");
         fileSystems.add("fs.gcs.impl.disable.cache");
         fileSystems.forEach(fileSystem -> conf.set(fileSystem, "true"));
     }
