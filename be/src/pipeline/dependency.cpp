@@ -37,6 +37,7 @@ Dependency* BasicSharedState::create_source_dependency(int operator_id, int node
                                                        const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
+    unfinished_source_counter++;
     return source_deps.back().get();
 }
 
@@ -190,6 +191,7 @@ void LocalExchangeSharedState::sub_running_source_operators() {
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
     mem_counters.resize(num_instances, nullptr);
+    unfinished_source_counter = num_instances;
 }
 
 vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
