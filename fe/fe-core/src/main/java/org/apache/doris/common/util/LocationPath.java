@@ -87,7 +87,7 @@ public class LocationPath {
         this(location, props, true);
     }
 
-    private LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
+    public LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
         isBindBroker = props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME);
         String tmpLocation = originLocation;
         if (!(originLocation.contains(SCHEME_DELIM) || originLocation.contains(NONSTANDARD_SCHEME_DELIM))) {
