@@ -325,10 +325,7 @@ public:
         return Status::OK();
     }
 
-    Status add_array_nulls(uint32_t row_id) override {
-        _null_bitmap.add(row_id);
-        return Status::OK();
-    }
+    Status add_array_nulls(uint32_t row_id) override { return Status::OK(); }
 
     Status new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
         try {
@@ -426,7 +423,7 @@ public:
                 lucene::document::Field* new_field = nullptr;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map[j] == 1) {
+                    if (null_map && null_map[j] == 1) {
                         continue;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
@@ -513,6 +510,7 @@ public:
                     }
                     _doc->add(*new_field);
                     RETURN_IF_ERROR(add_null_document());
+                    _null_bitmap.add(_rid);
                     _doc->clear();
                 }
                 _rid++;
@@ -522,11 +520,14 @@ public:
             for (int i = 0; i < count; ++i) {
                 auto array_elem_size = offsets[i + 1] - offsets[i];
                 for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map[j] == 1) {
+                    if (null_map && null_map[j] == 1) {
                         continue;
                     }
                     const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
                     RETURN_IF_ERROR(add_value(*p));
+                }
+                if (array_elem_size == 0) {
+                    _null_bitmap.add(_rid);
                 }
                 start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
