@@ -217,6 +217,14 @@ public class CreateTableInfo {
         return tableName;
     }
 
+    public String getEngineName() {
+        return engineName;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     /**
      * full qualifier table name.
      */
