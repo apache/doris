@@ -148,7 +148,14 @@ fi
 
 eval set -- "${OPTS}"
 
-PARALLEL="$(($(nproc) / 4 + 1))"
+NUM_CORES=0
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    NUM_CORES=$(sysctl -n hw.logicalcpu)
+else
+    NUM_CORES=$(nproc)
+fi
+
+PARALLEL="$((${NUM_CORES} / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
