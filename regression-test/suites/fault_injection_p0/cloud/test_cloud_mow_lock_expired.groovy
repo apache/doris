@@ -60,6 +60,7 @@ suite("test_cloud_mow_lock_expired", "nonConcurrent") {
                 sql "insert into ${table1} values(1,99,99),(4,4,4);"
             }
 
+            Thread.sleep(5000) // wait util delete bitmap lock expired
             trigger_and_wait_compaction(table1, "full")
             qt_sql "select * from ${table1} order by k1;"
 
@@ -105,6 +106,7 @@ suite("test_cloud_mow_lock_expired", "nonConcurrent") {
                 }
             }
 
+            Thread.sleep(5000) // wait util delete bitmap lock expired
             trigger_and_wait_compaction(table1, "full")
             qt_sql "select * from ${table1} order by k1;"
 
