@@ -873,6 +873,9 @@ public class ProfileManager extends MasterDaemon {
     public String getLastProfileId() {
         PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTimeDesc();
         ProfileElement profileElement = queueIdDeque.poll();
+        if (profileElement == null) {
+            return null;
+        }
         return profileElement.profile.getSummaryProfile().getProfileId();
     }
 
