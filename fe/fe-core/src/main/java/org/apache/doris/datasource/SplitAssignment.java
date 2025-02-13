@@ -17,11 +17,13 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,6 +55,7 @@ public class SplitAssignment {
     private final Map<String, String> locationProperties;
     private final List<String> pathPartitionKeys;
     private final Object assignLock = new Object();
+    private final boolean useBucketAssignment;
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
@@ -65,12 +68,14 @@ public class SplitAssignment {
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
-            List<String> pathPartitionKeys) {
+            List<String> pathPartitionKeys,
+            boolean useBucketedAssignment) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
+        this.useBucketAssignment = useBucketedAssignment;
     }
 
     public void init() throws UserException {
@@ -93,14 +98,15 @@ public class SplitAssignment {
         return !scheduleFinished.get() && !isStopped.get() && exception == null;
     }
 
-    private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
-        for (Backend backend : batch.keySet()) {
+    private void appendBatch(Multimap<Pair<Backend, Integer>, Split> batch) throws UserException {
+        for (Pair<Backend, Integer> backend : batch.keySet()) {
             Collection<Split> splits = batch.get(backend);
             List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
             for (Split split : splits) {
-                locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
+                locations.add(splitToScanRange.getScanRange(backend.first, backend.second, locationProperties,
+                        split, pathPartitionKeys));
             }
-            if (!assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>()).offer(locations)) {
+            if (!assignment.computeIfAbsent(backend.first, be -> new LinkedBlockingQueue<>()).offer(locations)) {
                 throw new UserException("Failed to offer batch split");
             }
         }
@@ -122,14 +128,20 @@ public class SplitAssignment {
         if (splits.isEmpty()) {
             return;
         }
-        Multimap<Backend, Split> batch = null;
+        Multimap<Pair<Backend, Integer>, Split> batch = ArrayListMultimap.create();
         synchronized (assignLock) {
             if (sampleSplit == null) {
                 sampleSplit = splits.get(0);
                 assignLock.notify();
             }
             try {
-                batch = backendPolicy.computeScanRangeAssignment(splits);
+                if (useBucketAssignment) {
+                    batch = backendPolicy.computeBucketAwareScanRangeAssignmentWith(splits);
+                } else {
+                    Multimap<Pair<Backend, Integer>, Split> finalBatch = batch;
+                    backendPolicy.computeScanRangeAssignment(splits).entries()
+                        .forEach(e -> finalBatch.put(Pair.of(e.getKey(), 0), e.getValue()));
+                }
             } catch (UserException e) {
                 exception = e;
             }

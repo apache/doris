@@ -184,12 +184,16 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+    void update_murmurs_with_value(int32_t* __restrict hashes, PrimitiveType type, int32_t rows,
+                                   uint32_t offset,
+                                   const uint8_t* __restrict null_data) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
-
+    void update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
@@ -287,6 +291,14 @@ protected:
         int32_t frac_val = dec_val.frac_value();
         hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);
         hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
+    };
+
+    void ALWAYS_INLINE decimalv2_do_murmur(size_t i, int32_t& hash) const {
+        const auto& dec_val = (const DecimalV2Value&)data[i];
+        int64_t int_val = dec_val.int_value();
+        int32_t frac_val = dec_val.frac_value();
+        hash = HashUtil::murmur_hash3_32(&int_val, sizeof(int_val), hash);
+        hash = HashUtil::murmur_hash3_32(&frac_val, sizeof(frac_val), hash);
     };
 };
 

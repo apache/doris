@@ -174,6 +174,7 @@ private:
 
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
     TPartitionType::type _part_type;
+    THashType::type _hash_type;
 
     std::atomic<bool> _reach_limit = false;
     int _last_local_channel_idx = -1;
@@ -184,12 +185,16 @@ private:
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
+    using Base = DataSinkOperatorX<ExchangeSinkLocalState>;
+
 public:
     ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           const std::vector<TUniqueId>& fragment_instance_ids);
     Status init(const TDataSink& tsink) override;
+
+    [[nodiscard]] std::string debug_string(int indentation_level) const override;
 
     RuntimeState* state() { return _state; }
 
@@ -228,6 +233,7 @@ private:
     TTupleId _output_tuple_id = -1;
 
     TPartitionType::type _part_type;
+    THashType::type _hash_type;
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent
