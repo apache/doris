@@ -16,10 +16,12 @@
 // under the License.
 
 #pragma once
+#include <memory>
 #include <string>
 
 #include "common/status.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class SlotDescriptor;
@@ -32,17 +34,37 @@ class Block;
 class VExprContext;
 
 // use to mock a slot ref expr
-class MockSlotRef final : public VExpr {
+class MockSlotRef final : public VSlotRef {
 public:
-    MockSlotRef(int column_id) : _column_id(column_id) {};
+    MockSlotRef(int column_id) {
+        _node_type = TExprNodeType::SLOT_REF;
+        _column_id = column_id;
+    }
+
+    MockSlotRef(int column_id, DataTypePtr data_type) {
+        _node_type = TExprNodeType::SLOT_REF;
+        _column_id = column_id;
+        _data_type = data_type;
+    }
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         *result_column_id = _column_id;
         return Status::OK();
     }
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
+        _prepare_finished = true;
+        return Status::OK();
+    }
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        _open_finished = true;
+        return Status::OK();
+    }
     const std::string& expr_name() const override { return _name; }
 
+    static VExprContextSPtrs create_mock_contexts(DataTypePtr data_type);
+
 private:
-    int _column_id;
     const std::string _name = "MockSlotRef";
 };
 
