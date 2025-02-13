@@ -274,11 +274,11 @@ public:
                is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
               is_date_or_datetime_or_decimal(return_type, func_return_type) ||
               is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))) {
-            LOG_WARNING(
-                    "function return type check failed, function_name={}, "
-                    "expect_return_type={}, real_return_type={}, input_arguments={}",
-                    get_name(), return_type->get_name(), func_return_type->get_name(),
-                    get_types_string(arguments));
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "function return type check failed, function_name={}, "
+                                   "expect_return_type={}, real_return_type={}, input_arguments={}",
+                                   get_name(), return_type->get_name(),
+                                   func_return_type->get_name(), get_types_string(arguments));
             return nullptr;
         }
         return build_impl(arguments, return_type);

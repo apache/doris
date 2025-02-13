@@ -692,15 +692,23 @@ public:
     }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if ((arguments.empty()) || (arguments.size() > 2)) {
             throw doris::Exception(
                     ErrorCode::INVALID_ARGUMENT,
                     "Number of arguments for function {}, doesn't match: should be 1 or 2. ",
                     get_name());
         }
-
-        return arguments[0];
+        // Keep consistent with FE's roundRule.
+        if (arguments.size() == 1 ||
+            !WhichDataType {arguments[0].type->get_type_id()}.is_decimal()) {
+            return arguments[0].type;
+        } else {
+            return vectorized::create_decimal(arguments[0].type->get_precision(),
+                                              std::min(arguments[1].column->get_int(0),
+                                                       (Int64)arguments[0].type->get_scale()),
+                                              false);
+        }
     }
 
     static Status get_scale_arg(const ColumnWithTypeAndName& arguments, Int16* scale) {
