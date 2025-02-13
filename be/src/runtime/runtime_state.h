@@ -367,6 +367,10 @@ public:
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -582,7 +586,7 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
-    bool enable_shared_exchange_sink_buffer() const {
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
     }
