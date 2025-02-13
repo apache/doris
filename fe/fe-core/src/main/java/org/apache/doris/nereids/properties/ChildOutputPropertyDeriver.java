@@ -514,7 +514,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
-                if (shuffleSide == ShuffleSide.LEFT) {
+                if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
                     );
@@ -524,12 +524,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
-                if (shuffleSide == ShuffleSide.LEFT) {
-                    return new PhysicalProperties(rightHashSpec);
-                } else {
+                if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
                     );
+                } else {
+                    return new PhysicalProperties(rightHashSpec);
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
