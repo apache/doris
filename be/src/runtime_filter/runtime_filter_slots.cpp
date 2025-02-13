@@ -18,7 +18,7 @@
 #include "runtime_filter/runtime_filter_slots.h"
 
 #include "pipeline/pipeline_task.h"
-#include "runtime_filter/runtime_filter_producer.h"
+#include "runtime_filter/role/producer.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "util/defer_op.h"
 

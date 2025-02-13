@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/runtime_filter_consumer.h"
+#include "runtime_filter/role/consumer.h"
 
 #include <mutex>
 

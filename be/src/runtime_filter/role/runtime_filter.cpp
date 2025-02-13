@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/role/runtime_filter.h"
 
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
-#include "runtime_filter/runtime_filter_consumer.h"
-#include "runtime_filter/runtime_filter_merger.h"
-#include "runtime_filter/runtime_filter_producer.h"
+#include "runtime_filter/role/consumer.h"
+#include "runtime_filter/role/merger.h"
+#include "runtime_filter/role/producer.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
 #include "vec/exprs/vbitmap_predicate.h"

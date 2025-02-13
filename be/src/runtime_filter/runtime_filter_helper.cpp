@@ -18,7 +18,7 @@
 #include "runtime_filter/runtime_filter_helper.h"
 
 #include "pipeline/pipeline_task.h"
-#include "runtime_filter/runtime_filter_consumer.h"
+#include "runtime_filter/role/consumer.h"
 
 namespace doris::pipeline {
 

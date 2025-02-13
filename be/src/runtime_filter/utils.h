@@ -108,7 +108,7 @@ std::string states_to_string(std::vector<typename T::State> assumed_states) {
 }
 
 template <typename T>
-bool check_state(typename T::State real_state, std::vector<typename T::State> assumed_states) {
+bool check_state_impl(typename T::State real_state, std::vector<typename T::State> assumed_states) {
     bool matched = false;
     for (auto state : assumed_states) {
         if (real_state == state) {
