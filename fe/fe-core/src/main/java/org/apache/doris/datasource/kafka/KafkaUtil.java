@@ -96,7 +96,7 @@ public class KafkaUtil {
             }
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
+                    metaRequestBuilder).setTimeoutSecs(Config.min_get_kafka_meta_timeout_second).build();
             InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
@@ -141,7 +141,7 @@ public class KafkaUtil {
                 metaRequestBuilder.addPartitionIdForLatestOffsets(partitionId);
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
+                    metaRequestBuilder).setTimeoutSecs(Config.min_get_kafka_meta_timeout_second).build();
             InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
@@ -201,7 +201,7 @@ public class KafkaUtil {
                         .setVal(pair.second).build());
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
+                    metaRequestBuilder).setTimeoutSecs(Config.min_get_kafka_meta_timeout_second).build();
             InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
