@@ -89,7 +89,7 @@ TEST_P(DataTypeBitMapTest, MetaInfoTest) {
 
 TEST_P(DataTypeBitMapTest, CreateColumnTest) {
     Field default_field_bitmap = BitmapValue::empty_bitmap();
-    helper->create_column_assert(dt_bitmap, default_field_bitmap, 8);
+    helper->create_column_assert(dt_bitmap, default_field_bitmap, 17);
 }
 
 void insert_data_bitmap(MutableColumns* bitmap_cols, DataTypePtr dt_bitmap, int rows_value,
@@ -185,6 +185,7 @@ TEST_P(DataTypeBitMapTest, SerializeDeserializeTest) {
         auto* column_res = assert_cast<ColumnBitmap*>(column2.get());
         ASSERT_EQ(column->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
+    helper->serialize_deserialize_assert(bitmap_cols, {dt_bitmap});
     std::cout << "finish serialize deserialize test" << std::endl;
 }
 

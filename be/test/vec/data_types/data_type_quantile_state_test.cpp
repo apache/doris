@@ -89,7 +89,7 @@ TEST_P(DataTypeQuantileStateTest, MetaInfoTest) {
 
 TEST_P(DataTypeQuantileStateTest, CreateColumnTest) {
     Field default_field_quantile_state = QuantileState();
-    helper->create_column_assert(datatype_quantile_state, default_field_quantile_state, 8);
+    helper->create_column_assert(datatype_quantile_state, default_field_quantile_state, 17);
 }
 
 void insert_data_quantile_state(MutableColumns* quantile_state_cols,
@@ -166,6 +166,7 @@ TEST_P(DataTypeQuantileStateTest, SerializeDeserializeTest) {
         ASSERT_EQ(column->get_data()[i].get_serialized_size(),
                   column_res->get_data()[i].get_serialized_size());
     }
+    helper->serialize_deserialize_assert(quantile_state_cols, {datatype_quantile_state});
     std::cout << "finish serialize deserialize test" << std::endl;
 }
 

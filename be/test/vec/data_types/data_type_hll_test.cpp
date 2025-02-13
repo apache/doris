@@ -90,7 +90,7 @@ TEST_P(DataTypeHLLTest, MetaInfoTest) {
 
 TEST_P(DataTypeHLLTest, CreateColumnTest) {
     Field default_field_hll = HyperLogLog::empty();
-    helper->create_column_assert(dt_hll, default_field_hll, 8);
+    helper->create_column_assert(dt_hll, default_field_hll, 17);
 }
 
 void insert_data_hll(MutableColumns* hll_cols, DataTypePtr datetype_hll, int rows_value,
@@ -184,6 +184,7 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeTest) {
         auto* column_res = assert_cast<ColumnHLL*>(column2.get());
         ASSERT_EQ(column->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
+    helper->serialize_deserialize_assert(hll_cols, {dt_hll});
     std::cout << "finish serialize deserialize test" << std::endl;
 }
 
