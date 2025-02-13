@@ -223,6 +223,8 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
+CONF_Bool(force_azure_blob_global_endpoint, "false");
+
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
