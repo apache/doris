@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
@@ -230,6 +231,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {
         return visitCommand(createMTMVCommand, context);
+    }
+
+    default R visitCreateMaterializedViewCommand(CreateMaterializedViewCommand createSyncMVCommand, C context) {
+        return visitCommand(createSyncMVCommand, context);
     }
 
     default R visitCreateJobCommand(CreateJobCommand createJobCommand, C context) {
