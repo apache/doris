@@ -78,12 +78,12 @@ import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
-import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecTableSinkRandomPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecTabletIdShuffle;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
@@ -2695,11 +2695,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             + distributionSpecHash.getShuffleType());
             }
             return new DataPartition(partitionType, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecTabletIdShuffle) {
+        } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
-        } else if (distributionSpec instanceof DistributionSpecTableSinkHashPartitioned) {
-            DistributionSpecTableSinkHashPartitioned partitionSpecHash =
-                    (DistributionSpecTableSinkHashPartitioned) distributionSpec;
+        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
+            DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
+                    (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;
             List<Expr> partitionExprs = Lists.newArrayList();
             List<ExprId> partitionExprIds = partitionSpecHash.getOutputColExprIds();
             for (ExprId partitionExprId : partitionExprIds) {
@@ -2707,9 +2707,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return new DataPartition(TPartitionType.TABLE_SINK_HASH_PARTITIONED, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecTableSinkRandomPartitioned) {
-            return new DataPartition(TPartitionType.TABLE_SINK_RANDOM_PARTITIONED);
+            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
+        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
+            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
         } else {
             throw new RuntimeException("Unknown DistributionSpec: " + distributionSpec);
         }
