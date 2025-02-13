@@ -105,6 +105,9 @@ experimental_enable_agg_state	false	false	0
 show_hidden_columns	false	false	0
 
 -- !cmd --
+show_hidden_columns	false	false	0
+
+-- !cmd --
 0
 
 -- !cmd --
@@ -121,6 +124,9 @@ runtime_filter_type	IN_OR_BLOOM_FILTER	IN_OR_BLOOM_FILTER	0
 
 -- !cmd --
 experimental_enable_agg_state	false	false	0
+
+-- !cmd --
+show_hidden_columns	false	false	0
 
 -- !cmd --
 show_hidden_columns	false	false	0
