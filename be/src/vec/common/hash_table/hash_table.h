@@ -277,13 +277,14 @@ struct HashTableGrower {
                                    ? fill_capacity
                                    : fill_capacity + 1);
 
-        size_degree = num_elems <= 1 ? initial_size_degree
-                                     : (initial_size_degree > fill_capacity ? initial_size_degree
-                                                                            : fill_capacity);
+        size_degree = (doris::vectorized::UInt8)(
+                num_elems <= 1 ? initial_size_degree
+                               : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                      : fill_capacity));
     }
 
     void set_buf_size(size_t buf_size_) {
-        size_degree = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        size_degree = static_cast<doris::vectorized::UInt8>(log2(buf_size_ - 1) + 1);
     }
 };
 
@@ -342,14 +343,15 @@ public:
                                    ? fill_capacity
                                    : fill_capacity + 1);
 
-        size_degree_ = num_elems <= 1 ? initial_size_degree
-                                      : (initial_size_degree > fill_capacity ? initial_size_degree
-                                                                             : fill_capacity);
+        size_degree_ = (doris::vectorized::UInt8)(
+                num_elems <= 1 ? initial_size_degree
+                               : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                      : fill_capacity));
         increase_size_degree(0);
     }
 
     void set_buf_size(size_t buf_size_) {
-        size_degree_ = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        size_degree_ = static_cast<doris::vectorized::UInt8>(log2(buf_size_ - 1) + 1);
         increase_size_degree(0);
     }
 };
@@ -974,7 +976,7 @@ public:
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
 
     bool should_be_shrink(int64_t valid_row) const {
-        return valid_row < get_factor() * (size() / 2.0);
+        return (double)valid_row < get_factor() * ((double)size() / 2.0);
     }
 
     void init_buf_size(size_t reserve_for_num_elements) {
