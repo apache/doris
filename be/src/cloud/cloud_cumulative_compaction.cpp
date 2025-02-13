@@ -41,12 +41,7 @@ bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
 CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
                                                      CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
@@ -284,8 +279,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     });
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
-    int64_t initiator =
-            HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
+    int64_t initiator = this->initiator();
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
@@ -305,6 +299,13 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
+        LOG(INFO) << "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id"
+                  << cloud_tablet()->tablet_id();
+        return Status::InternalError(
+                "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
+                cloud_tablet()->tablet_id());
+    });
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (resp.has_alter_version()) {
@@ -420,8 +421,8 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     return Status::OK();
 }
 
-void CloudCumulativeCompaction::garbage_collection() {
-    CloudCompactionMixin::garbage_collection();
+Status CloudCumulativeCompaction::garbage_collection() {
+    RETURN_IF_ERROR(CloudCompactionMixin::garbage_collection());
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -435,10 +436,15 @@ void CloudCumulativeCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
+        LOG(INFO) << "CumulativeCompaction.modify_rowsets.abort_job_failed for tablet_id"
+                  << cloud_tablet()->tablet_id();
+        return Status::InternalError(
+                "CumulativeCompaction.modify_rowsets.abort_job_failed for tablet_id {}",
+                cloud_tablet()->tablet_id());
+    });
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
         LOG_WARNING("failed to abort compaction job")
@@ -446,6 +452,7 @@ void CloudCumulativeCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 Status CloudCumulativeCompaction::pick_rowsets_to_compact() {

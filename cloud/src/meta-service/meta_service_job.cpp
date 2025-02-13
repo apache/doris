@@ -458,7 +458,7 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
+    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
         ss << "failed to get delete bitmap update lock key, instance_id=" << instance_id
@@ -520,7 +520,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
+    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
