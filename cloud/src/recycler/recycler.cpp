@@ -535,21 +535,22 @@ int InstanceRecycler::init_storage_vault_accessors() {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
-        if (!config::storage_vault_white_list.empty()) {
-            if (auto it = std::find(config::storage_vault_white_list.begin(),
-                                    config::storage_vault_white_list.end(), vault.name());
-                it == config::storage_vault_white_list.end()) {
-                std::string storage_vault_white_list =
-                        accumulate(config::storage_vault_white_list.begin(),
-                                   config::storage_vault_white_list.end(), std::string(),
-                                   [](std::string a, std::string b) {
-                                       return a + (a.empty() ? "" : ",") + b;
-                                   });
+        std::string recycler_storage_vault_white_list = accumulate(
+                config::recycler_storage_vault_white_list.begin(),
+                config::recycler_storage_vault_white_list.end(), std::string(),
+                [](std::string a, std::string b) { return a + (a.empty() ? "" : ",") + b; });
+        LOG_INFO("config::recycler_storage_vault_white_list")
+                .tag("", recycler_storage_vault_white_list);
+        if (!config::recycler_storage_vault_white_list.empty()) {
+            if (auto it = std::find(config::recycler_storage_vault_white_list.begin(),
+                                    config::recycler_storage_vault_white_list.end(), vault.name());
+                it == config::recycler_storage_vault_white_list.end()) {
                 LOG_WARNING(
                         "failed to init accessor for vault because this vault is not in "
-                        "config::storage_vault_white_list. ")
+                        "config::recycler_storage_vault_white_list. ")
                         .tag(" vault name:", vault.name())
-                        .tag(" config::storage_vault_white_list:", storage_vault_white_list);
+                        .tag(" config::recycler_storage_vault_white_list:",
+                             recycler_storage_vault_white_list);
                 continue;
             }
         }
