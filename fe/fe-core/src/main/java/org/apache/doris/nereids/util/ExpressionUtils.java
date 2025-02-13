@@ -907,8 +907,7 @@ public class ExpressionUtils {
             if (!predicate.getCompareExpr().isSlot()) {
                 return Optional.empty();
             }
-            return Optional.ofNullable(predicate.getOptions().stream()
-                    .allMatch(Expression::isLiteral) ? expression : null);
+            return Optional.ofNullable(predicate.optionsAreLiterals() ? expression : null);
         } else if (expression instanceof ComparisonPredicate) {
             ComparisonPredicate predicate = ((ComparisonPredicate) expression);
             if (predicate.left() instanceof Literal) {
