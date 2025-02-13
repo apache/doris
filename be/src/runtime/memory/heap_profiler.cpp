@@ -35,7 +35,7 @@ void HeapProfiler::set_prof_active(bool prof) {
         if (err) {
             LOG(WARNING) << "jemalloc heap profiling start failed, " << err;
         } else {
-            LOG(WARNING) << "jemalloc heap profiling started";
+            LOG(INFO) << "jemalloc heap profiling started";
         }
     } catch (...) {
         LOG(WARNING) << "jemalloc heap profiling start failed";
