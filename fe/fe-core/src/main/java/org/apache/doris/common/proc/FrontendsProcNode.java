@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
+import org.apache.doris.common.util.FormatIpUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
@@ -220,7 +221,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 LOG.warn("Failed to get InetAddress {}", addr);
                 continue;
             }
-            if (fe.getHost().equals(address.getHostAddress())) {
+            // Format the IP address
+            String formattedIp = FormatIpUtil.formatIp(address.getHostAddress());
+
+            if (FormatIpUtil.formatIp(fe.getHost()).equals(formattedIp)) {
                 return true;
             }
         }
