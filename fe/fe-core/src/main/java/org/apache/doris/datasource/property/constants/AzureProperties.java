@@ -67,8 +67,4 @@ public class AzureProperties extends BaseProperties {
         return "https://" + endpoint;
     }
 
-    public static String formatAzureUri(String endpoint, String bucket, String accountName) {
-        return formatAzureEndpoint(endpoint, accountName) + "/" + bucket;
-    }
-
 }
