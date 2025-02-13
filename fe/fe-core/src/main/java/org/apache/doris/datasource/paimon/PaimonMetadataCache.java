@@ -73,7 +73,7 @@ public class PaimonMetadataCache {
     private PaimonPartitionInfo loadPartitionInfo(PaimonSnapshotCacheKey key, List<Column> partitionColumns)
             throws IOException, AnalysisException {
         if (CollectionUtils.isEmpty(partitionColumns)) {
-            return new PaimonPartitionInfo();
+            return PaimonPartitionInfo.EMPTY;
         }
         List<Partition> paimonPartitions = ((PaimonExternalCatalog) key.getCatalog())
                 .getPaimonPartitions(key.getDbName(), key.getTableName());

@@ -93,12 +93,13 @@ public class PaimonUtil {
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
                                                             List<Partition> paimonPartitions) {
 
+        if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
+            return PaimonPartitionInfo.EMPTY;
+        }
+
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
-        if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
-            return partitionInfo;
-        }
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();

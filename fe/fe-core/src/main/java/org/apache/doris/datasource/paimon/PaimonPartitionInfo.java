@@ -25,10 +25,12 @@ import org.apache.paimon.partition.Partition;
 import java.util.Map;
 
 public class PaimonPartitionInfo {
+    public static final PaimonPartitionInfo EMPTY = new PaimonPartitionInfo();
+
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, Partition> nameToPartition;
 
-    public PaimonPartitionInfo() {
+    private PaimonPartitionInfo() {
         this.nameToPartitionItem = Maps.newHashMap();
         this.nameToPartition = Maps.newHashMap();
     }

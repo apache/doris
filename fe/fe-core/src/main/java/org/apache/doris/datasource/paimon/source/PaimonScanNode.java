@@ -209,6 +209,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
         if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
+            // an empty table in PaimonSnapshotCacheValue
             return splits;
         }
         int[] projected = desc.getSlots().stream().mapToInt(
