@@ -153,6 +153,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.labelName = labelName;
     }
 
+    public long getJobId() {
+        return jobId;
+    }
+
     public void setJobId(long jobId) {
         this.jobId = jobId;
     }

@@ -62,13 +62,20 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
+    private static final int DISPATCH_DICTIONARY_THREAD_NUM = Config.job_dictionary_task_consumer_thread_num > 0
+            ? Config.job_dictionary_task_consumer_thread_num
+            : DEFAULT_CONSUMER_THREAD_NUM;
+
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.insert_task_queue_size);
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.mtmv_task_queue_size);
 
+    private static final int DISPATCH_DICTIONARY_TASK_QUEUE_SIZE = normalizeRingbufferSize(
+            Config.dictionary_task_queue_size);
 
     public void init() {
         registerInsertDisruptor();
         registerMTMVDisruptor();
+        registerDictionaryDisruptor();
         //when all task queue is ready, dispatch task to registered task executor
         registerDispatchDisruptor();
     }
@@ -91,27 +98,29 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private void registerInsertDisruptor() {
         ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-task-execute");
 
-
         TaskProcessor insertTaskProcessor = new TaskProcessor(DISPATCH_INSERT_THREAD_NUM,
                 DISPATCH_INSERT_TASK_QUEUE_SIZE, insertTaskThreadFactory);
         disruptorMap.put(JobType.INSERT, insertTaskProcessor);
     }
 
     private void registerMTMVDisruptor() {
-
         ThreadFactory mtmvTaskThreadFactory = new CustomThreadFactory("mtmv-task-execute");
         TaskProcessor mtmvTaskProcessor = new TaskProcessor(DISPATCH_MTMV_THREAD_NUM,
                 DISPATCH_MTMV_TASK_QUEUE_SIZE, mtmvTaskThreadFactory);
         disruptorMap.put(JobType.MV, mtmvTaskProcessor);
     }
 
-    public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
-                                       JobExecutionConfiguration jobExecutionConfiguration) {
-
-
-        return disruptorMap.get(jobType).addTask(task);
+    private void registerDictionaryDisruptor() {
+        ThreadFactory dictionaryTaskThreadFactory = new CustomThreadFactory("dictionary-task-execute");
+        TaskProcessor dictionaryTaskProcessor = new TaskProcessor(DISPATCH_DICTIONARY_THREAD_NUM,
+                DISPATCH_DICTIONARY_TASK_QUEUE_SIZE, dictionaryTaskThreadFactory);
+        disruptorMap.put(JobType.DICTIONARY, dictionaryTaskProcessor);
     }
 
+    public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
+            JobExecutionConfiguration jobExecutionConfiguration) {
+        return disruptorMap.get(jobType).addTask(task);
+    }
 
     /**
      * Normalizes the given size to the nearest power of two.

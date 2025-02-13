@@ -36,6 +36,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
+import com.aliyuncs.ram.model.v20150501.CreateUserResponse.User;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -415,6 +416,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public TRow getTvfInfo() {
         return getCommonTvfInfo();
+    }
+
+    public UserIdentity getCreateUser() {
+        return createUser;
     }
 
     /**

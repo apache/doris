@@ -1915,14 +1915,14 @@ public class Config extends ConfigBase {
     public static int job_insert_task_consumer_thread_num = 10;
 
     @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
-                    "The number of threads used to consume MTMV tasks, "
+            "The number of threads used to consume MTMV tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
 
-    @ConfField(masterOnly = true, description = { "用于执行字典导入任务的线程数,值应该大于0，否则默认为10",
-                    "The number of threads used to consume Dictionary Loading tasks, "
-                                    + "the value should be greater than 0, if it is <=0, default is 10." })
-    public static int job_dictionary_task_consumer_thread_num = 2;
+    @ConfField(masterOnly = true, description = { "用于执行字典导入和删除任务的线程数,值应该大于0，否则默认为3",
+            "The number of threads used to perform the dictionary import and delete tasks, which should be"
+                    + " greater than 0, otherwise it defaults to 3." })
+    public static int job_dictionary_task_consumer_thread_num = 3;
 
     /* job test config */
     /**
