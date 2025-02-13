@@ -71,7 +71,8 @@ public class AzureRemote extends RemoteBase {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
-            String uri = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk()) + "/" + containerName;
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String uri = endpoint + "/" + containerName;
             builder.endpoint(uri);
             BlobContainerClient containerClient = builder.buildClient();
 
@@ -132,7 +133,8 @@ public class AzureRemote extends RemoteBase {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
-            String uri = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk()) + "/" + containerName;
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String uri = endpoint + "/" + containerName;
             builder.endpoint(uri);
             BlobContainerClient containerClient = builder.buildClient();
             BlobServiceClient blobServiceClient = containerClient.getServiceClient();
@@ -226,7 +228,8 @@ public class AzureRemote extends RemoteBase {
                 builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             }
             String containerName = obj.getBucket();
-            String uri = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk()) + "/" + containerName;
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String uri = endpoint + "/" + containerName;
             builder.endpoint(uri);
             client = builder.buildClient();
         }
