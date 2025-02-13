@@ -505,10 +505,17 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(rightHashSpec, leftHashSpec, outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
                     );
+                } else if (shuffleSide == ShuffleSide.BOTH) {
+                    return new PhysicalProperties(
+                            DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
+                                    .withShuffleTypeAndForbidColocateJoin(leftHashSpec.getShuffleType())
+                    );
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
@@ -518,8 +525,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(
                             leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(leftHashSpec);
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
@@ -528,8 +537,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(
                             rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(rightHashSpec);
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
