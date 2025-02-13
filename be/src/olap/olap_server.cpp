@@ -1223,6 +1223,7 @@ void StorageEngine::do_remove_unused_remote_files() {
     constexpr int64_t max_files_in_buffer = 1000000;
 
     auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
+        LOG(INFO) << "start calc_unused_remote_files for tablet " << t->tablet_id();
         auto storage_policy = get_storage_policy(t->storage_policy_id());
         if (storage_policy == nullptr) {
             LOG(WARNING) << "could not find storage_policy, storage_policy_id="
@@ -1256,6 +1257,9 @@ void StorageEngine::do_remove_unused_remote_files() {
                          << t->tablet_id() << " : " << st;
             return;
         }
+        LOG(INFO) << "fs path " << dest_fs->root_path().native() << ",remote_tablet_path "
+                  << remote_tablet_path(t->tablet_id()) << ",exists " << exists << ", files num "
+                  << files.size();
         if (!exists || files.empty()) {
             return;
         }
@@ -1266,9 +1270,15 @@ void StorageEngine::do_remove_unused_remote_files() {
             std::shared_lock rlock(t->get_header_lock());
             for (auto&& rs_meta : t->tablet_meta()->all_rs_metas()) {
                 if (!rs_meta->is_local()) {
+                    LOG(INFO) << "tablet " << t->tablet_id() << " cooldowned_rowset "
+                              << rs_meta->rowset_id().to_string() << ",version "
+                              << rs_meta->version().to_string();
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
             }
+            LOG(INFO) << "tablet " << t->tablet_id()
+                      << " all rowset nums=" << t->tablet_meta()->all_rs_metas().size()
+                      << ", cooldowned_rowset nums=" << cooldowned_rowsets.size();
             if (cooldowned_rowsets.empty()) {
                 return;
             }
@@ -1281,13 +1291,20 @@ void StorageEngine::do_remove_unused_remote_files() {
         // {cooldown_replica_id}.{cooldown_term}.meta
         std::string remote_meta_path =
                 fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
+        LOG(INFO) << "tablet=" << t->tablet_id() << " remote_meta_path=" << remote_meta_path;
         // filter out the paths that should be reserved
         auto filter = [&, this](io::FileInfo& info) {
             std::string_view filename = info.file_name;
             if (filename.ends_with(".meta")) {
+                LOG(INFO) << "tablet=" << t->tablet_id() << " found remote_meta_path" << filename;
                 return filename == remote_meta_path;
             }
             auto rowset_id = extract_rowset_id(filename);
+            LOG(INFO) << "tablet=" << t->tablet_id() << " filename=" << filename
+                      << " rowset_id=" << rowset_id.to_string()
+                      << " cooldowned_rowsets.contains=" << cooldowned_rowsets.contains(rowset_id)
+                      << ",pending_remote_rowsets().contains="
+                      << pending_remote_rowsets().contains(rowset_id);
             if (rowset_id.hi == 0) {
                 return false;
             }
