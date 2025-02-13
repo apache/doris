@@ -413,9 +413,8 @@ std::vector<RowsetSharedPtr> BaseTablet::get_rowset_by_ids(
 }
 
 Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                                   RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
-                                   OlapReaderStatistics& stats, std::string& values,
-                                   bool write_to_cache) {
+                                   RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                   std::string& values, bool write_to_cache) {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
