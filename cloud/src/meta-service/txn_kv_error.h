@@ -52,7 +52,7 @@ inline const char* format_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_INVALID_ARGUMENT: return "InvalidArgument";
     case TxnErrorCode::TXN_KEY_TOO_LARGE: return "Key length exceeds limit";
     case TxnErrorCode::TXN_VALUE_TOO_LARGE: return "Value length exceeds limit";
-    case TxnErrorCode::TXN_BYTES_TOO_LARGE: return "Transaction exceeds byte limit";
+    case TxnErrorCode::TXN_BYTES_TOO_LARGE: return "Too many partitions to load. Please reduce the number of partitions involved in the load.";
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR: return "Unknown";
     }
     return "NotImplemented";
