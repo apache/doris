@@ -115,6 +115,22 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 
     DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { target_tablet = nullptr; })
 
+    DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.wait", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == request.tablet_id) {
+            LOG(INFO) << "Debug: SnapshotManager::make_snapshot.wait table_id:" << tablet_id;
+            for (int i = 0; i < 1000; i++) {
+                TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(request.tablet_id);
+                if (tablet == nullptr || tablet->num_rows() == 0) {
+                    target_tablet = nullptr;
+                    sleep(3);
+                    break;
+                }
+                sleep(1);
+            }
+        }
+    });
+
     if (target_tablet == nullptr) {
         return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", request.tablet_id);
     }
