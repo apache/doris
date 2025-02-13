@@ -1031,6 +1031,9 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// enable prefetch tablets before opening
+DEFINE_mBool(enable_prefetch_tablet, "true");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
