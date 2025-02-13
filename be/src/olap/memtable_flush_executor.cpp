@@ -145,12 +145,10 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
                   << ", memsize: " << memtable->memory_usage()
                   << ", rows: " << memtable->stat().raw_rows;
-    int64_t duration_ns;
-    SCOPED_RAW_TIMER(&duration_ns);
-    SCOPED_ATTACH_TASK(memtable->query_thread_context());
-    signal::set_signal_task_id(_rowset_writer->load_id());
-    signal::tablet_id = memtable->tablet_id();
+    int64_t duration_ns = 0;
     {
+        SCOPED_RAW_TIMER(&duration_ns);
+        SCOPED_ATTACH_TASK(memtable->query_thread_context());
         std::unique_ptr<vectorized::Block> block;
         // During to block method, it will release old memory and create new block, so that
         // we could not scoped it.
@@ -169,6 +167,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
 void FlushToken::_flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t segment_id,
                                  int64_t submit_task_time) {
+    signal::set_signal_task_id(_rowset_writer->load_id());
+    signal::tablet_id = memtable_ptr->tablet_id();
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);
         _stats.flush_running_count--;
