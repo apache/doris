@@ -239,9 +239,10 @@ public:
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
             return std::make_unique<VSchemaChangeWithSorting>(
-                    changer, ExecEnv::GetInstance()
-                                     ->storage_engine()
-                                     ->memory_limitation_bytes_per_thread_for_schema_change());
+                    changer,
+                    ExecEnv::GetInstance()
+                            ->storage_engine()
+                            ->memory_limitation_bytes_per_thread_for_schema_change_internal_sorting());
         }
 
         if (sc_directly) {
