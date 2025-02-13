@@ -139,9 +139,9 @@ public:
 private:
     using ResultType = typename Impl::ResultType;
 
-    const bool allow_hyperscan_ = true;
-    const size_t max_hyperscan_regexp_length_ = 0;       // not limited
-    const size_t max_hyperscan_regexp_total_length_ = 0; // not limited
+    constexpr static bool allow_hyperscan_ = true;
+    constexpr static size_t max_hyperscan_regexp_length_ = 0;       // not limited
+    constexpr static size_t max_hyperscan_regexp_total_length_ = 0; // not limited
 
     /// Handles nullable column by setting result to 0 if the input is null
     void handle_nullable_column(const ColumnPtr& column, PaddedPODArray<ResultType>& vec_res,

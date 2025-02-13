@@ -56,8 +56,6 @@ class FunctionCoalesce : public IFunction {
 public:
     static constexpr auto name = "coalesce";
 
-    mutable FunctionBasePtr func_is_not_null;
-
     static FunctionPtr create() { return std::make_shared<FunctionCoalesce>(); }
 
     String get_name() const override { return name; }
@@ -76,13 +74,7 @@ public:
                 break;
             }
         }
-
         res = res ? res : arguments[0];
-
-        const ColumnsWithTypeAndName is_not_null_col {{nullptr, make_nullable(res), ""}};
-        func_is_not_null = SimpleFunctionFactory::instance().get_function(
-                "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>());
-
         return res;
     }
 
@@ -154,6 +146,11 @@ public:
         Block temporary_block {
                 ColumnsWithTypeAndName {block.get_by_position(filtered_args[0]),
                                         {nullptr, std::make_shared<DataTypeUInt8>(), ""}}};
+
+        const ColumnsWithTypeAndName is_not_null_col {
+                {nullptr, make_nullable(block.get_data_type(result)), ""}};
+        auto func_is_not_null = SimpleFunctionFactory::instance().get_function(
+                "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>());
 
         for (size_t i = 0; i < argument_size && remaining_rows; ++i) {
             temporary_block.get_by_position(0).column =
