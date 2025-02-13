@@ -824,8 +824,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
 private:
-    friend class LocalExchangeSourceLocalState;
-
     const int64_t _each_queue_limit;
 };
 #include "common/compile_check_end.h"
