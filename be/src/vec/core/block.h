@@ -88,6 +88,8 @@ public:
     Block(ColumnsWithTypeAndName data_);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
+    Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
+          bool ignore_trivial_slot = false);
 
     ~Block() = default;
     Block(const Block& block) = default;
