@@ -1,5 +1,5 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file 
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
@@ -17,15 +17,15 @@
 
 package org.apache.doris.dictionary;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
 /**
  * Context for dictionary task execution
@@ -52,10 +52,10 @@ public class DictionaryTaskContext implements Writable {
 
     @Override
     public String toString() {
-        return "DictionaryTaskContext{" +
-                "isLoad=" + isLoad +
-                ", dictionary=" + dictionary +
-                '}';
+        return "DictionaryTaskContext{"
+                + "isLoad=" + isLoad
+                + ", dictionary=" + dictionary
+                + '}';
     }
 
     @Override

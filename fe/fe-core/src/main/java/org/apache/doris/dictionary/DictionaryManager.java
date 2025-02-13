@@ -84,7 +84,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class DictionaryManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(DictionaryManager.class);
 
-    private static final long DICTIONARY_JOB_ID = -493209151411825L;
+    private static final long DICTIONARY_JOB_ID = -493209151411825L; // "DICTIONARY" to INT
     private static final String DICTIONARY_JOB_NAME = "__INNER_DICTIONARY_JOB__";
 
     // Lock for protecting dictionaries map
@@ -357,7 +357,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // DROP unknown dictionaries
         for (Map.Entry<Long, List<Long>> entry : unknownDictsIdtoBes.entrySet()) {
             long dictId = entry.getKey();
-            // FIXME: use job manager
             boolean status = rawDataUnload(dictId, "unknown", null);
             if (status) {
                 LOG.info("Unknown dictionary {} unload succeed", dictId);
@@ -367,8 +366,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // check all dictionaries and REFRESH if needed
         for (Map<String, Dictionary> dbDictionaries : dictionaries.values()) {
             for (Dictionary dictionary : dbDictionaries.values()) {
-                // TODO: check base table's data version. then we can only refresh when base
-                // table's data changes.
+                // TODO: check base table's data version. then we can only refresh when base table's data changes.
                 if (dictionary.getLastUpdateTime() + Config.dictionary_out_of_date_seconds * 1000 < now) {
                     // should schedule refresh. only tag when it's NORMAL because if not,
                     // it's already going to refresh or drop.
@@ -426,8 +424,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // wait next shedule.
             LOG.warn("Dictionary {} refresh failed", dictionary.getName());
             dictionary.decreaseVersion();
-            dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE); // wont fail cuz status is LOADING owned
-                                                                              // by me.
+            // wont fail cuz status is LOADING owned by me.
+            dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
             throw e;
         }
     }
@@ -520,7 +518,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
     /**
      * Get dictionary status from all alive backends.
-     * 
+     *
      * @param queryDicts query dictionaries. if null, query all dictionaries.
      * @return Map of unknown dictionary <id, List<beId>>
      */

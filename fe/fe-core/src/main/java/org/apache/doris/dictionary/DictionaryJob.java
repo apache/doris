@@ -1,5 +1,5 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file 
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
@@ -87,7 +87,7 @@ public class DictionaryJob extends AbstractJob<DictionaryTask, DictionaryTaskCon
     public List<DictionaryTask> createTasks(TaskType taskType, DictionaryTaskContext taskContext) {
         LOG.info("begin create dictionary task, jobId: {}, taskContext: {}", super.getJobId(), taskContext);
         ArrayList<DictionaryTask> tasks = Lists.newArrayList();
-        
+
         if (taskContext != null) { // for register job
             // Create tasks for all dictionaries
             DictionaryTask task = new DictionaryTask(taskContext.getDictionary().getId(), taskContext);

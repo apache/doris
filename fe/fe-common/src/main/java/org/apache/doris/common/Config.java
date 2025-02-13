@@ -1894,7 +1894,7 @@ public class Config extends ConfigBase {
 
     @ConfField(masterOnly = true, description = { "MTMV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
                     + " 2 的幂次方数",
-                    "The size of the MTMV task's waiting queue If the size is negative, 1024 will be used. If "
+            "The size of the MTMV task's waiting queue If the size is negative, 1024 will be used. If "
             + "the size is not a power of two, the nearest power of the size will be"
             + " automatically selected."})
     public static int mtmv_task_queue_size = 1024;

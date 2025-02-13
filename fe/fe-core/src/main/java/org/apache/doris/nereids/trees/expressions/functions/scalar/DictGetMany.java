@@ -44,7 +44,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * dict_get_many function. `STRUCT dict_get_many("<name>", ARRAY<VARCHAR> <value_col_names>, STRUCT <QUERY_VALUE>);`
+ * dict_get_many function.
+ * {@code STRUCT dict_get_many("<name>", ARRAY<VARCHAR> <value_col_names>, STRUCT <QUERY_VALUE>);}
  */
 public class DictGetMany extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
     /**
