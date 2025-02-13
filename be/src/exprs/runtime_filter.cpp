@@ -949,9 +949,7 @@ public:
 
     bool is_disabled() const { return _context->disabled; }
 
-    void set_disabled() {
-        _context->disabled = true;
-    }
+    void set_disabled() { _context->disabled = true; }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
