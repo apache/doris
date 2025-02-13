@@ -16,6 +16,9 @@
 // under the License.
 
 suite('test_be_inject_publish_txn_fail', 'nonConcurrent') {
+    if (isCloudMode()) {
+        return
+    }
     def tbl = 'test_be_inject_publish_txn_fail_tbl'
     def dbug1 = 'TxnManager.publish_txn.random_failed_before_save_rs_meta'
     def dbug2 = 'TxnManager.publish_txn.random_failed_after_save_rs_meta'
