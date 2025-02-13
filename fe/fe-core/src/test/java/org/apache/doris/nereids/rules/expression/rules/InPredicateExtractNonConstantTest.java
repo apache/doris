@@ -41,7 +41,7 @@ class InPredicateExtractNonConstantTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         logicalFilter().when(f -> f.getPredicate().toString().equals(
-                                "OR[id#0 IN (20, 10, 300, 30),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
+                                "OR[id#0 IN (10, 20, 30, 300),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
                 )));
     }
 }

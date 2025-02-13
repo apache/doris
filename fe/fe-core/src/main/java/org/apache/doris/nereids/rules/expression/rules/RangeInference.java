@@ -217,7 +217,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         /** merge discrete and ranges only, no merge other value desc */
         public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
                 Expression reference, List<ValueDesc> valueDescs) {
-            Set<ComparableLiteral> discreteValues = Sets.newHashSet();
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
+            Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
             for (ValueDesc valueDesc : valueDescs) {
                 if (valueDesc instanceof DiscreteValue) {
                     discreteValues.addAll(((DiscreteValue) valueDesc).getValues());
@@ -268,8 +272,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         /** intersect */
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             Set<ComparableLiteral> newValues = discrete.values.stream().filter(x -> range.range.contains(x))
-                    .collect(Collectors.toSet());
+                    .collect(Collectors.toCollection(
+                            () -> Sets.newLinkedHashSetWithExpectedSize(discrete.values.size())));
             if (newValues.isEmpty()) {
                 return new EmptyValue(context, range.reference);
             } else {
@@ -296,10 +305,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new RangeValue(context, predicate.left(), range);
         }
 
-        public static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
+        private static ValueDesc discrete(ExpressionRewriteContext context, InPredicate in) {
+            // Since in-predicate's options is a list, the discrete values need to kept options' order.
+            // If not keep options' order, the result in-predicate's option list will not equals to
+            // the input in-predicate, later nereids will need to simplify the new in-predicate,
+            // then cause dead loop.
             // Set<ComparableLiteral> literals = (Set) Utils.fastToImmutableSet(in.getOptions());
             Set<ComparableLiteral> literals = in.getOptions().stream()
-                    .map(ComparableLiteral.class::cast).collect(Collectors.toSet());
+                    .map(ComparableLiteral.class::cast)
+                    .collect(Collectors.toCollection(
+                            () -> Sets.newLinkedHashSetWithExpectedSize(in.getOptions().size())));
             return new DiscreteValue(context, in.getCompareExpr(), literals);
         }
     }
@@ -417,7 +432,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.union(this);
             }
             if (other instanceof DiscreteValue) {
-                Set<ComparableLiteral> newValues = Sets.newHashSet();
+                Set<ComparableLiteral> newValues = Sets.newLinkedHashSet();
                 newValues.addAll(((DiscreteValue) other).values);
                 newValues.addAll(this.values);
                 return new DiscreteValue(context, reference, newValues);
@@ -434,9 +449,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return other.intersect(this);
             }
             if (other instanceof DiscreteValue) {
-                Set<ComparableLiteral> newValues = Sets.newHashSet();
-                newValues.addAll(((DiscreteValue) other).values);
-                newValues.retainAll(this.values);
+                Set<ComparableLiteral> newValues = Sets.newLinkedHashSet();
+                newValues.addAll(this.values);
+                newValues.retainAll(((DiscreteValue) other).values);
                 if (newValues.isEmpty()) {
                     return new EmptyValue(context, reference);
                 } else {
