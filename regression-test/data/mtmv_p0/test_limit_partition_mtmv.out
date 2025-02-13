@@ -15,3 +15,56 @@
 1	2038-01-02
 2	2020-01-02
 
+-- !history_list_init --
+1	2038-01-01
+2	2020-01-01
+
+-- !history_list_drop_partition --
+1	2038-01-01
+2	2020-01-01
+
+-- !history_list_create_partition --
+1	2038-01-02
+2	2020-01-01
+
+-- !history_range_init --
+1	2038-01-02
+2	2020-01-02
+
+-- !history_range_drop_partition --
+1	2038-01-02
+2	2020-01-02
+
+-- !history_range_create_partition --
+1	2038-01-03
+2	2020-01-02
+
+-- !history_less_than_range_init --
+1	2019-01-02
+2	2020-01-02
+2	2021-01-02
+
+-- !history_less_than_range_drop_partition --
+1	2019-01-02
+2	2020-01-02
+2	2021-01-02
+
+-- !rollup_init --
+1	2038-01-01
+2	2038-01-02
+3	2020-01-02
+
+-- !rollup_drop_partition --
+1	2038-01-01
+2	2038-01-02
+3	2020-01-02
+
+-- !rollup_drop_partial_partition --
+2	2038-01-02
+3	2020-01-02
+
+-- !no_partition --
+
+-- !default_sync_limit --
+2	2020-01-02
+
