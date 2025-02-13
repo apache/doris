@@ -245,7 +245,7 @@ Status RuntimeFilterProducer::init_with_size(size_t local_size) {
     }
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER &&
         real_size > _wrapper->max_in_num()) {
-        set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+        disable_and_ready_to_publish("reach max in num");
     }
     return Status::OK();
 }
@@ -258,7 +258,7 @@ void RuntimeFilterProducer::disable_meaningless_filters(std::unordered_set<int>&
     }
 
     if (has_in_filter.contains(_expr_order)) {
-        set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+        disable_and_ready_to_publish("disabled coz exist in_filter");
     } else if (collect_in_filters) {
         has_in_filter.insert(_expr_order);
     }
