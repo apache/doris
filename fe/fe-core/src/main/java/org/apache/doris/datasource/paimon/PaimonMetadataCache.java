@@ -18,23 +18,29 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.table.Table;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
@@ -60,6 +66,15 @@ public class PaimonMetadataCache {
                     .getTableOrAnalysisException(key.getTableName());
             List<Column> partitionColumns = table.getPaimonSchemaCacheValue(latestSnapshot.getSchemaId())
                     .getPartitionColumns();
+            // TODO mmc
+//            ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+//            Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
+//                new PaimonSchemaCacheKey(dbName, name, schemaId));
+//            if (!schemaCacheValue.isPresent()) {
+//                throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
+//                    null, catalog.getName(), dbName, name, schemaId);
+//            }
+//            return (PaimonSchemaCacheValue) schemaCacheValue.get();
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (IOException | AnalysisException e) {
@@ -80,15 +95,18 @@ public class PaimonMetadataCache {
 
     private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
         Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(), key.getTableName());
+        Table snapshotTable = table;
         // snapshotId and schemaId
-        long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
+        Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
         long latestSchemaId = 0L;
         OptionalLong optionalSnapshotId = table.latestSnapshotId();
         if (optionalSnapshotId.isPresent()) {
             latestSnapshotId = optionalSnapshotId.getAsLong();
             latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
+            snapshotTable =
+                table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
         }
-        return new PaimonSnapshot(latestSnapshotId, latestSchemaId);
+        return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
     }
 
     public void invalidateCatalogCache(long catalogId) {

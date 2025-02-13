@@ -50,7 +50,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
@@ -90,13 +89,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
-        long snapshotId = getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getSnapshotId();
-        if (snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
-            return paimonTable;
-        }
-        return paimonTable.copy(
-                Collections.singletonMap(CoreOptions.SCAN_VERSION.key(),
-                        String.valueOf(snapshotId)));
+        PaimonSnapshot paimonSnapshot = getOrFetchSnapshotCacheValue(snapshot).getSnapshot();
+        Table table = paimonSnapshot.getTable();
+        // TODO mmc
+//        if (paimonSnapshot.getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+//            Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+//                .invalidateTableCache(catalog.getId(), dbName, name);
+//        }
+        return table;
     }
 
     public PaimonSchemaCacheValue getPaimonSchemaCacheValue(long schemaId) {
