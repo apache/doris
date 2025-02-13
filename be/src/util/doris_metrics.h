@@ -138,6 +138,8 @@ public:
 
     HistogramMetric* tablet_version_num_distribution = nullptr;
 
+    HistogramMetric* hdfs_close_latency_us = nullptr;
+
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* query_scan_bytes_per_second = nullptr;
