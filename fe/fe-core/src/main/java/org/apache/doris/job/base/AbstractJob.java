@@ -417,6 +417,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         return getCommonTvfInfo();
     }
 
+    public UserIdentity getCreateUser() {
+        return createUser;
+    }
+
     /**
      * Generates a common error message when the execution queue is full.
      *

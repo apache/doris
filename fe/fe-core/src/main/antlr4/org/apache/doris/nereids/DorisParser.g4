@@ -64,6 +64,7 @@ statementBase
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
+    | supportedDescribeStatement        #supportedDescribeStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
     | unsupportedStatement              #unsupported
     ;
@@ -209,7 +210,18 @@ supportedCreateStatement
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
+    | CREATE DICTIONARY (IF NOT EXISTS)? name = multipartIdentifier
+		USING source = multipartIdentifier
+		LEFT_PAREN dictionaryColumnDefs RIGHT_PAREN
+        LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
+        properties=propertyClause?         # createDictionary
     ;
+
+dictionaryColumnDefs:
+	dictionaryColumnDef (COMMA dictionaryColumnDef)*;
+
+dictionaryColumnDef:
+	colName = identifier columnType = (KEY | VALUE) ;
 
 supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier
@@ -257,6 +269,7 @@ supportedDropStatement
     | DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
+    | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     ;
 
 supportedShowStatement
@@ -319,8 +332,9 @@ supportedShowStatement
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
-    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
+    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                   #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
+    | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
     ;
 
 supportedLoadStatement
@@ -493,6 +507,7 @@ supportedRefreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
     | REFRESH TABLE name=multipartIdentifier                                        #refreshTable
+    | REFRESH DICTIONARY name=multipartIdentifier                                   #refreshDictionary
     ;
 
 supportedCleanStatement
@@ -883,7 +898,7 @@ supportedUnsetStatement
 supportedUseStatement
      : SWITCH catalog=identifier                                                      #switchCatalog
      | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-     ;
+    ;
 
 unsupportedUseStatement
     : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
@@ -912,6 +927,10 @@ unsupportedDescribeStatement
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
     | explainCommand multipartIdentifier specifiedPartition?    #describeTable
+    ;
+
+supportedDescribeStatement
+    : explainCommand DICTIONARY multipartIdentifier             #describeDictionary
     ;
 
 constraint
@@ -1869,6 +1888,8 @@ nonReserved
     | DEMAND
     | DIAGNOSE
     | DIAGNOSIS
+    | DICTIONARIES
+    | DICTIONARY
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
@@ -1907,6 +1928,7 @@ nonReserved
     | GROUPING
     | GROUPS
     | HASH
+    | HASH_MAP
     | HDFS
     | HELP
     | HINT_END
@@ -1923,6 +1945,7 @@ nonReserved
     | INCREMENTAL
     | INDEXES
     | INVERTED
+    | IP_TRIE
     | IPV4
     | IPV6
     | IS_NOT_NULL_PRED
