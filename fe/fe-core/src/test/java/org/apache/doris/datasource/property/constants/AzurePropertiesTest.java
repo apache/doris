@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property;
+package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.common.Config;
 
