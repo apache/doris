@@ -93,7 +93,9 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
             return false;
         }
         PhysicalTopN<?> that = (PhysicalTopN<?>) o;
-        return limit == that.limit && offset == that.offset;
+        return limit == that.limit && offset == that.offset
+                && this.phase == that.phase
+                && Objects.equals(that.getOrderKeys(), getOrderKeys());
     }
 
     @Override
