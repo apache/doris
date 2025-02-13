@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
@@ -541,6 +542,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
@@ -614,6 +616,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
@@ -5636,6 +5639,60 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String stateKey = ctx.stateKey == null ? null : stripQuotes(ctx.stateKey.getText());
         String stateValue = ctx.stateValue == null ? null : stripQuotes(ctx.stateValue.getText());
         return new ShowQueuedAnalyzeJobsCommand(tableName, stateKey, stateValue);
+    }
+
+    @Override
+    public LogicalPlan visitDescribeTable(DorisParser.DescribeTableContext ctx) {
+        String tableName = null;
+        if (ctx.multipartIdentifier() != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+            tableName = nameParts.get(0); // only one entry possible
+        }
+        return new DescribeCommand(tableName, false);
+    }
+
+    @Override
+    public LogicalPlan visitDescribeTableAll(DorisParser.DescribeTableAllContext ctx) {
+        String tableName = null;
+        if (ctx.multipartIdentifier() != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+            tableName = nameParts.get(0); // only one entry possible
+        }
+        return new DescribeCommand(tableName, true);
+    }
+
+    @Override
+    public List<String> visitTableAlias(DorisParser.TableAliasContext ctx) {
+        if (ctx.identifierList() != null) {
+            return visitIdentifierList(ctx.identifierList());
+        }
+        return new ArrayList<>();
+    }
+
+    @Override
+    public LogicalPlan visitDescribeTableValuedFunction(DorisParser.DescribeTableValuedFunctionContext ctx) {
+        String tvfName = null;
+        if (ctx.tvfName != null) {
+            tvfName = ctx.tvfName.getText();
+        }
+        String alias = null;
+        if (ctx.tableAlias() != null) {
+            List<String> aliasParts = visitTableAlias(ctx.tableAlias());
+            if (!aliasParts.isEmpty()) {
+                alias = aliasParts.get(0);
+            }
+        }
+        Map<String, String> params = new HashMap<>();
+        if (ctx.propertyItemList() != null) {
+            params = visitPropertyItemList(ctx.propertyItemList());
+        }
+        TableValuedFunctionRef tableValuedFunctionRef = null;
+        try {
+            tableValuedFunctionRef = new TableValuedFunctionRef(tvfName, alias, params);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getDetailMessage());
+        }
+        return new DescribeCommand(tableValuedFunctionRef);
     }
 }
 
