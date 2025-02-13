@@ -17,39 +17,11 @@
 
 #include "runtime_filter/runtime_filter_wrapper.h"
 
-#include <gen_cpp/Opcodes_types.h>
-#include <gen_cpp/PaloInternalService_types.h>
-#include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
-
-#include <chrono> // IWYU pragma: keep
-#include <memory>
-#include <ostream>
-
-#include "common/logging.h"
-#include "common/status.h"
-#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
-#include "exprs/hybrid_set.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
-#include "runtime/runtime_filter_mgr.h"
-#include "util/bitmap_value.h"
-#include "util/string_parser.hpp"
-#include "vec/columns/column.h"
-#include "vec/columns/column_complex.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/wide_integer.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vliteral.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 
@@ -61,34 +33,41 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set.reset(create_set(_column_return_type));
         _hybrid_set->set_null_aware(params->null_aware);
+        _hybrid_set->set_filter_id(_filter_id);
         return;
     }
     // Only use in nested loop join not need set null aware
     case RuntimeFilterType::MIN_FILTER:
     case RuntimeFilterType::MAX_FILTER: {
         _minmax_func.reset(create_minmax_filter(_column_return_type));
+        _minmax_func->set_filter_id(_filter_id);
         return;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
         _minmax_func.reset(create_minmax_filter(_column_return_type));
         _minmax_func->set_null_aware(params->null_aware);
+        _minmax_func->set_filter_id(_filter_id);
         return;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
         _bloom_filter_func->init_params(params);
+        _bloom_filter_func->set_filter_id(_filter_id);
         return;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
         _hybrid_set.reset(create_set(_column_return_type));
         _hybrid_set->set_null_aware(params->null_aware);
+        _hybrid_set->set_filter_id(_filter_id);
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
         _bloom_filter_func->init_params(params);
+        _bloom_filter_func->set_filter_id(_filter_id);
         return;
     }
     case RuntimeFilterType::BITMAP_FILTER: {
         _bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
         _bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
+        _bitmap_filter_func->set_filter_id(_filter_id);
         return;
     }
     default:
@@ -102,7 +81,6 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
-    set_filter_id(_filter_id);
     DCHECK(probe_ctx->root()->type().type == _column_return_type ||
            (is_string_type(probe_ctx->root()->type().type) &&
             is_string_type(_column_return_type)) ||
@@ -250,18 +228,6 @@ Status RuntimeFilterWrapper::change_to_bloom_filter() {
     return Status::OK();
 }
 
-void RuntimeFilterWrapper::set_filter_id(int id) {
-    if (_bloom_filter_func) {
-        _bloom_filter_func->set_filter_id(id);
-    }
-    if (_bitmap_filter_func) {
-        _bitmap_filter_func->set_filter_id(id);
-    }
-    if (_hybrid_set) {
-        _hybrid_set->set_filter_id(id);
-    }
-}
-
 void RuntimeFilterWrapper::batch_assign(
         const PInFilter& filter,
         void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set, PColumnValue&)) {
@@ -271,17 +237,13 @@ void RuntimeFilterWrapper::batch_assign(
     }
 }
 
-Status RuntimeFilterWrapper::init_bloom_filter(const size_t build_bf_cardinality) {
+Status RuntimeFilterWrapper::init_bloom_filter(const size_t runtime_size) {
     if (_filter_type != RuntimeFilterType::BLOOM_FILTER &&
         _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "init_bloom_filter meet invalid input type {}",
                         int(_filter_type));
     }
-    return _bloom_filter_func->init_with_cardinality(build_bf_cardinality);
-}
-
-bool RuntimeFilterWrapper::get_build_bf_cardinality() const {
-    return _bloom_filter_func && _bloom_filter_func->get_build_bf_cardinality();
+    return _bloom_filter_func->init_with_cardinality(runtime_size);
 }
 
 void RuntimeFilterWrapper::insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -314,7 +276,7 @@ void RuntimeFilterWrapper::insert_fixed_len(const vectorized::ColumnPtr& column,
         break;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-        if (is_bloomfilter()) {
+        if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
             _bloom_filter_func->insert_fixed_len(column, start);
         } else {
             _hybrid_set->insert_fixed_len(column, start);
@@ -351,13 +313,13 @@ void RuntimeFilterWrapper::bitmap_filter_insert_batch(const vectorized::ColumnPt
     _bitmap_filter_func->insert_many(bitmaps);
 }
 
-size_t RuntimeFilterWrapper::get_bloom_filter_size() const {
-    return _bloom_filter_func ? _bloom_filter_func->get_size() : 0;
+bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
+    return _bloom_filter_func ? _bloom_filter_func->build_bf_by_runtime_size() : false;
 }
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     if (other->_state == State::DISABLED) {
-        set_state(State::DISABLED);
+        disable(other->_disabled_reason);
     }
 
     if (other->_state == State::IGNORED || _state == State::DISABLED) {
@@ -374,7 +336,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set->insert(other->_hybrid_set.get());
         if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
-            set_state(State::DISABLED);
+            disable(fmt::format("reach max in num: {}", _max_in_num));
         }
         break;
     }
@@ -764,7 +726,7 @@ void RuntimeFilterWrapper::get_bloom_filter_desc(char** data, int* filter_length
 }
 
 bool RuntimeFilterWrapper::contain_null() const {
-    if (is_bloomfilter()) {
+    if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
         return _bloom_filter_func->contain_null();
     }
     if (_hybrid_set) {
@@ -780,8 +742,41 @@ bool RuntimeFilterWrapper::contain_null() const {
     return false;
 }
 
-size_t RuntimeFilterWrapper::get_in_filter_size() const {
-    return _hybrid_set ? _hybrid_set->size() : 0;
+std::string RuntimeFilterWrapper::debug_string() const {
+    auto result = fmt::format("Wrapper: [id: {}, state: {}, type: {}({}), column_type: {}",
+                              _filter_id, to_string(_state), filter_type_to_string(_filter_type),
+                              filter_type_to_string(get_real_type()),
+                              type_to_string(_column_return_type));
+
+    if (_state == State::READY) {
+        if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
+            result += fmt::format(
+                    ", bf_size: {}, build_bf_by_runtime_size: {}", _bloom_filter_func->get_size(),
+                    _bloom_filter_func->build_bf_by_runtime_size() ? "true" : "false");
+        }
+        if (get_real_type() == RuntimeFilterType::IN_FILTER) {
+            result += fmt::format(", size: {}, max_in_num: {}", _hybrid_set->size(), _max_in_num);
+        }
+        if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
+            result += fmt::format(", size: {}, not_in: {}", _bitmap_filter_func->size(),
+                                  _bitmap_filter_func->is_not_in() ? "true" : "false");
+        }
+    }
+
+    if (!_disabled_reason.empty()) {
+        result += fmt::format(", _disabled_reason: {}", _disabled_reason);
+    }
+    return result + "]";
+}
+
+void RuntimeFilterWrapper::_to_protobuf(PInFilter* filter) {
+    filter->set_column_type(to_proto(column_type()));
+    _hybrid_set->to_pb(filter);
+}
+
+void RuntimeFilterWrapper::_to_protobuf(PMinMaxFilter* filter) {
+    filter->set_column_type(to_proto(column_type()));
+    _minmax_func->to_pb(filter);
 }
 
 } // namespace doris

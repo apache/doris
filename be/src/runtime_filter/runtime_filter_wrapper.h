@@ -18,23 +18,24 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/bloom_filter_func.h"
 #include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "runtime_filter/utils.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
+class BloomFilterFuncBase;
+namespace vectorized {
+class VRuntimeFilterWrapper;
+using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
+} // namespace vectorized
 
 // This class is a wrapper of runtime predicate function
 class RuntimeFilterWrapper {
 public:
-    enum class State { UNINITED, INITED, READY, IGNORED, DISABLED };
+    enum class State { UNINITED, READY, IGNORED, DISABLED };
 
     RuntimeFilterWrapper(const RuntimeFilterParams* params);
-    // for a 'tmp' runtime predicate wrapper
-    // only could called assign method or as a param for merge
     RuntimeFilterWrapper(PrimitiveType column_type, RuntimeFilterType type, uint32_t filter_id,
                          State state)
             : _column_return_type(column_type),
@@ -44,13 +45,15 @@ public:
 
     Status change_to_bloom_filter();
 
-    Status init_bloom_filter(const size_t build_bf_cardinality);
+    int filter_id() const { return _filter_id; }
 
-    bool get_build_bf_cardinality() const;
+    int max_in_num() const { return _max_in_num; }
+
+    bool build_bf_by_runtime_size() const;
+
+    Status init_bloom_filter(const size_t runtime_size);
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const;
-
-    BloomFilterFuncBase* get_bloomfilter() const { return _bloom_filter_func.get(); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start);
 
@@ -74,8 +77,6 @@ public:
         return _filter_type;
     }
 
-    size_t get_bloom_filter_size() const;
-
     Status get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                           std::vector<vectorized::VRuntimeFilterPtr>& push_exprs,
                           const TExpr& probe_expr);
@@ -97,31 +98,20 @@ public:
 
     PrimitiveType column_type() { return _column_return_type; }
 
-    bool is_bloomfilter() const { return get_real_type() == RuntimeFilterType::BLOOM_FILTER; }
-
     bool contain_null() const;
 
     void batch_assign(const PInFilter& filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                           PColumnValue&));
 
-    size_t get_in_filter_size() const;
-
-    std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const { return _bitmap_filter_func; }
-
     friend class RuntimeFilter;
-    friend class RuntimeFilterProducer;
-    friend class RuntimeFilterConsumer;
-    friend class RuntimeFilterMerger;
-
-    void set_filter_id(int id);
 
     template <class T>
     Status assign_data(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
         PFilterType filter_type = request.filter_type();
 
         if (request.has_disabled() && request.disabled()) {
-            set_state(State::DISABLED);
+            disable("get disabled from remote");
             return Status::OK();
         }
 
@@ -153,26 +143,20 @@ public:
         }
     }
 
-    std::string debug_string() const {
-        auto result = fmt::format(
-                "Wrapper: [filter_id: {}, state: {}, type: {}({}), column_type: {}", _filter_id,
-                to_string(_state), filter_type_to_string(_filter_type),
-                filter_type_to_string(get_real_type()), type_to_string(_column_return_type));
-        if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-            result += fmt::format(", build_bf_cardinality: {}", get_build_bf_cardinality());
-        }
-        if (!_err_msg.empty()) {
-            result += fmt::format(", error_msg: {}", _err_msg);
-        }
-        return result;
-    }
+    std::string debug_string() const;
 
     void set_state(State state) {
+        DCHECK(state != State::DISABLED);
         if (_state == State::DISABLED) {
             return;
         }
 
         _state = state;
+    }
+
+    void disable(std::string reason) {
+        _state = State::DISABLED;
+        _disabled_reason = reason;
     }
 
     State get_state() const { return _state; }
@@ -195,13 +179,16 @@ public:
             return "UNINITED";
         case State::READY:
             return "READY";
-        case State::INITED:
-            return "INITED";
         default:
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid State {}",
                                    int(state));
         }
     }
+
+    void _to_protobuf(PInFilter* filter);
+    
+    void _to_protobuf(PMinMaxFilter* filter);
+    
 
 private:
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
@@ -215,9 +202,7 @@ private:
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
     State _state;
-    std::string _err_msg;
-
-    friend class SyncSizeClosure;
+    std::string _disabled_reason;
 };
 
 } // namespace doris

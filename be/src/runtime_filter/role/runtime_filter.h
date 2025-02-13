@@ -20,8 +20,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include "common/status.h"
-#include "pipeline/dependency.h"
-#include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "runtime_filter/utils.h"
@@ -51,7 +49,7 @@ public:
         auto real_runtime_filter_type = _wrapper->get_real_type();
 
         request->set_filter_type(get_type(real_runtime_filter_type));
-        request->set_filter_id(_wrapper->_filter_id);
+        request->set_filter_id(_wrapper->filter_id());
 
         auto state = _wrapper->get_state();
         if (state != RuntimeFilterWrapper::State::READY) {
@@ -92,9 +90,10 @@ protected:
 
     Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
 
-    // serialize _wrapper to protobuf
-    void _to_protobuf(PInFilter* filter);
-    void _to_protobuf(PMinMaxFilter* filter);
+    template <typename T>
+    void _to_protobuf(T* filter) {
+        _wrapper->_to_protobuf(filter);
+    }
 
     Status _push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
                            uint64_t local_merge_time);

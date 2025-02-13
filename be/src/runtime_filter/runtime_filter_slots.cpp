@@ -107,4 +107,14 @@ Status RuntimeFilterSlots::process(
     return Status::OK();
 }
 
+Status RuntimeFilterSlots::skip_runtime_filters_process(
+        RuntimeState* state, std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency) {
+    RETURN_IF_ERROR(send_filter_size(state, 0, finish_dependency));
+    for (auto filter : _runtime_filters) {
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+    }
+    RETURN_IF_ERROR(_publish(state));
+    _skip_runtime_filters_process = true;
+    return Status::OK();
+}
 } // namespace doris

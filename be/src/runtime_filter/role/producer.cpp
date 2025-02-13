@@ -38,8 +38,8 @@ Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state,
 Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* merger_filter, bool global,
                                                      uint64_t local_merge_time) {
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
-            global ? _state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->_filter_id)
-                   : _state->local_runtime_filter_mgr()->get_consume_filters(_wrapper->_filter_id);
+            global ? _state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id())
+                   : _state->local_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id());
     for (auto filter : filters) {
         filter->signal(merger_filter);
     }
@@ -55,14 +55,14 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
         // 1. has remote target
         // 2. has local target and has global consumer (means target scan has local shuffle)
         if (_has_local_target && _state->global_runtime_filter_mgr()
-                                         ->get_consume_filters(_wrapper->_filter_id)
+                                         ->get_consume_filters(_wrapper->filter_id())
                                          .empty()) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
         LocalMergeFilters* local_merge_filters = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                _wrapper->_filter_id, &local_merge_filters));
+                _wrapper->filter_id(), &local_merge_filters));
         local_merge_filters->merge_watcher.start();
         std::lock_guard l(*local_merge_filters->lock);
         RETURN_IF_ERROR(local_merge_filters->merger->merge_from(this));
@@ -107,47 +107,39 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     // Should use weak ptr here, because when query context deconstructs, should also delete runtime filter
     // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
     // after query context because the rpc is not returned.
-    std::weak_ptr<RuntimeFilterWrapper> _rf_context;
+    std::weak_ptr<RuntimeFilterWrapper> _wrapper;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
         Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
-        auto ctx = _rf_context.lock();
-        if (!ctx) {
+        auto wrapper = _wrapper.lock();
+        if (!wrapper) {
             return;
         }
 
-        ctx->_err_msg = cntl_->ErrorText();
+        wrapper->disable(cntl_->ErrorText());
         Base::_process_if_rpc_failed();
     }
 
     void _process_if_meet_error_status(const Status& status) override {
         Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
-        auto ctx = _rf_context.lock();
-        if (!ctx) {
+        auto wrapper = _wrapper.lock();
+        if (!wrapper) {
             return;
         }
 
-        if (status.is<ErrorCode::END_OF_FILE>()) {
-            // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            ctx->_state = RuntimeFilterWrapper::State::IGNORED;
-        } else {
-            ctx->_err_msg = status.to_string();
-            Base::_process_if_meet_error_status(status);
-        }
+        wrapper->disable(status.to_string());
     }
 
 public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
                     std::shared_ptr<pipeline::Dependency> dependency,
-                    std::shared_ptr<RuntimeFilterWrapper> rf_context,
+                    std::shared_ptr<RuntimeFilterWrapper> wrapper,
                     std::weak_ptr<QueryContext> context)
-            : Base(req, callback, context),
-              _dependency(std::move(dependency)),
-              _rf_context(rf_context) {}
+            : Base(req, callback, context), _dependency(std::move(dependency)), _wrapper(wrapper) {}
 };
 
 Status RuntimeFilterProducer::send_filter_size(
@@ -165,10 +157,10 @@ Status RuntimeFilterProducer::send_filter_size(
     // 1. has remote target
     // 2. has local target and has global consumer (means target scan has local shuffle)
     if (_has_remote_target ||
-        !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->_filter_id).empty()) {
+        !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
         LocalMergeFilters* local_merge_filters = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                _wrapper->_filter_id, &local_merge_filters));
+                _wrapper->filter_id(), &local_merge_filters));
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
@@ -215,7 +207,7 @@ Status RuntimeFilterProducer::send_filter_size(
     source_addr->set_port(BackendOptions::get_local_backend().brpc_port);
 
     request->set_filter_size(local_filter_size);
-    request->set_filter_id(_wrapper->_filter_id);
+    request->set_filter_id(_wrapper->filter_id());
 
     callback->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(state->execution_timeout()));
     if (config::execution_ignore_eovercrowded) {
@@ -244,7 +236,7 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
 Status RuntimeFilterProducer::init_with_size(size_t local_size) {
     size_t real_size = _synced_size != -1 ? _synced_size : local_size;
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-        real_size > _wrapper->_max_in_num) {
+        real_size > _wrapper->max_in_num()) {
         RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
     }
 
@@ -252,7 +244,7 @@ Status RuntimeFilterProducer::init_with_size(size_t local_size) {
         RETURN_IF_ERROR(_wrapper->init_bloom_filter(real_size));
     }
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER &&
-        real_size > _wrapper->_max_in_num) {
+        real_size > _wrapper->max_in_num()) {
         set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
     }
     return Status::OK();

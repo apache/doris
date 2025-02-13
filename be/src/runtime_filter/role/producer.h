@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include "pipeline/dependency.h"
+#include "runtime/query_context.h"
 #include "runtime_filter/role/runtime_filter.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 
@@ -28,7 +31,7 @@ public:
         *res = std::shared_ptr<RuntimeFilterProducer>(new RuntimeFilterProducer(state, desc));
         RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
         bool need_sync_filter_size =
-                (*res)->_wrapper->get_build_bf_cardinality() && !(*res)->_is_broadcast_join;
+                (*res)->_wrapper->build_bf_by_runtime_size() && !(*res)->_is_broadcast_join;
         (*res)->_rf_state =
                 need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
         return Status::OK();
@@ -96,11 +99,11 @@ public:
     }
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
-        context->runtime_filters[_wrapper->_filter_id] = _wrapper;
+        context->runtime_filters[_wrapper->filter_id()] = _wrapper;
     }
 
     void copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
-        _wrapper = context->runtime_filters[_wrapper->_filter_id];
+        _wrapper = context->runtime_filters[_wrapper->filter_id()];
     }
 
 private:
