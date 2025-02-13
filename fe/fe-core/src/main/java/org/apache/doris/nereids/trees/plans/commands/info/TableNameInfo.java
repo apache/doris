@@ -121,6 +121,10 @@ public class TableNameInfo implements Writable {
         return ctl;
     }
 
+    public void setCtl(String ctl) {
+        this.ctl = ctl;
+    }
+
     /**
      * get db name
      * @return dbName
