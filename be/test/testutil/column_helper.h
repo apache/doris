@@ -54,6 +54,18 @@ public:
         return true;
     }
 
+    static bool block_equal(const Block& block1, const Block& block2) {
+        if (block1.columns() != block2.columns()) {
+            return false;
+        }
+        for (size_t i = 0; i < block1.columns(); i++) {
+            if (!column_equal(block1.get_by_position(i).column, block2.get_by_position(i).column)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     template <typename DataType>
     static Block create_block(const std::vector<typename DataType::FieldType>& datas) {
         auto column = create_column<DataType>(datas);
