@@ -78,6 +78,12 @@ public:
         }
     }
 
+    void disable_and_ready_to_publish(std::string reason) {
+        if (_set_state(State::READY_TO_PUBLISH)) {
+            _wrapper->disable(reason);
+        }
+    }
+
     void disable_meaningless_filters(std::unordered_set<int>& has_in_filter,
                                      bool collect_in_filters);
 
