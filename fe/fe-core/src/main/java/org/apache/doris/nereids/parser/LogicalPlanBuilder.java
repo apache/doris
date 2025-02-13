@@ -563,6 +563,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -4833,6 +4834,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return getExpression(ctx.expression());
         } else {
             throw new AnalysisException("Wild where should contain like or where " + ctx.getText());
+        }
+    }
+
+    @Override
+    public KillCommand visitKillConnection(DorisParser.KillConnectionContext ctx) {
+        int connectionId = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        return new KillCommand(true, connectionId);
+    }
+
+    @Override
+    public KillCommand visitKillQuery(DorisParser.KillQueryContext ctx) {
+        if (ctx.INTEGER_VALUE() != null) {
+            return new KillCommand(false, Integer.parseInt(ctx.INTEGER_VALUE().getText()));
+        } else {
+            return new KillCommand(stripQuotes(ctx.STRING_LITERAL().getText()));
         }
     }
 
