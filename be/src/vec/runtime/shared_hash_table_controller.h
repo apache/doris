@@ -45,7 +45,6 @@ struct RuntimeFilterContext {
     std::shared_ptr<HybridSetBase> hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
-    bool ignored = false;
     bool disabled = false;
     std::string err_msg;
 };

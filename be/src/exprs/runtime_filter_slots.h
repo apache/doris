@@ -77,7 +77,7 @@ public:
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto filter : _runtime_filters) {
-            if (filter->get_ignored() || filter->get_disabled()) {
+            if (filter->get_disabled()) {
                 continue;
             }
             if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
@@ -96,7 +96,7 @@ public:
 
         // process ignore filter when it has IN_FILTER on same expr
         for (auto filter : _runtime_filters) {
-            if (filter->get_ignored() || filter->get_disabled()) {
+            if (filter->get_disabled()) {
                 continue;
             }
             if (filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
@@ -104,13 +104,6 @@ public:
                 continue;
             }
             filter->set_disabled();
-        }
-        return Status::OK();
-    }
-
-    Status ignore_all_filters() {
-        for (auto filter : _runtime_filters) {
-            filter->set_ignored();
         }
         return Status::OK();
     }
@@ -125,7 +118,7 @@ public:
     Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto* filter : _runtime_filters) {
-            if (filter->get_ignored() || filter->get_disabled()) {
+            if (filter->get_disabled()) {
                 continue;
             }
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -155,7 +148,7 @@ public:
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
             const auto& column = block->get_by_position(result_column_id).column;
             for (auto* filter : iter->second) {
-                if (filter->get_ignored() || filter->get_disabled()) {
+                if (filter->get_disabled()) {
                     continue;
                 }
                 filter->insert_batch(column, 1);
