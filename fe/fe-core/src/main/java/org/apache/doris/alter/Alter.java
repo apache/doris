@@ -985,6 +985,9 @@ public class Alter {
             Map<String, String> modifiedProperties = Maps.newHashMap();
             modifiedProperties.putAll(properties);
 
+            // 4.2 analyze new properties
+            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
+
             // 4.3 modify partition storage policy
             // can set multi times storage policy
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
@@ -992,11 +995,11 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
-            } else {
+            } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 // if current partition is already in remote storage
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(
-                        "Cannot cancel storage policy for partition which is already on cold storage.");
+                            "Cannot cancel storage policy for partition which is already on cold storage.");
                 }
 
                 // if current partition will be cooldown in 20s later
@@ -1008,20 +1011,17 @@ public class Alter {
                             : Long.MAX_VALUE;
                     if (policy.getCooldownTtl() > 0) {
                         latestTime = Math.min(latestTime,
-                            partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
+                                partition.getVisibleVersionTime() + policy.getCooldownTtl() * 1000);
                     }
                     if (latestTime < System.currentTimeMillis() + 20 * 1000) {
                         throw new AnalysisException(
-                            "Cannot cancel storage policy for partition which already be cooldown"
-                                + " or will be cooldown soon later");
+                                "Cannot cancel storage policy for partition which already be cooldown"
+                                        + " or will be cooldown soon later");
                     }
                 }
 
                 partitionInfo.setStoragePolicy(partition.getId(), "");
             }
-
-            // 4.4 analyze new properties
-            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
 
             // 1. date property
             if (newDataProperty != null) {
@@ -1041,8 +1041,7 @@ public class Alter {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, currentStoragePolicy,
-                    Maps.newHashMap());
+                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory, Maps.newHashMap());
             modifyPartitionInfos.add(info);
         }
 
