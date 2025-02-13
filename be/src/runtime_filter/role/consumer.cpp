@@ -75,20 +75,6 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
             timer->call_ready();
         }
     }
-
-    if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER) {
-        _profile->add_info_string("InFilterSize", std::to_string(_wrapper->get_in_filter_size()));
-        _profile->add_info_string("MaxInNum", std::to_string(_wrapper->_max_in_num));
-    }
-    if (_wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
-        auto bitmap_filter = _wrapper->get_bitmap_filter();
-        _profile->add_info_string("BitmapSize", std::to_string(bitmap_filter->size()));
-        _profile->add_info_string("IsNotIn", bitmap_filter->is_not_in() ? "true" : "false");
-    }
-    if (_wrapper->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-        _profile->add_info_string("BloomFilterSize",
-                                  std::to_string(_wrapper->get_bloom_filter_size()));
-    }
 }
 
 std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(

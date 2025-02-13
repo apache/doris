@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "pipeline/dependency.h"
+#include "runtime/query_context.h"
 #include "runtime_filter/role/runtime_filter.h"
 #include "util/runtime_profile.h"
 

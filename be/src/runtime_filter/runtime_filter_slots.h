@@ -22,7 +22,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime_filter/role/producer.h"
 #include "runtime_filter/role/runtime_filter.h"
-#include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -51,15 +50,7 @@ public:
 
     Status skip_runtime_filters_process(
             RuntimeState* state,
-            std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency) {
-        RETURN_IF_ERROR(send_filter_size(state, 0, finish_dependency));
-        for (auto filter : _runtime_filters) {
-            filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
-        }
-        RETURN_IF_ERROR(_publish(state));
-        _skip_runtime_filters_process = true;
-        return Status::OK();
-    }
+            std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency);
 
     Status process(RuntimeState* state, const vectorized::Block* block,
                    std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency);

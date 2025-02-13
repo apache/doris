@@ -18,20 +18,10 @@
 #include "runtime_filter/role/runtime_filter.h"
 
 #include "common/status.h"
-#include "exprs/bitmapfilter_predicate.h"
-#include "exprs/create_predicate_function.h"
-#include "exprs/hybrid_set.h"
-#include "exprs/minmax_predicate.h"
-#include "runtime_filter/role/consumer.h"
-#include "runtime_filter/role/merger.h"
-#include "runtime_filter/role/producer.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
-#include "vec/exprs/vbitmap_predicate.h"
-#include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
 
@@ -141,16 +131,6 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 std::string RuntimeFilter::_debug_string() const {
     return fmt::format("{}, mode: {}", _wrapper->debug_string(),
                        _has_local_target ? "LOCAL" : "GLOBAL");
-}
-
-void RuntimeFilter::_to_protobuf(PInFilter* filter) {
-    filter->set_column_type(to_proto(_wrapper->column_type()));
-    _wrapper->_hybrid_set->to_pb(filter);
-}
-
-void RuntimeFilter::_to_protobuf(PMinMaxFilter* filter) {
-    filter->set_column_type(to_proto(_wrapper->column_type()));
-    _wrapper->_minmax_func->to_pb(filter);
 }
 
 } // namespace doris

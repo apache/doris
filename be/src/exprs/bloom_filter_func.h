@@ -125,7 +125,7 @@ public:
     void init_params(const RuntimeFilterParams* params) {
         _bloom_filter_length = params->bloom_filter_size;
 
-        _build_bf_exactly = params->build_bf_exactly;
+        _build_bf_by_runtime_size = params->build_bf_exactly;
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _null_aware = params->null_aware;
@@ -136,15 +136,15 @@ public:
 
     Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
-    bool get_build_bf_cardinality() const { return _build_bf_exactly; }
+    bool build_bf_by_runtime_size() const { return _build_bf_by_runtime_size; }
 
-    Status init_with_cardinality(const size_t build_bf_cardinality) {
-        if (_build_bf_exactly) {
+    Status init_with_cardinality(const size_t runtime_size) {
+        if (_build_bf_by_runtime_size) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
             constexpr double fpp = 0.05;
             constexpr double k = 8; // BUCKET_WORDS
             // m is the number of bits we would need to get the fpp specified
-            double m = -k * build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
+            double m = -k * runtime_size / std::log(1 - std::pow(fpp, 1.0 / k));
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
@@ -277,7 +277,7 @@ protected:
     int64_t _bloom_filter_length;
     int64_t _runtime_bloom_filter_min_size;
     int64_t _runtime_bloom_filter_max_size;
-    bool _build_bf_exactly = false;
+    bool _build_bf_by_runtime_size = false;
     bool _bloom_filter_size_calculated_by_ndv = false;
     bool _enable_fixed_len_to_uint32_v2 = false;
 };
