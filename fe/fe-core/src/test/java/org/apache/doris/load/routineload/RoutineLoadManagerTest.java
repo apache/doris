@@ -648,8 +648,7 @@ public class RoutineLoadManagerTest {
                 throw new UserException("thread sleep failed");
             }
             routineLoadManager.updateRoutineLoadJob();
-            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
-            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         }
         routineLoadManager.updateRoutineLoadJob();
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
