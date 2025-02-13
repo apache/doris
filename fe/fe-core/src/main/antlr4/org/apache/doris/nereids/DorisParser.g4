@@ -162,6 +162,10 @@ supportedDmlStatement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     | replayCommand                                                    #replay
+    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
+            (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
+                FROM stageAndPattern whereClause? RIGHT_PAREN))
+            properties=propertyClause?                                 #copyInto
     ;
 
 supportedCreateStatement
@@ -271,7 +275,7 @@ supportedShowStatement
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob    
+    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW VIEW
@@ -890,10 +894,6 @@ unsupportedUseStatement
 
 unsupportedDmlStatement
     : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
-    | COPY INTO name=multipartIdentifier columns=identifierList? FROM
-        (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
-            FROM stageAndPattern whereClause? RIGHT_PAREN))
-        properties=propertyClause?                                                  #copyInto
     ;
 
 stageAndPattern
