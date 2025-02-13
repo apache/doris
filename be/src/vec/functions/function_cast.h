@@ -1955,7 +1955,6 @@ private:
             auto dst_str = ColumnString::create();
             dst_str->clear();
             dst_str->reserve(input_rows_count);
-            Arena pool;
             VectorBufferWriter write_buffer(*dst_str.get());
             auto from_serde = from_type->get_serde();
             DataTypeSerDe::FormatOptions options;
@@ -1966,8 +1965,8 @@ private:
                 // convert to string, json has been cast as string in schema_util::_parse_variant_columns
                 for (size_t i = 0; i < block.rows(); i++) {
                     // convert to string
-                    Status st = from_serde->serialize_column_to_json(*col_from, i, i + 1,
-                                                                     write_buffer, options);
+                    Status st =
+                            from_serde->serialize_column_to_json(*col_from, i, i + 1, write_buffer, options);
                     // if serialized failed, will return null
                     if (!st.ok()) {
                         dst_str->insert_default();
