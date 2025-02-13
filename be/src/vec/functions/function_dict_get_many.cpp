@@ -34,6 +34,9 @@ namespace doris::vectorized {
 
 struct DictGetState {
     std::shared_ptr<const IDictionary> dict;
+    ///TODO:
+    // 1. we do not need to check dict every time(shoud only check in open)
+    // 2. for some dict, will init some struct each time, we should cache it
 };
 
 class FunctionDictGetMany : public IFunction {
@@ -89,6 +92,8 @@ public:
         }
 
         // dict get many(name, array<value names>, struct<key columns>) -> struct <value columns>
+
+        // get value names
         const Array array_names = (*block.get_by_position(arguments[1]).column)[0].get<Array>();
         std::vector<std::string> attribute_names;
         for (auto field : array_names) {
@@ -98,14 +103,10 @@ public:
 
         DataTypes attribute_types;
         for (auto attribute_name : attribute_names) {
-            if (!dict->has_attribute(attribute_name)) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "No corresponding attribute_name. The current attribute_name is: {}",
-                        attribute_name);
-            }
             attribute_types.push_back(dict->get_attribute_type(attribute_name));
         }
+
+        // get key columns (struct<key columns>)
         const ColumnPtr key_struct_column =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
         // columns_copy is just copy ptr , not column
@@ -114,18 +115,11 @@ public:
         DataTypes key_types = remove_nullable(
                 assert_cast<const DataTypeStruct&>(*block.get_by_position(arguments[2]).type)
                         .get_elements());
-        const DataTypePtr attribute_sturct_type = block.get_by_position(result).type;
 
         auto result_columns =
                 dict->get_tuple_columns(attribute_names, attribute_types, key_columns, key_types);
 
-        MutableColumns result_mut_columns;
-        for (auto column : result_columns) {
-            result_mut_columns.push_back(std::move(*column).mutate());
-        }
-        auto result_struct_column = ColumnStruct::create(std::move(result_mut_columns));
-
-        block.replace_by_position(result, std::move(result_struct_column));
+        block.replace_by_position(result, ColumnStruct::create(result_columns));
 
         return Status::OK();
     }

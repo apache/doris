@@ -29,6 +29,9 @@ namespace doris::vectorized {
 
 struct DictGetState {
     std::shared_ptr<const IDictionary> dict;
+    ///TODO:
+    // 1. we do not need to check dict every time(shoud only check in open)
+    // 2. for some dict, will init some struct each time, we should cache it
 };
 
 class FunctionDictGet : public IFunction {
@@ -87,18 +90,13 @@ public:
 
         const std::string attribute_name =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-        if (!dict->has_attribute(attribute_name)) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "No corresponding attribute_name. The current attribute_name is: {}",
-                    attribute_name);
-        }
         const DataTypePtr attribute_type = dict->get_attribute_type(attribute_name);
 
         const ColumnPtr key_column =
                 block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
         const DataTypePtr key_type = block.get_by_position(arguments[2]).type;
 
+        // key_type is not nullable, but key_column may be nullable
         // wiil check key_column in dict::getColumn
         auto res = dict->get_column(attribute_name, attribute_type, key_column,
                                     remove_nullable(key_type));

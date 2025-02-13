@@ -70,16 +70,22 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
 
                            const size_t rows = key_columns[0]->size();
                            dict_method.init_serialized_keys(key_raw_columns, rows);
-
+                           size_t input_rows = 0;
                            for (int i = 0; i < rows; i++) {
                                auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                    ctor(key, i);
+                                   input_rows++;
                                };
 
                                auto creator_for_null_key = [&](auto& mapped) {
                                    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "no null key");
                                };
                                dict_method.lazy_emplace(state, i, creator, creator_for_null_key);
+                           }
+                           if (input_rows < rows) {
+                               throw doris::Exception(
+                                       ErrorCode::INVALID_ARGUMENT,
+                                       "The key has duplicate data in HashMapDictionary");
                            }
                        }},
                _hash_map_method.method_variant);
