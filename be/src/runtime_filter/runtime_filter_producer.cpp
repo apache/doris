@@ -48,7 +48,7 @@ Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* merger_filte
 
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
     _check_state({State::READY_TO_PUBLISH});
-    _rf_state = State::PUBLISHED;
+    _set_state(State::PUBLISHED);
 
     auto do_merge = [&]() {
         // two case we need do local merge:
@@ -157,7 +157,7 @@ Status RuntimeFilterProducer::send_filter_size(
         _check_state({State::WAITING_FOR_DATA});
         return Status::OK();
     }
-    _rf_state = State::WAITING_FOR_SYNCED_SIZE;
+    _set_state(State::WAITING_FOR_SYNCED_SIZE);
     _dependency = dependency;
     _dependency->add();
 
@@ -229,7 +229,10 @@ Status RuntimeFilterProducer::send_filter_size(
 }
 
 void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
-    _check_state({State::WAITING_FOR_SYNCED_SIZE});
+    if (_rf_state != State::WAITING_FOR_SYNCED_SIZE) {
+        _wrapper->check_state(
+                {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
+    }
     _rf_state = State::WAITING_FOR_DATA;
 
     _synced_size = global_size;

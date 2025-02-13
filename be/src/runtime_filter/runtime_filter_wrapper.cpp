@@ -99,7 +99,6 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
 Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                                             std::vector<vectorized::VRuntimeFilterPtr>& container,
                                             const TExpr& probe_expr) {
-    DCHECK(_state == State::READY);
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
@@ -110,7 +109,7 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
            _filter_type == RuntimeFilterType::BITMAP_FILTER)
             << " prob_expr->root()->type().type: " << int(probe_ctx->root()->type().type)
             << " _column_return_type: " << int(_column_return_type)
-            << " _filter_type: " << to_string(_filter_type);
+            << " _filter_type: " << filter_type_to_string(_filter_type);
 
     auto real_filter_type = get_real_type();
     bool null_aware = contain_null();
@@ -236,17 +235,14 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
 
 Status RuntimeFilterWrapper::change_to_bloom_filter() {
     if (_filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER) {
-        return Status::InternalError(
-                "Can not change to bloom filter because of runtime filter type is {}",
-                to_string(_filter_type));
+        return Status::InternalError("Can not change to bloom filter, {}", debug_string());
     }
     BloomFilterFuncBase* bf = _bloom_filter_func.get();
 
     if (bf != nullptr) {
         insert_to_bloom_filter(bf);
     } else if (_hybrid_set != nullptr && _hybrid_set->size() != 0) {
-        return Status::InternalError("change to bloom filter need empty set ",
-                                     to_string(_filter_type));
+        return Status::InternalError("change to bloom filter need empty set, {}", debug_string());
     }
 
     // release in filter
@@ -372,18 +368,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
     set_state(State::READY);
 
-    bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-                                     (other->_filter_type != RuntimeFilterType::IN_FILTER &&
-                                      other->_filter_type != RuntimeFilterType::BLOOM_FILTER &&
-                                      other->_filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER);
-
-    bool can_not_merge_other = _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-                               _filter_type != other->_filter_type;
-
-    CHECK(!can_not_merge_in_or_bloom && !can_not_merge_other)
-            << " can not merge runtime filter(id=" << _filter_id << "), current is filter type is "
-            << to_string(_filter_type) << ", other filter type is "
-            << to_string(other->_filter_type);
+    DCHECK(_filter_type == other->_filter_type) << debug_string();
 
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
