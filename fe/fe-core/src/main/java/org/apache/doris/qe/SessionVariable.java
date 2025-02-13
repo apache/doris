@@ -1523,7 +1523,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Skip most optimization rules and quickly analyze insert into values statements"
             }
     )
-    private boolean enableFastAnalyzeInsertIntoValues = true;
+    private boolean enableFastAnalyzeInsertIntoValues = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
     public boolean enableFunctionPushdown = false;
