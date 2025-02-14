@@ -74,11 +74,6 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
         _group_num =
                 mem_tracker_limiter_group_counter.fetch_add(1) % (MEM_TRACKER_GROUP_NUM - 3) + 3;
     }
-
-    // currently only select/load need runtime query statistics
-    if (_type == Type::LOAD || _type == Type::QUERY) {
-        _query_statistics = std::make_shared<QueryStatistics>();
-    }
     memory_memtrackerlimiter_cnt << 1;
 }
 
