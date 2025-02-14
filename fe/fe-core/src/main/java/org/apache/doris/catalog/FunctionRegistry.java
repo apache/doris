@@ -237,7 +237,7 @@ public class FunctionRegistry {
                                 = ((BuiltinFunctionBuilder) builder).getBuilderMethod();
                         if (Modifier.isAbstract(builderMethod.getModifiers())
                                 || !Modifier.isPublic(builderMethod.getModifiers())) {
-                           return false;
+                            return false;
                         }
                         for (Class<?> parameterType : builderMethod.getParameterTypes()) {
                             if (!Expression.class.isAssignableFrom(parameterType)
