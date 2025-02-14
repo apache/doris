@@ -150,7 +150,7 @@ TEST_F(DataTypeIPTest, GetFieldTest) {
     node_ipv6.node_type = TExprNodeType::IPV6_LITERAL;
     for (size_t i = 0; i < ip_cols[1]->size(); ++i) {
         node_ipv6.ipv6_literal.value =
-                IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
+                doris::IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
         Field assert_field;
         ip_cols[1]->get(i, assert_field);
         get_field_assert(dt_ipv6, node_ipv6, assert_field);
