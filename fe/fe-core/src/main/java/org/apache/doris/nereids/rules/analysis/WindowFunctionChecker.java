@@ -241,7 +241,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         windowExpression.getWindowFrame().ifPresent(wf -> {
             throw new AnalysisException("WindowFrame for LAG() must be null");
         });
-        if (lag.children().size() != 3) {
+        if (lag.children().size() < 1 || lag.children().size() > 3) {
             throw new AnalysisException("Lag must have three parameters");
         }
 
