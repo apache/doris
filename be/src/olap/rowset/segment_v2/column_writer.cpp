@@ -468,7 +468,9 @@ Status ScalarColumnWriter::init() {
                         return Status::OK();
                     }
                     Status add_nulls(uint32_t count) override { return Status::OK(); }
-                    Status add_array_nulls(uint32_t row_id) override { return Status::OK(); }
+                    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+                        return Status::OK();
+                    }
                     Status finish() override { return Status::OK(); }
                     int64_t size() const override { return 0; }
                     void close_on_error() override {}

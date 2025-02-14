@@ -437,79 +437,76 @@ public:
             }
             size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // if current row is null, we just ignore to write inverted index, but we need to add null document
+                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                // TODO(Amory).later we use object pool to avoid field creation
                 lucene::document::Field* new_field = nullptr;
-                if (!_null_bitmap.contains(i)) {
-                    // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
-                    // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
-                    auto array_elem_size = offsets[i + 1] - offsets[i];
-                    // TODO(Amory).later we use object pool to avoid field creation
-                    CL_NS(analysis)::TokenStream* ts = nullptr;
-                    for (auto j = start_off; j < start_off + array_elem_size; ++j) {
-                        if (nested_null_map && nested_null_map[j] == 1) {
-                            continue;
-                        }
-                        auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                        if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                             v->get_size() > _ignore_above) ||
-                            (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
-                            // is here a null value?
-                            // TODO. Maybe here has performance problem for large size string.
-                            continue;
-                        } else {
-                            // now we temp create field . later make a pool
-                            Status st = create_field(&new_field);
-                            DBUG_EXECUTE_IF(
-                                    "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
-                                    "error",
-                                    {
-                                        st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                                "debug point: add_array_values_create_field_error");
-                                    })
-                            if (st != Status::OK()) {
-                                LOG(ERROR) << "create field "
-                                           << string(_field_name.begin(), _field_name.end())
-                                           << " error:" << st;
-                                return st;
-                            }
-                            if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                                _parser_type != InvertedIndexParserType::PARSER_NONE) {
-                                // in this case stream need to delete after add_document, because the
-                                // stream can not reuse for different field
-                                bool own_token_stream = true;
-                                bool own_reader = true;
-                                std::unique_ptr<lucene::util::Reader> char_string_reader =
-                                        DORIS_TRY(create_char_string_reader(
-                                                _inverted_index_ctx->char_filter_map));
-                                char_string_reader->init(v->get_data(), v->get_size(), false);
-                                _analyzer->set_ownReader(own_reader);
-                                ts = _analyzer->tokenStream(new_field->name(),
-                                                            char_string_reader.release());
-                                new_field->setValue(ts, own_token_stream);
-                            } else {
-                                new_field_char_value(v->get_data(), v->get_size(), new_field);
-                            }
-                            _doc->add(*new_field);
-                        }
+                CL_NS(analysis)::TokenStream* ts = nullptr;
+                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
+                    if (nested_null_map && nested_null_map[j] == 1) {
+                        continue;
                     }
-                    start_off += array_elem_size;
-                    // here to make debug for array field with current doc which should has expected number of fields
-                    DBUG_EXECUTE_IF("array_inverted_index.write_index", {
-                        auto single_array_field_count =
-                                DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                                        "array_inverted_index.write_index",
-                                        "single_array_field_count", 0);
-                        if (single_array_field_count < 0) {
-                            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                    "indexes count cannot be negative");
+                    auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                         v->get_size() > _ignore_above) ||
+                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                        // is here a null value?
+                        // TODO. Maybe here has performance problem for large size string.
+                        continue;
+                    } else {
+                        // now we temp create field . later make a pool
+                        Status st = create_field(&new_field);
+                        DBUG_EXECUTE_IF(
+                                "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
+                                "error",
+                                {
+                                    st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                            "debug point: add_array_values_create_field_error");
+                                })
+                        if (st != Status::OK()) {
+                            LOG(ERROR) << "create field "
+                                       << string(_field_name.begin(), _field_name.end())
+                                       << " error:" << st;
+                            return st;
                         }
-                        if (_doc->getFields()->size() != single_array_field_count) {
-                            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                    "array field has fields count {} not equal to expected {}",
-                                    _doc->getFields()->size(), single_array_field_count);
+                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                            // in this case stream need to delete after add_document, because the
+                            // stream can not reuse for different field
+                            bool own_token_stream = true;
+                            bool own_reader = true;
+                            std::unique_ptr<lucene::util::Reader> char_string_reader =
+                                    DORIS_TRY(create_char_string_reader(
+                                            _inverted_index_ctx->char_filter_map));
+                            char_string_reader->init(v->get_data(), v->get_size(), false);
+                            _analyzer->set_ownReader(own_reader);
+                            ts = _analyzer->tokenStream(new_field->name(),
+                                                        char_string_reader.release());
+                            new_field->setValue(ts, own_token_stream);
+                        } else {
+                            new_field_char_value(v->get_data(), v->get_size(), new_field);
                         }
-                    })
+                        _doc->add(*new_field);
+                    }
                 }
+                start_off += array_elem_size;
+                // here to make debug for array field with current doc which should has expected number of fields
+                DBUG_EXECUTE_IF("array_inverted_index.write_index", {
+                    auto single_array_field_count =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "array_inverted_index.write_index", "single_array_field_count",
+                                    0);
+                    if (single_array_field_count < 0) {
+                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "indexes count cannot be negative");
+                    }
+                    if (_doc->getFields()->size() != single_array_field_count) {
+                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "array field has fields count {} not equal to expected {}",
+                                _doc->getFields()->size(), single_array_field_count);
+                    }
+                })
 
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
@@ -541,18 +538,16 @@ public:
         } else if constexpr (field_is_numeric_type(field_type)) {
             size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                if (!_null_bitmap.contains(_rid + i)) {
-                    auto array_elem_size = offsets[i + 1] - offsets[i];
-                    for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
-                        if (nested_null_map && nested_null_map[j] == 1) {
-                            continue;
-                        }
-                        const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
-                        RETURN_IF_ERROR(add_value(*p));
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
+                    if (nested_null_map && nested_null_map[j] == 1) {
+                        continue;
                     }
-                    start_off += array_elem_size;
-                    _row_ids_seen_for_bkd++;
+                    const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
+                    RETURN_IF_ERROR(add_value(*p));
                 }
+                start_off += array_elem_size;
+                _row_ids_seen_for_bkd++;
                 _rid++;
             }
         }
@@ -565,7 +560,8 @@ public:
             DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_field_is_nullptr",
                             { _field = nullptr; })
             DBUG_EXECUTE_IF(
-                    "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
+                    "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_"
+                    "nullptr",
                     { _index_writer = nullptr; })
             if (_field == nullptr || _index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
@@ -627,9 +623,10 @@ public:
             std::string new_value;
             size_t value_length = sizeof(CppType);
 
-            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_error", {
-                _CLTHROWA(CL_ERR_IllegalArgument, ("packedValue should be length=xxx"));
-            });
+            DBUG_EXECUTE_IF(
+                    "InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_"
+                    "error",
+                    { _CLTHROWA(CL_ERR_IllegalArgument, ("packedValue should be length=xxx")); });
 
             _value_key_coder->full_encode_ascending(&value, &new_value);
             _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
@@ -688,8 +685,8 @@ public:
                                 _bkd_writer->finish(data_out.get(), index_out.get()),
                                 int(field_type));
                     } else {
-                        LOG(WARNING)
-                                << "Inverted index writer create output error occurred: nullptr";
+                        LOG(WARNING) << "Inverted index writer create output error "
+                                        "occurred: nullptr";
                         _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                     }
                 } else if constexpr (field_is_slice_type(field_type)) {
@@ -698,9 +695,12 @@ public:
                             InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
                     DBUG_EXECUTE_IF(
-                            "InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close", {
+                            "InvertedIndexWriter._throw_clucene_error_in_fulltext_"
+                            "writer_close",
+                            {
                                 _CLTHROWA(CL_ERR_IO,
-                                          "debug point: test throw error in fulltext index writer");
+                                          "debug point: test throw error in fulltext "
+                                          "index writer");
                             });
                 }
             } catch (CLuceneError& e) {
