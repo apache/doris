@@ -1151,8 +1151,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
-    OperatorX<LocalStateType>::_is_serial_operator =
-            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
