@@ -98,6 +98,7 @@ import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
+import org.apache.doris.nereids.DorisParser.BuildIndexContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
 import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
@@ -119,12 +120,14 @@ import org.apache.doris.nereids.DorisParser.CreateAliasFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
+import org.apache.doris.nereids.DorisParser.CreateIndexContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRoleContext;
 import org.apache.doris.nereids.DorisParser.CreateRoutineLoadContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateSqlBlockRuleContext;
+import org.apache.doris.nereids.DorisParser.CreateStoragePolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CreateTableLikeContext;
 import org.apache.doris.nereids.DorisParser.CreateUserDefineFunctionContext;
@@ -145,6 +148,7 @@ import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
 import org.apache.doris.nereids.DorisParser.DropFunctionContext;
 import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
+import org.apache.doris.nereids.DorisParser.DropIndexContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
 import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
@@ -657,6 +661,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
@@ -1795,10 +1800,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         FilterType filterType = FilterType.of(ctx.type.getText());
         List<String> nameParts = visitMultipartIdentifier(ctx.table);
         return new CreatePolicyCommand(PolicyTypeEnum.ROW, ctx.name.getText(),
-                ctx.EXISTS() != null, nameParts, Optional.of(filterType),
+                ctx.EXISTS() != null, new TableNameInfo(nameParts), Optional.of(filterType),
                 ctx.user == null ? null : visitUserIdentify(ctx.user),
                 ctx.roleName == null ? null : ctx.roleName.getText(),
                 Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+    }
+
+    @Override
+    public Command visitCreateStoragePolicy(CreateStoragePolicyContext ctx) {
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        return new CreatePolicyCommand(PolicyTypeEnum.STORAGE, ctx.name.getText(),
+                ctx.EXISTS() != null, null, Optional.empty(),
+                null, null, Optional.empty(), properties);
     }
 
     @Override
@@ -4488,11 +4503,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowPartitionIdCommand(partitionId);
     }
 
-    // @Override
-    // public Object visitAlterTable(AlterTableContext ctx) {
-    //     return UnsupportedCommand.INSTANCE;
-    // }
-
     @Override
     public AlterTableCommand visitAlterTable(AlterTableContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
@@ -4709,6 +4719,59 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public AlterTableOp visitAddIndexClause(AddIndexClauseContext ctx) {
         IndexDefinition indexDefinition = visitIndexDef(ctx.indexDef());
         return new CreateIndexOp(null, indexDefinition, true);
+    }
+
+    @Override
+    public Command visitCreateIndex(CreateIndexContext ctx) {
+        String indexName = ctx.name.getText();
+        boolean ifNotExists = ctx.EXISTS() != null;
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        List<String> indexCols = visitIdentifierList(ctx.identifierList());
+        Map<String, String> properties = ctx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        String indexType = null;
+        if (ctx.BITMAP() != null) {
+            indexType = "BITMAP";
+        } else if (ctx.NGRAM_BF() != null) {
+            indexType = "NGRAM_BF";
+        } else if (ctx.INVERTED() != null) {
+            indexType = "INVERTED";
+        }
+        String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
+        // change BITMAP index to INVERTED index
+        if (Config.enable_create_bitmap_index_as_inverted_index
+                && "BITMAP".equalsIgnoreCase(indexType)) {
+            indexType = "INVERTED";
+        }
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, ifNotExists, indexCols, indexType,
+                properties, comment);
+        List<AlterTableOp> alterTableOps = Lists.newArrayList(new CreateIndexOp(tableNameInfo,
+                indexDefinition, false));
+        return new AlterTableCommand(tableNameInfo, alterTableOps);
+    }
+
+    @Override
+    public Command visitBuildIndex(BuildIndexContext ctx) {
+        String name = ctx.name.getText();
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        IndexDefinition indexDefinition = new IndexDefinition(name, partitionNamesInfo);
+        List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, indexDefinition, false));
+        return new AlterTableCommand(tableName, alterTableOps);
+    }
+
+    @Override
+    public Command visitDropIndex(DropIndexContext ctx) {
+        String name = ctx.name.getText();
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        List<AlterTableOp> alterTableOps = Lists
+                .newArrayList(new DropIndexOp(name, ctx.EXISTS() != null, tableName, false));
+        return new AlterTableCommand(tableName, alterTableOps);
     }
 
     @Override
