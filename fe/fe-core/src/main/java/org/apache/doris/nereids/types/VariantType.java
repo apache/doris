@@ -71,7 +71,8 @@ public class VariantType extends PrimitiveType {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return super.equals(o);
+        VariantType other = (VariantType) o;
+        return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount;
     }
 
     @Override

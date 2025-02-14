@@ -163,9 +163,15 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
     if (auto to_type = remove_nullable(type); WhichDataType(to_type).is_variant_type()) {
+        if (auto from_type = remove_nullable(arg.type);
+            WhichDataType(from_type).is_variant_type()) {
+            return Status::InternalError("Not support cast: from {} to {}", arg.type->get_name(),
+                                         type->get_name());
+        }
         CHECK(arg.column->is_nullable());
         const auto& data_type_object = assert_cast<const DataTypeObject&>(*to_type);
         auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
+
         variant->create_root(arg.type, arg.column->assume_mutable());
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),

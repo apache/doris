@@ -571,14 +571,13 @@ Status Segment::healthy_status() {
 
 // Return the storage datatype of related column to field.
 // Return nullptr meaning no such storage infomation for this column
-vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identifier,
+vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                                                   bool read_flat_leaves) const {
     // Path has higher priority
-    auto relative_path = identifier.path != nullptr ? identifier.path->copy_pop_front()
-                                                    : vectorized::PathInData();
+    auto path = column.path_info_ptr();
+    auto relative_path = path != nullptr ? path->copy_pop_front() : vectorized::PathInData();
     if (!relative_path.empty()) {
-        int32_t unique_id =
-                identifier.unique_id > 0 ? identifier.unique_id : identifier.parent_unique_id;
+        int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
         const auto* node = _column_readers.contains(unique_id)
                                    ? ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
                                              ->get_reader_by_path(relative_path)
@@ -593,9 +592,11 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
             return nullptr;
         }
         // it contains children or column missing in storage, so treat it as variant
-        return identifier.is_nullable
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(0))
-                       : std::make_shared<vectorized::DataTypeObject>(0);
+        return column.is_nullable()
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
+                                 column.variant_max_subcolumns_count()))
+                       : std::make_shared<vectorized::DataTypeObject>(
+                                 column.variant_max_subcolumns_count());
     }
     // TODO support normal column type
     return nullptr;
@@ -1041,12 +1042,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
                                      bool read_flat_leaves) const {
     const auto* col = schema.column(cid);
-    auto file_column_type =
-            get_data_type_of(ColumnIdentifier {.unique_id = col->unique_id(),
-                                               .parent_unique_id = col->parent_unique_id(),
-                                               .path = col->path(),
-                                               .is_nullable = col->is_nullable()},
-                             read_flat_leaves);
+    auto file_column_type = get_data_type_of(col->get_desc(), read_flat_leaves);
     auto expected_type = Schema::get_data_type_ptr(*col);
 #ifndef NDEBUG
     if (file_column_type && !file_column_type->equals(*expected_type)) {
@@ -1076,18 +1072,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     };
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {
-        vectorized::PathInDataPtr path = std::make_shared<vectorized::PathInData>(
-                schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
-                slot->column_paths());
-        auto storage_type = get_data_type_of(ColumnIdentifier {.unique_id = slot->col_unique_id(),
-                                                               .path = path,
-                                                               .is_nullable = slot->is_nullable()},
-                                             false);
-        vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
-        DCHECK(storage_type != nullptr);
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
                 slot->col_unique_id(), slot->type().max_subcolumns_count());
+        auto storage_type = get_data_type_of(column, false);
+        vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
+        DCHECK(storage_type != nullptr);
+
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
             RETURN_IF_ERROR(iterator_hint->init(opt));

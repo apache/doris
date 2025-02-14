@@ -47,9 +47,9 @@ Status VariantColumnWriterImpl::init() {
     // caculate stats info
     std::set<std::string> subcolumn_paths;
     RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(subcolumn_paths));
-    DCHECK(_opts.variant_max_subcolumns_count >= 0)
-            << "max subcolumns count is: " << _opts.variant_max_subcolumns_count;
-    auto col = vectorized::ColumnObject::create(_opts.variant_max_subcolumns_count);
+    DCHECK(_tablet_column->variant_max_subcolumns_count() >= 0)
+            << "max subcolumns count is: " << _tablet_column->variant_max_subcolumns_count();
+    auto col = vectorized::ColumnObject::create(_tablet_column->variant_max_subcolumns_count());
     for (const auto& str_path : subcolumn_paths) {
         DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
     }
@@ -101,10 +101,11 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
     }
 
     // Check if the number of all subcolumn paths exceeds the limit.
-    DCHECK(_opts.variant_max_subcolumns_count >= 0)
-            << "max subcolumns count is: " << _opts.variant_max_subcolumns_count;
-    if (_opts.variant_max_subcolumns_count &&
-        path_to_total_number_of_non_null_values.size() > _opts.variant_max_subcolumns_count) {
+    DCHECK(_tablet_column->variant_max_subcolumns_count() >= 0)
+            << "max subcolumns count is: " << _tablet_column->variant_max_subcolumns_count();
+    if (_tablet_column->variant_max_subcolumns_count() &&
+        path_to_total_number_of_non_null_values.size() >
+                _tablet_column->variant_max_subcolumns_count()) {
         // Sort paths by total number of non null values.
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(path_to_total_number_of_non_null_values.size());
@@ -115,7 +116,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
         // Fill subcolumn_paths with first subcolumn paths in sorted list.
         // reserve 1 for root column
         for (const auto& [size, path] : paths_with_sizes) {
-            if (paths.size() < _opts.variant_max_subcolumns_count) {
+            if (paths.size() < _tablet_column->variant_max_subcolumns_count()) {
                 VLOG_DEBUG << "pick " << path << " as subcolumn";
                 paths.emplace(path);
             }

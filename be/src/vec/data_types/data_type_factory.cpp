@@ -619,8 +619,6 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
             dataTypes[i] = create_data_type(pcolumn.children_columns(i));
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
-    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_VARIANT)) {
-        nested = std::make_shared<DataTypeObject>(pcolumn.variant_max_subcolumns_count());
     } else {
         // TODO add precision and frac
         nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),

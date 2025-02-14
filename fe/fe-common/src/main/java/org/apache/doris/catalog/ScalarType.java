@@ -922,6 +922,9 @@ public class ScalarType extends Type {
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
             return true;
         }
+        if (isVariantType() && scalarType.isVariantType()) {
+            return true;
+        }
         return false;
     }
 
@@ -951,6 +954,9 @@ public class ScalarType extends Type {
         }
         if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
+        }
+        if (this.isVariantType() && other.isVariantType()) {
+            return this.getVariantMaxSubcolumnsCount() == other.getVariantMaxSubcolumnsCount();
         }
         return true;
     }
@@ -1135,6 +1141,14 @@ public class ScalarType extends Type {
                 finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
             }
             return finalType;
+        }
+
+        if (t1.isVariantType() && t2.isVariantType()) {
+            if (t1.getVariantMaxSubcolumnsCount() == t2.getVariantMaxSubcolumnsCount()) {
+                return t1;
+            } else {
+                return Type.UNSUPPORTED;
+            }
         }
 
         PrimitiveType smallerType =

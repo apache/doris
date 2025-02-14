@@ -1026,7 +1026,6 @@ public class SchemaChangeHandler extends AlterHandler {
         if (type.isVariantType()) {
             ScalarType scType = (ScalarType) type;
             scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
-            newColumn.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
         }
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.

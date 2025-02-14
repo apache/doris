@@ -596,7 +596,9 @@ public:
                             << " src type: " << block.get_by_position(i).type->get_name();
                     DCHECK(((DataTypeNullable*)_data_types[i].get())
                                    ->get_nested_type()
-                                   ->equals(*block.get_by_position(i).type));
+                                   ->equals(*block.get_by_position(i).type))
+                            << " target type: " << _data_types[i]->get_name()
+                            << " src type: " << block.get_by_position(i).type->get_name();
                     DCHECK(!block.get_by_position(i).type->is_nullable());
                     _columns[i]->insert_range_from(*make_nullable(block.get_by_position(i).column)
                                                             ->convert_to_full_column_if_const(),

@@ -131,7 +131,6 @@ public class CreateReplicaTask extends AgentTask {
     private List<Integer> rowStoreColumnUniqueIds;
 
     private boolean variantEnableFlattenNested;
-    private int variantMaxSubcolumnsCount = 0;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -159,8 +158,7 @@ public class CreateReplicaTask extends AgentTask {
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
                              boolean variantEnableFlattenNested,
-                             long storagePageSize,
-                             int variantMaxSubcolumnsCount) {
+                             long storagePageSize) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -209,7 +207,6 @@ public class CreateReplicaTask extends AgentTask {
         this.rowStorePageSize = rowStorePageSize;
         this.variantEnableFlattenNested = variantEnableFlattenNested;
         this.storagePageSize = storagePageSize;
-        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -319,9 +316,6 @@ public class CreateReplicaTask extends AgentTask {
                             column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
                 }
                 tColumn.setVisible(column.isVisible());
-
-                // Only columns of variant type require this property.
-                tColumn.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
                 tColumns.add(tColumn);
             }
             objectPool.put(columns, tColumns);

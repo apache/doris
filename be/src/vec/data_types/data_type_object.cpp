@@ -204,7 +204,7 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
         column_object->get_subcolumn({})->insert_many_defaults(num_rows);
     }
 
-    column_object->set_num_rows_and_align(num_rows);
+    column_object->set_num_rows(num_rows);
 
     column_object->finalize();
 #ifndef NDEBUG

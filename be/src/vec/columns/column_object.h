@@ -100,6 +100,8 @@ public:
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    // Nullable(Array(Nullable(Object)))
+    const static DataTypePtr NESTED_TYPE;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -273,11 +275,6 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
-    // Nullable(Array(Nullable(Object)))
-    const DataTypePtr NESTED_TYPE = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeArray>(std::make_shared<DataTypeNullable>(
-                    std::make_shared<DataTypeObject>(_max_subcolumns_count))));
-
     // always create root: data type nothing
     explicit ColumnObject(int32_t max_subcolumns_count);
 
@@ -350,10 +347,7 @@ public:
 
     void incr_num_rows(size_t n) { num_rows += n; }
 
-    // Sets the number of rows and aligns all subcolumns and the serialized sparse column accordingly.
-    // During serialization and reading, each subcolumn is processed separately and then added to the column object,
-    // ultimately aligning all columns through this method.
-    void set_num_rows_and_align(size_t n);
+    void set_num_rows(size_t n);
 
     size_t rows() const { return num_rows; }
 

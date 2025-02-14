@@ -2188,8 +2188,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize(),
-                            tbl.getVariantMaxSubcolumnsCount());
+                            tbl.storagePageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -3074,9 +3073,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         Preconditions.checkNotNull(versionInfo);
 
-        int variantMaxSubcolumnsCount = PropertyAnalyzer.VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_NEW_VALUE;
+        int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 : ConnectContext.get()
+                                                .getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
         try {
-            variantMaxSubcolumnsCount = PropertyAnalyzer.analyzeVariantMaxSubcolumnsCount(properties);
+            variantMaxSubcolumnsCount = PropertyAnalyzer
+                                            .analyzeVariantMaxSubcolumnsCount(properties, variantMaxSubcolumnsCount);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

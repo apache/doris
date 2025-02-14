@@ -1295,24 +1295,7 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-void ColumnObject::set_num_rows_and_align(size_t n) {
-    for (auto& entry : subcolumns) {
-        if (auto size = entry->data.size(); size < n) {
-            entry->data.insert_many_defaults(n - size);
-        } else if (size > n) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            " subcolumn path is: {}, this subcolumn has more data, origin size is: "
-                            "{}, new size is: {}",
-                            entry->path.get_path(), size, n);
-        }
-    }
-    if (auto size = serialized_sparse_column->size(); size < n) {
-        serialized_sparse_column->insert_many_defaults(n - size);
-    } else if (size > n) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "sparse column has more data, origin size is: {}, new size is: {}", size,
-                        n);
-    }
+void ColumnObject::set_num_rows(size_t n) {
     num_rows = n;
 }
 
@@ -2218,6 +2201,10 @@ bool ColumnObject::is_scalar_variant() const {
     return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
            subcolumns.get_root()->is_scalar();
 }
+
+const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
+        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeObject>())));
 
 DataTypePtr ColumnObject::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();

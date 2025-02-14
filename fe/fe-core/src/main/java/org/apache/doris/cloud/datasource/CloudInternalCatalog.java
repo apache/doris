@@ -181,8 +181,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
-                        tbl.storagePageSize(),
-                        tbl.getVariantMaxSubcolumnsCount());
+                        tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -233,7 +232,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-            long storagePageSize, int variantMaxSubcolumnsCount) throws DdlException {
+            long storagePageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);

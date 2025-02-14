@@ -64,8 +64,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<vectorized::DataTypeObject>(0),
-                std::make_shared<DataTypeString>()};
+        return {std::make_shared<vectorized::DataTypeObject>(), std::make_shared<DataTypeString>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -75,7 +74,10 @@ public:
         DCHECK(is_string(arguments[1]))
                 << "Second argument for function: " << name << " should be String but it has type "
                 << arguments[1]->get_name() << ".";
-        return make_nullable(std::make_shared<DataTypeObject>(0));
+        auto arg_variant = remove_nullable(arguments[0]);
+        const auto& data_type_object = assert_cast<const DataTypeObject&>(*arg_variant);
+        return make_nullable(
+                std::make_shared<DataTypeObject>(data_type_object.variant_max_subcolumns_count()));
     }
 
     // wrap variant column with nullable
@@ -226,7 +228,7 @@ private:
                     sparse_data_offsets.push_back(sparse_data_paths->size());
                 }
                 container->get_subcolumns().create_root(root);
-                container->set_num_rows_and_align(mutable_ptr->size());
+                container->set_num_rows(mutable_ptr->size());
             };
 
             if (node != nullptr) {

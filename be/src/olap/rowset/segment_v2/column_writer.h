@@ -84,7 +84,6 @@ struct ColumnWriterOptions {
            << ", need_bloom_filter" << need_bloom_filter;
         return ss.str();
     }
-    int32_t variant_max_subcolumns_count = 0;
 };
 
 class BitmapIndexWriter;

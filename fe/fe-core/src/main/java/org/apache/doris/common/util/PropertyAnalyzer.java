@@ -1730,8 +1730,9 @@ public class PropertyAnalyzer {
         return properties;
     }
 
-    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties) throws AnalysisException {
-        int maxSubcoumnsCount = VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_NEW_VALUE;
+    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSubcoumnsCount = defuatValue;
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
             String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
             try {
