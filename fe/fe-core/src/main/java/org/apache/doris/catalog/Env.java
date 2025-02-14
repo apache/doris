@@ -2547,6 +2547,10 @@ public class Env {
         long curTime = System.currentTimeMillis();
         List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime))
                 .collect(Collectors.toList());
+        jobs.sort(Comparator.comparingLong(ExportJob::getCreateTimeMs));
+        while (jobs.size() > Config.max_export_history_job_num) {
+            jobs.remove(0);
+        }
         int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
