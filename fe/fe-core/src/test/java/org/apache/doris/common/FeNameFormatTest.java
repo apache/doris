@@ -35,8 +35,9 @@ public class FeNameFormatTest {
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("timestamp*"));
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("timestamp.1"));
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("timestamp.#"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("?id_"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("#id_"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("?id_"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("#id_"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("$id_"));
         // length 64
         String tblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb-uniq";
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkTableName(tblName));
