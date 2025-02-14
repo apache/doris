@@ -42,22 +42,32 @@ public class KerberosAuthenticationConfig extends AuthenticationConfig {
     }
 
     public void setKerberosKeytab(String kerberosKeytab) {
-        // Try to convert the provided keytab path to a Path object
+        // Convert the provided keytab path to a Path object
         Path keytabPath = Paths.get(kerberosKeytab);
-        // If the provided path is an existing file, use it directly
-        if (keytabPath.toFile().exists()) {
-            this.kerberosKeytab = kerberosKeytab;
-            return;
-        }
-        // If the file does not exist, try to resolve it by concatenating with the custom config directory
-        String resolvedKeytabPath = Config.custom_config_dir + File.separator + kerberosKeytab;
-        keytabPath = Paths.get(resolvedKeytabPath);
 
-        // If the resolved path also does not exist, throw an exception
-        if (!keytabPath.toFile().exists()) {
-            throw new RuntimeException("Keytab file does not exist: " + kerberosKeytab);
+        // Check if the provided path is an absolute path
+        if (keytabPath.isAbsolute()) {
+            // If it's an absolute path, check if the file exists
+            if (keytabPath.toFile().exists()) {
+                // If the file exists, set the kerberosKeytab
+                this.kerberosKeytab = kerberosKeytab;
+            } else {
+                // If the file does not exist, throw an exception
+                throw new RuntimeException("Keytab file does not exist: " + kerberosKeytab);
+            }
+        } else {
+            // If it's not an absolute path, resolve it with the custom config directory
+            String resolvedKeytabPath = Config.custom_config_dir + File.separator + kerberosKeytab;
+            keytabPath = Paths.get(resolvedKeytabPath);
+
+            // Check if the resolved path exists
+            if (keytabPath.toFile().exists()) {
+                // If the file exists, set the kerberosKeytab
+                this.kerberosKeytab = keytabPath.toString();
+            } else {
+                // If the file does not exist, throw an exception
+                throw new RuntimeException("Keytab file does not exist: " + keytabPath.toString());
+            }
         }
-        // If a valid keytab file path is found, save it
-        this.kerberosKeytab = resolvedKeytabPath;
     }
 }

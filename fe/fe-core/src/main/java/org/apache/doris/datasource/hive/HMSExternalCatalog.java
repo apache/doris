@@ -187,22 +187,53 @@ public class HMSExternalCatalog extends ExternalCatalog {
         metadataOps = hiveOps;
     }
 
-    private Configuration loadHdfsConfiguration() {
+    @VisibleForTesting
+    public static Configuration loadHdfsConfiguration(Map<String, String> properties) {
         Configuration hdfsConf = new HdfsConfiguration();
-        for (Map.Entry<String, String> propEntry : catalogProperty.getHadoopProperties().entrySet()) {
-            hdfsConf.set(propEntry.getKey(), propEntry.getValue());
+
+        // If hadoop.conf.dir is specified, load configuration from there
+        String confDir = properties.get("hadoop.conf.dir");
+        if (confDir != null) {
+            hdfsConf.addResource(confDir + "/hdfs-site.xml");
+        }
+
+        // Add properties which will override values from configuration files
+        for (Map.Entry<String, String> propEntry : properties.entrySet()) {
+            if (!propEntry.getKey().equals("hadoop.conf.dir")) {
+                hdfsConf.set(propEntry.getKey(), propEntry.getValue());
+            }
         }
         return hdfsConf;
     }
 
-    private HiveConf loadHiveConf() {
+    @VisibleForTesting
+    public static HiveConf loadHiveConf(Map<String, String> properties) {
         HiveConf hiveConf = new HiveConf();
-        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-            hiveConf.set(kv.getKey(), kv.getValue());
+
+        // If hadoop.conf.dir is specified, load configuration from there
+        String confDir = properties.get("hadoop.conf.dir");
+        if (confDir != null) {
+            hiveConf.addResource(confDir + "/hive-site.xml");
         }
+
+        // Add properties which will override values from configuration files
+        for (Map.Entry<String, String> kv : properties.entrySet()) {
+            if (!kv.getKey().equals("hadoop.conf.dir")) {
+                hiveConf.set(kv.getKey(), kv.getValue());
+            }
+        }
+
         hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         return hiveConf;
+    }
+
+    private Configuration loadHdfsConfiguration() {
+        return loadHdfsConfiguration(catalogProperty.getHadoopProperties());
+    }
+
+    private HiveConf loadHiveConf() {
+        return loadHiveConf(catalogProperty.getHadoopProperties());
     }
 
     @Override
