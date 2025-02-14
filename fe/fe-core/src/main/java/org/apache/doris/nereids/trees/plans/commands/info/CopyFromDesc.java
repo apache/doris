@@ -15,9 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.CopyFromParam;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StageAndPattern;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,58 +29,81 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-public class CopyFromParam {
+/**
+ * copy from desc ==> copy from param
+ */
+public class CopyFromDesc {
     private static final Logger LOG = LogManager.getLogger(CopyFromParam.class);
     private static final String DOLLAR = "$";
-
-    @Getter
     private StageAndPattern stageAndPattern;
-    @Getter
-    private List<Expr> exprList;
-    @Getter
-    private Expr fileFilterExpr;
-    @Getter
+    private List<NamedExpression> exprList;
+    private Optional<Expression> fileFilterExpr;
     private List<String> fileColumns;
-    @Getter
-    private List<Expr> columnMappingList;
-    @Setter
+    private List<Expression> columnMappingList;
     private List<String> targetColumns;
 
-    public CopyFromParam(StageAndPattern stageAndPattern) {
+    public CopyFromDesc(StageAndPattern stageAndPattern) {
         this.stageAndPattern = stageAndPattern;
     }
 
-    public CopyFromParam(StageAndPattern stageAndPattern, List<Expr> exprList, Expr whereExpr) {
+    public CopyFromDesc(StageAndPattern stageAndPattern, List<NamedExpression> exprList,
+                        Optional<Expression> whereExpr) {
         this.stageAndPattern = stageAndPattern;
         this.exprList = exprList;
         this.fileFilterExpr = whereExpr;
     }
 
-    public CopyFromParam(StageAndPattern stageAndPattern, List<Expr> exprList, Expr fileFilterExpr,
-                         List<String> fileColumns, List<Expr> columnMappingList, List<String> targetColumns) {
-        this.stageAndPattern = stageAndPattern;
-        this.exprList = exprList;
-        this.fileFilterExpr = fileFilterExpr;
-        this.fileColumns = fileColumns;
-        this.columnMappingList = columnMappingList;
+    public void setTargetColumns(List<String> targetColumns) {
         this.targetColumns = targetColumns;
     }
 
-    public void analyze(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
+    public StageAndPattern getStageAndPattern() {
+        return stageAndPattern;
+    }
+
+    public List<Expression> getColumnMappingList() {
+        return columnMappingList;
+    }
+
+    public List<NamedExpression> getExprList() {
+        return exprList;
+    }
+
+    public List<String> getFileColumns() {
+        return fileColumns;
+    }
+
+    public Optional<Expression> getFileFilterExpr() {
+        return fileFilterExpr;
+    }
+
+    public List<String> getTargetColumns() {
+        return targetColumns;
+    }
+
+    /**
+     * analyze
+     */
+    public void validate(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
             throws AnalysisException {
         if (exprList == null && fileFilterExpr == null && !useDeleteSign) {
             return;
@@ -146,14 +172,15 @@ public class CopyFromParam {
         parseColumnNames(fileType, fileColumns);
 
         if (exprList != null) {
-            if (targetColumns.size() != exprList.size()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
-            }
-            for (int i = 0; i < targetColumns.size(); i++) {
-                Expr expr = exprList.get(i);
-                BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ,
-                        new SlotRef(null, targetColumns.get(i)), expr);
-                columnMappingList.add(binaryPredicate);
+            if (!(exprList.size() == 1 && exprList.get(0) instanceof UnboundStar)) {
+                if (targetColumns.size() != exprList.size()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
+                }
+                for (int i = 0; i < targetColumns.size(); i++) {
+                    Expression expr = exprList.get(i);
+                    EqualTo binaryPredicate = new EqualTo(new UnboundSlot(targetColumns.get(i)), expr);
+                    columnMappingList.add(binaryPredicate);
+                }
             }
         } else {
             for (int i = 0; i < targetColumns.size(); i++) {
@@ -162,9 +189,8 @@ public class CopyFromParam {
                 // mode. Because if the src data is an expr, strict mode judgment will
                 // not be performed.
                 if (!fileColumns.get(i).equalsIgnoreCase(targetColumns.get(i))) {
-                    BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ,
-                            new SlotRef(null, targetColumns.get(i)),
-                            new SlotRef(null, fileColumns.get(i)));
+                    EqualTo binaryPredicate = new EqualTo(new UnboundSlot(targetColumns.get(i)),
+                            new UnboundSlot(fileColumns.get(i)));
                     columnMappingList.add(binaryPredicate);
                 }
             }
@@ -177,7 +203,7 @@ public class CopyFromParam {
             return false;
         }
         List<SlotRef> slotRefs = Lists.newArrayList();
-        Expr.collectList(exprList, SlotRef.class, slotRefs);
+        //        Expr.collectList(exprList, SlotRef.class, slotRefs);
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (SlotRef slotRef : slotRefs) {
             String columnName = slotRef.getColumnName();
@@ -192,7 +218,7 @@ public class CopyFromParam {
             }
         }
         if (addDeleteSign) {
-            exprList.add(new SlotRef(null, Column.DELETE_SIGN));
+            //            exprList.add(new SlotRef(null, Column.DELETE_SIGN));
             fileColumns.add(Column.DELETE_SIGN);
         }
         return true;
@@ -210,29 +236,29 @@ public class CopyFromParam {
     private int getMaxFileColumnId() throws AnalysisException {
         int maxId = 0;
         if (exprList != null) {
-            int maxFileColumnId = getMaxFileColumnId(exprList);
+            int maxFileColumnId = getMaxFileFilterColumnId(
+                    exprList.stream().map(expr -> (Expression) expr).collect(Collectors.toList()));
             maxId = maxId > maxFileColumnId ? maxId : maxFileColumnId;
         }
         if (fileFilterExpr != null) {
-            int maxFileColumnId = getMaxFileColumnId(Lists.newArrayList(fileFilterExpr));
+            int maxFileColumnId = getMaxFileFilterColumnId(Lists.newArrayList(fileFilterExpr.get()));
             maxId = maxId > maxFileColumnId ? maxId : maxFileColumnId;
         }
         return maxId;
     }
 
-    private int getMaxFileColumnId(List<Expr> exprList) throws AnalysisException {
-        List<SlotRef> slotRefs = Lists.newArrayList();
-        Expr.collectList(exprList, SlotRef.class, slotRefs);
+    private int getMaxFileFilterColumnId(List<Expression> exprList) throws AnalysisException {
+        Set<Slot> slots = ExpressionUtils.getInputSlotSet(exprList);
         int maxId = 0;
-        for (SlotRef slotRef : slotRefs) {
-            int fileColumnId = getFileColumnIdOfSlotRef(slotRef);
+        for (Slot slot : slots) {
+            int fileColumnId = getFileColumnIdOfSlotRef((UnboundSlot) slot);
             maxId = fileColumnId < maxId ? maxId : fileColumnId;
         }
         return maxId;
     }
 
-    private int getFileColumnIdOfSlotRef(SlotRef slotRef) throws AnalysisException {
-        String columnName = slotRef.getColumnName();
+    private int getFileColumnIdOfSlotRef(UnboundSlot unboundSlot) throws AnalysisException {
+        String columnName = unboundSlot.getName();
         try {
             if (!columnName.startsWith(DOLLAR)) {
                 throw new AnalysisException("can not mix column name and dollar sign");
@@ -254,24 +280,5 @@ public class CopyFromParam {
                 }
             }
         }
-    }
-
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        if (columnMappingList != null || fileFilterExpr != null) {
-            sb.append("(SELECT ");
-            if (columnMappingList != null) {
-                Joiner.on(", ").appendTo(sb,
-                        Lists.transform(columnMappingList, (Function<Expr, Object>) expr -> expr.toSql()));
-            }
-            sb.append(" FROM ").append(stageAndPattern.toSql());
-            if (fileFilterExpr != null) {
-                sb.append(" WHERE ").append(fileFilterExpr.toSql());
-            }
-            sb.append(")");
-        } else {
-            sb.append(stageAndPattern.toSql());
-        }
-        return sb.toString();
     }
 }
