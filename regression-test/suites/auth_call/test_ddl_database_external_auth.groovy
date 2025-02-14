@@ -36,7 +36,7 @@ suite("test_ddl_database_external_auth","p0,auth_call,external,hive,external_doc
     );"""
 
 
-    String user = '${suiteName}_user'
+    String user = "${suiteName}_user"
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
