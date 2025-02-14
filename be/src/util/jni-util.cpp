@@ -107,7 +107,7 @@ const std::string GetKerb5ConfPath() {
     setenv("CLASSPATH", classpath.c_str(), 0);
 
     // LIBHDFS_OPTS
-    const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    const std::string java_opts = getenv("JAVA_OPTS_FOR_JDK_17") ? getenv("JAVA_OPTS_FOR_JDK_17") : "";
     std::string libhdfs_opts =
             fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{} ", java_opts,
                         getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
@@ -123,7 +123,7 @@ const std::string GetKerb5ConfPath() {
     if (rv == 0) {
         std::vector<std::string> options;
 
-        char* java_opts = getenv("JAVA_OPTS");
+        char* java_opts = getenv("JAVA_OPTS_FOR_JDK_17");
         if (java_opts == nullptr) {
             options = {
                     GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
@@ -216,7 +216,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 }
 
 void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
-    // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
+    // The start_be.sh would set JAVA_OPTS_FOR_JDK_17 inside LIBHDFS_OPTS
     std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     std::istringstream iss(java_opts);
     std::string opt;
