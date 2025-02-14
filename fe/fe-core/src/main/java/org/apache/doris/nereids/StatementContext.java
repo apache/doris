@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -175,6 +176,7 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -278,6 +280,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getMtmvRelatedTables() {
         return mtmvRelatedTables;
+    }
+
+    public Set<MTMV> getCandidateMTMVs() {
+        return candidateMTMVs;
     }
 
     public Map<List<String>, TableIf> getTables() {

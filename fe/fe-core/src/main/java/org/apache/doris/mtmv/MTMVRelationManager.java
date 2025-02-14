@@ -26,7 +26,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
@@ -74,43 +73,35 @@ public class MTMVRelationManager implements MTMVHookService {
     /**
      * if At least one partition is available, return this mtmv
      *
-     * @param tableInfos
+     * @param candidateMTMVs
      * @param ctx
      * @return
      */
-    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx,
+    public Set<MTMV> getAvailableMTMVs(Set<MTMV> candidateMTMVs, ConnectContext ctx,
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
-        Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
-        for (BaseTableInfo tableInfo : mvInfos) {
-            try {
-                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (predicate.test(ctx, mtmv)) {
-                    continue;
-                }
-                if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
-                    res.add(mtmv);
-                }
-            } catch (Exception e) {
-                // not throw exception to client, just ignore it
-                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
+        for (MTMV mtmv : candidateMTMVs) {
+            if (predicate.test(ctx, mtmv)) {
+                continue;
+            }
+            if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
+                res.add(mtmv);
             }
         }
         return res;
     }
 
     /**
-     * get all mtmv related to tableInfos.
+     * get candidate mtmv related to tableInfos.
      */
-    public Set<MTMV> getAllMTMVs(List<BaseTableInfo> tableInfos) {
+    public Set<MTMV> getCandidateMTMVs(List<BaseTableInfo> tableInfos) {
         Set<MTMV> mtmvs = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
                 // 抽出来方法
-                if (mtmv.getStatus().getState() == MTMVState.NORMAL
-                        && mtmv.getStatus().getRefreshState() != MTMVRefreshState.INIT) {
+                if (mtmv.canBeCandidate()) {
                     mtmvs.add(mtmv);
                 }
             } catch (Exception e) {

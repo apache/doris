@@ -160,10 +160,9 @@ public class InitMaterializationContextHook implements PlannerHook {
     }
 
     protected Set<MTMV> getAvailableMTMVs(Set<TableIf> usedTables, CascadesContext cascadesContext) {
-        List<BaseTableInfo> usedBaseTables =
-                usedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
         return Env.getCurrentEnv().getMtmvService().getRelationManager()
-                .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext(),
+                .getAvailableMTMVs(cascadesContext.getStatementContext().getCandidateMTMVs(),
+                        cascadesContext.getConnectContext(),
                         false, ((connectContext, mtmv) -> {
                             return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
                                     .isEnableMaterializedViewRewriteWhenBaseTableUnawareness());
