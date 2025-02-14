@@ -26,6 +26,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
@@ -106,7 +107,12 @@ public class MTMVRelationManager implements MTMVHookService {
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
-                mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
+                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
+                // 抽出来方法
+                if (mtmv.getStatus().getState() == MTMVState.NORMAL
+                        && mtmv.getStatus().getRefreshState() != MTMVRefreshState.INIT) {
+                    mtmvs.add(mtmv);
+                }
             } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
