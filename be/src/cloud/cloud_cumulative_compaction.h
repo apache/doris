@@ -44,7 +44,7 @@ private:
 
     Status modify_rowsets() override;
 
-    void garbage_collection() override;
+    Status garbage_collection() override;
 
     void update_cumulative_point();
 
@@ -52,7 +52,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-    std::string _uuid;
     int64_t _input_segments = 0;
     int64_t _max_conflict_version = 0;
     // Snapshot values when pick input rowsets

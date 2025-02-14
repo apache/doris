@@ -36,6 +36,7 @@
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/compaction.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -54,7 +55,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
 static constexpr int LOAD_INITIATOR_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
