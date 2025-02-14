@@ -112,7 +112,7 @@ public class CreateFileStmt extends DdlStmt implements NotFallbackInParser {
         Optional<String> optional = properties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
+            throw new AnalysisException("[" + optional.get() + "] is invalid property");
         }
 
         catalogName = properties.get(PROP_CATALOG);
