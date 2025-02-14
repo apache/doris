@@ -113,7 +113,7 @@ public:
     int skip_large_memory_check = 0;
 
     void memory_orphan_check() {
-#ifdef USE_MEM_TRACKER
+#ifndef BE_TEST
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                limiter_mem_tracker()->label() != "Orphan")
                 << doris::MEMORY_ORPHAN_CHECK_MSG;
