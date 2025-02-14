@@ -1752,7 +1752,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
-    auto err = txn->get(lock_key, &lock_val);
+    auto err = txn->get(lock_key, &lock_val, lock_id == -1 /*snapshot*/);
     TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_lock.inject_get_lock_key_err", &err);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "lock id key not found";
