@@ -142,16 +142,10 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 
--- !limit_distinct --
-PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
---------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[t1]
-----------PhysicalOlapScan[t2]
+Hint log:
+Used: [broadcast]_2
+UnUsed:
+SyntaxError:
 
 -- !limit_offset_agg --
 PhysicalResultSink
