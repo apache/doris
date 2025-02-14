@@ -503,7 +503,8 @@ public class RuntimeProfile {
             mergeProfiles(allChilds, newCreatedMergedChildProfile, planNodeMap);
             // RuntimeProfile has at least one counter named TotalTime, should exclude it.
             if (newCreatedMergedChildProfile.counterMap.size() > 1) {
-                simpleProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap, templateProfile.childList.get(i).second);
+                simpleProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap,
+                                            templateProfile.childList.get(i).second);
                 simpleProfile.rowsProducedMap.putAll(newCreatedMergedChildProfile.rowsProducedMap);
             }
         }
