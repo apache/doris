@@ -411,8 +411,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
         // TODO: FIX DUPLICATE COUNTERS
         // In production, we will return the existing counter.
         // This will not make be crash, but the result may be wrong.
-        throw Exception(
-                Status::InvalidArgument("Add Duplicate counter name {} to {} ", name, this->_name));
+        return _counter_map[name];
     }
 
     // Parent counter must already exist.
