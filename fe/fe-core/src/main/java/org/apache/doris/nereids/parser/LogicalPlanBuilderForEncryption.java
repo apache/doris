@@ -126,7 +126,7 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
         if (MapUtils.isNotEmpty(properties)) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ",
+            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=",
                     true, false, true);
             indexInSqlToString.put(Pair.of(start, stop), printableMap.toString());
         }
