@@ -82,7 +82,7 @@ public class DropFileStmt extends DdlStmt implements NotFallbackInParser {
         Optional<String> optional = properties.keySet().stream().filter(
                 entity -> !PROP_CATALOG.equals(entity)).findFirst();
         if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
+            throw new AnalysisException("[" + optional.get() + "] is invalid property");
         }
 
         catalogName = properties.get(PROP_CATALOG);
