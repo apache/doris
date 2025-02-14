@@ -47,6 +47,22 @@ suite("split_join_for_null_skew") {
     qt_int_has_is_not_null "select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.dt,t1.b,t2.a,t2.b from split_join_for_null_skew_t t1 left join split_join_for_null_skew_t t2 on t1.a=t2.a where t1.a is not null order by 1,2,3,4"
     qt_int_has_is_null "select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.dt,t1.b,t2.a,t2.b from split_join_for_null_skew_t t1 left join split_join_for_null_skew_t t2 on t1.a=t2.a where t1.a is null order by 1,2,3,4"
 
+    // split expr has multi slots
+    qt_multi_slots_split_expr """select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1
+    left join split_join_for_null_skew_t t2 on t1.a+t1.b=t2.a order by 1,2,3,4;"""
+    qt_have_nonequal_join_conjuncts """select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1
+    left join split_join_for_null_skew_t t2 on t1.a=t2.a and t1.b<t2.b order by 1,2,3,4;"""
+    qt_test_multi_left_join """
+    select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1 
+    left join split_join_for_null_skew_t t2 on t1.a=t2.a and t1.b<t2.b
+    left join split_join_for_null_skew_t t3 on t1.a=t3.a
+    order by 1,2,3,4; """
+    qt_test_upper_ref_agg """
+    select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/  a,b from (
+    select t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1 
+    left join split_join_for_null_skew_t t2 on t1.a=t2.a  where t1.a is not null) t group by a,b order by 1,2;
+    """
+
     // right join
     qt_right_join_varchar "select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.dt,t2.c  from split_join_for_null_skew_t t1 right join split_join_for_null_skew_t t2 on t1.c=t2.c order by 1,2,3,4"
     qt_right_join_datetime "select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t2.b,t1.b,t2.a,t2.c  from split_join_for_null_skew_t t1 right join split_join_for_null_skew_t t2 on t1.dt=t2.dt order by 1,2,3,4"
