@@ -28,6 +28,11 @@ suite("test_ddl_table_auth","p0,auth_call") {
     String cteSelectDstDb = 'test_ddl_table_cte_select_dst_db'
     String cteSelectDstTb = 'test_ddl_table_cte_select_dst_tb'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    try_sql """drop database if exists ${cteLikeDstDb}"""
+    try_sql """drop database if exists ${cteSelectDstDb}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -35,12 +40,9 @@ suite("test_ddl_table_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    try_sql """drop database if exists ${cteLikeDstDb}"""
-    try_sql """drop database if exists ${cteSelectDstDb}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    if (enableStoragevault()) {
+        sql """GRANT usage_priv ON STORAGE VAULT '%' TO ${user}""";
+    }
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 
