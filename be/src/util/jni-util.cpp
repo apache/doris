@@ -107,7 +107,8 @@ const std::string GetKerb5ConfPath() {
     setenv("CLASSPATH", classpath.c_str(), 0);
 
     // LIBHDFS_OPTS
-    const std::string java_opts = getenv("JAVA_OPTS_FOR_JDK_17") ? getenv("JAVA_OPTS_FOR_JDK_17") : "";
+    const std::string java_opts =
+            getenv("JAVA_OPTS_FOR_JDK_17") ? getenv("JAVA_OPTS_FOR_JDK_17") : "";
     std::string libhdfs_opts =
             fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{} ", java_opts,
                         getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
