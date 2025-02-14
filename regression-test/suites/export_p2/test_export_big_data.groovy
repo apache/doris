@@ -139,6 +139,5 @@ suite("test_export_big_data", "p2") {
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_export_name}")
-        delete_files.call("${outFilePath}")
     }
 }
