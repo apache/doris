@@ -237,8 +237,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.info("Synchronized table (create): [Name: {}, ID: {}, Remote Name: {}]",
                     table.getName(), table.getId(), log.getRemoteTableNames().get(i));
         }
-        // Check whether the remoteName and db Tbl db in idToTbl is empty
-        for (T table : idToTbl.values()) {
+        // Check whether the remoteName and db Tbl db in tmpIdToTbl is empty
+        for (T table : tmpIdToTbl.values()) {
             if (Strings.isNullOrEmpty(table.getRemoteName())
                     || table.getDb() == null) {
                 LOG.info("Table [{}] remoteName or database is empty, mark as uninitialized",
@@ -664,8 +664,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                         ((ExternalTable) obj).getName());
             }
         }
-        // Check whether the remoteName and db Tbl db in idToTbl is empty
-        for (T table : idToTbl.values()) {
+        // Check whether the remoteName and db Tbl db in tmpIdToTbl is empty
+        for (T table : tmpIdToTbl.values()) {
             if (Strings.isNullOrEmpty(table.getRemoteName())
                     || table.getDb() == null) {
                 initialized = false;
