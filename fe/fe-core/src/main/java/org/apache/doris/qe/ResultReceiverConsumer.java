@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+
 import com.google.common.collect.Lists;
 import org.apache.thrift.TException;
 
