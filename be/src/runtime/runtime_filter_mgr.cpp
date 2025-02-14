@@ -76,29 +76,14 @@ Status RuntimeFilterMgr::register_consumer_filter(
         RuntimeProfile* parent_profile) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
-    bool has_exist = false;
 
     std::lock_guard<std::mutex> l(_lock);
-    if (auto iter = _consumer_map.find(key); iter != _consumer_map.end()) {
-        for (auto filter : iter->second) {
-            if (filter->node_id() == node_id) {
-                *consumer_filter = filter;
-                has_exist = true;
-            }
-        }
-    }
-
     DCHECK(!(_is_global xor need_local_merge))
             << " _is_global: " << _is_global << " need_local_merge: " << need_local_merge;
-    if (!has_exist) {
-        std::shared_ptr<RuntimeFilterConsumer> filter;
-        RETURN_IF_ERROR(
-                RuntimeFilterConsumer::create(_state, &desc, node_id, &filter, parent_profile));
-        _consumer_map[key].push_back(filter);
-        *consumer_filter = filter;
-    } else if (!need_local_merge) {
-        return Status::InvalidArgument("filter has registered");
-    }
+    std::shared_ptr<RuntimeFilterConsumer> filter;
+    RETURN_IF_ERROR(RuntimeFilterConsumer::create(_state, &desc, node_id, &filter, parent_profile));
+    _consumer_map[key].push_back(filter);
+    *consumer_filter = filter;
 
     return Status::OK();
 }
