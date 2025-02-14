@@ -232,21 +232,22 @@ public class FunctionRegistry {
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
                 .filter(builder -> {
-                   if (builder instanceof BuiltinFunctionBuilder) {
-                       Constructor<BoundFunction> builderMethod = ((BuiltinFunctionBuilder) builder).getBuilderMethod();
-                       if (Modifier.isAbstract(builderMethod.getModifiers())
-                               || !Modifier.isPublic(builderMethod.getModifiers())) {
+                    if (builder instanceof BuiltinFunctionBuilder) {
+                        Constructor<BoundFunction> builderMethod
+                                = ((BuiltinFunctionBuilder) builder).getBuilderMethod();
+                        if (Modifier.isAbstract(builderMethod.getModifiers())
+                                || !Modifier.isPublic(builderMethod.getModifiers())) {
                            return false;
-                       }
-                       for (Class<?> parameterType : builderMethod.getParameterTypes()) {
-                           if (!Expression.class.isAssignableFrom(parameterType)
-                                   && !(parameterType.isArray()
+                        }
+                        for (Class<?> parameterType : builderMethod.getParameterTypes()) {
+                            if (!Expression.class.isAssignableFrom(parameterType)
+                                    && !(parameterType.isArray()
                                         && Expression.class.isAssignableFrom(parameterType.getComponentType()))) {
-                               return false;
-                           }
-                       }
-                   }
-                   return true;
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
                 })
                 .map(builder -> name + builder.parameterDisplayString())
                 .collect(Collectors.joining(", ", "[", "]"));
