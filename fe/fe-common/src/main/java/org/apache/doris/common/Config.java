@@ -1662,6 +1662,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static boolean enable_restore_snapshot_rpc_compression = true;
 
+    @ConfField(mutable = true, description = {
+        "是否为表随机选择压缩算法",
+        "should randomly select a compression algorithm for the table"
+    })
+    public static boolean enable_fuzzy_compression = false;
+
     /**
      * A internal config, to indicate whether to reset the index id when restore olap table.
      *
