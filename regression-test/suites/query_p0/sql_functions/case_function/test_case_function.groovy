@@ -1282,6 +1282,7 @@ suite("test_case_function", "query,p0") {
      sql """
      create table d_table (k1 varchar(100) not null)
      duplicate key (k1)
+     distributed BY hash(k1) buckets 3
      PROPERTIES (
      "replication_allocation" = "tag.location.default: 1"
      );
