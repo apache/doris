@@ -55,6 +55,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -390,11 +391,12 @@ class ChildOutputPropertyDeriverTest {
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
+        long leftTableId = 0L;
         PhysicalProperties left = new PhysicalProperties(
                 new DistributionSpecHash(
                         Lists.newArrayList(new ExprId(0)),
                         ShuffleType.NATURAL,
-                        0,
+                        leftTableId,
                         Sets.newHashSet(0L)
                 ),
                 new OrderSpec(
@@ -402,10 +404,11 @@ class ChildOutputPropertyDeriverTest {
                                 true, true)))
         );
 
+        long rightTableId = 1L;
         PhysicalProperties right = new PhysicalProperties(new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(1)),
                 ShuffleType.NATURAL,
-                1,
+                rightTableId,
                 Sets.newHashSet(1L)
         ));
 
@@ -416,11 +419,20 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
-        Assertions.assertEquals(-1, actual.getTableId());
-        // check merged
-        Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());
-        Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().keySet().iterator().next().asInt());
+
+        if (SessionVariable.canUseNereidsDistributePlanner()) {
+            Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
+            Assertions.assertEquals(rightTableId, actual.getTableId());
+            // check merged
+            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());
+            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().keySet().iterator().next().asInt());
+        } else {
+            Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
+            Assertions.assertEquals(-1, actual.getTableId());
+            // check merged
+            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());
+            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().keySet().iterator().next().asInt());
+        }
     }
 
     @Test
