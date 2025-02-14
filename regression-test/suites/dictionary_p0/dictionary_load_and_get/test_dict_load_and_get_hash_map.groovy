@@ -47,7 +47,7 @@ suite("test_dict_load_and_get_hash_map") {
 
     sleep(1000);
 
-    test { // 重复的key会报错
+    test {
         sql """
             refresh dictionary dc_single_key_with_duplicate
         """
