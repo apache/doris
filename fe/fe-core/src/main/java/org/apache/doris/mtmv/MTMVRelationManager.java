@@ -100,7 +100,6 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                // 抽出来方法
                 if (mtmv.canBeCandidate()) {
                     mtmvs.add(mtmv);
                 }
