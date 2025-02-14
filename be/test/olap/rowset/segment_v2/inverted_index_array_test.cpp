@@ -104,11 +104,13 @@ public:
                 buf.resize(null_bitmap_size);
                 null_bitmap_in->readBytes(reinterpret_cast<uint8_t*>(buf.data()), null_bitmap_size);
                 *null_bitmap = roaring::Roaring::read(reinterpret_cast<char*>(buf.data()), false);
-                assert(expected_null_bitmap.size() == null_bitmap->cardinality());
+                EXPECT_TRUE(expected_null_bitmap.size() == null_bitmap->cardinality());
                 for (int i : expected_null_bitmap) {
                     EXPECT_TRUE(null_bitmap->contains(i));
                 }
             }
+            index_input->close();
+            _CLLDELETE(index_input);
         } catch (const CLuceneError& e) {
             EXPECT_TRUE(false) << "CLuceneError: " << e.what();
         }
@@ -271,6 +273,10 @@ public:
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
+        const auto* null_map = accessor->get_nullmap();
+        // add nulls
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
@@ -354,7 +360,10 @@ public:
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
-
+        const auto* null_map = accessor->get_nullmap();
+        // add nulls
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
 
@@ -462,6 +471,10 @@ public:
         auto field_size = field->get_sub_field(0)->size();
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
+        EXPECT_EQ(st, Status::OK());
+        const auto* null_map = accessor->get_nullmap();
+        // add nulls
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
@@ -573,6 +586,10 @@ public:
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
+        const auto* null_map = accessor->get_nullmap();
+        // add nulls
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
 
@@ -662,10 +679,13 @@ public:
             const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
             const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
             const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
             auto field_size = field->get_sub_field(0)->size();
             st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                            offsets_ptr, row_num);
+            EXPECT_EQ(st, Status::OK());
+            const auto* null_map = accessor->get_nullmap();
+            // add nulls
+            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
             EXPECT_EQ(st, Status::OK());
 
             // for Block1, the expected non-null behavior is row1 and row2
@@ -714,15 +734,68 @@ public:
             st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                            offsets_ptr, row_num);
             EXPECT_EQ(st, Status::OK());
+            const auto* null_map = accessor->get_nullmap();
+            // add nulls
+            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            EXPECT_EQ(st, Status::OK());
 
             ExpectedDocMap expected = {{"block2_data1", {4}}};
+            merged_expected.insert(expected.begin(), expected.end());
+        }
+
+        // --- Block 3 ---
+        {
+            const int row_num = 2;
+            vectorized::DataTypePtr inner_string = std::make_shared<vectorized::DataTypeNullable>(
+                    std::make_shared<vectorized::DataTypeString>());
+            vectorized::DataTypePtr array_type =
+                    std::make_shared<vectorized::DataTypeArray>(inner_string);
+            vectorized::DataTypePtr final_type =
+                    std::make_shared<vectorized::DataTypeNullable>(array_type);
+
+            vectorized::MutableColumnPtr col = final_type->create_column();
+            // row0: non-null, array with 1 element: "block3_data1"
+            {
+                vectorized::Array arr;
+                arr.push_back("block3_data1");
+                col->insert(arr);
+            }
+            // row1: null
+            col->insert(vectorized::Null());
+
+            vectorized::ColumnPtr column_array = std::move(col);
+            vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+
+            vectorized::Block block;
+            block.insert(type_and_name);
+
+            TabletSchemaSPtr tablet_schema = create_schema_with_array();
+            vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+            convertor.set_source_content(&block, 0, block.rows());
+
+            auto [st, accessor] = convertor.convert_column_data(0);
+            EXPECT_EQ(st, Status::OK());
+            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
+            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
+            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
+            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
+            auto field_size = field->get_sub_field(0)->size();
+            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
+                                                           offsets_ptr, row_num);
+            EXPECT_EQ(st, Status::OK());
+            const auto* null_map = accessor->get_nullmap();
+            // add nulls
+            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            EXPECT_EQ(st, Status::OK());
+
+            ExpectedDocMap expected = {{"block3_data1", {6}}};
             merged_expected.insert(expected.begin(), expected.end());
         }
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
 
-        std::vector<int> expected_null_bitmap = {0, 3, 5};
+        std::vector<int> expected_null_bitmap = {0, 3, 5, 7};
         check_terms_stats(index_path_prefix, &merged_expected, expected_null_bitmap,
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
@@ -818,6 +891,10 @@ public:
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
+        const auto* null_map = accessor->get_nullmap();
+        // add nulls
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->close(), Status::OK());
 
@@ -858,6 +935,8 @@ public:
                     EXPECT_TRUE(null_bitmap->contains(i));
                 }
             }
+            index_input->close();
+            _CLLDELETE(index_input);
         } catch (const CLuceneError& e) {
             EXPECT_TRUE(false) << "CLuceneError: " << e.what();
         }

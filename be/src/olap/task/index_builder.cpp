@@ -589,9 +589,9 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
             return converted_result.first;
         }
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
-        if (converted_result.second->get_nullmap()) {
-            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(),
-                                          converted_result.second->get_nullmap(), &ptr,
+        const auto* null_map = converted_result.second->get_nullmap();
+        if (null_map) {
+            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(), null_map, &ptr,
                                           block->rows()));
         } else {
             RETURN_IF_ERROR(_add_data(column_name, writer_sign, field.get(), &ptr, block->rows()));
@@ -606,18 +606,6 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
                                    const std::pair<int64_t, int64_t>& index_writer_sign,
                                    Field* field, const uint8_t* null_map, const uint8_t** ptr,
                                    size_t num_rows) {
-    size_t offset = 0;
-    auto next_run_step = [&]() {
-        size_t step = 1;
-        for (auto i = offset + 1; i < num_rows; ++i) {
-            if (null_map[offset] == null_map[i]) {
-                step++;
-            } else {
-                break;
-            }
-        }
-        return step;
-    };
     // TODO: need to process null data for inverted index
     if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(field->get_sub_field_count() == 1);
@@ -638,6 +626,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
             DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
                 _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
             })
+            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_nulls(null_map,
+                                                                                         num_rows));
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occured: {}", e.what());
@@ -645,7 +635,18 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
 
         return Status::OK();
     }
-
+    size_t offset = 0;
+    auto next_run_step = [&]() {
+        size_t step = 1;
+        for (auto i = offset + 1; i < num_rows; ++i) {
+            if (null_map[offset] == null_map[i]) {
+                step++;
+            } else {
+                break;
+            }
+        }
+        return step;
+    };
     try {
         do {
             auto step = next_run_step();

@@ -325,7 +325,27 @@ public:
         return Status::OK();
     }
 
-    Status add_array_nulls(uint32_t row_id) override { return Status::OK(); }
+    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+        if (num_rows == 0 || null_map == nullptr) {
+            return Status::OK();
+        }
+        std::vector<uint32_t> null_indices;
+        null_indices.reserve(num_rows / 8);
+
+        // because _rid is the row id in block, not segment, and we add data before we add nulls,
+        // so we need to subtract num_rows to get the row id in segment
+        for (size_t i = 0; i < num_rows; i++) {
+            if (null_map[i] == 1) {
+                null_indices.push_back(_rid - num_rows + static_cast<uint32_t>(i));
+            }
+        }
+
+        if (!null_indices.empty()) {
+            _null_bitmap.addMany(null_indices.size(), null_indices.data());
+        }
+
+        return Status::OK();
+    }
 
     Status new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
         try {
@@ -397,8 +417,9 @@ public:
         return Status::OK();
     }
 
-    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
-                            const uint8_t* offsets_ptr, size_t count) override {
+    Status add_array_values(size_t field_size, const void* value_ptr,
+                            const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
+                            size_t count) override {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
                         { count = 0; })
         if (count == 0) {
@@ -416,76 +437,79 @@ public:
             }
             size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
-                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
-                auto array_elem_size = offsets[i + 1] - offsets[i];
-                // TODO(Amory).later we use object pool to avoid field creation
+                // if current row is null, we just ignore to write inverted index, but we need to add null document
                 lucene::document::Field* new_field = nullptr;
-                CL_NS(analysis)::TokenStream* ts = nullptr;
-                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map && null_map[j] == 1) {
-                        continue;
-                    }
-                    auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                         v->get_size() > _ignore_above) ||
-                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
-                        // is here a null value?
-                        // TODO. Maybe here has performance problem for large size string.
-                        continue;
-                    } else {
-                        // now we temp create field . later make a pool
-                        Status st = create_field(&new_field);
-                        DBUG_EXECUTE_IF(
-                                "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
-                                "error",
-                                {
-                                    st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                            "debug point: add_array_values_create_field_error");
-                                })
-                        if (st != Status::OK()) {
-                            LOG(ERROR) << "create field "
-                                       << string(_field_name.begin(), _field_name.end())
-                                       << " error:" << st;
-                            return st;
+                if (!_null_bitmap.contains(i)) {
+                    // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                    // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                    auto array_elem_size = offsets[i + 1] - offsets[i];
+                    // TODO(Amory).later we use object pool to avoid field creation
+                    CL_NS(analysis)::TokenStream* ts = nullptr;
+                    for (auto j = start_off; j < start_off + array_elem_size; ++j) {
+                        if (nested_null_map && nested_null_map[j] == 1) {
+                            continue;
                         }
-                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
-                            // in this case stream need to delete after add_document, because the
-                            // stream can not reuse for different field
-                            bool own_token_stream = true;
-                            bool own_reader = true;
-                            std::unique_ptr<lucene::util::Reader> char_string_reader =
-                                    DORIS_TRY(create_char_string_reader(
-                                            _inverted_index_ctx->char_filter_map));
-                            char_string_reader->init(v->get_data(), v->get_size(), false);
-                            _analyzer->set_ownReader(own_reader);
-                            ts = _analyzer->tokenStream(new_field->name(),
-                                                        char_string_reader.release());
-                            new_field->setValue(ts, own_token_stream);
+                        auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                        if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                             v->get_size() > _ignore_above) ||
+                            (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                            // is here a null value?
+                            // TODO. Maybe here has performance problem for large size string.
+                            continue;
                         } else {
-                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                            // now we temp create field . later make a pool
+                            Status st = create_field(&new_field);
+                            DBUG_EXECUTE_IF(
+                                    "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
+                                    "error",
+                                    {
+                                        st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                                "debug point: add_array_values_create_field_error");
+                                    })
+                            if (st != Status::OK()) {
+                                LOG(ERROR) << "create field "
+                                           << string(_field_name.begin(), _field_name.end())
+                                           << " error:" << st;
+                                return st;
+                            }
+                            if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+                                _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                                // in this case stream need to delete after add_document, because the
+                                // stream can not reuse for different field
+                                bool own_token_stream = true;
+                                bool own_reader = true;
+                                std::unique_ptr<lucene::util::Reader> char_string_reader =
+                                        DORIS_TRY(create_char_string_reader(
+                                                _inverted_index_ctx->char_filter_map));
+                                char_string_reader->init(v->get_data(), v->get_size(), false);
+                                _analyzer->set_ownReader(own_reader);
+                                ts = _analyzer->tokenStream(new_field->name(),
+                                                            char_string_reader.release());
+                                new_field->setValue(ts, own_token_stream);
+                            } else {
+                                new_field_char_value(v->get_data(), v->get_size(), new_field);
+                            }
+                            _doc->add(*new_field);
                         }
-                        _doc->add(*new_field);
                     }
+                    start_off += array_elem_size;
+                    // here to make debug for array field with current doc which should has expected number of fields
+                    DBUG_EXECUTE_IF("array_inverted_index.write_index", {
+                        auto single_array_field_count =
+                                DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                        "array_inverted_index.write_index",
+                                        "single_array_field_count", 0);
+                        if (single_array_field_count < 0) {
+                            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                    "indexes count cannot be negative");
+                        }
+                        if (_doc->getFields()->size() != single_array_field_count) {
+                            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                    "array field has fields count {} not equal to expected {}",
+                                    _doc->getFields()->size(), single_array_field_count);
+                        }
+                    })
                 }
-                start_off += array_elem_size;
-                // here to make debug for array field with current doc which should has expected number of fields
-                DBUG_EXECUTE_IF("array_inverted_index.write_index", {
-                    auto single_array_field_count =
-                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                                    "array_inverted_index.write_index", "single_array_field_count",
-                                    0);
-                    if (single_array_field_count < 0) {
-                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                "indexes count cannot be negative");
-                    }
-                    if (_doc->getFields()->size() != single_array_field_count) {
-                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                "array field has fields count {} not equal to expected {}",
-                                _doc->getFields()->size(), single_array_field_count);
-                    }
-                })
 
                 if (!_doc->getFields()->empty()) {
                     // if this array is null, we just ignore to write inverted index
@@ -510,7 +534,6 @@ public:
                     }
                     _doc->add(*new_field);
                     RETURN_IF_ERROR(add_null_document());
-                    _null_bitmap.add(_rid);
                     _doc->clear();
                 }
                 _rid++;
@@ -518,19 +541,18 @@ public:
         } else if constexpr (field_is_numeric_type(field_type)) {
             size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                auto array_elem_size = offsets[i + 1] - offsets[i];
-                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map && null_map[j] == 1) {
-                        continue;
+                if (!_null_bitmap.contains(_rid + i)) {
+                    auto array_elem_size = offsets[i + 1] - offsets[i];
+                    for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
+                        if (nested_null_map && nested_null_map[j] == 1) {
+                            continue;
+                        }
+                        const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
+                        RETURN_IF_ERROR(add_value(*p));
                     }
-                    const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
-                    RETURN_IF_ERROR(add_value(*p));
+                    start_off += array_elem_size;
+                    _row_ids_seen_for_bkd++;
                 }
-                if (array_elem_size == 0) {
-                    _null_bitmap.add(_rid);
-                }
-                start_off += array_elem_size;
-                _row_ids_seen_for_bkd++;
                 _rid++;
             }
         }
