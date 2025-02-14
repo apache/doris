@@ -38,8 +38,8 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
-import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -223,7 +223,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (latestSnapshotId <= 0) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
-        return new MTMVVersionSnapshot(latestSnapshotId);
+        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
     }
 
     @Override
@@ -231,7 +231,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throws AnalysisException {
         makeSureInitialized();
         IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
-        return new MTMVVersionSnapshot(snapshotValue.getSnapshot().getSnapshotId());
+        return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
