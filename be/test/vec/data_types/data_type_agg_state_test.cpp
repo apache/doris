@@ -215,7 +215,6 @@ TEST_P(DataTypeAggStateTest, SerializeDeserializeTest) {
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
     auto* result = datatype_agg_state_hll_union->serialize(
             *column, buf.get(), BeExecVersionManager::get_newest_version());
-    std::cout<<(buf.get() - result)<<" "<<size<<std::endl;
     ASSERT_EQ(result, buf.get() + size);
 
     auto column2 = datatype_agg_state_hll_union->create_column();
