@@ -52,7 +52,7 @@ DataTypeObject::DataTypeObject(int32_t max_subcolumns_count)
 bool DataTypeObject::equals(const IDataType& rhs) const {
     auto rhs_type = typeid_cast<const DataTypeObject*>(&rhs);
     if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
-        LOG(INFO) << "_max_subcolumns_count is" << _max_subcolumns_count
+        VLOG_DEBUG << "_max_subcolumns_count is" << _max_subcolumns_count
                   << "rhs_type->variant_max_subcolumns_count()"
                   << rhs_type->variant_max_subcolumns_count();
         return false;

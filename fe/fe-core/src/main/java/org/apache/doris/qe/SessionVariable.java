@@ -2422,7 +2422,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
-        this.globalVariantMaxSubcolumnsCount = random.nextInt(1000);
+        this.globalVariantMaxSubcolumnsCount = random.nextInt(10);
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;

@@ -242,7 +242,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
     public static final int VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE = 0;
-    public static final int VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_NEW_VALUE = 5;
 
     public enum RewriteType {
         PUT,      // always put property
