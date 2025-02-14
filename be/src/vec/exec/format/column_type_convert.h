@@ -574,7 +574,7 @@ public:
                         _dst_type_desc->get_scale());
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
                 can_cast = SafeCastString<TYPE_BOOLEAN, ORC>::safe_cast_string(
-                        string_value.data, string_value.size, &value);
+                        string_value.data, cast_set<int>(string_value.size), &value);
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
                         string_value.data, cast_set<int>(string_value.size), &value);
@@ -695,10 +695,11 @@ public:
                     }
                 }
             } else {
-                res = static_cast<DstDorisType>(src_value * multiplier);
+                SrcCppType dst_value = src_value * static_cast<SrcCppType>(multiplier);
+                res = static_cast<DstDorisType>(dst_value);
                 if (UNLIKELY(!std::isfinite(src_value) ||
-                             src_value * multiplier > max_result.value ||
-                             src_value * multiplier < -max_result.value)) {
+                             dst_value > static_cast<SrcCppType>(max_result.value) ||
+                             dst_value < static_cast<SrcCppType>(-max_result.value))) {
                     if (null_map == nullptr) {
                         return Status::InternalError("Failed to cast value '{}' to {} column",
                                                      src_data[i], dst_col->get_name());
@@ -843,9 +844,9 @@ public:
                     }
                 }
             } else if (_to_scale == _from_scale) {
-                res_value = src_value;
+                res_value = static_cast<DstNativeType>(src_value);
                 if (narrow_integral &&
-                    (res_value > max_result.value || res_value < -max_result.value)) {
+                    (src_value > max_result.value || src_value < -max_result.value)) {
                     return Status::InternalError("Failed to cast value '{}' to {} column",
                                                  src_data[i].to_string(_from_scale),
                                                  dst_col->get_name());
@@ -855,14 +856,14 @@ public:
                         DataTypeDecimal<Decimal<MaxNativeType>>::get_scale_multiplier(_from_scale -
                                                                                       _to_scale)
                                 .value;
-                res_value = src_value / multiplier;
-
-                if (src_value % multiplier != 0 || res_value > max_result.value ||
-                    res_value < -max_result.value) {
+                MaxNativeType res = src_value / multiplier;
+                if (src_value % multiplier != 0 || res > max_result.value ||
+                    res < -max_result.value) {
                     return Status::InternalError("Failed to cast value '{}' to {} column",
                                                  src_data[i].to_string(_from_scale),
                                                  dst_col->get_name());
                 }
+                res_value = static_cast<DstNativeType>(res);
             }
         }
         return Status::OK();

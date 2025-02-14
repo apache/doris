@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/cast_set.h"
 #include "vec/exec/format/column_type_convert.h"
+
+#include "common/cast_set.h"
 
 namespace doris::vectorized::converter {
 #include "common/compile_check_begin.h"
