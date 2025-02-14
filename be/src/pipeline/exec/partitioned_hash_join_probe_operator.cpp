@@ -100,17 +100,14 @@ void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* ch
 
 template <bool spilled>
 void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* child_profile) {
-    UPDATE_COUNTER_FROM_INNER("ProbeTime");
     UPDATE_COUNTER_FROM_INNER("JoinFilterTimer");
     UPDATE_COUNTER_FROM_INNER("BuildOutputBlock");
     UPDATE_COUNTER_FROM_INNER("ProbeRows");
-    UPDATE_COUNTER_FROM_INNER("ProbeFindNextTime");
     UPDATE_COUNTER_FROM_INNER("ProbeExprCallTime");
     UPDATE_COUNTER_FROM_INNER("ProbeWhenSearchHashTableTime");
     UPDATE_COUNTER_FROM_INNER("ProbeWhenBuildSideOutputTime");
     UPDATE_COUNTER_FROM_INNER("ProbeWhenProbeSideOutputTime");
-    UPDATE_COUNTER_FROM_INNER("ProbeWhenProcessHashTableTime");
-    UPDATE_COUNTER_FROM_INNER("OtherJoinConjunctTime");
+    UPDATE_COUNTER_FROM_INNER("NonEqualJoinConjunctEvaluationTime");
     UPDATE_COUNTER_FROM_INNER("InitProbeSideTime");
 }
 
@@ -826,15 +823,11 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
     auto& local_state = get_local_state(state);
     if (local_state._shared_state->need_to_spill) {
         const auto revocable_size = _revocable_mem_size(state);
-        const auto min_revocable_size = state->spill_min_revocable_mem();
 
         if (state->get_query_ctx()->low_memory_mode()) {
-            return revocable_size >
-                   std::min<int64_t>(min_revocable_size,
-                                     static_cast<int64_t>(
-                                             vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM));
+            return revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
         } else {
-            return revocable_size > vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+            return revocable_size >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
         }
     }
     return false;

@@ -365,10 +365,12 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
+#ifndef BE_TEST
     // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
     if (state->get_query_ctx()->low_memory_mode()) {
         set_low_memory_mode(state);
     }
+#endif
 
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
@@ -517,13 +519,14 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_sink_buffer) {
-        fmt::format_to(
-                debug_string_buffer,
-                ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
-                "{}, queue dep: {}), _reach_limit: {}, working channels: {} , each queue size: {}",
-                _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,
-                _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(), _reach_limit.load(),
-                _working_channels_count.load(), _sink_buffer->debug_each_instance_queue_size());
+        fmt::format_to(debug_string_buffer,
+                       ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
+                       "{}, queue dep: {}), _reach_limit: {}, working channels: {}, total "
+                       "channels: {}, remote channels: {}, each queue size: {}",
+                       _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,
+                       _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(),
+                       _reach_limit.load(), _working_channels_count.load(), channels.size(),
+                       _rpc_channels_num, _sink_buffer->debug_each_instance_queue_size());
     }
     return fmt::to_string(debug_string_buffer);
 }

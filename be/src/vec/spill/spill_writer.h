@@ -22,7 +22,6 @@
 #include <string>
 
 #include "io/fs/file_writer.h"
-#include "runtime/query_statistics.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"

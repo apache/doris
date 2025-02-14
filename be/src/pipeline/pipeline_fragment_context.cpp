@@ -113,6 +113,7 @@
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/spill/spill_stream.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -1865,7 +1866,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
             }
 
             size_t revocable_size = task->get_revocable_size();
-            if (revocable_size > _runtime_state->spill_min_revocable_mem()) {
+            if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 res += revocable_size;
             }
         }
@@ -1878,8 +1879,7 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             size_t revocable_size_ = task->get_revocable_size();
-            if (revocable_size_ > _runtime_state->spill_min_revocable_mem() ||
-                (revocable_size_ > 0 && _query_ctx->enable_force_spill())) {
+            if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 revocable_tasks.emplace_back(task.get());
             }
         }

@@ -105,9 +105,7 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
     UPDATE_PROFILE("MemoryUsageHashTable");
     UPDATE_PROFILE("MemoryUsageSerializeKeyArena");
     UPDATE_PROFILE("BuildTime");
-    UPDATE_PROFILE("SerializeKeyTime");
     UPDATE_PROFILE("MergeTime");
-    UPDATE_PROFILE("SerializeDataTime");
     UPDATE_PROFILE("DeserializeAndMergeTime");
     UPDATE_PROFILE("HashTableComputeTime");
     UPDATE_PROFILE("HashTableEmplaceTime");

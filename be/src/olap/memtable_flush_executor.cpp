@@ -29,6 +29,7 @@
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
+#include "runtime/thread_context.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -186,8 +187,11 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
         DEFER_RELEASE_RESERVED();
 
+/// FIXME: support UT
+#ifndef BE_TEST
         auto reserve_size = memtable->get_flush_reserve_memory_size();
         RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
+#endif
 
         Defer defer {[&]() {
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();

@@ -468,7 +468,8 @@ Status PipelineTask::execute(bool* eos) {
                     }
                     // If the operator is not spillable or it is spillable but not has much memory to spill
                     // not need add to paused list, just let it go.
-                    if (_sink->revocable_mem_size(_state) >= _state->spill_min_revocable_mem()) {
+                    if (_sink->revocable_mem_size(_state) >=
+                        vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                         VLOG_DEBUG << debug_msg;
                         DCHECK_EQ(_pending_block.get(), nullptr);
                         _pending_block = std::move(_block);

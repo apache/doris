@@ -130,7 +130,6 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
 
     sink_info.local_state->_memory_used_counter->set(
             sink_info.local_state->_shared_state->mem_usage);
-
     return Status::OK();
 }
 

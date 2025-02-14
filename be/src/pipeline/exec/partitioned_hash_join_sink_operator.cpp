@@ -88,6 +88,10 @@ Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec
     if (PipelineXSpillSinkLocalState::_closed) {
         return Status::OK();
     }
+    DCHECK(_shared_state->inner_runtime_state != nullptr);
+    VLOG_DEBUG << "Query:" << print_id(state->query_id())
+               << ", hash join sink:" << _parent->node_id() << ", task:" << state->task_id()
+               << ", close";
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     if (!_shared_state->need_to_spill && _shared_state->inner_runtime_state) {
         RETURN_IF_ERROR(p._inner_sink_operator->close(_shared_state->inner_runtime_state.get(),

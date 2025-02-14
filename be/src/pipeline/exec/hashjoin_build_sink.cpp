@@ -27,6 +27,7 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "util/pretty_printer.h"
+#include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -113,11 +114,11 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
 
 #ifndef NDEBUG
-    if (state->fuzzy_disable_runtime_filter_in_be()) {
-        if ((_parent->operator_id() + random()) % 2 == 0) {
-            RETURN_IF_ERROR(disable_runtime_filters(state));
-        }
-    }
+    // if (state->fuzzy_disable_runtime_filter_in_be()) {
+    //     if ((_parent->operator_id() + random()) % 2 == 0) {
+    //         RETURN_IF_ERROR(disable_runtime_filters(state));
+    //     }
+    // }
 #endif
 
     return Status::OK();
@@ -237,6 +238,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
+    LOG(INFO) << "Query: " << print_id(state->query_id())
+              << "hashjoin sink close: " << _runtime_filter_slots << ", " << _runtime_filters.size()
+              << ", " << _eos << ", " << _runtime_filters_disabled;
     if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos ||
         _runtime_filters_disabled) {
         return Base::close(state, exec_status);

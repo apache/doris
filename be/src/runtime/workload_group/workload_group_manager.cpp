@@ -268,6 +268,7 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
                 4, wg->get_metrics()->get_local_scan_bytes_per_second(), block);
         SchemaScannerHelper::insert_int64_value(
                 5, wg->get_metrics()->get_remote_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(6, wg->write_buffer_size(), block);
     }
 }
 
@@ -546,6 +547,7 @@ int64_t WorkloadGroupMgr::flush_memtable_from_current_group_(WorkloadGroupPtr wg
     int64_t memtable_active_bytes = 0;
     int64_t memtable_queue_bytes = 0;
     int64_t memtable_flush_bytes = 0;
+    DCHECK(memtable_limiter != nullptr) << "memtable limiter is nullptr";
     memtable_limiter->get_workload_group_memtable_usage(
             wg->id(), &memtable_active_bytes, &memtable_queue_bytes, &memtable_flush_bytes);
     // TODO: should add a signal in memtable limiter to prevent new batch

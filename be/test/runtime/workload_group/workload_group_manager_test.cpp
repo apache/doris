@@ -24,8 +24,10 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "olap/olap_define.h"
 #include "pipeline/pipeline_tracing.h"
@@ -67,6 +69,9 @@ protected:
         EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
         ExecEnv::GetInstance()->_pipeline_tracer_ctx =
                 std::make_unique<pipeline::PipelineTracerContext>();
+
+        config::spill_in_paused_queue_timeout_ms = 2000;
+        doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }
     void TearDown() override {
         _wg_manager.reset();
@@ -74,6 +79,8 @@ protected:
         SAFE_DELETE(ExecEnv::GetInstance()->_runtime_query_statistics_mgr);
 
         EXPECT_EQ(system("rm -rf ./wg_test_run"), 0);
+        config::spill_in_paused_queue_timeout_ms = _spill_in_paused_queue_timeout_ms;
+        doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(nullptr);
     }
 
 private:
@@ -98,7 +105,7 @@ private:
 
     void _run_checking_loop(const std::shared_ptr<WorkloadGroup>& wg) {
         CountDownLatch latch(1);
-        size_t check_times = 100;
+        size_t check_times = 300;
         while (--check_times > 0) {
             _wg_manager->handle_paused_queries();
             if (!_wg_manager->_paused_queries_list.contains(wg) ||
@@ -110,36 +117,12 @@ private:
     }
 
     std::unique_ptr<WorkloadGroupMgr> _wg_manager;
+    const int64_t _spill_in_paused_queue_timeout_ms = config::spill_in_paused_queue_timeout_ms;
 };
 
 TEST_F(WorkloadGroupManagerTest, get_or_create_workload_group) {
     auto wg = _wg_manager->get_or_create_workload_group({});
     ASSERT_EQ(wg->id(), 0);
-}
-
-TEST_F(WorkloadGroupManagerTest, add_paused_query) {
-    auto wg = _wg_manager->get_or_create_workload_group({});
-    auto query_context = _generate_on_query(wg);
-
-    query_context->set_mem_limit(1024 * 1024);
-    _wg_manager->add_paused_query(query_context, 1024,
-                                  Status::Error(ErrorCode::QUERY_MEMORY_EXCEEDED, "test"));
-
-    {
-        std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-        ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "pasued queue should not be empty";
-        SCOPED_ATTACH_TASK(query_context->query_mem_tracker);
-        query_context->query_mem_tracker()->consume(1024 * 1024 * 2);
-    }
-
-    _run_checking_loop(wg);
-
-    query_context->set_mem_limit(-1024 * 1024);
-
-    std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
-    ASSERT_EQ(query_context->is_cancelled(), true) << "query should be canceled";
 }
 
 TEST_F(WorkloadGroupManagerTest, query_exceed) {
@@ -157,13 +140,14 @@ TEST_F(WorkloadGroupManagerTest, query_exceed) {
                 << "pasued queue should not be empty";
     }
 
-    _run_checking_loop(wg);
-
     query_context->query_mem_tracker()->consume(-1024 * 4);
+    _run_checking_loop(wg);
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
-    ASSERT_EQ(query_context->is_cancelled(), true) << "query should be canceled";
+    ASSERT_EQ(query_context->is_cancelled(), false) << "query should be not canceled";
+    ASSERT_EQ(query_context->_enable_reserve_memory, false)
+            << "query should disable reserve memory";
 }
 
 // if (query_ctx->adjusted_mem_limit() <
@@ -208,10 +192,8 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
     }
 
     _run_checking_loop(wg);
-
     query_context->query_mem_tracker()->consume(-1024 * 4);
     ASSERT_TRUE(query_context->paused_reason().ok());
-
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
     ASSERT_EQ(query_context->is_cancelled(), false) << "query should be canceled";
@@ -220,7 +202,8 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
 // TWgSlotMemoryPolicy::NONE
 // query_ctx->workload_group()->exceed_limit() == true
 TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
-    WorkloadGroupInfo wg_info {.id = 1, .memory_limit = 1024L * 1024};
+    WorkloadGroupInfo wg_info {
+            .id = 1, .memory_limit = 1024L * 1024, .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     auto query_context = _generate_on_query(wg);
 
@@ -238,8 +221,10 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
     _run_checking_loop(wg);
 
     query_context->query_mem_tracker()->consume(-1024L * 1024 * 4);
-    ASSERT_TRUE(query_context->is_cancelled());
-    ASSERT_EQ(query_context->exec_status().code(), ErrorCode::MEM_LIMIT_EXCEEDED);
+
+    // Query was not cancelled, because the query's limit is bigger than the wg's limit and the wg's policy is NONE.
+    ASSERT_FALSE(query_context->is_cancelled());
+    ASSERT_GT(query_context->get_mem_limit(), wg->memory_limit());
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";

@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "runtime/memory/mem_counter.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_statistics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -147,6 +146,7 @@ public:
     Status check_limit(int64_t bytes = 0);
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
+    bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
     void set_limit(int64_t new_mem_limit) { _limit = new_mem_limit; }
     bool is_query_cancelled() { return _is_query_cancelled; }
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
@@ -171,6 +171,19 @@ public:
     void consume_no_update_peak(int64_t bytes) { _mem_counter.add_no_update_peak(bytes); }
 
     void release(int64_t bytes) { _mem_counter.sub(bytes); }
+
+    bool try_consume(int64_t bytes) {
+        if (UNLIKELY(bytes == 0)) {
+            return true;
+        }
+        bool rt = true;
+        if (is_overcommit_tracker() && !config::enable_query_memory_overcommit) {
+            rt = _mem_counter.try_add(bytes, _limit);
+        } else {
+            _mem_counter.add(bytes);
+        }
+        return rt;
+    }
 
     void set_consumption(int64_t bytes) { _mem_counter.set(bytes); }
 
@@ -198,22 +211,11 @@ public:
             return;
         }
         _mem_counter.add(bytes);
-        if (_query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
-        }
         _reserved_counter.add(bytes);
     }
 
     bool try_reserve(int64_t bytes) {
-        if (UNLIKELY(bytes == 0)) {
-            return true;
-        }
-        bool rt = _mem_counter.try_add(bytes, _limit.load());
-        if (rt && _query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
-        }
+        bool rt = try_consume(bytes);
         if (rt) {
             _reserved_counter.add(bytes);
         }
@@ -335,8 +337,6 @@ private:
 
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     std::shared_ptr<MemTrackerLimiter> _write_tracker;
 

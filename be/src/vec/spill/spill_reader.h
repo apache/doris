@@ -25,7 +25,6 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "runtime/query_statistics.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
 
