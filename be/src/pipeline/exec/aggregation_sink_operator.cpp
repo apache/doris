@@ -597,23 +597,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                             agg_method.init_serialized_keys(key_columns, num_rows);
                             size_t i = 0;
 
-                            auto refresh_top_limit = [&, this]() {
-                                _shared_state->limit_heap.pop();
-                                for (int j = 0; j < key_columns.size(); ++j) {
-                                    _shared_state->limit_columns[j]->insert_from(*key_columns[j],
-                                                                                 i);
-                                }
-                                _shared_state->limit_heap.emplace(
-                                        _shared_state->limit_columns[0]->size() - 1,
-                                        _shared_state->limit_columns,
-                                        _shared_state->order_directions,
-                                        _shared_state->null_directions);
-                                _shared_state->limit_columns_min =
-                                        _shared_state->limit_heap.top()._row_id;
-                            };
-
-                            auto creator = [this, refresh_top_limit](const auto& ctor, auto& key,
-                                                                     auto& origin) {
+                            auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
                                                                               *_agg_arena_pool);
@@ -625,7 +609,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                         throw Exception(st.code(), st.to_string());
                                     }
                                     ctor(key, mapped);
-                                    refresh_top_limit();
+                                    _shared_state->refresh_top_limit(i, key_columns);
                                 } catch (...) {
                                     // Exception-safety - if it can not allocate memory or create status,
                                     // the destructors will not be called.
@@ -634,7 +618,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 }
                             };
 
-                            auto creator_for_null_key = [this, refresh_top_limit](auto& mapped) {
+                            auto creator_for_null_key = [&](auto& mapped) {
                                 mapped = _agg_arena_pool->aligned_alloc(
                                         Base::_parent->template cast<AggSinkOperatorX>()
                                                 ._total_size_of_aggregate_states,
@@ -644,7 +628,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 if (!st) {
                                     throw Exception(st.code(), st.to_string());
                                 }
-                                refresh_top_limit();
+                                _shared_state->refresh_top_limit(i, key_columns);
                             };
 
                             SCOPED_TIMER(_hash_table_emplace_timer);
