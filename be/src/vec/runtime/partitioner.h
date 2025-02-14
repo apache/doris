@@ -50,6 +50,9 @@ public:
     virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
 
     virtual ChannelField get_channel_ids() const = 0;
+    // The same block may be sent twice by TabletSinkHashPartitioner. To get the correct
+    // result, we should not send any rows the last time.
+    virtual int32_t valid_rows() const { return -1; }
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
