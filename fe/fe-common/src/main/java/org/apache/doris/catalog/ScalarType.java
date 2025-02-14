@@ -124,6 +124,9 @@ public class ScalarType extends Type {
     @SerializedName(value = "lenStr")
     private String lenStr;
 
+    @SerializedName(value = "variantMaxSubcolumnsCount")
+    private int variantMaxSubcolumnsCount;
+
     public ScalarType(PrimitiveType type) {
         this.type = type;
     }
@@ -727,9 +730,15 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB:
-            case VARIANT: {
+            case JSONB: {
                 scalarType.setLen(getLength());
+                break;
+            }
+            case VARIANT: {
+                scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+                if (variantMaxSubcolumnsCount < 0) {
+                    throw new IllegalArgumentException(String.format("error count: %d", variantMaxSubcolumnsCount));
+                }
                 break;
             }
             case DECIMALV2:
@@ -913,6 +922,9 @@ public class ScalarType extends Type {
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
             return true;
         }
+        if (isVariantType() && scalarType.isVariantType()) {
+            return true;
+        }
         return false;
     }
 
@@ -942,6 +954,9 @@ public class ScalarType extends Type {
         }
         if (type.isDecimalV2Type() || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMEV2) {
             return precision == other.precision && scale == other.scale;
+        }
+        if (this.isVariantType() && other.isVariantType()) {
+            return this.getVariantMaxSubcolumnsCount() == other.getVariantMaxSubcolumnsCount();
         }
         return true;
     }
@@ -1128,6 +1143,14 @@ public class ScalarType extends Type {
             return finalType;
         }
 
+        if (t1.isVariantType() && t2.isVariantType()) {
+            if (t1.getVariantMaxSubcolumnsCount() == t2.getVariantMaxSubcolumnsCount()) {
+                return t1;
+            } else {
+                return Type.UNSUPPORTED;
+            }
+        }
+
         PrimitiveType smallerType =
                 (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType largerType =
@@ -1212,5 +1235,14 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
+    }
+
+    public void setVariantMaxSubcolumnsCount(int variantMaxSubcolumnsCount) {
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+        LOG.info("set max count is: {}", variantMaxSubcolumnsCount);
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        return variantMaxSubcolumnsCount;
     }
 }

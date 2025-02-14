@@ -63,6 +63,10 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             } else {
                 len = OLAP_STRING_MAX_LENGTH;
             }
+        } else if (type == TYPE_VARIANT) {
+            DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
+                    << "count is: " << scalar_type.variant_max_subcolumns_count;
+            variant_max_subcolumns_count = scalar_type.variant_max_subcolumns_count;
         }
         break;
     }
@@ -162,6 +166,8 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             DCHECK_NE(scale, -1);
             scalar_type.__set_precision(precision);
             scalar_type.__set_scale(scale);
+        } else if (type == TYPE_VARIANT) {
+            scalar_type.__set_variant_max_subcolumns_count(variant_max_subcolumns_count);
         }
     }
 }
@@ -206,6 +212,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         }
     } else if (type == TYPE_VARIANT) {
         node->set_type(TTypeNodeType::VARIANT);
+        node->set_variant_max_subcolumns_count(variant_max_subcolumns_count);
     }
 }
 
@@ -276,6 +283,7 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::VARIANT: {
         type = TYPE_VARIANT;
+        variant_max_subcolumns_count = node.variant_max_subcolumns_count();
         break;
     }
     default:
@@ -337,7 +345,8 @@ std::string TypeDescriptor::debug_string() const {
         return ss.str();
     }
     case TYPE_VARIANT:
-        ss << "VARIANT";
+        ss << "VARIANT"
+           << ", max subcolumns count: " << variant_max_subcolumns_count;
         return ss.str();
     default:
         return type_to_string(type);

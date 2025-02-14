@@ -2032,6 +2032,9 @@ public class FunctionCallExpr extends Expr {
             } else if (children.size() == 1) {
                 this.type = ScalarType.createDatetimeV2Type(6);
             }
+        } else if (fn.getFunctionName().getFunction().equalsIgnoreCase("element_at")
+                                                    && getChild(0).type.isVariantType()) {
+            this.type = getChild(0).type;
         } else {
             this.type = fn.getReturnType();
         }

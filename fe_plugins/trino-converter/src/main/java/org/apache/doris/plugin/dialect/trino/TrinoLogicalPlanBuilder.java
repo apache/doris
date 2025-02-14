@@ -324,6 +324,8 @@ public class TrinoLogicalPlanBuilder extends io.trino.sql.tree.AstVisitor<Object
         } else if (dataType instanceof io.trino.sql.tree.DateTimeDataType) {
             // TODO: support date data type mapping
             throw new DialectTransformException("transform date data type");
+        } else if("variant".eqluals(typeName)) {
+            throw new DialectTransformException("transform variant data type");
         }
         throw new AnalysisException("Nereids do not support type: " + dataType);
     }

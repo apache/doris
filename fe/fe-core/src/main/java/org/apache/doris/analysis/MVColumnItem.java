@@ -195,6 +195,12 @@ public class MVColumnItem {
                 result.setIsAllowNull(defineExpr.isNullable());
             }
         }
+        if (result.getType().isVariantType()) {
+            ScalarType variantType = (ScalarType) this.getType();
+            if (variantType.getVariantMaxSubcolumnsCount() != olapTable.getVariantMaxSubcolumnsCount()) {
+                throw new DdlException("MVColumnItem variantType is error");
+            }
+        }
         result.setName(name);
         result.setAggregationType(aggregationType, isAggregationTypeImplicit);
         result.setDefineExpr(defineExpr);

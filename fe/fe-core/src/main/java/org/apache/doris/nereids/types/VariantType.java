@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
@@ -31,13 +32,25 @@ import java.util.Objects;
 @Developing
 public class VariantType extends PrimitiveType {
 
-    public static final VariantType INSTANCE = new VariantType();
+    public static final VariantType INSTANCE = new VariantType(0);
 
     public static final int WIDTH = 24;
 
+    private int variantMaxSubcolumnsCount = 0;
+
+    // public static createVariantType(int variantMaxSubcolumnsCount) {
+    //     return new VariantType(variantMaxSubcolumnsCount);
+    // }
+
+    public VariantType(int variantMaxSubcolumnsCount) {
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+    }
+
     @Override
     public Type toCatalogDataType() {
-        return Type.VARIANT;
+        ScalarType type = ScalarType.createVariantType();
+        type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        return type;
     }
 
     @Override
@@ -58,7 +71,8 @@ public class VariantType extends PrimitiveType {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return super.equals(o);
+        VariantType other = (VariantType) o;
+        return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount;
     }
 
     @Override

@@ -65,7 +65,7 @@ suite("load_p2", "variant_type,p2"){
         )
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(id) BUCKETS ${buckets}
-        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "500");
         """
     }
 

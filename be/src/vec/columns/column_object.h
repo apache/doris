@@ -46,9 +46,11 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/json/path_in_data.h"
@@ -268,18 +270,21 @@ private:
     WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
+    int32_t _max_subcolumns_count = 0;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
     // always create root: data type nothing
-    explicit ColumnObject(bool is_nullable_);
+    explicit ColumnObject(int32_t max_subcolumns_count);
 
     // always create root: data type nothing
-    explicit ColumnObject(size_t size = 0);
+    explicit ColumnObject(int32_t max_subcolumns_count, size_t size);
 
-    explicit ColumnObject(DataTypePtr root_type, MutableColumnPtr&& root_column);
+    explicit ColumnObject(int32_t max_subcolumns_count, DataTypePtr root_type,
+                          MutableColumnPtr&& root_column);
 
-    explicit ColumnObject(Subcolumns&& subcolumns_);
+    explicit ColumnObject(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
 
     ~ColumnObject() override = default;
 
@@ -345,6 +350,8 @@ public:
     void set_num_rows(size_t n);
 
     size_t rows() const { return num_rows; }
+
+    int32_t max_subcolumns_count() const { return _max_subcolumns_count; }
 
     /// Adds a subcolumn from existing IColumn.
     bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn, DataTypePtr type);

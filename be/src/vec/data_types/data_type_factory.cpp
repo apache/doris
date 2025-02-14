@@ -102,6 +102,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
             names.push_back(col_desc.get_sub_column(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        nested = std::make_shared<DataTypeObject>(col_desc.variant_max_subcolumns_count());
     } else {
         nested =
                 _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
@@ -163,7 +165,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case TYPE_VARIANT:
-        nested = std::make_shared<vectorized::DataTypeObject>("", true);
+        nested =
+                std::make_shared<vectorized::DataTypeObject>(col_desc.variant_max_subcolumns_count);
         break;
     case TYPE_STRING:
     case TYPE_CHAR:
@@ -305,9 +308,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::String:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
-    case TypeIndex::VARIANT:
-        nested = std::make_shared<vectorized::DataTypeObject>("", true);
-        break;
     case TypeIndex::Decimal32:
         nested = std::make_shared<DataTypeDecimal<Decimal32>>(BeConsts::MAX_DECIMAL32_PRECISION, 0);
         break;
@@ -408,9 +408,6 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
-    case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        result = std::make_shared<vectorized::DataTypeObject>("", true);
-        break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
         break;
@@ -489,7 +486,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
-        nested = std::make_shared<DataTypeObject>("", true);
+        nested = std::make_shared<DataTypeObject>(pcolumn.variant_max_subcolumns_count());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();

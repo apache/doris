@@ -63,10 +63,12 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -1020,6 +1022,11 @@ public class SchemaChangeHandler extends AlterHandler {
             lightSchemaChange = false;
         }
 
+        Type type = newColumn.getType();
+        if (type.isVariantType()) {
+            ScalarType scType = (ScalarType) type;
+            scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
+        }
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.
         List<Column> baseSchema = olapTable.getBaseSchema(true);

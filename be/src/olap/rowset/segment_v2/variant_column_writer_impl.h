@@ -65,6 +65,7 @@ public:
     Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
 private:
+    // not including root column
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
 
     // subcolumn path from variant stats info to distinguish from sparse column

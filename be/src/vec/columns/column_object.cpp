@@ -51,8 +51,6 @@
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -61,19 +59,11 @@
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
 #include "vec/data_types/convert_field_to_type.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
 
@@ -644,7 +634,7 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
         return finalized_object.apply_for_columns(std::forward<Func>(func));
     }
     auto new_root = func(get_root())->assume_mutable();
-    auto res = ColumnObject::create(get_root_type(), std::move(new_root));
+    auto res = ColumnObject::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_root) {
             continue;
@@ -807,28 +797,39 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_, boo
                                             : base_type->get_type_id();
 }
 
-ColumnObject::ColumnObject(bool is_nullable_) : is_nullable(is_nullable_), num_rows(0) {
+ColumnObject::ColumnObject(int32_t max_subcolumns_count)
+        : is_nullable(true), num_rows(0), _max_subcolumns_count(max_subcolumns_count) {
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-ColumnObject::ColumnObject(DataTypePtr root_type, MutableColumnPtr&& root_column)
-        : is_nullable(true), num_rows(root_column->size()) {
+ColumnObject::ColumnObject(int32_t max_subcolumns_count, DataTypePtr root_type,
+                           MutableColumnPtr&& root_column)
+        : is_nullable(true),
+          num_rows(root_column->size()),
+          _max_subcolumns_count(max_subcolumns_count) {
     subcolumns.create_root(
             Subcolumn(std::move(root_column), root_type, is_nullable, true /*root*/));
     serialized_sparse_column->insert_many_defaults(num_rows);
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
-ColumnObject::ColumnObject(Subcolumns&& subcolumns_)
+ColumnObject::ColumnObject(int32_t max_subcolumns_count, Subcolumns&& subcolumns_)
         : is_nullable(true),
           subcolumns(std::move(subcolumns_)),
-          num_rows(subcolumns.empty() ? 0 : (*subcolumns.begin())->data.size()) {
+          num_rows(subcolumns.empty() ? 0 : (*subcolumns.begin())->data.size()),
+          _max_subcolumns_count(max_subcolumns_count) {
+    if (max_subcolumns_count && subcolumns_.size() > max_subcolumns_count + 1) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "unmatched max subcolumns count:, max subcolumns count: {}, but "
+                               "subcolumns count: {}",
+                               max_subcolumns_count, subcolumns_.size());
+    }
     serialized_sparse_column->insert_many_defaults(num_rows);
-    ENABLE_CHECK_CONSISTENCY(this);
 }
 
-ColumnObject::ColumnObject(size_t size) : is_nullable(true), num_rows(0) {
+ColumnObject::ColumnObject(int32_t max_subcolumns_count, size_t size)
+        : is_nullable(true), num_rows(0), _max_subcolumns_count(max_subcolumns_count) {
     subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     insert_many_defaults(size);
     ENABLE_CHECK_CONSISTENCY(this);
@@ -883,7 +884,7 @@ size_t ColumnObject::size() const {
 
 MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
     if (new_size == 0) {
-        return ColumnObject::create(is_nullable);
+        return ColumnObject::create(_max_subcolumns_count);
     }
     return apply_for_columns(
             [&](const ColumnPtr column) { return column->clone_resized(new_size); });
@@ -1299,10 +1300,11 @@ void ColumnObject::set_num_rows(size_t n) {
 }
 
 bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
+    DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
     if (subcolumns.get_root() == nullptr || path.empty()) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
-    if (subcolumns.size() < config::variant_max_subcolumns_count + 1) {
+    if (!_max_subcolumns_count || subcolumns.size() < _max_subcolumns_count + 1) {
         return add_sub_column(path, num_rows);
     }
 
@@ -1954,6 +1956,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         ENABLE_CHECK_CONSISTENCY(this);
         return Status::OK();
     }
+    DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
     Subcolumns new_subcolumns;
 
     if (auto root = subcolumns.get_mutable_root(); root == nullptr) {
@@ -1967,7 +1970,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     // 2. root column must be exsit in subcolumns
     bool need_pick_subcolumn_to_sparse_column =
             mode == FinalizeMode::WRITE_MODE &&
-            subcolumns.size() > config::variant_max_subcolumns_count + 1;
+            (_max_subcolumns_count && subcolumns.size() > _max_subcolumns_count + 1);
 
     // finalize all subcolumns
     for (auto&& entry : subcolumns) {
@@ -1978,8 +1981,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         const auto& least_common_type = entry->data.get_least_common_type();
 
         // unnest all nested columns, add them to new_subcolumns
-        if (mode == FinalizeMode::WRITE_MODE &&
-            least_common_type->equals(*ColumnObject::NESTED_TYPE)) {
+        if (mode == FinalizeMode::WRITE_MODE && least_common_type->equals(*NESTED_TYPE)) {
             unnest(entry, new_subcolumns);
             continue;
         }
@@ -2017,8 +2019,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
                   [](const auto& a, const auto& b) { return a.second > b.second; });
 
         // 3. pick config::variant_max_subcolumns_count selected subcolumns
-        for (size_t i = 0;
-             i < std::min(size_t(config::variant_max_subcolumns_count), sorted_by_size.size());
+        for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size());
              ++i) {
             // if too many null values, then consider it as sparse column
             if (double(sorted_by_size[i].second) < double(num_rows) * 0.95) {
@@ -2088,12 +2089,13 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         return finalized_object.filter(filter, count);
     }
     if (subcolumns.empty()) {
-        auto res = ColumnObject::create(count_bytes_in_filter(filter));
+        auto res = ColumnObject::create(_max_subcolumns_count, count_bytes_in_filter(filter));
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
     }
     auto new_root = get_root()->filter(filter, count)->assume_mutable();
-    auto new_column = ColumnObject::create(get_root_type(), std::move(new_root));
+    auto new_column =
+            ColumnObject::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
     for (auto& entry : subcolumns) {
         if (entry->data.is_root) {
             continue;
