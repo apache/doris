@@ -474,11 +474,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
@@ -903,14 +899,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
 
-    private Map<Integer, Expression> constantExpressionMap = new HashMap<>();
-
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
         this.selectHintMap = selectHintMap;
-    }
-
-    public Map<Integer, Expression> getConstantExpressionMap() {
-        return constantExpressionMap;
     }
 
     @SuppressWarnings("unchecked")
@@ -3482,8 +3472,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     private Expression getExpression(ParserRuleContext ctx) {
         Expression result = typedVisit(ctx);
-        if (result.isConstant()) {
-            constantExpressionMap.put(ctx.start.getStartIndex(), result);
+        if (result instanceof Literal) {
+            ConnectContext.get().getStatementContext().getConstantExpressionMap()
+                    .put(Pair.of(ctx.start.getStartIndex(), ctx.start.getStopIndex()), result);
         }
         return result;
     }
