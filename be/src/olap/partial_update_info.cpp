@@ -548,9 +548,6 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
                 segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
     full_block.set_columns(std::move(mutable_full_columns));
-    VLOG_DEBUG << fmt::format(
-            "[FlexibleReadPlan::fill_non_primary_key_columns] after: full_block:\n{}",
-            full_block.dump_data());
     return Status::OK();
 }
 
@@ -907,7 +904,6 @@ Status BlockAggregator::aggregate_rows(
                     _tablet_schema, *_writer._opts.rowset_ctx->partial_update_info, &cur_seq_val));
         }
     }
-    VLOG_DEBUG << fmt::format("start pos={}, output_block.rows()={}", pos, output_block.rows());
 
     for (int64_t rid {pos}; rid < end; rid++) {
         auto& skip_bitmap = skip_bitmaps->at(rid);
@@ -938,8 +934,6 @@ Status BlockAggregator::aggregate_for_sequence_column(
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
-    VLOG_DEBUG << fmt::format("BlockAggregator::aggregate_for_sequence_column enter: block:{}\n",
-                              block->dump_data());
     // the process logic here is the same as MemTable::_aggregate_for_flexible_partial_update_without_seq_col()
     // after this function, there will be at most 2 rows for a specified key
     std::vector<BitmapValue>* skip_bitmaps =
@@ -978,9 +972,6 @@ Status BlockAggregator::aggregate_for_sequence_column(
     }
 
     block->swap(output_block.to_block());
-    VLOG_DEBUG << fmt::format(
-            "BlockAggregator::aggregate_for_sequence_column after: data.block:{}\n",
-            block->dump_data());
     return Status::OK();
 }
 
@@ -1018,9 +1009,6 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
-    VLOG_DEBUG << fmt::format(
-            "BlockAggregator::aggregate_for_insert_after_delete enter: data.block:{}\n",
-            block->dump_data());
     // there will be at most 2 rows for a specified key in block when control flow reaches here
     // after this function, there will not be duplicate rows in block
 
@@ -1074,11 +1062,6 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
 
             Slice previous_seq_slice {};
             if (st.ok()) {
-                VLOG_DEBUG << fmt::format(
-                        "BlockAggregator::aggregate_for_insert_after_delete: delete existing row, "
-                        "rowset_id={}, segment_id={}, row_id={}",
-                        loc.rowset_id.to_string(), loc.segment_id, loc.row_id);
-
                 if (_tablet_schema.has_sequence_col()) {
                     // if the insert row doesn't specify the sequence column, we need to
                     // read the historical's sequence column value so that we don't need
@@ -1086,8 +1069,6 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
                     // for this row
                     bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
                     if (!row_has_sequence_col) {
-                        VLOG_DEBUG << fmt::format("prepare to read seq val for block_pos={}",
-                                                  block_pos);
                         read_plan.prepare_to_read(loc, block_pos);
                         _writer._rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
                     }
@@ -1123,9 +1104,6 @@ Status BlockAggregator::filter_block(vectorized::Block* block, size_t num_rows,
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
     DCHECK_EQ(num_cols, block->columns());
     int merged_rows = num_rows - block->rows();
-    VLOG_DEBUG << fmt::format(
-            "filter_block_for_flexible_partial_update[{}] after filter: block:{}\n", col_name,
-            block->dump_data());
     if (duplicate_rows != merged_rows) {
         auto msg = fmt::format(
                 "filter_block_for_flexible_partial_update {}: duplicate_rows != merged_rows, "

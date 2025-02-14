@@ -399,8 +399,6 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     // 2. the one exception is when there are sequence columns in the table, we need to read
     //    the sequence columns, otherwise it may cause the merge-on-read based compaction
     //    policy to produce incorrect results
-    // TODO(bobhan1): only read seq col rather than all columns in this situation for
-    // partial update and flexible partial update
 
     // 3. In flexible partial update, we may delete the existing rows before if there exists
     //    insert after delete in one load. In this case, the insert should also be treated
@@ -588,8 +586,6 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
-    VLOG_DEBUG << fmt::format("[FixedReadPlan::fill_missing_columns] after: full_block:\n{}",
-                              full_block.dump_data());
 
     // row column should be filled here
     // convert block to row store format

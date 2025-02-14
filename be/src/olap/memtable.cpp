@@ -687,8 +687,6 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
 
 Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_to_block(res));
-    // bobhan1: delete log later!!!
-    VLOG_DEBUG << fmt::format("MemTable::to_block: block:\n{}", (*res)->dump_data());
     return Status::OK();
 }
 
