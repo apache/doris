@@ -23,6 +23,8 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
@@ -37,6 +39,8 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -227,7 +231,24 @@ public class FunctionRegistry {
 
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
-                .map(builder -> name + builder.toString())
+                .filter(builder -> {
+                   if (builder instanceof BuiltinFunctionBuilder) {
+                       Constructor<BoundFunction> builderMethod = ((BuiltinFunctionBuilder) builder).getBuilderMethod();
+                       if (Modifier.isAbstract(builderMethod.getModifiers())
+                               || !Modifier.isPublic(builderMethod.getModifiers())) {
+                           return false;
+                       }
+                       for (Class<?> parameterType : builderMethod.getParameterTypes()) {
+                           if (!Expression.class.isAssignableFrom(parameterType)
+                                   && !(parameterType.isArray()
+                                        && Expression.class.isAssignableFrom(parameterType.getComponentType()))) {
+                               return false;
+                           }
+                       }
+                   }
+                   return true;
+                })
+                .map(builder -> name + builder.parameterDisplayString())
                 .collect(Collectors.joining(", ", "[", "]"));
     }
 
