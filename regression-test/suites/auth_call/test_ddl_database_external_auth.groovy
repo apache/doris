@@ -41,6 +41,7 @@ suite("test_ddl_database_external_auth","p0,auth_call,external,hive,external_doc
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant drop_priv,create_priv on ${catalog_name}.*.* to ${user}"""
+    sql """grant select_priv on regression_test to ${user}"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
