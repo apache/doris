@@ -20,6 +20,9 @@ suite("test_create_table_like_nereids") {
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql "drop table if exists mal_test_create_table_like"
     sql """create table mal_test_create_table_like(pk int, a int, b int) distributed by hash(pk) buckets 10
     properties('replication_num' = '1');"""
@@ -27,15 +30,10 @@ suite("test_create_table_like_nereids") {
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
     sql "sync"
     sql "alter table mal_test_create_table_like add rollup ru1(a,pk);"
-    waitForSchemaChangeDone {
-        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
-        time 600
-    }
+    waitingMVTaskFinishedByMvName(db, "mal_test_create_table_like", "ru1")
+
     sql "alter table mal_test_create_table_like add rollup ru2(b,pk)"
-    waitForSchemaChangeDone {
-        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
-        time 600
-    }
+    waitingMVTaskFinishedByMvName(db, "mal_test_create_table_like", "ru2")
 
     // no rollup
     sql "drop table if exists table_like"
@@ -48,8 +46,7 @@ suite("test_create_table_like_nereids") {
     // with all rollup
     sql "drop table if exists table_like_with_roll_up"
     sql "CREATE TABLE table_like_with_roll_up LIKE mal_test_create_table_like with rollup;"
-    waitForRollUpJob("mal_test_create_table_like", "r1", 60000)
-    waitForRollUpJob("mal_test_create_table_like", "r2", 60000)
+
     explain {
         sql ("select sum(a) from table_like_with_roll_up group by a")
         contains "ru1"
@@ -82,7 +79,6 @@ suite("test_create_table_like_nereids") {
     sql "drop table if exists table_like_with_partial_roll_up_exists"
     sql """CREATE TABLE if not exists table_like_with_partial_roll_up_exists
     LIKE mal_test_create_table_like with rollup (ru1);"""
-    waitForRollUpJob("mal_test_create_table_like", "r1", 60000)
 
     sql "drop table if exists test_create_table_like_char_255"
     sql """
