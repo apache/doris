@@ -20,14 +20,24 @@
 
 namespace doris {
 
+class MockContext : public TaskExecutionContext {};
+
 class MockRuntimeState : public RuntimeState {
 public:
-    MockRuntimeState() = default;
+    MockRuntimeState() { set_task_execution_context(_mock_context); };
 
-    int batch_size() const override { return batchSize; }
+    int batch_size() const override { return batsh_size; }
+
+    bool enable_shared_exchange_sink_buffer() const override {
+        return _enable_shared_exchange_sink_buffer;
+    }
+
+    bool enable_local_exchange() const override { return true; }
 
     // default batch size
-    int batchSize = 4096;
+    int batsh_size = 4096;
+    bool _enable_shared_exchange_sink_buffer = true;
+    std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
 };
 
 } // namespace doris
