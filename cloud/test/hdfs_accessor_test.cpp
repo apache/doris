@@ -258,6 +258,10 @@ TEST(HdfsAccessorTest, delete_prefix) {
     put_and_verify("data/20000/1_0.dat");
     put_and_verify("data111/10000/1_0.dat");
 
+    ret = accessor.delete_prefix("nonexist");
+    EXPECT_EQ(ret, -1);
+    ret = accessor.delete_prefix("/");
+    EXPECT_EQ(ret, -1);
     ret = accessor.delete_prefix("data/10000/1_");
     EXPECT_EQ(ret, 0);
     ret = accessor.delete_prefix("data/10000/2_");

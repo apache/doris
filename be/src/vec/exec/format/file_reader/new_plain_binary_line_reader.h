@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
@@ -27,6 +26,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class PDataRow;
 
 namespace io {
@@ -55,4 +55,5 @@ private:
     std::unique_ptr<PDataRow> _cur_row;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

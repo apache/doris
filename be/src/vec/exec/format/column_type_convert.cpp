@@ -18,6 +18,7 @@
 #include "vec/exec/format/column_type_convert.h"
 
 namespace doris::vectorized::converter {
+#include "common/compile_check_begin.h"
 
 #define FOR_LOGICAL_NUMERIC_TYPES(M) \
     M(TYPE_BOOLEAN)                  \
@@ -112,7 +113,7 @@ ColumnPtr ColumnTypeConverter::get_column(const TypeDescriptor& src_type, Column
         // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
         // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
         // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto doris_nullable_column =
+        auto* doris_nullable_column =
                 const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(dst_column.get()));
         return ColumnNullable::create(_cached_src_column,
                                       doris_nullable_column->get_null_map_column_ptr());
@@ -329,4 +330,5 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
     return std::make_unique<UnsupportedConverter>(src_type, dst_type);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter

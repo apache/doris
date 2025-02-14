@@ -80,6 +80,14 @@ suite("test_vault_privilege_with_user", "nonConcurrent") {
     connect(hdfsUser, 'Cloud12345', context.config.jdbcUrl) {
         expectExceptionLike({
             sql """
+                UNSET DEFAULT STORAGE VAULT;
+            """
+        }, "denied")
+    }
+
+    connect(hdfsUser, 'Cloud12345', context.config.jdbcUrl) {
+        expectExceptionLike({
+            sql """
                 SET not_exist_vault AS DEFAULT STORAGE VAULT
             """
         }, "denied")

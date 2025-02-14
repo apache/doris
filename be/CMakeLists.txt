@@ -204,6 +204,30 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
+set(ICU_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+find_package(ICU COMPONENTS uc i18n data)
+
+if (ICU_FOUND)
+    add_library(icu INTERFACE)
+    
+    target_link_libraries(icu INTERFACE
+        ICU::uc
+        ICU::i18n
+        ICU::data
+    )
+
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        icu
+    )
+
+    add_definitions(-DUSE_ICU)
+
+    message(STATUS "ICU found and linked successfully!")
+else()
+    message(WARNING "ICU not found! Please install ICU first.")
+endif()
+
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
@@ -224,6 +248,10 @@ target_compile_options(ic PRIVATE ${clucene_options})
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
+
+install(DIRECTORY
+    ${SRC_DIR}/clucene/src/core/CLucene/analysis/icu/data/uax29
+    DESTINATION ${OUTPUT_DIR}/dict/icu)
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -536,6 +564,9 @@ if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
+    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
