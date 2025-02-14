@@ -40,4 +40,16 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge, bo
     return mock_agg_fn_evaluator;
 }
 
+AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs input_exprs_ctxs,
+                                             bool is_merge, bool without_key) {
+    auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
+    mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
+            "sum", {std::make_shared<DataTypeInt64>()}, false,
+            BeExecVersionManager::get_newest_version(),
+            {.enable_decimal256 = false, .column_names = {}});
+    EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
+    mock_agg_fn_evaluator->_input_exprs_ctxs = input_exprs_ctxs;
+    return mock_agg_fn_evaluator;
+}
+
 } // namespace doris::vectorized
