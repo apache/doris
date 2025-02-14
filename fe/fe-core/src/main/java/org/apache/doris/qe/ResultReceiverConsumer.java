@@ -18,8 +18,8 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
-import org.apache.thrift.TException;
 import com.google.common.collect.Lists;
+import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
