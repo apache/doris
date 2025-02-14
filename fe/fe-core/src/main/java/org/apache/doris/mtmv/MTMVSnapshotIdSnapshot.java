@@ -20,28 +20,15 @@ package org.apache.doris.mtmv;
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
 
-public class MTMVVersionSnapshot implements MTMVSnapshotIf {
-    @SerializedName("v")
-    private long version;
+/**
+ * use snapshotId as identification of data changes
+ */
+public class MTMVSnapshotIdSnapshot implements MTMVSnapshotIf {
+    @SerializedName("s")
+    private long snapshotId;
 
-    // The partition version after insert overwrite is 1,
-    // which may cause the upper level materialized view to be unaware of changes in the data at the bottom level.
-    // However, the partition ID after overwrite will change, so the partition ID should be added.
-    // only for partition, table will always 0
-    @SerializedName("id")
-    private long id;
-
-    public MTMVVersionSnapshot(long version, long id) {
-        this.version = version;
-        this.id = id;
-    }
-
-    public long getId() {
-        return id;
-    }
-
-    public void setId(long id) {
-        this.id = id;
+    public MTMVSnapshotIdSnapshot(long snapshotId) {
+        this.snapshotId = snapshotId;
     }
 
     @Override
@@ -52,20 +39,19 @@ public class MTMVVersionSnapshot implements MTMVSnapshotIf {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        MTMVVersionSnapshot that = (MTMVVersionSnapshot) o;
-        return version == that.version && id == that.id;
+        MTMVSnapshotIdSnapshot that = (MTMVSnapshotIdSnapshot) o;
+        return snapshotId == that.snapshotId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(version, id);
+        return Objects.hashCode(snapshotId);
     }
 
     @Override
     public String toString() {
-        return "MTMVVersionSnapshot{"
-                + "version=" + version
-                + ", id=" + id
+        return "MTMVSnapshotIdSnapshot{"
+                + "snapshotId=" + snapshotId
                 + '}';
     }
 }
