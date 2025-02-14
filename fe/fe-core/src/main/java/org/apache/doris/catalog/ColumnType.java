@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -166,6 +167,60 @@ public abstract class ColumnType {
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
         return schemaChangeMatrix[lhs.getPrimitiveType().ordinal()][rhs.getPrimitiveType().ordinal()];
+    }
+
+    // This method defines the char type
+    // to support the schema-change behavior of length growth.
+    // return true if the checkType and other are both char-type otherwise return false,
+    // which used in checkSupportSchemaChangeForComplexType
+    public static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
+        if ((checkType.getPrimitiveType() == PrimitiveType.VARCHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR)
+                || (checkType.getPrimitiveType() == PrimitiveType.CHAR
+                && other.getPrimitiveType() == PrimitiveType.VARCHAR)
+                || (checkType.getPrimitiveType() == PrimitiveType.CHAR
+                && other.getPrimitiveType() == PrimitiveType.CHAR)) {
+            if (checkType.getLength() > other.getLength()) {
+                throw new DdlException("Cannot shorten string length");
+            }
+            return true;
+        } else {
+            // types equal can return true
+            return checkType.equals(other);
+        }
+    }
+
+    // This method defines the complex type which is struct, array, map if nested char-type
+    // to support the schema-change behavior of length growth.
+    public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested)
+            throws DdlException {
+        if (checkType.isStructType() && other.isStructType()) {
+            StructType thisStructType = (StructType) checkType;
+            StructType otherStructType = (StructType) other;
+            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
+                throw new DdlException("Cannot change struct type with different field size");
+            }
+            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
+                        otherStructType.getFields().get(i).getType(), true);
+            }
+        } else if (checkType.isArrayType()) {
+            if (!other.isArrayType()) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
+            checkSupportSchemaChangeForComplexType(((ArrayType) checkType).getItemType(),
+                    ((ArrayType) other).getItemType(), true);
+        } else if (checkType.isMapType() && other.isMapType()) {
+            checkSupportSchemaChangeForComplexType(((MapType) checkType).getKeyType(),
+                    ((MapType) other).getKeyType(), true);
+            checkSupportSchemaChangeForComplexType(((MapType) checkType).getValueType(),
+                    ((MapType) other).getValueType(), true);
+        } else {
+            // only support char-type schema change behavior for nested complex type
+            // if nested is false, we do not check return value.
+            if (nested && !checkSupportSchemaChangeForCharType(checkType, other)) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
+        }
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
