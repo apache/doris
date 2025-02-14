@@ -76,25 +76,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _wait_queue_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitForRpcBufferQueue", timer_name, 1);
 
-    auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    _part_type = p._part_type;
-    std::map<int64_t, int64_t> fragment_id_to_channel_index;
-    for (int i = 0; i < p._dests.size(); ++i) {
-        const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
-        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
-            fragment_id_to_channel_index.end()) {
-            channels.push_back(std::make_shared<vectorized::Channel>(
-                    this, p._dests[i].brpc_server, fragment_instance_id, p._dest_node_id));
-            fragment_id_to_channel_index.emplace(fragment_instance_id.lo, channels.size() - 1);
-
-            if (fragment_instance_id.hi != -1 && fragment_instance_id.lo != -1) {
-                _working_channels_count++;
-            }
-        } else {
-            channels.emplace_back(channels[fragment_id_to_channel_index[fragment_instance_id.lo]]);
-        }
-    }
-
+    _create_channels();
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->init(state));
@@ -102,6 +84,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
     _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
+
+    auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    _part_type = p._part_type;
     // Shuffle the channels randomly
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
         _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
@@ -180,6 +165,26 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
 
     return Status::OK();
+}
+
+void ExchangeSinkLocalState::_create_channels() {
+    auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    std::map<int64_t, int64_t> fragment_id_to_channel_index;
+    for (int i = 0; i < p._dests.size(); ++i) {
+        const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
+        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
+            fragment_id_to_channel_index.end()) {
+            channels.push_back(std::make_shared<vectorized::Channel>(
+                    this, p._dests[i].brpc_server, fragment_instance_id, p._dest_node_id));
+            fragment_id_to_channel_index.emplace(fragment_instance_id.lo, channels.size() - 1);
+
+            if (fragment_instance_id.hi != -1 && fragment_instance_id.lo != -1) {
+                _working_channels_count++;
+            }
+        } else {
+            channels.emplace_back(channels[fragment_id_to_channel_index[fragment_instance_id.lo]]);
+        }
+    }
 }
 
 void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
@@ -278,7 +283,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _enable_local_merge_sort(state->enable_local_merge_sort()),
           _dest_is_merge(sink.__isset.is_merge && sink.is_merge),
           _fragment_instance_ids(fragment_instance_ids) {
+#ifndef BE_TEST
     DCHECK_GT(destinations.size(), 0);
+#endif
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::RANDOM ||
@@ -322,12 +329,17 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
         }
         RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
     }
+
+    _init_sink_buffer();
+    return Status::OK();
+}
+
+void ExchangeSinkOperatorX::_init_sink_buffer() {
     std::vector<InstanceLoId> ins_ids;
     for (auto fragment_instance_id : _fragment_instance_ids) {
         ins_ids.push_back(fragment_instance_id.lo);
     }
     _sink_buffer = _create_buffer(ins_ids);
-    return Status::OK();
 }
 
 template <typename ChannelPtrType>
