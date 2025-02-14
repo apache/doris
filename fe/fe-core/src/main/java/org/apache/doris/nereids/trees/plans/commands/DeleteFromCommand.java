@@ -214,7 +214,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
 
         ArrayList<String> partitionNames = Lists.newArrayList(relation.getPartNames());
-        List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, partitionNames);
+        List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, scan, partitionNames);
 
         Env.getCurrentEnv()
                 .getDeleteHandler()
@@ -240,7 +240,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
     }
 
-    private List<Partition> getSelectedPartitions(OlapTable olapTable, PhysicalFilter<?> filter,
+    private List<Partition> getSelectedPartitions(
+            OlapTable olapTable, PhysicalFilter<?> filter,
+            PhysicalOlapScan scan,
             List<String> partitionNames) {
         // For un_partitioned table, return all partitions.
         if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
@@ -274,7 +276,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     .collect(Collectors.toMap(Function.identity(), idToPartitions::get));
         } else {
             Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt
-                    = Env.getCurrentEnv().getSortedPartitionsCacheManager().get(olapTable);
+                    = Env.getCurrentEnv().getSortedPartitionsCacheManager().get(olapTable, scan);
             if (sortedPartitionRangesOpt.isPresent()) {
                 sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
             }
