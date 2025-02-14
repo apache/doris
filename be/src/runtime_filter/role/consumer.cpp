@@ -17,16 +17,12 @@
 
 #include "runtime_filter/role/consumer.h"
 
-#include <mutex>
-
-#include "exprs/bitmapfilter_predicate.h"
-
 namespace doris {
 
 Status RuntimeFilterConsumer::_apply_ready_expr(
         std::list<vectorized::VExprContextSPtr>& probe_ctxs,
         std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
-    _check_state({State::READY, State::APPLIED});
+    _check_state({State::READY});
     _rf_state = State::APPLIED;
     _profile->add_info_string("Info", debug_string());
 
@@ -51,8 +47,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
 
 Status RuntimeFilterConsumer::acquire_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
                                            std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
-    std::unique_lock lock(_inner_mutex);
-    if (_rf_state == State::READY || _rf_state == State::APPLIED) {
+    if (_rf_state == State::READY) {
         RETURN_IF_ERROR(_apply_ready_expr(probe_ctxs, push_exprs));
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
@@ -81,7 +76,6 @@ std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filt
         std::shared_ptr<pipeline::RuntimeFilterDependency> dependencie) {
     auto timer = std::make_shared<pipeline::RuntimeFilterTimer>(_registration_time,
                                                                 _rf_wait_time_ms, dependencie);
-    std::unique_lock lock(_inner_mutex);
     _filter_timer.push_back(timer);
     return timer;
 }

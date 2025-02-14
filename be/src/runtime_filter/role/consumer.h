@@ -111,8 +111,6 @@ private:
 
     TExpr _probe_expr;
 
-    std::mutex _inner_mutex;
-
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     std::unique_ptr<RuntimeProfile> _profile;
