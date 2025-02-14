@@ -42,11 +42,11 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     signal::set_signal_is_nereids(runtime_state->is_nereids());
-    init(runtime_state->get_query_ctx()->resource_ctx);
+    init(runtime_state->get_query_ctx()->resource_ctx());
 }
 
 AttachTask::AttachTask(QueryContext* query_ctx) {
-    init(query_ctx->resource_ctx);
+    init(query_ctx->resource_ctx());
 }
 
 AttachTask::~AttachTask() {
