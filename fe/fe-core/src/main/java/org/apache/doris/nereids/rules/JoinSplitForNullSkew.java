@@ -52,8 +52,9 @@ import java.util.stream.Collectors;
  *    +--Plan2(output:t2.a)
  *  ->
  *  LogicalUnion
- *    +--LogicalFilter(t1.a is null)
- *      +--Plan1
+ *    +--LogicalProject
+ *      +--LogicalFilter(t1.a is null)
+ *        +--Plan1
  *    +--LogicalLeftOuterJoin(t1.a=t2.a)
  *      +--LogicalFilter(t1.a is not null)
  *        +--Plan1
@@ -64,8 +65,9 @@ import java.util.stream.Collectors;
  *    +--Plan2(output:t2.a)
  *  ->
  *  LogicalUnion
- *    +--LogicalFilter(t2.a is null)
- *      +--Plan2
+ *    +--LogicalProject
+ *      +--LogicalFilter(t2.a is null)
+ *        +--Plan2
  *    +--LogicalRightOuterJoin(t1.a=t2.a)
  *      +--Plan1
  *      +--LogicalFilter(t2.a is not null)
@@ -74,7 +76,7 @@ import java.util.stream.Collectors;
 public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalJoin(any(), any())
+        return logicalJoin()
                 .when(join -> join.getJoinType().isOneSideOuterJoin())
                 .whenNot(join -> join.isMarkJoin() || !join.getMarkJoinConjuncts().isEmpty())
                 .when(join -> join.getHashJoinConjuncts().size() == 1)
