@@ -52,7 +52,7 @@ suite("topn_2pr_rule") {
         } else if("${key_type}" == "UNIQUE") {
              explain {
                 sql("select * from ${table_name}  order by k limit 1;")
-                notContains "OPT TWO PHASE"
+                 contains "OPT TWO PHASE"
             } 
         } else if("${key_type}" == "AGGREGATE") {
              explain {
