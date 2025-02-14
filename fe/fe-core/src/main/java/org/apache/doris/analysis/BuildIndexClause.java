@@ -44,6 +44,15 @@ public class BuildIndexClause extends AlterTableClause {
         this.alter = alter;
     }
 
+    // for nereids
+    public BuildIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.tableName = tableName;
+        this.indexDef = indexDef;
+        this.index = index;
+        this.alter = alter;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return Maps.newHashMap();

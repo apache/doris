@@ -53,6 +53,8 @@ public class IndexDefinition {
 
     private boolean ifNotExists = false;
 
+    private PartitionNamesInfo partitionNames;
+
     /**
      * constructor for IndexDefinition
      */
@@ -91,6 +93,18 @@ public class IndexDefinition {
         }
 
         this.comment = comment;
+    }
+
+    /**
+     * constructor for build index
+     */
+    public IndexDefinition(String name, PartitionNamesInfo partitionNames) {
+        this.name = name;
+        this.indexType = IndexType.INVERTED;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = true;
+        this.cols = null;
+        this.comment = null;
     }
 
     /**
@@ -167,6 +181,9 @@ public class IndexDefinition {
      * validate
      */
     public void validate() {
+        if (partitionNames != null) {
+            partitionNames.validate();
+        }
         if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -219,8 +236,16 @@ public class IndexDefinition {
                 comment, null);
     }
 
+    /**
+     * translateToLegacyIndexDef
+     */
     public IndexDef translateToLegacyIndexDef() {
-        return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        if (isBuildDeferred) {
+            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
+                    true);
+        } else {
+            return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        }
     }
 
     public String toSql() {
