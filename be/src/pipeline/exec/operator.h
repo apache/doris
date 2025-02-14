@@ -84,6 +84,8 @@ struct LocalSinkStateInfo {
 class OperatorBase {
 public:
     explicit OperatorBase() : _child(nullptr), _is_closed(false) {}
+    explicit OperatorBase(bool is_serial_operator)
+            : _child(nullptr), _is_closed(false), _is_serial_operator(is_serial_operator) {}
     virtual ~OperatorBase() = default;
 
     virtual bool is_sink() const { return false; }
@@ -432,6 +434,11 @@ class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+    DataSinkOperatorXBase(const int operator_id, const TPlanNode& tnode, const int dest_id)
+            : OperatorBase(tnode.__isset.is_serial_operator && tnode.is_serial_operator),
+              _operator_id(operator_id),
+              _node_id(tnode.node_id),
+              _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
@@ -537,6 +544,8 @@ class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
     DataSinkOperatorX(const int id, const int node_id, const int source_id)
             : DataSinkOperatorXBase(id, node_id, source_id) {}
+    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int source_id)
+            : DataSinkOperatorXBase(id, tnode, source_id) {}
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
@@ -599,7 +608,7 @@ class OperatorXBase : public OperatorBase {
 public:
     OperatorXBase(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                   const DescriptorTbl& descs)
-            : OperatorBase(),
+            : OperatorBase(tnode.__isset.is_serial_operator && tnode.is_serial_operator),
               _operator_id(operator_id),
               _node_id(tnode.node_id),
               _type(tnode.node_type),
