@@ -217,6 +217,8 @@ public class StatementContext implements Closeable {
     private boolean privChecked;
 
     private boolean prepareStage = false;
+    
+    private Map<Pair<Integer, Integer>, Expression> constantExpressionMap = new HashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -248,6 +250,10 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    public Map<Pair<Integer, Integer>, Expression> getConstantExpressionMap() {
+        return constantExpressionMap;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
