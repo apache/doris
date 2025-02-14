@@ -420,19 +420,13 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
 
-        if (SessionVariable.canUseNereidsDistributePlanner()) {
-            Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
-            Assertions.assertEquals(rightTableId, actual.getTableId());
-            // check merged
-            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());
-            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().keySet().iterator().next().asInt());
-        } else {
-            Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
-            Assertions.assertEquals(-1, actual.getTableId());
-            // check merged
-            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());
-            Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().keySet().iterator().next().asInt());
-        }
+        Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
+        Assertions.assertEquals(
+                SessionVariable.canUseNereidsDistributePlanner() ? rightTableId : -1L, actual.getTableId()
+        );
+        // check merged
+        Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().size());
+        Assertions.assertEquals(1, actual.getExprIdToEquivalenceSet().keySet().iterator().next().asInt());
     }
 
     @Test
