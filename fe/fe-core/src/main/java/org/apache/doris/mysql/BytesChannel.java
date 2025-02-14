@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
 
 public interface BytesChannel {
     /**
@@ -26,4 +27,12 @@ public interface BytesChannel {
      * @return number of bytes read
      */
     public int read(ByteBuffer buffer);
+
+    default int read(ByteBuffer buffer, long time, TimeUnit unit, boolean isFailOnTimeout) {
+        return read(buffer);
+    }
+
+    default int peek(ByteBuffer buffer) {
+        return 0;
+    }
 }
