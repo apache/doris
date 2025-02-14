@@ -84,6 +84,7 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -396,10 +397,10 @@ public class SchemaChangeJobV2Test {
         FakeEnv.setEnv(masterEnv);
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        Map<String, String> properties = new HashMap<>();
+        Map<String, String> properties = new LinkedHashMap<>();
         properties.put(DynamicPartitionProperty.ENABLE, "true");
         properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "time_uint", "day");
-        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "edn", "3");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "end ", "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
         properties.put("invalid_property", "invalid_value");
@@ -409,7 +410,7 @@ public class SchemaChangeJobV2Test {
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2,"
-                + " detailMessage = Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn");
+                + " detailMessage = Invalid dynamic partition properties: [dynamic_partition.time_uint], [dynamic_partition.end ]");
         schemaChangeHandler.process(alterClauses, db, olapTable);
     }
 
