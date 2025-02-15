@@ -103,7 +103,8 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         return Utils.toSqlString("LogicalFileScan",
                 "qualified", qualifiedName(),
                 "output", getOutput(),
-                "operativeCols", operativeSlots
+                "operativeCols", operativeSlots,
+                "stats", statistics
         );
     }
 

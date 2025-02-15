@@ -141,7 +141,7 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
             "partitionKeys", partitionKeys,
             "orderKeys", orderKeys,
             "hasGlobalLimit", hasGlobalLimit,
-            "partitionLimit", partitionLimit
+            "partitionLimit", partitionLimit, "stats", statistics
         );
     }
 

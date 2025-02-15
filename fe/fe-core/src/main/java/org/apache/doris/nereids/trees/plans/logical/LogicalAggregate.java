@@ -189,7 +189,8 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         return Utils.toSqlString("LogicalAggregate[" + id.asInt() + "]",
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
-                "hasRepeat", sourceRepeat.isPresent()
+                "hasRepeat", sourceRepeat.isPresent(),
+                "stats", statistics
         );
     }
 

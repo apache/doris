@@ -142,7 +142,8 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public String toString() {
         return Utils.toSqlString("LogicalGenerate",
                 "generators", generators,
-                "generatorOutput", generatorOutput
+                "generatorOutput", generatorOutput,
+                "stats", statistics
         );
     }
 

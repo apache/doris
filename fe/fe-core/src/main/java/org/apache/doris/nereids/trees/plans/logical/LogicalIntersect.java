@@ -63,7 +63,8 @@ public class LogicalIntersect extends LogicalSetOperation {
         return Utils.toSqlString("LogicalIntersect",
                 "qualifier", qualifier,
                 "outputs", outputs,
-                "regularChildrenOutputs", regularChildrenOutputs);
+                "regularChildrenOutputs", regularChildrenOutputs,
+                "stats", statistics);
     }
 
     @Override

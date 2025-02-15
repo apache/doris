@@ -158,7 +158,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public String toString() {
         return Utils.toSqlString("LogicalWindow",
                 "windowExpressions", windowExpressions,
-                "isChecked", isChecked
+                "isChecked", isChecked,
+                "stats", statistics
         );
     }
 

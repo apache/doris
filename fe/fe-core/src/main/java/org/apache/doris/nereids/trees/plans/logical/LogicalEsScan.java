@@ -51,7 +51,7 @@ public class LogicalEsScan extends LogicalCatalogRelation {
     public String toString() {
         return Utils.toSqlString("LogicalEsScan",
             "qualified", qualifiedName(),
-            "output", getOutput()
+            "output", getOutput(), "stats", statistics
         );
     }
 

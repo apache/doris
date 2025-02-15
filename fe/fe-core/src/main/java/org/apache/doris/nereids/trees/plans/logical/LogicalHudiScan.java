@@ -126,7 +126,8 @@ public class LogicalHudiScan extends LogicalFileScan {
     public String toString() {
         return Utils.toSqlString("LogicalHudiScan",
                 "qualified", qualifiedName(),
-                "output", getOutput()
+                "output", getOutput(),
+                "stats", statistics
         );
     }
 

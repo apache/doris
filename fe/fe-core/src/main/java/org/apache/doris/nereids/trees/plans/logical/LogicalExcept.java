@@ -63,7 +63,8 @@ public class LogicalExcept extends LogicalSetOperation {
         return Utils.toSqlString("LogicalExcept",
                 "qualifier", qualifier,
                 "outputs", outputs,
-                "regularChildrenOutputs", regularChildrenOutputs);
+                "regularChildrenOutputs", regularChildrenOutputs,
+                "stats", statistics);
     }
 
     @Override

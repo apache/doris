@@ -140,7 +140,8 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
         return Utils.toSqlString("LogicalDeferMaterializeResultSink[" + id.asInt() + "]",
                 "logicalResultSink", logicalResultSink,
                 "olapTable", olapTable,
-                "selectedIndexId", selectedIndexId
+                "selectedIndexId", selectedIndexId,
+                "stats", statistics
         );
     }
 }

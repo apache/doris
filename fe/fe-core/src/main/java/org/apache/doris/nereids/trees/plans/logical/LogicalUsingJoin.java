@@ -139,7 +139,8 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
     public String toString() {
         List<Object> args = Lists.newArrayList(
                 "type", joinType,
-                "usingSlots", usingSlots);
+                "usingSlots", usingSlots,
+                "stats", statistics);
         if (hint.distributeType != DistributeType.NONE) {
             args.add("hint");
             args.add(hint.getExplainString());

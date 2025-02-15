@@ -113,7 +113,8 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
                 "constantExprsList", constantExprsList,
-                "hasPushedFilter", hasPushedFilter);
+                "hasPushedFilter", hasPushedFilter,
+                "stats", statistics);
     }
 
     @Override
