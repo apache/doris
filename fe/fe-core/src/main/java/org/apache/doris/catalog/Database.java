@@ -918,4 +918,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public String toString() {
         return toJson();
     }
+
+    public int getTableNum() {
+        return idToTable.size();
+    }
 }
