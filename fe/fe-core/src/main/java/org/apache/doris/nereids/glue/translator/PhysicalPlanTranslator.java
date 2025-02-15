@@ -778,6 +778,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     boolean inVisibleCol = slot.getColumn().isPresent()
                             && StatisticConstants.shouldIgnoreCol(olapTable, slot.getColumn().get());
                     if (olapScan.getStats().findColumnStatistics(slot).isUnKnown()
+                            && !olapScan.getOperativeSlots().contains(slot)
                             && !isComplexDataType(slot.getDataType())
                             && !StatisticConstants.isSystemTable(olapTable)
                             && !inVisibleCol) {

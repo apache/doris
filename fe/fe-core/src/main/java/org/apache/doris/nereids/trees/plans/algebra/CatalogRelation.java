@@ -22,8 +22,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.Collection;
 import java.util.List;
 
@@ -39,7 +37,7 @@ public interface CatalogRelation extends Relation {
     }
 
     default List<Slot> getOperativeSlots() {
-        return ImmutableList.of();
+        return getOutput();
     }
 
 }

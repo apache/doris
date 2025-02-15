@@ -552,7 +552,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         builder.setDeltaRowCount(deltaRowCount);
         // if slot is invisible, use UNKNOWN
         List<SlotReference> visibleOutputSlots = new ArrayList<>();
-        for (Slot slot : ((Plan) olapScan).getOutput()) {
+        for (Slot slot : ((CatalogRelation) olapScan).getOperativeSlots()) {
             if (isVisibleSlotReference(slot)) {
                 visibleOutputSlots.add((SlotReference) slot);
             } else {
