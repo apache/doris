@@ -89,6 +89,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
                         conf.set(propEntry.getKey(), propEntry.getValue());
                     }
+                    conf.set("fs.hdfs.impl.disable.cache", "true");
                     AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
                     authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
                     try {
