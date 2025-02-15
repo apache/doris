@@ -34,6 +34,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.IndexSchemaProcNode;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcService;
@@ -52,8 +53,10 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -184,16 +187,14 @@ public class DescribeCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        CatalogIf catalog = ctx.getCurrentCatalog();
-        String dbName = ctx.getDatabase();
-
         if (dbTableName != null) {
             dbTableName.analyze(ctx);
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
             Pair<String, String> sourceTableNameWithMetaName = catalog.getSourceTableNameWithMetaTableName(
                     dbTableName.getCtl());
             if (!Strings.isNullOrEmpty(sourceTableNameWithMetaName.second)) {
                 isTableValuedFunction = true;
-                Optional<TableValuedFunctionRef> optTvfRef = catalog.getMetaTableFunctionRef(dbName,
+                Optional<TableValuedFunctionRef> optTvfRef = catalog.getMetaTableFunctionRef(dbTableName.getDb(),
                         dbTableName.getTbl());
                 if (!optTvfRef.isPresent()) {
                     throw new AnalysisException("meta table not found: " + sourceTableNameWithMetaName.second);
@@ -237,6 +238,7 @@ public class DescribeCommand extends ShowCommand {
                     dbTableName.toString());
         }
 
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrDdlException(dbTableName.getTbl());
         table.readLock();
@@ -258,7 +260,7 @@ public class DescribeCommand extends ShowCommand {
                     procString += "/";
                     StringBuilder builder = new StringBuilder();
                     for (String str : partitionNames.getPartitionNames()) {
-                        // TODO: describe tble partition p1 can not execute, should fix it.
+                        // TODO: describe tbl partition p1 can not execute, should fix it.
                         builder.append(str);
                         builder.append(",");
                     }
@@ -269,7 +271,7 @@ public class DescribeCommand extends ShowCommand {
                 if (node == null) {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
-                rows.addAll(node.fetchResult().getRows());
+                rows.addAll(getResultRows());
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
                 if (table instanceof OlapTable) {
@@ -403,6 +405,29 @@ public class DescribeCommand extends ShowCommand {
         }
 
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    /**
+     * getResultRows
+     */
+    public List<List<String>> getResultRows() throws AnalysisException {
+        Preconditions.checkNotNull(node);
+        List<List<String>> rows = node.fetchResult().getRows();
+        List<List<String>> res = new ArrayList<>();
+        for (List<String> row : rows) {
+            try {
+                Env.getCurrentEnv().getAccessManager()
+                        .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
+                                dbTableName.getDb(), dbTableName.getTbl(), Sets.newHashSet(row.get(0)),
+                                PrivPredicate.SHOW);
+                res.add(row);
+            } catch (UserException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(e.getMessage());
+                }
+            }
+        }
+        return res;
     }
 
     @Override
