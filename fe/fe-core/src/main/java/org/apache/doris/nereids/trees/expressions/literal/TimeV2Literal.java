@@ -218,7 +218,7 @@ public class TimeV2Literal extends Literal {
     }
 
     public long getMicroSecond() {
-        return (long) (microsecond / Math.pow(10, 6 - scale));
+        return (long) (microsecond / Math.pow(10, 6 - scale)) * (long) Math.pow(10, 6 - scale);
     }
 
     @Override
@@ -283,9 +283,9 @@ public class TimeV2Literal extends Literal {
     @Override
     public Object getValue() {
         if (1.0 / hour < 0) {
-            return (((hour * 60) - minute * 60) - second) * 1000000 - microsecond;
+            return (((hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
         }
-        return (((hour * 60) + minute * 60) + second) * 1000000 + microsecond;
+        return (((hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
     }
 
     @Override
