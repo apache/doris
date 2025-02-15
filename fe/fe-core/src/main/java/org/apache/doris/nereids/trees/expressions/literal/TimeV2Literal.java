@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -48,6 +49,20 @@ public class TimeV2Literal extends Literal {
     protected TimeV2Literal(TimeV2Type dataType, String s) throws AnalysisException {
         super(dataType);
         init(s);
+    }
+
+    public TimeV2Literal(double value) {
+        super(TimeV2Type.INSTANCE);
+        boolean sign = 1.0 / value < 0;
+        long v = (long) Math.abs(value);
+        this.microsecond = v % 1000000;
+        v /= 1000000;
+        this.second = v % 60;
+        v /= 60;
+        this.minute = v % 60;
+        v /= 60;
+        this.hour = v * (sign ? -1 : 1);
+        this.scale = 6;
     }
 
     /**

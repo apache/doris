@@ -48,6 +48,21 @@ public class TimeV2Literal extends LiteralExpr {
         this.microsecond = 0;
     }
 
+    public TimeV2Literal(double value) {
+        super();
+        boolean sign = 1.0 / value < 0;
+        this.type = ScalarType.createTimeV2Type(6);
+        long v = (long) Math.abs(value);
+        this.microsecond = v % 1000000;
+        v /= 1000000;
+        this.second = v % 60;
+        v /= 60;
+        this.minute = v % 60;
+        v /= 60;
+        this.hour = v * (sign ? -1 : 1);
+        analysisDone();
+    }
+
     public TimeV2Literal(double hour, long minute, long second) {
         super();
         this.type = Type.TIMEV2;
