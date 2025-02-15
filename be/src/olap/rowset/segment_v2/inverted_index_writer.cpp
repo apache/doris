@@ -326,6 +326,7 @@ public:
     }
 
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+        DCHECK(_rid >= num_rows);
         if (num_rows == 0 || null_map == nullptr) {
             return Status::OK();
         }
