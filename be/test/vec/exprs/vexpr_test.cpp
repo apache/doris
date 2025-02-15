@@ -48,6 +48,7 @@
 #include "vec/core/types.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -364,7 +365,9 @@ template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires(T == TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TTimeV2Literal timev2_literal;
-    timev2_literal.__set_value(value);
+    double v;
+    TimeValue::timev2_to_double_from_str(value.c_str(), v);
+    timev2_literal.__set_value(v);
     node.__set_timev2_literal(timev2_literal);
 }
 
