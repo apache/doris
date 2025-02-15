@@ -94,13 +94,13 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         _filter_map.clear();
         _filter_map.resize(rows, 0);
         bool stop_processing = false;
-        RETURN_IF_ERROR(_validate_data(state, block.get(), rows, filtered_rows, &stop_processing));
+        auto st = _validate_data(state, block.get(), rows, filtered_rows, &stop_processing);
         _num_filtered_rows += filtered_rows;
         has_filtered_rows = filtered_rows > 0;
-        if (stop_processing) {
+        if (!st.ok()) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
             // because of "data unqualified"
-            return Status::DataQualityError("Encountered unqualified data, stop processing");
+            return st;
         }
         _convert_to_dest_desc_block(block.get());
     }
