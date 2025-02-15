@@ -493,9 +493,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         // so this part not used
         const auto* origin_value = reinterpret_cast<const double*>(data);
         TTimeV2Literal timev2_literal;
-        char convert_buffer[30] {};
-        time_to_buffer_from_double(*origin_value, convert_buffer);
-        timev2_literal.__set_value(convert_buffer);
+        timev2_literal.__set_value(*origin_value);
         (*node).__set_timev2_literal(timev2_literal);
         (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));

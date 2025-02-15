@@ -34,7 +34,8 @@ public class TimeV2Literal extends Literal {
     private static final TimeV2Literal MIN_TIME = new TimeV2Literal(-838, 0, 0, 0, 0);
     private static final TimeV2Literal MAX_TIME = new TimeV2Literal(838, 59, 59, 999999, 6);
 
-    protected float hour;
+    // The time may start at -0. To keep this negative sign need to use a float number.
+    protected double hour;
     protected long minute;
     protected long second;
     protected long microsecond;
@@ -52,14 +53,14 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor time literal.
      */
-    public TimeV2Literal(float hour, long minute, long second) {
+    public TimeV2Literal(double hour, long minute, long second) {
         this(TimeV2Type.INSTANCE, hour, minute, second);
     }
 
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(TimeV2Type dataType, float hour, long minute, long second) {
+    public TimeV2Literal(TimeV2Type dataType, double hour, long minute, long second) {
         super(dataType);
         this.hour = hour;
         this.minute = minute;
@@ -71,7 +72,7 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(float hour, long minute, long second, long microsecond, int scale) {
+    public TimeV2Literal(double hour, long minute, long second, long microsecond, int scale) {
         super(TimeV2Type.INSTANCE);
         this.hour = hour;
         this.minute = minute;
@@ -83,39 +84,48 @@ public class TimeV2Literal extends Literal {
         this.scale = scale;
     }
 
-    protected void init(String s) throws AnalysisException {
-        // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
-        if (!s.contains(":")) {
-            boolean sign = false;
-            String tail = "";
-            if (s.charAt(0) == '-') {
-                s = s.substring(1);
-                sign = true;
-            }
-            if (s.contains(".")) {
-                tail = s.substring(s.indexOf("."));
-                s = s.substring(0, s.indexOf("."));
-            }
-            int len = s.length();
-            if (len == 1) {
-                s = "00:00:0" + s;
-            } else if (len == 2) {
-                s = "00:00:" + s;
-            } else if (len == 3) {
-                s = "00:0" + s.charAt(0) + ":" + s.substring(1);
-            } else if (len == 4) {
-                s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
-            } else {
-                s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
-            }
-            if (sign) {
-                s = '-' + s;
-            }
-            s = s + tail;
+    protected String normalize(String s) {
+        boolean sign = false;
+        String tail = "";
+        if (s.charAt(0) == '-') {
+            s = s.substring(1);
+            sign = true;
         }
+        if (s.contains(".")) {
+            tail = s.substring(s.indexOf("."));
+            s = s.substring(0, s.indexOf("."));
+        }
+        int len = s.length();
+        if (len == 1) {
+            s = "00:00:0" + s;
+        } else if (len == 2) {
+            s = "00:00:" + s;
+        } else if (len == 3) {
+            s = "00:0" + s.charAt(0) + ":" + s.substring(1);
+        } else if (len == 4) {
+            s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
+        } else {
+            s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
+        }
+        if (sign) {
+            s = '-' + s;
+        }
+        return s + tail;
+    }
+
+    protected void init(String s) throws AnalysisException {
+        // remove suffix/prefix ' '
+        s = s.trim();
+        // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
+        // not contain ":" should make it normalize
+        if (!s.contains(":")) {
+            s = normalize(s);
+        }
+        // s maybe just contail 1 ":" like "12:00" so append a ":00" to the end
         if (s.indexOf(':') == s.lastIndexOf(':')) {
             s = s + ":00";
         }
+        // start parse string
         String[] parts = s.split(":");
         if (parts.length != 3) {
             throw new AnalysisException("Invalid format, must have 3 parts separated by ':'");
@@ -163,7 +173,7 @@ public class TimeV2Literal extends Literal {
                 throw new AnalysisException("Invalid microsecond format", e);
             }
         } else {
-            microsecond = 0L;
+            microsecond = 0;
         }
 
         this.scale = ((TimeV2Type) dataType).getScale();
@@ -172,13 +182,13 @@ public class TimeV2Literal extends Literal {
         }
     }
 
-    protected static boolean checkRange(float hour, long minute, long second, long microsecond) {
+    protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
         return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond()
                 || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond()
                 || microsecond < MIN_TIME.getMicroSecond() || microsecond > MAX_TIME.getMicroSecond();
     }
 
-    public float getHour() {
+    public double getHour() {
         return hour;
     }
 
@@ -206,7 +216,7 @@ public class TimeV2Literal extends Literal {
 
     @Override
     public String getStringValue() {
-        float h = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
+        double h = Math.max(Math.min(hour, MAX_TIME.getHour()), MIN_TIME.getHour());
         long m = Math.max(Math.min(minute, MAX_TIME.getMinute()), MIN_TIME.getMinute());
         long s = Math.max(Math.min(second, MAX_TIME.getSecond()), MIN_TIME.getSecond());
         long ms = Math.max(Math.min(getMicroSecond(), MAX_TIME.getMicroSecond()), MIN_TIME.getMicroSecond());
@@ -255,6 +265,9 @@ public class TimeV2Literal extends Literal {
 
     @Override
     public Object getValue() {
+        if (1.0 / hour < 0) {
+            return (((hour * 60) - minute * 60) - second) * 1000000 - microsecond;
+        }
         return (((hour * 60) + minute * 60) + second) * 1000000 + microsecond;
     }
 

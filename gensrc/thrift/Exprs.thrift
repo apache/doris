@@ -121,7 +121,7 @@ struct TDateLiteral {
 }
 
 struct TTimeV2Literal {
-  1: required string value
+  1: required double value
 }
 
 struct TFloatLiteral {

@@ -83,13 +83,6 @@ MutableColumnPtr DataTypeTimeV2::create_column() const {
 }
 
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
-    const int32_t scale = node.type.types.empty() ? 0 : node.type.types.front().scalar_type.scale;
-    double v;
-    if (TimeValue::timev2_to_double_from_str(node.timev2_literal.value.c_str(), v, scale)) {
-        return v;
-    } else {
-        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                               "Invalid value: {} for type TimeV2", node.timev2_literal.value);
-    }
+    return node.timev2_literal.value;
 }
 } // namespace doris::vectorized

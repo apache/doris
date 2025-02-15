@@ -26,18 +26,81 @@ public class TimeV2LiteralTest {
 
     @Test
     public void testTimeLiteralCreate() throws AnalysisException {
+        // without micro second
         TimeV2Literal literal = new TimeV2Literal("12:12:12");
         String s = literal.getStringValue();
         Assert.assertEquals(s, "12:12:12");
-        literal = new TimeV2Literal("112:00:00");
+        // max val
+        literal = new TimeV2Literal("838:59:59");
         s = literal.getStringValue();
-        Assert.assertEquals(s, "112:00:00");
+        Assert.assertEquals(s, "838:59:59");
+        // min val
+        literal = new TimeV2Literal("-838:59:59");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-838:59:59");
+        // not string
         literal = new TimeV2Literal(21, 12, 21);
         s = literal.getStringValue();
         Assert.assertEquals(s, "21:12:21");
+        // max val
         literal = new TimeV2Literal(838, 59, 59);
         s = literal.getStringValue();
         Assert.assertEquals(s, "838:59:59");
+        // min val
+        literal = new TimeV2Literal(-838, 59, 59);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-838:59:59");
+        // hour is negative
+        literal = new TimeV2Literal("-00:01:01");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-00:01:01");
+        literal = new TimeV2Literal(-0, 59, 59);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-00:59:59");
+        // contail micro second part
+        literal = new TimeV2Literal("12:12:12.121212");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "12:12:12.121212");
+        // max val
+        literal = new TimeV2Literal("838:59:59.999999");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59.999999");
+        // min val
+        literal = new TimeV2Literal("-838:59:59.999999");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-838:59:59.999999");
+        // not string
+        literal = new TimeV2Literal(12, 12, 12, 121212, 6);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "12:12:12.121212");
+        // max val
+        literal = new TimeV2Literal(838, 59, 59, 999999, 6);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59.999999");
+        // min val
+        literal = new TimeV2Literal(-838, 59, 59, 999999, 6);
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-838:59:59.999999");
+        // string without ":"
+        literal = new TimeV2Literal("8385959");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59");
+        literal = new TimeV2Literal("-8385959");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-838:59:59");
+        literal = new TimeV2Literal("120000");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "12:00:00");
+        literal = new TimeV2Literal("8385959.999999");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "838:59:59.999999");
+        literal = new TimeV2Literal("-8385959.999999");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "-838:59:59.999999");
+        // one ":"
+        literal = new TimeV2Literal("12:00");
+        s = literal.getStringValue();
+        Assert.assertEquals(s, "12:00:00");
     }
 
 }
