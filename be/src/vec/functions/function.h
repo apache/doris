@@ -237,6 +237,11 @@ public:
     virtual FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                                   const DataTypePtr& return_type) const = 0;
 
+    // if a function's get_variadic_argument_types() not override and get_return_type_impl()
+    // result is rely on arguments, the function should override return false
+    // more information see https://github.com/apache/doris/pull/45159
+    virtual bool has_return_type_in_signature() const = 0;
+
     /// For higher-order functions (functions, that have lambda expression as at least one argument).
     /// You pass data types with empty DataTypeFunction for lambda arguments.
     /// This function will replace it with DataTypeFunction containing actual types.
@@ -272,8 +277,8 @@ public:
               // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
               (return_type->is_nullable() && func_return_type->is_nullable() &&
                is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
-              is_date_or_datetime_or_decimal(return_type, func_return_type) ||
-              is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))) {
+              is_type_decimal(return_type, func_return_type) ||
+              is_array_nested_type_decimal(return_type, func_return_type))) {
             LOG_WARNING(
                     "function return type check failed, function_name={}, "
                     "expect_return_type={}, real_return_type={}, input_arguments={}",
@@ -298,6 +303,8 @@ public:
     }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
+
+    bool has_return_type_in_signature() const override { return true; }
 
 protected:
     // Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
@@ -342,13 +349,14 @@ protected:
     virtual DataTypes get_variadic_argument_types_impl() const { return {}; }
 
 private:
+    friend class SimpleFunctionFactory;
+
     DataTypePtr get_return_type_without_low_cardinality(
             const ColumnsWithTypeAndName& arguments) const;
 
-    bool is_date_or_datetime_or_decimal(const DataTypePtr& return_type,
-                                        const DataTypePtr& func_return_type) const;
-    bool is_array_nested_type_date_or_datetime_or_decimal(
-            const DataTypePtr& return_type, const DataTypePtr& func_return_type) const;
+    bool is_type_decimal(const DataTypePtr& return_type, const DataTypePtr& func_return_type) const;
+    bool is_array_nested_type_decimal(const DataTypePtr& return_type,
+                                      const DataTypePtr& func_return_type) const;
 };
 
 /// Previous function interface.
@@ -532,6 +540,9 @@ public:
 
     String get_name() const override { return function->get_name(); }
     bool is_variadic() const override { return function->is_variadic(); }
+    bool has_return_type_in_signature() const override {
+        return function->has_return_type_in_signature();
+    }
     size_t get_number_of_arguments() const override { return function->get_number_of_arguments(); }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override {

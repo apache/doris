@@ -126,6 +126,10 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
     bool use_default_implementation_for_nulls() const override { return false; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 

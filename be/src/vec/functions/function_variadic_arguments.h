@@ -54,6 +54,10 @@ public:
         return res;
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<ToDataType>();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         ToDataType to_type;

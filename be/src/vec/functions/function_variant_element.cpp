@@ -37,6 +37,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -67,14 +68,19 @@ public:
         return {std::make_shared<vectorized::DataTypeObject>(), std::make_shared<DataTypeString>()};
     }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK((WhichDataType(remove_nullable(arguments[0]))).is_variant_type())
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DCHECK((WhichDataType(remove_nullable(arguments[0].type))).is_variant_type())
                 << "First argument for function: " << name
-                << " should be DataTypeObject but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_string(arguments[1]))
+                << " should be DataTypeObject but it has type " << arguments[0].type->get_name()
+                << ".";
+        DCHECK(is_string(arguments[1].type))
                 << "Second argument for function: " << name << " should be String but it has type "
-                << arguments[1]->get_name() << ".";
+                << arguments[1].type->get_name() << ".";
         return make_nullable(std::make_shared<DataTypeObject>());
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeObject>();
     }
 
     // wrap variant column with nullable

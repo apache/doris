@@ -249,7 +249,7 @@ struct MakeDateImpl {
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        return make_nullable(std::make_shared<DataTypeDate>());
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -498,7 +498,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDate>());
+        return make_nullable(std::make_shared<DataTypeDateV2>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -572,6 +572,10 @@ struct UnixTimeStampImpl {
         return std::make_shared<DataTypeInt32>();
     }
 
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt32>();
+    }
+
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
@@ -601,6 +605,25 @@ struct UnixTimeStampDateImpl {
             return std::make_shared<DataTypeDecimal<Decimal64>>(10 + scale, scale);
         } else {
             if (arguments[0].type->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeInt32>());
+            }
+            return std::make_shared<DataTypeInt32>();
+        }
+    }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
+            if (arguments[0]->is_nullable()) {
+                UInt32 scale = static_cast<const DataTypeNullable*>(arguments[0].get())
+                                       ->get_nested_type()
+                                       ->get_scale();
+                return make_nullable(
+                        std::make_shared<DataTypeDecimal<Decimal64>>(10 + scale, scale));
+            }
+            UInt32 scale = arguments[0]->get_scale();
+            return std::make_shared<DataTypeDecimal<Decimal64>>(10 + scale, scale);
+        } else {
+            if (arguments[0]->is_nullable()) {
                 return make_nullable(std::make_shared<DataTypeInt32>());
             }
             return std::make_shared<DataTypeInt32>();
@@ -687,6 +710,10 @@ struct UnixTimeStampStrImpl {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeDecimal<Decimal64>>(16, 6));
+    }
+
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
         return make_nullable(std::make_shared<DataTypeDecimal<Decimal64>>(16, 6));
     }
@@ -758,6 +785,10 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return Impl::get_return_type_impl(arguments);
+    }
+
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
     }
@@ -796,6 +827,10 @@ public:
         if (arguments[0].type->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeInt64>());
         }
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
         return std::make_shared<DataTypeInt64>();
     }
 
@@ -853,6 +888,10 @@ public:
             return is_nullable ? make_nullable(std::make_shared<DataTypeDateV2>())
                                : std::make_shared<DataTypeDateV2>();
         }
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<DataTypeDateV2>();
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
