@@ -68,6 +68,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -899,6 +900,10 @@ public class Alter {
 
     public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
         systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
+    }
+
+    public void processAlterSystem(AlterSystemCommand command) throws UserException {
+        systemHandler.process(Collections.singletonList(command.getAlterClause()), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {

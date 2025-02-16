@@ -15,34 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.system.SystemInfoService.HostInfo;
-
-import com.google.common.collect.ImmutableList;
-import lombok.Getter;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.DropBackendClause;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
-@Getter
-public class DropBackendClause extends BackendClause {
+/**
+ * DropBackendOp
+ */
+public class DropBackendOp extends BackendOp {
     private final boolean force;
 
-    public DropBackendClause(List<String> params) {
-        super(params);
-        this.force = true;
-    }
-
-    public DropBackendClause(List<String> params, boolean force) {
-        super(params);
+    public DropBackendOp(List<String> hostPorts, boolean force) {
+        super(hostPorts);
         this.force = force;
     }
 
-    public DropBackendClause(List<String> ids, List<HostInfo> hostPorts, boolean force) {
-        super(ImmutableList.of());
-        this.ids = ids;
-        this.hostInfos = hostPorts;
-        this.force = force;
+    @Override
+    public void validate(ConnectContext ctx) throws AnalysisException {
+        super.validate(ctx);
     }
 
     @Override
@@ -56,5 +51,10 @@ public class DropBackendClause extends BackendClause {
             }
         }
         return sb.toString();
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new DropBackendClause(ids, hostInfos, force);
     }
 }
