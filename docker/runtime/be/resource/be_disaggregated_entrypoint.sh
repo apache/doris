@@ -247,6 +247,13 @@ if [[ "x$fe_addrs" == "x" ]]; then
     exit 1
 fi
 
+# pre check for starting
+if cat /proc/cpuinfo | grep -q "avx2" &>/dev/null; then
+    log_stderr "[info] the host machine support avx2 instruction set."
+else
+    log_stderr "[info] the host machine not support avx2 instruction set."
+fi
+
 update_conf_from_configmap
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
