@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <property>
+        <name>dfs.nameservices</name>
+        <value>defaultcluster</value>
+    </property>
+    <property>
+        <name>dfs.ha.namenodes.testcluster</name>
+        <value>default1,default2</value>
+    </property>
+    <property>
+        <name>dfs.namenode.rpc-address.testcluster.nn1</name>
+        <value>default1:8020</value>
+    </property>
+    <property>
+        <name>dfs.test-from-file</name>
+        <value>test-from-file</value>
+    </property>
+</configuration> 

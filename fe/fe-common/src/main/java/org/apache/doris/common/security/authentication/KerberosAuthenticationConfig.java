@@ -17,10 +17,16 @@
 
 package org.apache.doris.common.security.authentication;
 
+import org.apache.doris.common.Config;
+
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @EqualsAndHashCode(callSuper = true)
 @Data
@@ -33,5 +39,35 @@ public class KerberosAuthenticationConfig extends AuthenticationConfig {
     @Override
     public boolean isValid() {
         return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
+    }
+
+    public void setKerberosKeytab(String kerberosKeytab) {
+        // Convert the provided keytab path to a Path object
+        Path keytabPath = Paths.get(kerberosKeytab);
+
+        // Check if the provided path is an absolute path
+        if (keytabPath.isAbsolute()) {
+            // If it's an absolute path, check if the file exists
+            if (keytabPath.toFile().exists()) {
+                // If the file exists, set the kerberosKeytab
+                this.kerberosKeytab = kerberosKeytab;
+            } else {
+                // If the file does not exist, throw an exception
+                throw new RuntimeException("Keytab file does not exist: " + kerberosKeytab);
+            }
+        } else {
+            // If it's not an absolute path, resolve it with the custom config directory
+            String resolvedKeytabPath = Config.custom_config_dir + File.separator + kerberosKeytab;
+            keytabPath = Paths.get(resolvedKeytabPath);
+
+            // Check if the resolved path exists
+            if (keytabPath.toFile().exists()) {
+                // If the file exists, set the kerberosKeytab
+                this.kerberosKeytab = keytabPath.toString();
+            } else {
+                // If the file does not exist, throw an exception
+                throw new RuntimeException("Keytab file does not exist: " + keytabPath.toString());
+            }
+        }
     }
 }
