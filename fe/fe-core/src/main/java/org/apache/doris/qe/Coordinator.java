@@ -1155,7 +1155,7 @@ public class Coordinator implements CoordInterface {
             throw new UserException("There is no receiver.");
         }
 
-        Status status;
+        Status status = new Status();
         RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
