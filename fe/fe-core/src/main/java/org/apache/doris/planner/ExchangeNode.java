@@ -30,6 +30,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -67,6 +68,7 @@ public class ExchangeNode extends PlanNode {
 
     private boolean isRightChildOfBroadcastHashJoin = false;
     private TPartitionType partitionType;
+    private THashType hashType;
 
     /**
      * use for Nereids only.
@@ -168,6 +170,10 @@ public class ExchangeNode extends PlanNode {
         this.planNodeName =  "V" + MERGING_EXCHANGE_NODE;
     }
 
+    public void setHashType(THashType hashType) {
+        this.hashType = hashType;
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         // If this fragment has another scan node, this exchange node is serial or not should be decided by the scan
@@ -181,6 +187,9 @@ public class ExchangeNode extends PlanNode {
         }
         if (mergeInfo != null) {
             msg.exchange_node.setSortInfo(mergeInfo.toThrift());
+        }
+        if (hashType != null) {
+            msg.exchange_node.setHashType(hashType);
         }
         msg.exchange_node.setOffset(offset);
         msg.exchange_node.setPartitionType(partitionType);

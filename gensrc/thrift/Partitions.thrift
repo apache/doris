@@ -21,6 +21,12 @@ namespace java org.apache.doris.thrift
 include "Exprs.thrift"
 include "Types.thrift"
 
+enum THashType {
+    CRC32,
+    XXHASH64,
+    SPARK_MURMUR32
+}
+
 enum TPartitionType {
   UNPARTITIONED = 0,
 
@@ -96,6 +102,7 @@ struct TDataPartition {
   1: required TPartitionType type
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
+  4: optional THashType hash_type
 }
 
 
