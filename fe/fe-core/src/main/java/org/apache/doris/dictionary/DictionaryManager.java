@@ -87,17 +87,18 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     private static final long DICTIONARY_JOB_ID = -493209151411825L; // "DICTIONARY" to INT
     private static final String DICTIONARY_JOB_NAME = "__INNER_DICTIONARY_JOB__";
 
-    // Lock for protecting dictionaries map
+    // Lock for protecting dictionaryIds map
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    // Map of database name -> dictionary name -> dictionary
-    @SerializedName(value = "d")
-    private Map<String, Map<String, Dictionary>> dictionaries = Maps.newConcurrentMap();
+    /// ATTN: we MUST have only one container holds the dictionary object because of GSON deserialization.
+    /// make it `idToDictionary`. so all others MUST be secondary index.\
 
-    // dbname -> tablename -> dictname
+    // Map of database name -> dictionary name -> dictionary id
+    @SerializedName(value = "ids")
+    private Map<String, Map<String, Long>> dictionaryIds = Maps.newConcurrentMap();
+    // dbname -> tablename -> dict id
     @SerializedName(value = "t")
-    private Map<String, ListMultimap<String, String>> dbTableToDicNames = Maps.newConcurrentMap();
-
+    private Map<String, ListMultimap<String, Long>> dbTableToDicIds = Maps.newConcurrentMap();
     @SerializedName(value = "idmap")
     private Map<Long, Dictionary> idToDictionary = Maps.newConcurrentMap();
 
@@ -187,7 +188,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockWrite();
         try {
             // 1. Check if dictionary already exists
-            if (hasDictionaryUnlock(info.getDbName(), info.getDictName())) {
+            if (hasDictionaryWithoutLock(info.getDbName(), info.getDictName())) {
                 if (info.isIfNotExists()) {
                     return getDictionary(info.getDbName(), info.getDictName());
                 } else {
@@ -197,14 +198,14 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             }
             // 2. Create dictionary object
             Dictionary dictionary = new Dictionary(info, ++uniqueId);
-            // Add to dictionaries map. no throw here. so schedule below is safe.
-            Map<String, Dictionary> dbDictionaries = dictionaries.computeIfAbsent(info.getDbName(),
+            // Add to dictionaryIds map. no throw here. so schedule below is safe.
+                    idToDictionary.put(dictionary.getId(), dictionary);
+            Map<String, Long> dbDictIds = dictionaryIds.computeIfAbsent(info.getDbName(),
                     k -> Maps.newConcurrentMap());
-            dbDictionaries.put(info.getDictName(), dictionary);
-            ListMultimap<String, String> tableToDicNames = dbTableToDicNames.computeIfAbsent(info.getDbName(),
-                    k -> ArrayListMultimap.create());
-            tableToDicNames.put(info.getSourceTableName(), info.getDictName());
-            idToDictionary.put(dictionary.getId(), dictionary);
+            dbDictIds.put(info.getDictName(), dictionary.getId());
+            ListMultimap<String, Long> tableToDicIds = dbTableToDicIds.computeIfAbsent(info.getDbName(),
+                            k -> ArrayListMultimap.create());
+            tableToDicIds.put(info.getSourceTableName(), dictionary.getId());
 
             // 3. Log the creation operation
             Env.getCurrentEnv().getEditLog().logCreateDictionary(dictionary);
@@ -226,18 +227,18 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockWrite();
         Dictionary dictionary = null;
         try {
-            Map<String, Dictionary> dbDictionaries = dictionaries.get(dbName);
-            if (dbDictionaries == null || !dbDictionaries.containsKey(dictName)) {
+            Map<String, Long> dbDictIds = dictionaryIds.get(dbName);
+            if (dbDictIds == null || !dbDictIds.containsKey(dictName)) {
                 if (!ifExists) {
                     throw new DdlException("Dictionary " + dictName + " does not exist in database " + dbName);
                 }
                 return;
             }
-            dictionary = dbDictionaries.remove(dictName);
+            Long id = dbDictIds.remove(dictName);
+            dictionary = idToDictionary.remove(id);
 
             // remove mapping from table to dict
-            dbTableToDicNames.get(dbName).remove(dictionary.getSourceTableName(), dictName);
-            idToDictionary.remove(dictionary.getId());
+            dbTableToDicIds.get(dbName).remove(dictionary.getSourceTableName(), id);
 
             // Log the drop operation
             Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, dictName);
@@ -257,25 +258,26 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockWrite();
         List<Dictionary> droppedDictionaries = Lists.newArrayList();
         try {
-            ListMultimap<String, String> tableToDicNames = dbTableToDicNames.get(dbName);
-            if (tableToDicNames == null) { // this db has no table with dictionary records.
+            ListMultimap<String, Long> tableToDictIds = dbTableToDicIds.get(dbName);
+            if (tableToDictIds == null) { // this db has no table with dictionary records.
                 return;
             }
             // get all dictionary names of this table
-            List<String> dictNames = tableToDicNames.removeAll(tableName);
-            if (dictNames == null) { // this table has no dictionaries.
+            List<Long> dictIds = tableToDictIds.removeAll(tableName);
+            if (dictIds == null) { // this table has no dictionaries.
                 return;
             }
-            // all this db's dictionaries. tableToDicNames is not null so nameToDics must not be null.
-            Map<String, Dictionary> nameToDics = dictionaries.get(dbName);
-            for (String dictName : dictNames) {
-                Dictionary dictionary = nameToDics.remove(dictName);
-                if (dictionary != null) {
-                    idToDictionary.remove(dictionary.getId());
+            // all this db's dictionaries. tableToDictIds is not null so nameToDics must not
+            // be null.
+            Map<String, Long> nameToIds = dictionaryIds.get(dbName);
+            for (Long id : dictIds) {
+                Dictionary dict = idToDictionary.remove(id);
+                nameToIds.remove(dict.getName());
+                if (id != null) {
+                    droppedDictionaries.add(dict);
                 }
-                droppedDictionaries.add(dictionary);
                 // Log the drop operation
-                Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, dictName);
+                Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, dict.getName());
             }
         } finally {
             unlockWrite();
@@ -293,16 +295,15 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         List<Dictionary> droppedDictionaries = Lists.newArrayList();
         try {
             // pop and save item from dictionaries
-            Map<String, Dictionary> dbDictionaries = dictionaries.remove(dbName);
+            Map<String, Long> dbDictIds = dictionaryIds.remove(dbName);
             // Log the drop operation
-            if (dbDictionaries != null) {
-                for (Map.Entry<String, Dictionary> entry : dbDictionaries.entrySet()) {
-                    droppedDictionaries.add(entry.getValue());
-                    idToDictionary.remove(entry.getValue().getId());
+            if (dbDictIds != null) {
+                for (Map.Entry<String, Long> entry : dbDictIds.entrySet()) {
+                    droppedDictionaries.add(idToDictionary.remove(entry.getValue()));
                     Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, entry.getKey());
                 }
                 // also drop all name mapping records.
-                dbTableToDicNames.remove(dbName);
+                dbTableToDicIds.remove(dbName);
             }
         } finally {
             unlockWrite();
@@ -312,15 +313,16 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
     }
 
-    private boolean hasDictionaryUnlock(String dbName, String dictName) {
-        Map<String, Dictionary> dbDictionaries = dictionaries.get(dbName);
-        return dbDictionaries != null && dbDictionaries.containsKey(dictName);
+    private boolean hasDictionaryWithoutLock(String dbName, String dictName) {
+        Map<String, Long> dbDictIds = dictionaryIds.get(dbName);
+        return dbDictIds != null && dbDictIds.containsKey(dictName);
     }
 
     public Map<String, Dictionary> getDictionaries(String dbName) {
         lockRead();
         try {
-            return dictionaries.computeIfAbsent(dbName, k -> Maps.newConcurrentMap());
+            Map<String, Long> ids = dictionaryIds.computeIfAbsent(dbName, k -> Maps.newConcurrentMap());
+            return Maps.transformValues(ids, id -> idToDictionary.get(id));
         } finally {
             unlockRead();
         }
@@ -334,11 +336,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     public Dictionary getDictionary(String dbName, String dictName) throws DdlException {
         lockRead();
         try {
-            Map<String, Dictionary> dbDictionaries = dictionaries.get(dbName);
-            if (dbDictionaries == null || !dbDictionaries.containsKey(dictName)) {
+            Map<String, Long> dbDictIds = dictionaryIds.get(dbName);
+            if (dbDictIds == null || !dbDictIds.containsKey(dictName)) {
                 throw new DdlException("Dictionary " + dictName + " does not exist in database " + dbName);
             }
-            return dbDictionaries.get(dictName);
+            return idToDictionary.get(dbDictIds.get(dictName));
         } finally {
             unlockRead();
         }
@@ -372,8 +374,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // check all dictionaries and REFRESH if needed
-        for (Map<String, Dictionary> dbDictionaries : dictionaries.values()) {
-            for (Dictionary dictionary : dbDictionaries.values()) {
+        for (Map<String, Long> dbDictIds : dictionaryIds.values()) {
+            for (Long id : dbDictIds.values()) {
+                Dictionary dictionary = idToDictionary.get(id);
                 // when data duration is older than its lifetime AND TODO:, refresh it.
                 if (dictionary.getLastUpdateTime() + dictionary.getDataLifetimeSecs() * 1000 < now) {
                     // should schedule refresh. only tag when it's NORMAL because if not,
@@ -438,7 +441,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // we should check existance again!
         lockRead();
         try {
-            if (dictionaries.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
+            if (dictionaryIds.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
                 Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
                 // wont fail cuz status is LOADING owned by me.
                 dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
@@ -592,7 +595,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
                 // Update the distribution list
                 List<DictionaryDistribution> distributions = dictionary.getDataDistributions();
-                // if not updated, set it with a new list(invalidating the old list)
+                // if it's new here, set it with a new list(invalidating the old list)
                 if (updatedDictIds.add(dictionaryId)) {
                     dictionary.resetDataDistributions();
                     distributions = dictionary.getDataDistributions();
@@ -610,15 +613,15 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockWrite();
         try {
             // Add to dictionaries map
-            Map<String, Dictionary> dbDictionaries = dictionaries.computeIfAbsent(dictionary.getDbName(),
+            Map<String, Long> dbDictIds = dictionaryIds.computeIfAbsent(dictionary.getDbName(),
                     k -> Maps.newConcurrentMap());
-            if (dbDictionaries.containsKey(dictionary.getName())) {
+            if (dbDictIds.containsKey(dictionary.getName())) {
                 LOG.warn("Dictionary {} already exists when replaying create dictionary", dictionary.getName());
                 return;
             }
-            dbDictionaries.put(dictionary.getName(), dictionary);
-            dbTableToDicNames.computeIfAbsent(dictionary.getDbName(), k -> ArrayListMultimap.create())
-                    .put(dictionary.getSourceTableName(), dictionary.getName());
+            dbDictIds.put(dictionary.getName(), dictionary.getId());
+            dbTableToDicIds.computeIfAbsent(dictionary.getDbName(), k -> ArrayListMultimap.create())
+                    .put(dictionary.getSourceTableName(), dictionary.getId());
             idToDictionary.put(dictionary.getId(), dictionary);
             uniqueId = Math.max(uniqueId, dictionary.getId());
         } finally {
@@ -629,14 +632,14 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     public void replayDropDictionary(DropDictionaryPersistInfo info) {
         lockWrite();
         try {
-            Map<String, Dictionary> dbDictionaries = dictionaries.get(info.getDbName());
-            if (dbDictionaries != null) {
-                Dictionary dict = dbDictionaries.remove(info.getDictionaryName());
-                if (dbDictionaries.isEmpty()) {
-                    dictionaries.remove(info.getDbName());
+            Map<String, Long> dbDictIds = dictionaryIds.get(info.getDbName());
+            if (dbDictIds != null) {
+                Long id = dbDictIds.remove(info.getDictionaryName());
+                Dictionary dict = idToDictionary.remove(id);
+                if (dbDictIds.isEmpty()) {
+                    dictionaryIds.remove(info.getDbName());
                 }
-                dbTableToDicNames.get(info.getDbName()).remove(dict.getSourceTableName(), dict.getName());
-                idToDictionary.remove(dict.getId());
+                dbTableToDicIds.get(info.getDbName()).remove(dict.getSourceTableName(), id);
             } else {
                 LOG.warn("Database {} does not exist when replaying drop dictionary", info.getDbName());
             }
