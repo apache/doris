@@ -325,9 +325,6 @@ public class Dictionary extends Table {
 
     @Override
     public String toString() {
-        return "Dictionary{" + "dbName='" + dbName + '\'' + ", sourceCtlName='" + sourceCtlName + '\''
-                + ", sourceDbName='" + sourceDbName + '\'' + ", sourceTableName='" + sourceTableName + '\''
-                + ", columns=" + columns + ", properties=" + properties + ", version=" + version + ", lastUpdateTime="
-                + lastUpdateTime + ", status=" + status + ", layout=" + layout + '}';
+        return "Dictionary{" + getName() + "}";
     }
 }

@@ -423,11 +423,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         try {
             dictionary.increaseVersion();
             command.run(ctx, executor);
-
-            Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
-            dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL); // wont fail cuz status is LOADING owned by me.
-            dictionary.updateLastUpdateTime();
-            LOG.info("Dictionary {} refresh succeed", dictionary.getName());
         } catch (Exception e) {
             // wait next shedule.
             LOG.warn("Dictionary {} refresh failed", dictionary.getName());
@@ -435,6 +430,23 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // wont fail cuz status is LOADING owned by me.
             dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
             throw e;
+        }
+        // only when succeed we can do this. because of deleting does NOT conflict with
+        // loading, we should check existance again!
+        lockRead();
+        try {
+            if (dictionaries.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
+                Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
+                // wont fail cuz status is LOADING owned by me.
+                dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
+                dictionary.updateLastUpdateTime();
+                LOG.info("Dictionary {} refresh succeed", dictionary.getName());
+            } else {
+                LOG.warn("Dictionary {} has been dropped during loading", dictionary.getName());
+                // the dictionary will be GC soon.
+            }
+        } finally {
+            unlockRead();
         }
     }
 
