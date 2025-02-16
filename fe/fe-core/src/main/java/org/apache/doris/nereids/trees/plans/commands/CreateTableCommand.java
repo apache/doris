@@ -70,7 +70,7 @@ import java.util.stream.Collectors;
  * create table command
  */
 @Developing
-public class CreateTableCommand extends Command implements ForwardWithSync {
+public class CreateTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateTableCommand.class);
 
     private final Optional<LogicalPlan> ctasQuery;
@@ -208,7 +208,6 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         return visitor.visitCreateTableCommand(this, context);
     }
 
-    // for test
     public CreateTableInfo getCreateTableInfo() {
         return createTableInfo;
     }
@@ -216,6 +215,11 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return !createTableInfo.getEngineName().equalsIgnoreCase(CreateTableInfo.ENGINE_OLAP);
     }
 }
 
