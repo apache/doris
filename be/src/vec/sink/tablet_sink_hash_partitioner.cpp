@@ -83,6 +83,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
 }
 
 Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block) const {
+    _already_sent = false;
     _hash_vals.resize(block->rows());
     if (block->empty()) {
         return Status::OK();
@@ -146,6 +147,7 @@ Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state,
     _row_distribution._batching_block->clear_column_data();
     _row_distribution._deal_batched = false;
     RETURN_IF_ERROR(p.sink(state, input_block, false));
+    _already_sent = true;
     return Status::OK();
 }
 
