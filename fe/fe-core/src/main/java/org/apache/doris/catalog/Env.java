@@ -4870,6 +4870,13 @@ public class Env {
             throw new DdlException("Same column name");
         }
 
+        // @NOTE: Rename partition columns should also rename column names in partition expressions
+        // but this is not implemented currently. Therefore, forbid renaming partition columns temporarily.
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
+            throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
+        }
+
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
             // rename column is not implemented for table without column unique id.
@@ -4922,14 +4929,17 @@ public class Env {
             throw new DdlException("Column[" + colName + "] does not exists");
         }
 
+        // @NOTE: Rename partition columns should also rename column names in partition expressions
+        // but this is not implemented currently. Therefore, forbid renaming partition columns temporarily.
+        //
         // 2. modify partition key
-        PartitionInfo partitionInfo = table.getPartitionInfo();
-        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-        for (Column column : partitionColumns) {
-            if (column.getName().equalsIgnoreCase(colName)) {
-                column.setName(newColName);
-            }
-        }
+        // PartitionInfo partitionInfo = table.getPartitionInfo();
+        // List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        // for (Column column : partitionColumns) {
+        //    if (column.getName().equalsIgnoreCase(colName)) {
+        //        column.setName(newColName);
+        //    }
+        //}
 
         // 3. modify index
         List<Index> indexes = table.getIndexes();
