@@ -54,20 +54,22 @@ public class DynamicPartitionProperty {
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
     public static final String STORAGE_POLICY = "dynamic_partition.storage_policy";
     public static final String STORAGE_MEDIUM = "dynamic_partition.storage_medium";
+    public static final String CREATE_METHOD = "dynamic_partition.create_method";
 
     public static final Set<String> DYNAMIC_PARTITION_PROPERTIES = new HashSet<>(
             Arrays.asList(TIME_UNIT, START, END, PREFIX, BUCKETS, ENABLE, START_DAY_OF_WEEK, START_DAY_OF_MONTH,
                     TIME_ZONE, REPLICATION_NUM, REPLICATION_ALLOCATION, CREATE_HISTORY_PARTITION, HISTORY_PARTITION_NUM,
-                    HOT_PARTITION_NUM, RESERVED_HISTORY_PERIODS, STORAGE_POLICY, STORAGE_MEDIUM));
+                    HOT_PARTITION_NUM, RESERVED_HISTORY_PERIODS, STORAGE_POLICY, STORAGE_MEDIUM, CREATE_METHOD));
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
     public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
     public static final String NOT_SET_RESERVED_HISTORY_PERIODS = "NULL";
+    public static final String AUTO_METHOD = "AUTO";
+    public static final String SCHEDULE_METHOD = "SCHEDULE";
 
     private boolean exist;
-
     private boolean enable;
     private String timeUnit;
     private int start;
@@ -87,6 +89,7 @@ public class DynamicPartitionProperty {
     private String reservedHistoryPeriods;
     private String storagePolicy;
     private String storageMedium; // ssd or hdd
+    private String createMethod;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -96,7 +99,7 @@ public class DynamicPartitionProperty {
             this.tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
             // In order to compatible dynamic add partition version
             this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
-            this.end = Integer.parseInt(properties.get(END));
+            this.end = Integer.parseInt(properties.getOrDefault(END, String.valueOf(MAX_END_OFFSET)));
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
             this.replicaAlloc = analyzeReplicaAllocation(properties);
@@ -108,6 +111,7 @@ public class DynamicPartitionProperty {
                     RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             this.storagePolicy = properties.getOrDefault(STORAGE_POLICY, "");
             this.storageMedium = properties.getOrDefault(STORAGE_MEDIUM, "");
+            this.createMethod = properties.getOrDefault(CREATE_METHOD, "");
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -199,6 +203,10 @@ public class DynamicPartitionProperty {
         return storageMedium;
     }
 
+    public String getCreateMethod() {
+        return createMethod;
+    }
+
     public String getStartOfInfo() {
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             return startOfWeek.toDisplayInfo();
@@ -251,6 +259,9 @@ public class DynamicPartitionProperty {
         addProperty.accept(STORAGE_POLICY, storagePolicy);
         if (!Strings.isNullOrEmpty(storageMedium)) {
             addProperty.accept(STORAGE_MEDIUM, storageMedium);
+        }
+        if (!Strings.isNullOrEmpty(createMethod)) {
+            addProperty.accept(CREATE_METHOD, createMethod);
         }
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             addProperty.accept(START_DAY_OF_WEEK, startOfWeek.dayOfWeek);

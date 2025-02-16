@@ -132,14 +132,14 @@ public class DynamicPartitionUtil {
         return DynamicPartitionProperty.MIN_START_OFFSET;
     }
 
-    private static int checkEnd(String end, boolean enableAutoPartition) throws DdlException {
+    private static int checkEnd(String end) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
         }
         try {
             int endInt = Integer.parseInt(end);
             // with auto partition sometime we dont like to create future partition by dynamic partition.
-            if (endInt < 0 || endInt == 0 && !enableAutoPartition) {
+            if (endInt < 0) {
                 ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_ZERO, end);
             }
             return endInt;
@@ -405,6 +405,18 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkCreateMethod(String createMethod, boolean enableAutoPartition) throws DdlException {
+        if (enableAutoPartition) {
+            if (!createMethod.equalsIgnoreCase(DynamicPartitionProperty.AUTO_METHOD)) {
+                throw new DdlException("When use auto&dynamic partition. the create_method can only be `AUTO`");
+            }
+        } else {
+            if (!createMethod.equalsIgnoreCase(DynamicPartitionProperty.SCHEDULE_METHOD)) {
+                throw new DdlException("When only use dynamic partition. the create_method can only be `SCHEDULE`");
+            }
+        }
+    }
+
     private static DateTimeFormatter getDateTimeFormatter(String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             return TimeUtils.getDatetimeFormatWithTimeZone();
@@ -465,6 +477,7 @@ public class DynamicPartitionUtil {
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
+        String createMethod = properties.get(DynamicPartitionProperty.CREATE_METHOD);
 
         if (!(Strings.isNullOrEmpty(enable)
                 && Strings.isNullOrEmpty(timeUnit)
@@ -475,7 +488,8 @@ public class DynamicPartitionUtil {
                 && Strings.isNullOrEmpty(buckets)
                 && Strings.isNullOrEmpty(createHistoryPartition)
                 && Strings.isNullOrEmpty(historyPartitionNum)
-                && Strings.isNullOrEmpty(reservedHistoryPeriods))) {
+                && Strings.isNullOrEmpty(reservedHistoryPeriods)
+                && Strings.isNullOrEmpty(createMethod))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -488,7 +502,8 @@ public class DynamicPartitionUtil {
             if (Strings.isNullOrEmpty(start)) {
                 properties.put(DynamicPartitionProperty.START, String.valueOf(Integer.MIN_VALUE));
             }
-            if (Strings.isNullOrEmpty(end)) {
+            // for auto partition we could dont set it.
+            if (Strings.isNullOrEmpty(end) && !olapTable.getPartitionInfo().enableAutomaticPartition()) {
                 throw new DdlException("Must assign dynamic_partition.end properties");
             }
             if (Strings.isNullOrEmpty(buckets)) {
@@ -509,6 +524,9 @@ public class DynamicPartitionUtil {
             if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
                 properties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS,
                         DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS);
+            }
+            if (Strings.isNullOrEmpty(createMethod)) {
+                properties.put(DynamicPartitionProperty.CREATE_METHOD, DynamicPartitionProperty.SCHEDULE_METHOD);
             }
         }
         return true;
@@ -597,9 +615,10 @@ public class DynamicPartitionUtil {
 
         int end = DynamicPartitionProperty.MAX_END_OFFSET;
         boolean hasEnd = false;
-        if (properties.containsKey(DynamicPartitionProperty.END)) {
+        // for auto partition we dont check end and hasEnd is always false.
+        if (properties.containsKey(DynamicPartitionProperty.END) && !enableAutoPartition) {
             String endValue = properties.get(DynamicPartitionProperty.END);
-            end = checkEnd(endValue, enableAutoPartition);
+            end = checkEnd(endValue);
             properties.remove(DynamicPartitionProperty.END);
             analyzedProperties.put(DynamicPartitionProperty.END, endValue);
             hasEnd = true;
@@ -720,6 +739,14 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.STORAGE_MEDIUM);
             if (!Strings.isNullOrEmpty(storageMedium)) {
                 analyzedProperties.put(DynamicPartitionProperty.STORAGE_MEDIUM, storageMedium);
+            }
+        }
+        if (properties.containsKey(DynamicPartitionProperty.CREATE_METHOD)) {
+            String createMethod = properties.get(DynamicPartitionProperty.CREATE_METHOD);
+            checkCreateMethod(createMethod, enableAutoPartition);
+            properties.remove(DynamicPartitionProperty.CREATE_METHOD);
+            if (!Strings.isNullOrEmpty(createMethod)) {
+                analyzedProperties.put(DynamicPartitionProperty.CREATE_METHOD, createMethod);
             }
         }
         return analyzedProperties;
