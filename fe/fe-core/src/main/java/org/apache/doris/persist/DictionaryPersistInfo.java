@@ -18,20 +18,29 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import java.io.DataInput;
+import com.google.gson.annotations.SerializedName;
+
+import java.io.DataOutput;
 import java.io.IOException;
 
-public class DictionaryDecreaseVersionInfo extends DictionaryPersistInfo {
-    public DictionaryDecreaseVersionInfo(Dictionary dictionary) {
-        super(dictionary);
+public class DictionaryPersistInfo implements Writable {
+    @SerializedName("d")
+    private Dictionary dictionary;
+
+    public DictionaryPersistInfo(Dictionary dictionary) {
+        this.dictionary = dictionary;
     }
 
-    public static DictionaryDecreaseVersionInfo read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        Dictionary dictionary = GsonUtils.GSON.fromJson(json, Dictionary.class);
-        return new DictionaryDecreaseVersionInfo(dictionary);
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(dictionary));
+    }
+
+    public Dictionary getDictionary() {
+        return dictionary;
     }
 }
