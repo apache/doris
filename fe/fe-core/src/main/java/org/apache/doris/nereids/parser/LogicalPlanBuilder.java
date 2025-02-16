@@ -82,7 +82,6 @@ import org.apache.doris.nereids.DorisParser.AlterRepositoryContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
-import org.apache.doris.nereids.DorisParser.AlterSystemContext;
 import org.apache.doris.nereids.DorisParser.AlterSystemRenameComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableAddRollupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableClauseContext;
@@ -5729,7 +5728,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAddBackendClause(AddBackendClauseContext ctx) {
         List<String> hostPorts = ctx.hostPorts.stream()
-                .map(e -> e.getText().replace("'", ""))
+                .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
         Map<String, String> properties = visitPropertyClause(ctx.properties);
         AlterSystemOp alterSystemOp = new AddBackendOp(hostPorts, properties);
@@ -5739,7 +5738,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropBackendClause(DorisParser.DropBackendClauseContext ctx) {
         List<String> hostPorts = ctx.hostPorts.stream()
-                .map(e -> e.getText().replace("'", ""))
+                .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
         boolean force = false;
         if (ctx.DROPP() != null) {
