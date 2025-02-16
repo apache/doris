@@ -175,8 +175,8 @@ public:
     }
 
     void pop_back(size_t n) override {
-        if (_item_count <= n) {
-            throw Exception(Status::FatalError("Check failed: _item_count > n"));
+        if (_item_count < n) {
+            throw Exception(Status::FatalError("Check failed: _item_count >= n"));
         }
         resize(_item_count - n);
     }

@@ -312,8 +312,10 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
         // nested key and value should always same size otherwise we should popback wrong data
         nested_key_column.pop_back(nested_key_column.size() - offsets.back());
         nested_val_column.pop_back(nested_val_column.size() - offsets.back());
-        throw Exception(Status::FatalError(
-                "Check failed: nested_key_column.size() == nested_val_column.size()"));
+        if (nested_key_column.size() != nested_val_column.size()) {
+            throw Exception(Status::FatalError(
+                    "Check failed: nested_key_column.size() == nested_val_column.size()"));
+        }
         return Status::InvalidArgument(
                 "deserialize map error key_size({}) not equal to value_size{}",
                 nested_key_column.size(), nested_val_column.size());

@@ -166,7 +166,7 @@ struct AggregateFunctionDistinctGenericData {
 
     void deserialize(BufferReadable& buf, Arena* arena) {
         if (stable) {
-            throw Exception(Status::FatalError("Check failed: stable"));
+            throw Exception(Status::FatalError("Check failed: !stable"));
         }
         if constexpr (!stable) {
             UInt64 size;

@@ -228,7 +228,7 @@ public:
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        if (self_row >= size()) {
+        if (self_row <= size()) {
             throw Exception(Status::FatalError("Check failed: size() > self_row"));
         }
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];

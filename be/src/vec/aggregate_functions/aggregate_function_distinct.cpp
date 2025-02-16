@@ -57,7 +57,7 @@ public:
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
             const bool result_is_nullable) const override {
         if (nested_function == nullptr) {
-            throw Exception(Status::FatalError("nested_function != nullptr"));
+            throw Exception(Status::FatalError("Check failed: nested_function != nullptr"));
         }
         if (nested_function == nullptr) {
             return nullptr;

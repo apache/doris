@@ -248,7 +248,7 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        if (end > column.size() || begin > column.size()) {
+        if (end > column.size() || begin > end) {
             throw Exception(
                     Status::FatalError("Check failed: end <= column.size() && begin <= end, "
                                        "begin: {}, end: {}, column.size(): {}",
