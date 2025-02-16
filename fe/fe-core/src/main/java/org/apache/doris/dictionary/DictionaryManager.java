@@ -388,6 +388,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     private void submitDataLoad(Dictionary dictionary) {
         if (job.submitDataLoad(dictionary)) {
             LOG.info("submit dictionary load of " + dictionary.getName());
+        } else {
+            LOG.warn("Failed to submit dictionary load of " + dictionary.getName());
         }
     }
 
@@ -429,10 +431,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             dictionary.decreaseVersion();
             // wont fail cuz status is LOADING owned by me.
             dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
+            dictionary.setLastUpdateResult(e.getMessage());
             throw e;
         }
-        // only when succeed we can do this. because of deleting does NOT conflict with
-        // loading, we should check existance again!
+        // only when succeed we can do this. because of deleting does NOT conflict with loading,
+        // we should check existance again!
         lockRead();
         try {
             if (dictionaries.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
@@ -440,6 +443,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 // wont fail cuz status is LOADING owned by me.
                 dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
                 dictionary.updateLastUpdateTime();
+                dictionary.setLastUpdateResult("succeed");
                 LOG.info("Dictionary {} refresh succeed", dictionary.getName());
             } else {
                 LOG.warn("Dictionary {} has been dropped during loading", dictionary.getName());
@@ -450,11 +454,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
     }
 
-    // we dont care whether it's succeed or not. if failed, rely on
-    // checkAndUpdateDictionaries() to drop it.
+    // we dont care whether it's succeed or not. if failed, rely on checkAndUpdateDictionaries() to drop it.
     private void submitDataUnload(Dictionary dictionary) {
         if (job.submitDataUnload(dictionary)) {
             LOG.info("submit dictionary unload of " + dictionary.getName());
+        } else {
+            LOG.warn("Failed to submit dictionary unload of " + dictionary.getName());
         }
     }
 
@@ -471,8 +476,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             LOG.info("Dictionary {} unload succeed", dictionary.getName());
             return true;
         }
-        // when fail, maybe some of data dropped. so imcomplete. need reloading to
-        // complete it.
+        // when fail, maybe some of data dropped. so imcomplete. need reloading to complete it.
         dictionary
                 .trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE); // wont fail cuz status is REMOVING owned by me.
         return false;

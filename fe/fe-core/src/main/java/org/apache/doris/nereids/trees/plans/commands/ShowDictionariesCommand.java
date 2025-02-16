@@ -60,6 +60,7 @@ public class ShowDictionariesCommand extends ShowCommand {
         builder.addColumn(new Column("Version", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Status", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DataDistribution", ScalarType.createVarchar(1000)));
+        builder.addColumn(new Column("LastUpdateResult", ScalarType.createVarchar(100)));
         return builder.build();
     }
 
@@ -91,6 +92,7 @@ public class ShowDictionariesCommand extends ShowCommand {
             row.add(String.valueOf(dictionary.getVersion())); // version
             row.add(dictionary.getStatus().name()); // status
             row.add(dictionary.prettyPrintDistributions()); // data distribution
+            row.add(dictionary.getLastUpdateResult()); // last update result
             rows.add(row);
         }
 

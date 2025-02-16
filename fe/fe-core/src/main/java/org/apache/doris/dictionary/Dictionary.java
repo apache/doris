@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
@@ -87,6 +88,7 @@ public class Dictionary extends Table {
     private long version; // every time dictionary is updated, version will increase by 1
 
     private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
+    private String lastUpdateResult;
 
     // we need this to call Table's constructor with no args which construct new rwLock and more.
     // for gson only and it will set variables soon. so no need to set them.
@@ -103,6 +105,7 @@ public class Dictionary extends Table {
         this.layout = null;
         this.version = 0;
         this.dataDistributions = null; // not replay by gson
+        this.lastUpdateResult = new String();
     }
 
     public Dictionary(CreateDictionaryInfo info, long uniqueId) {
@@ -119,6 +122,7 @@ public class Dictionary extends Table {
         this.layout = info.getLayout();
         this.version = 1;
         this.dataDistributions = null;
+        this.lastUpdateResult = new String();
     }
 
     public String getDbName() {
@@ -301,6 +305,16 @@ public class Dictionary extends Table {
 
     public void resetDataDistributions() {
         this.dataDistributions = Lists.newArrayList();
+    }
+
+    public void setLastUpdateResult(String lastUpdateResult) {
+        // get readable time
+        String now = TimeUtils.getCurrentFormatTime();
+        this.lastUpdateResult = now + ": " + lastUpdateResult;
+    }
+
+    public String getLastUpdateResult() {
+        return lastUpdateResult;
     }
 
     @Override
