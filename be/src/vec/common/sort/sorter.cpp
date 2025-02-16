@@ -89,8 +89,12 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
 
 Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
                                          bool* eos) {
-    DCHECK(_sorted_blocks.empty());
-    DCHECK(unsorted_block()->empty());
+    if (!_sorted_blocks.empty()) {
+        throw Exception(Status::FatalError("Check failed: _sorted_blocks.empty()"));
+    }
+    if (!unsorted_block()->empty()) {
+        throw Exception(Status::FatalError("Check failed: unsorted_block()->empty()"));
+    }
     RETURN_IF_ERROR(_merge_sort_read_impl(batch_size, block, eos));
     return Status::OK();
 }
@@ -224,7 +228,9 @@ bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) 
 }
 
 Status FullSorter::append_block(Block* block) {
-    DCHECK(block->rows() > 0);
+    if (block->rows() <= 0) {
+        throw Exception(Status::FatalError("Check failed: block->rows() > 0"));
+    }
 
     // iff have reach limit and the unsorted block capacity can't hold the block data size
     if (_reach_limit() && !has_enough_capacity(block, _state->unsorted_block().get())) {
@@ -237,9 +243,12 @@ Status FullSorter::append_block(Block* block) {
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
-            DCHECK(data[i].type->equals(*(arrival_data[i].type)))
-                    << " type1: " << data[i].type->get_name()
-                    << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
+            if (!data[i].type->equals(*(arrival_data[i].type))) {
+                throw Exception(Status::FatalError(
+                        "Check failed: data[i].type->equals(*(arrival_data[i].type)) type1: {} "
+                        "type2: {} i: {}",
+                        data[i].type->get_name(), arrival_data[i].type->get_name(), i));
+            }
             if (is_column_const(*arrival_data[i].column)) {
                 data[i].column->assume_mutable()->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())

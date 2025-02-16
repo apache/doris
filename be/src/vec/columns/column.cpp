@@ -55,7 +55,9 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
                                int direction, std::vector<uint8>& cmp_res,
                                uint8* __restrict filter) const {
     auto sz = this->size();
-    DCHECK(cmp_res.size() == sz);
+    if (cmp_res.size() != sz) {
+        throw Exception(Status::FatalError("Check failed: cmp_res.size() == sz"));
+    }
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);

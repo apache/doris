@@ -294,13 +294,19 @@ bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota
 }
 
 Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
-    DCHECK(!rb.eof());
+    if (rb.eof()) {
+        throw Exception(Status::FatalError("Check failed: !rb.eof(), "));
+    }
+
     // only support one level now
     auto* array_column = assert_cast<ColumnArray*>(column);
     auto& offsets = array_column->get_offsets();
 
     IColumn& nested_column = array_column->get_data();
-    DCHECK(nested_column.is_nullable());
+    if (!nested_column.is_nullable()) {
+        throw Exception(Status::FatalError("Check failed: nested_column.is_nullable(), "));
+    }
+
     if (*rb.position() != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        *rb.position());

@@ -569,7 +569,9 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena*) const override {
         if constexpr (Data::IS_ANY) {
-            DCHECK_GT(batch_size, 0);
+            if (batch_size <= 0) {
+                throw Exception(Status::FatalError("Check failed: batch_size > 0"));
+            }
             this->data(place).change_if_better(*columns[0], 0, nullptr);
         } else {
             Base::add_batch_single_place(batch_size, place, columns, nullptr);
@@ -656,8 +658,12 @@ public:
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
         if constexpr (Data::IsFixedLength) {
-            DCHECK(end <= column.size() && begin <= end) << ", begin:" << begin << ", end:" << end
-                                                         << ", column.size():" << column.size();
+            if (end > column.size() || begin > end) {
+                throw Exception(
+                        Status::FatalError("Check failed: end <= column.size() && begin <= end, "
+                                           "begin: {}, end: {}, column.size(): {}",
+                                           begin, end, column.size()));
+            }
             auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* data = reinterpret_cast<const Data*>(col.get_data().data());
             for (size_t i = begin; i <= end; ++i) {

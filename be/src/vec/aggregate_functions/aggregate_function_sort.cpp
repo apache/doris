@@ -28,9 +28,8 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     const DataTypes& arguments,
                                                     const SortDescription& sort_desc,
                                                     RuntimeState* state) {
-    DCHECK(nested_function != nullptr);
     if (nested_function == nullptr) {
-        return nullptr;
+        throw Exception(Status::FatalError("Check failed: nested_function != nullptr"));
     }
 
     return std::make_shared<AggregateFunctionSort<AggregateFunctionSortData>>(

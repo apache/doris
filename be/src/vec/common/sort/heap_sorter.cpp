@@ -50,7 +50,9 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
           _init_sort_descs(false) {}
 
 Status HeapSorter::append_block(Block* block) {
-    DCHECK(block->rows() > 0);
+    if (block->rows() <= 0) {
+        throw Exception(Status::FatalError("Check failed: block->rows() > 0"));
+    }
     {
         SCOPED_TIMER(_materialize_timer);
         if (_vsort_exec_exprs.need_materialize_tuple()) {
@@ -130,7 +132,9 @@ Status HeapSorter::prepare_for_read() {
         size_t init_size = std::min((size_t)_limit, _heap->size());
         result_columns.reserve(init_size);
 
-        DCHECK(_heap->size() <= _heap_size);
+        if (_heap->size() > _heap_size) {
+            throw Exception(Status::FatalError("Check failed: _heap->size() <= _heap_size"));
+        }
         // Use a vector to reverse elements in heap
         std::vector<HeapSortCursorImpl> vector_to_reverse;
         vector_to_reverse.reserve(init_size);

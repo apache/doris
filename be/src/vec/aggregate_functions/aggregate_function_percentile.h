@@ -91,7 +91,9 @@ struct PercentileApproxState {
         write_binary(compressions, buf);
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
-        DCHECK(digest.get() != nullptr);
+        if (digest.get() == nullptr) {
+            throw Exception(Status::FatalError("Check failed: digest.get() != nullptr"));
+        }
         digest->serialize((uint8_t*)result.c_str());
 
         write_binary(result, buf);
@@ -124,7 +126,9 @@ struct PercentileApproxState {
             return;
         }
         if (init_flag) {
-            DCHECK(digest.get() != nullptr);
+            if (digest.get() == nullptr) {
+                throw Exception(Status::FatalError("Check failed: digest.get() != nullptr"));
+            }
             digest->merge(rhs.digest.get());
         } else {
             digest = TDigest::create_unique(compressions);
@@ -451,7 +455,10 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        DCHECK_EQ(sources.get_data().size(), batch_size);
+        if (sources.get_data().size() != batch_size) {
+            throw Exception(
+                    Status::FatalError("Check failed: sources.get_data().size() == batch_size"));
+        }
         AggregateFunctionPercentile::data(place).add_batch(sources.get_data(),
                                                            quantile.get_data()[0]);
     }

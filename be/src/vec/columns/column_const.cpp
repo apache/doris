@@ -44,10 +44,9 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
     }
 
     if (data->size() != 1) {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+        throw Exception(Status::FatalError(
                 "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
-                data->size());
+                data->size()));
     }
 }
 
@@ -59,10 +58,10 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_emp
     }
 
     if (!(data->empty() && create_with_empty)) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Incorrect size of nested column in constructor of ColumnConst: {}, "
-                               "create_with_empty: {}.",
-                               data->size(), create_with_empty);
+        throw Exception(Status::FatalError(
+                "Incorrect size of nested column in constructor of ColumnConst: {}, "
+                "create_with_empty: {}.",
+                data->size(), create_with_empty));
     }
 }
 
@@ -101,9 +100,8 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     if (perm.size() < limit) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Size of permutation ({}) is less than required ({})", perm.size(),
-                               limit);
+        throw Exception(Status::FatalError("Size of permutation ({}) is less than required ({})",
+                                           perm.size(), limit));
     }
 
     return ColumnConst::create(data, limit);

@@ -102,7 +102,9 @@ std::string DataTypeStruct::do_get_name() const {
 }
 
 Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
-    DCHECK(!rb.eof());
+    if (rb.eof()) {
+        throw Exception(Status::FatalError("Check failed: !rb.eof()"));
+    }
     auto* struct_column = assert_cast<ColumnStruct*>(column);
 
     if (*rb.position() != '{') {
@@ -333,7 +335,10 @@ int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
             data_column = &(const_column.get_data_column());
         }
         const auto& struct_column = assert_cast<const ColumnStruct&>(*data_column);
-        DCHECK(elems.size() == struct_column.tuple_size());
+        if (elems.size() != struct_column.tuple_size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: elems.size() == struct_column.tuple_size()"));
+        }
         int64_t bytes = 0;
         for (size_t i = 0; i < elems.size(); ++i) {
             bytes += elems[i]->get_uncompressed_serialized_bytes(struct_column.get_column(i),
@@ -343,7 +348,10 @@ int64_t DataTypeStruct::get_uncompressed_serialized_bytes(const IColumn& column,
     } else {
         auto ptr = column.convert_to_full_column_if_const();
         const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
-        DCHECK(elems.size() == struct_column.tuple_size());
+        if (elems.size() != struct_column.tuple_size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: elems.size() == struct_column.tuple_size()"));
+        }
 
         int64_t bytes = 0;
         for (size_t i = 0; i < elems.size(); ++i) {
@@ -361,7 +369,10 @@ char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_ve
         buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
         const auto& struct_column = assert_cast<const ColumnStruct&>(*data_column);
-        DCHECK(elems.size() == struct_column.tuple_size());
+        if (elems.size() != struct_column.tuple_size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: elems.size() == struct_column.tuple_size()"));
+        }
         for (size_t i = 0; i < elems.size(); ++i) {
             buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
         }
@@ -369,8 +380,10 @@ char* DataTypeStruct::serialize(const IColumn& column, char* buf, int be_exec_ve
     } else {
         auto ptr = column.convert_to_full_column_if_const();
         const auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
-        DCHECK(elems.size() == struct_column.tuple_size());
-
+        if (elems.size() != struct_column.tuple_size()) {
+            throw Exception(
+                    Status::FatalError("Check failed: elems.size() == struct_column.tuple_size()"));
+        }
         for (size_t i = 0; i < elems.size(); ++i) {
             buf = elems[i]->serialize(struct_column.get_column(i), buf, be_exec_version);
         }
@@ -385,7 +398,10 @@ const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* colum
         buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
         auto* struct_column = assert_cast<ColumnStruct*>(origin_column);
-        DCHECK(elems.size() == struct_column->tuple_size());
+        if (elems.size() != struct_column->tuple_size()) {
+            throw Exception(Status::FatalError(
+                    "Check failed: elems.size() == struct_column->tuple_size()"));
+        }
         for (size_t i = 0; i < elems.size(); ++i) {
             auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
             buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
@@ -393,7 +409,10 @@ const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* colum
         return buf;
     } else {
         auto* struct_column = assert_cast<ColumnStruct*>(column->get());
-        DCHECK(elems.size() == struct_column->tuple_size());
+        if (elems.size() != struct_column->tuple_size()) {
+            throw Exception(Status::FatalError(
+                    "Check failed: elems.size() == struct_column->tuple_size()"));
+        }
 
         for (size_t i = 0; i < elems.size(); ++i) {
             auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
