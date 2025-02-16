@@ -72,7 +72,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
-                throw new AnalysisException("'" + key + "' is invalid property");
+                throw new AnalysisException("[" + key + "] is invalid property");
             }
             // check ctl, db, tbl
             validParams.put(key.toLowerCase(), params.get(key));

@@ -439,7 +439,9 @@ public class DynamicPartitionUtil {
         }
         if (!invalidDynamicPartitionProperties.isEmpty()) {
             throw new DdlException("Invalid dynamic partition properties: "
-                    + String.join(", ", invalidDynamicPartitionProperties));
+                    + invalidDynamicPartitionProperties.stream()
+                    .map(prop -> "[" + prop + "]")
+                    .collect(Collectors.joining(", ")));
         }
     }
 

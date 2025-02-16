@@ -241,7 +241,7 @@ public class StageTest extends TestWithFeService {
 
         // with an unknown property
         sql = CREATE_STAGE_SQL + ", 'default.file.type' = 'csv', 'test_key'='test_value')";
-        parseAndAnalyzeWithException(sql, "'test_key' is invalid");
+        parseAndAnalyzeWithException(sql, "[test_key] is invalid");
     }
 
     @Test
