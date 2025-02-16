@@ -45,9 +45,9 @@ public class RuntimeProfileTest {
         profile1.getCounterTotalTime().setValue(TUnit.TIME_NS, 1);
         profile2.getCounterTotalTime().setValue(TUnit.TIME_NS, 3);
         profile3.getCounterTotalTime().setValue(TUnit.TIME_NS, 2);
-        profile.addChild(profile1);
-        profile.addChild(profile2);
-        profile.addChild(profile3);
+        profile.addChild(profile1, true);
+        profile.addChild(profile2, true);
+        profile.addChild(profile3, true);
         // compare
         profile.sortChildren();
         // check result
