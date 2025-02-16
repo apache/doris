@@ -63,6 +63,7 @@ public class MysqlChannel implements BytesChannel {
     protected ByteBuffer tempBuffer;
     protected ByteBuffer remainingBuffer;
     protected ByteBuffer sendBuffer;
+    protected ByteBuffer peekedBuf;
 
     protected ByteBuffer decryptAppData;
     protected ByteBuffer encryptNetData;
@@ -203,6 +204,11 @@ public class MysqlChannel implements BytesChannel {
         if (!dstBuf.hasRemaining()) {
             return 0;
         }
+
+        readLen += readPeekData(dstBuf, readLen);
+        if (!dstBuf.hasRemaining()) {
+            return 0;
+        }
         if (remainingBuffer != null && remainingBuffer.hasRemaining()) {
             int oldLen = dstBuf.position();
             while (dstBuf.hasRemaining()) {
@@ -231,16 +237,53 @@ public class MysqlChannel implements BytesChannel {
         return readLen;
     }
 
+    private int readPeekData(ByteBuffer dstBuf, int readLen) {
+        if (peekedBuf != null && peekedBuf.hasRemaining()) {
+            int oldLen = peekedBuf.position();
+            while (dstBuf.hasRemaining() && peekedBuf.hasRemaining()) {
+                dstBuf.put(peekedBuf.get());
+            }
+            if (peekedBuf.hasRemaining()) {
+                peekedBuf = null;
+            }
+            readLen += (peekedBuf.position() - oldLen);
+        }
+        return readLen;
+    }
+
+    @Override
+    public int peek(ByteBuffer buffer) {
+        ByteBuffer peekBuf = ByteBuffer.allocate(buffer.capacity());
+        int readLen = read(peekBuf, 1, TimeUnit.SECONDS, true);
+        if (readLen > 0) {
+            peekBuf.rewind();
+            int oldLen = peekBuf.position();
+            while (buffer.hasRemaining()) {
+                buffer.put(peekBuf.get());
+            }
+            peekBuf.rewind();
+            peekedBuf = peekBuf;
+            return buffer.position() - oldLen;
+        }
+        return readLen;
+    }
+
     @Override
     public int read(ByteBuffer dstBuf) {
+        return read(dstBuf, context.getNetReadTimeout(), TimeUnit.SECONDS, false);
+    }
+
+    @Override
+    public int read(ByteBuffer dstBuf, long timeout, TimeUnit unit, boolean failOnTimeout) {
         int readLen = 0;
         try {
             while (dstBuf.remaining() != 0) {
-                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
-                        TimeUnit.SECONDS);
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, timeout, TimeUnit.SECONDS);
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
                     return 0;
+                } else if (ret == 0 && failOnTimeout) {
+                    return -1;
                 }
                 readLen += ret;
             }

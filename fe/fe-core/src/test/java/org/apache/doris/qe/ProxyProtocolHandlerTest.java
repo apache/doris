@@ -24,6 +24,7 @@ import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 public class ProxyProtocolHandlerTest {
 
@@ -37,11 +38,20 @@ public class ProxyProtocolHandlerTest {
         }
 
         @Override
-        public int read(java.nio.ByteBuffer buffer) {
+        public int read(ByteBuffer buffer) {
             int len = Math.min(buffer.remaining(), data.length - pos);
             if (len > 0) {
                 buffer.put(data, pos, len);
                 pos += len;
+            }
+            return len;
+        }
+
+        @Override
+        public int peek(ByteBuffer buffer) {
+            int len = Math.min(buffer.remaining(), data.length - pos);
+            if (len > 0) {
+                buffer.put(data, pos, len);
             }
             return len;
         }
@@ -131,5 +141,14 @@ public class ProxyProtocolHandlerTest {
         byte[] data = new byte[] {0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A};
         testChannel = new TestChannel(data);
         ProxyProtocolHandler.handle(testChannel);
+    }
+
+    @Test
+    public void handleNoData() throws IOException {
+        byte[] data = new byte[0];
+        testChannel = new TestChannel(data);
+        ProxyProtocolHandler.ProxyProtocolResult result = ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isUnknown);
     }
 }

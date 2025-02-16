@@ -71,9 +71,12 @@ public class ProxyProtocolHandler {
     public static ProxyProtocolResult handle(BytesChannel channel) throws IOException {
         // First read 1 byte to see if it is V1 or V2
         ByteBuffer buffer = ByteBuffer.allocate(1);
-        int readLen = channel.read(buffer);
+        int readLen = channel.peek(buffer);
         if (readLen != 1) {
-            throw new IOException("Invalid proxy protocol, expect incoming bytes first");
+            // possibly a direct client connecting to Doris
+            ProxyProtocolResult result = new ProxyProtocolResult();
+            result.isUnknown = true;
+            return result;
         }
         buffer.flip();
         byte firstByte = buffer.get();
@@ -89,16 +92,16 @@ public class ProxyProtocolHandler {
     private static ProxyProtocolResult handleV1(BytesChannel channel) throws IOException {
         ProxyProtocolResult result = new ProxyProtocolResult();
 
-        int byteCount = 1; // already read the first byte, so start with 1
+        int byteCount = 0;
         boolean parsingUnknown = false; // true if "UNKNOWN" is found
         boolean carriageFound = false;  // true if \r is found
         String protocol = null;
         StringBuilder stringBuilder = new StringBuilder();
 
-        // read last 5 bytes of "PROXY "
-        ByteBuffer buffer = ByteBuffer.allocate(5);
+        // read last 6 bytes of "PROXY "
+        ByteBuffer buffer = ByteBuffer.allocate(6);
         int readLen = channel.read(buffer);
-        if (readLen != 5) {
+        if (readLen != 6) {
             throw new IOException("Invalid proxy protocol v1, expected \"PROXY \"");
         }
         byteCount += readLen;
