@@ -75,7 +75,11 @@ type clientSettings struct {
 }
 
 func (s clientSettings) String() string {
-	return fmt.Sprintf("clientSettings{%s, %s, %s, %s}", s.URL, s.Timeout, s.LabelPrefix, s.Headers)
+	str := fmt.Sprintf("clientSettings{%s, %s, %s, %s}", s.URL, s.Timeout, s.LabelPrefix, s.Headers)
+	if _, ok := s.Headers["Authorization"]; ok {
+		return strings.Replace(str, "Authorization:"+s.Headers["Authorization"], "Authorization:Basic ******", 1)
+	}
+	return str
 }
 
 type ResponseStatus struct {
@@ -180,7 +184,11 @@ func (client *client) Close() error {
 }
 
 func (client *client) String() string {
-	return fmt.Sprintf("doris{%s, %s, %s}", client.url, client.labelPrefix, client.headers)
+	str := fmt.Sprintf("doris{%s, %s, %s}", client.url, client.labelPrefix, client.headers)
+	if _, ok := client.headers["Authorization"]; ok {
+		return strings.Replace(str, "Authorization:"+client.headers["Authorization"], "Authorization:Basic ******", 1)
+	}
+	return str
 }
 
 func (client *client) Publish(_ context.Context, batch publisher.Batch) error {
@@ -238,7 +246,7 @@ func (client *client) publishEvents(lable string, events []publisher.Event) ([]p
 		return events, requestErr
 	}
 
-	var groupCommit bool = false
+	var groupCommit = false
 	for k, v := range client.headers {
 		request.Header.Set(k, v)
 		if k == "group_commit" && v != "off_mode" {
