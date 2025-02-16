@@ -212,6 +212,27 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
 }
 
 template <bool is_intersect>
+size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    size_t size_to_reserve = std::visit(
+            [&](auto&& arg) -> size_t {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<HashTableCtxType, std::monostate>) {
+                    return 0;
+                } else {
+                    return arg.hash_table->estimate_memory(state->batch_size());
+                }
+            },
+            local_state._shared_state->hash_table_variants->method_variant);
+
+    size_to_reserve += local_state._mutable_block.allocated_bytes();
+    for (auto& _child_expr : _child_exprs) {
+        size_to_reserve += _child_expr->root()->estimate_memory(state->batch_size());
+    }
+    return size_to_reserve;
+}
+
+template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));

@@ -208,15 +208,19 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         do {
             THROW_IF_ERROR(_block_supplier(block.get(), &_is_eof));
         } while (block->empty() && !_is_eof);
-        if (!block->empty()) {
+        if (block->empty()) {
+            return false;
+        }
+
+        if (!_ordering_expr.empty()) {
             DCHECK_EQ(_ordering_expr.size(), desc.size());
             for (int i = 0; i < desc.size(); ++i) {
                 THROW_IF_ERROR(_ordering_expr[i]->execute(block.get(), &desc[i].column_number));
             }
-            MergeSortCursorImpl::reset();
-            return true;
         }
-        return false;
+
+        MergeSortCursorImpl::reset();
+        return true;
     }
 
     Block* block_ptr() override {

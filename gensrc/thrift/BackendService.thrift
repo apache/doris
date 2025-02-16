@@ -258,6 +258,12 @@ enum TTopicInfoType {
     WORKLOAD_SCHED_POLICY = 2
 }
 
+enum TWgSlotMemoryPolicy {
+    NONE = 0,
+    FIXED = 1,
+    DYNAMIC = 2
+}
+
 struct TWorkloadGroupInfo {
   1: optional i64 id
   2: optional string name
@@ -275,6 +281,9 @@ struct TWorkloadGroupInfo {
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
   16: optional string tag
+  17: optional i32 total_query_slot_count
+  18: optional i32 write_buffer_ratio
+  19: optional TWgSlotMemoryPolicy slot_memory_policy
 }
 
 enum TWorkloadMetricType {

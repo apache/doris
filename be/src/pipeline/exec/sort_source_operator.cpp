@@ -54,6 +54,8 @@ Status SortSourceOperatorX::open(RuntimeState* state) {
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     RETURN_IF_ERROR(local_state._shared_state->sorter->get_next(state, block, eos));
     local_state.reached_limit(block, eos);
     return Status::OK();

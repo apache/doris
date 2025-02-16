@@ -72,6 +72,8 @@ public:
 
     Status get_writer_status() { return _writer_status.status(); }
 
+    void set_low_memory_mode();
+
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
@@ -95,6 +97,7 @@ private:
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;
+    std::atomic_bool _low_memory_mode = false;
 
     std::shared_ptr<pipeline::Dependency> _dependency;
     std::shared_ptr<pipeline::Dependency> _finish_dependency;
