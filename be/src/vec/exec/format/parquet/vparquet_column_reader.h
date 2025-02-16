@@ -45,7 +45,7 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -334,5 +334,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
     std::set<std::string> _read_column_names;
 };
+#include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized
