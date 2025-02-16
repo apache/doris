@@ -78,7 +78,7 @@ public class ResultReceiverConsumer {
 
         ReceiverContext context = contexts.get(readyOffsets.take());
         RowBatch rowBatch = context.future.get();
-        status = context.status;
+        status = new Status(context.status.getErrorCode(), context.status.getErrorMsg());
         if (rowBatch.isEos()) {
             finishedReceivers++;
             if (finishedReceivers != contexts.size()) {

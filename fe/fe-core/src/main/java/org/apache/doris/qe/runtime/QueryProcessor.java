@@ -118,7 +118,7 @@ public class QueryProcessor extends AbstractJobProcessor {
     }
 
     public RowBatch getNext() throws UserException, InterruptedException, TException, RpcException, ExecutionException {
-        Status status = new Status();
+        Status status;
         RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
