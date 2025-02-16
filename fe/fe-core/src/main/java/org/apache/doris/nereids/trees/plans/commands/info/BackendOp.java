@@ -25,8 +25,10 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * BackendOp
@@ -62,6 +64,11 @@ public abstract class BackendOp extends AlterSystemOp {
         }
         Preconditions.checkState(!this.hostInfos.isEmpty() || !this.ids.isEmpty(),
                 "hostInfos or ids can not be empty");
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        throw new NotImplementedException("Not support getProperties for BackendOp");
     }
 
     public List<HostInfo> getHostInfos() {

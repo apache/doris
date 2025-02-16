@@ -26,6 +26,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -59,7 +60,8 @@ public class AlterSystemCommand extends Command implements ForwardWithSync {
                     "NODE");
         }
 
-        Preconditions.checkState((alterSystemOp instanceof AddBackendOp)
+        Preconditions.checkState((alterSystemOp instanceof AddBackendOp
+                || alterSystemOp instanceof DropBackendOp)
         );
 
         alterSystemOp.validate(ctx);

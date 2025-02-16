@@ -48,14 +48,11 @@ public class AddBackendClause extends BackendClause {
     }
 
     public AddBackendClause(List<String> ids, List<HostInfo> hostPorts,
-            Map<String, String> properties) {
+            Map<String, String> tagMap) {
         super(ImmutableList.of());
         this.ids = ids;
         this.hostInfos = hostPorts;
-        this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
-        }
+        this.tagMap = tagMap;
     }
 
     @Override

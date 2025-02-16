@@ -683,6 +683,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
@@ -5726,18 +5727,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitAlterSystem(AlterSystemContext ctx) {
-        AlterSystemOp alterSystemOp = typedVisit(ctx.alterSystemClause());
-        return new AlterSystemCommand(alterSystemOp);
-    }
-
-    @Override
-    public AddBackendOp visitAddBackendClause(AddBackendClauseContext ctx) {
+    public LogicalPlan visitAddBackendClause(AddBackendClauseContext ctx) {
         List<String> hostPorts = ctx.hostPorts.stream()
                 .map(e -> e.getText().replace("'", ""))
                 .collect(Collectors.toList());
         Map<String, String> properties = visitPropertyClause(ctx.properties);
-        return new AddBackendOp(hostPorts, properties);
+        AlterSystemOp alterSystemOp = new AddBackendOp(hostPorts, properties);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitDropBackendClause(DorisParser.DropBackendClauseContext ctx) {
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> e.getText().replace("'", ""))
+                .collect(Collectors.toList());
+        boolean force = false;
+        if (ctx.DROPP() != null) {
+            force = true;
+        }
+        AlterSystemOp alterSystemOp = new DropBackendOp(hostPorts, force);
+        return new AlterSystemCommand(alterSystemOp);
     }
 
     @Override
