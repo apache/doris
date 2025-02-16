@@ -20,17 +20,11 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 
-#include "olap/schema.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
@@ -156,7 +150,7 @@ TEST_F(DataTypeIPTest, GetFieldTest) {
     node_ipv6.node_type = TExprNodeType::IPV6_LITERAL;
     for (size_t i = 0; i < ip_cols[1]->size(); ++i) {
         node_ipv6.ipv6_literal.value =
-                IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
+                doris::IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
         Field assert_field;
         ip_cols[1]->get(i, assert_field);
         get_field_assert(dt_ipv6, node_ipv6, assert_field);
