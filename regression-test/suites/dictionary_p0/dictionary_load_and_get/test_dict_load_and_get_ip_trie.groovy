@@ -43,7 +43,8 @@ suite("test_dict_load_and_get_ip_trie") {
             k1 KEY,
             k0 VALUE
         )
-        LAYOUT(IP_TRIE);
+        LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
     """ 
 
 
@@ -76,7 +77,8 @@ suite("test_dict_load_and_get_ip_trie") {
             cidr KEY,
             int_not_null VALUE
         )
-        LAYOUT(IP_TRIE);        
+        LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');        
     """ 
 
     sleep(1000);    

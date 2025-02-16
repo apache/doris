@@ -49,7 +49,8 @@ suite('load', 'p0,restart_fe') {
             ip KEY,
             region VALUE,
             isp VALUE
-        )LAYOUT(IP_TRIE);
+        )LAYOUT(IP_TRIE)
+            properties('data_lifetime'='600');
     """
 
     // HASH_MAP dictionary
@@ -59,7 +60,8 @@ suite('load', 'p0,restart_fe') {
             user_id KEY,
             user_name VALUE,
             age VALUE
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+            properties('data_lifetime'='600');
     """
 
     // third base table for IP_TRIE
@@ -92,7 +94,8 @@ suite('load', 'p0,restart_fe') {
             area_ip KEY,
             city VALUE,
             country VALUE
-        )LAYOUT(IP_TRIE);
+        )LAYOUT(IP_TRIE)
+            properties('data_lifetime'='600');
     """
 
     // forth dictionary with HASH_MAP layout
@@ -102,7 +105,8 @@ suite('load', 'p0,restart_fe') {
             product_id KEY,
             product_name VALUE,
             price VALUE
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+            properties('data_lifetime'='600');
     """
 
     // check dictionaries number

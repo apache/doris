@@ -39,7 +39,8 @@ suite("test_dict_get_nullable") {
             k0 KEY,
             k2 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
 
     sql """ refresh dictionary single_key_dict; """
@@ -74,7 +75,8 @@ suite("test_dict_get_nullable") {
             k0 KEY,
             k1 VALUE
         )
-        LAYOUT(IP_TRIE);
+        LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
     """
 
     sql """ refresh dictionary ip_trie_dict; """
@@ -97,7 +99,8 @@ suite("test_dict_get_nullable") {
             k2 VALUE,
             k3 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
 
 

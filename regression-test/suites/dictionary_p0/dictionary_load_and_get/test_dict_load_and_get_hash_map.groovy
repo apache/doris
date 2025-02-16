@@ -42,7 +42,8 @@ suite("test_dict_load_and_get_hash_map") {
             k0 KEY,
             k1 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """ 
 
     sleep(1000);
@@ -80,7 +81,8 @@ suite("test_dict_load_and_get_hash_map") {
             int_not_null VALUE,
             int_null VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """     
 
     sleep(1000);    
@@ -181,7 +183,8 @@ suite("test_dict_load_and_get_hash_map") {
             str_not_null VALUE,
             str_null VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """     
 
     sleep(1000);    

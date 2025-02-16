@@ -119,7 +119,8 @@ suite("test_refresh_dict") {
             product_id KEY,
             product_name VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
     sql "refresh dictionary product_dict"
 
@@ -129,7 +130,8 @@ suite("test_refresh_dict") {
             ip KEY,
             location VALUE
         )
-        LAYOUT(IP_TRIE);
+        LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
     """
     sql "refresh dictionary ip_dict"
 
@@ -139,7 +141,8 @@ suite("test_refresh_dict") {
             username VALUE,
             user_id KEY
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
     sql "refresh dictionary user_dict"
 
@@ -153,7 +156,8 @@ suite("test_refresh_dict") {
             dec1 VALUE,
             dec2 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
     sql "refresh dictionary precision_dict"
 
@@ -166,7 +170,8 @@ suite("test_refresh_dict") {
             col4 VALUE,
             col2 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
     sql "refresh dictionary order_dict"
 

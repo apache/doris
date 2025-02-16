@@ -36,7 +36,8 @@ suite("test_dict_get") {
             k0 KEY,
             k1 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
     explain {
         sql """select dict_get("test_dictionary_function.dic1", "k1", "2020-12-12")"""
@@ -55,7 +56,8 @@ suite("test_dict_get") {
             k1 KEY,
             k0 VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
     explain {
         sql """select dict_get("test_dictionary_function.dic2", "k0", "abc")"""
@@ -71,7 +73,8 @@ suite("test_dict_get") {
             k1 KEY,
             k0 VALUE
         )
-        LAYOUT(IP_TRIE);
+        LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
     """
     explain {
         sql """select dict_get("test_dictionary_function.dic_ip_trie", "k0", cast("127.0.0.1" as ipv4))"""

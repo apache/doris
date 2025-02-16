@@ -45,7 +45,8 @@ suite('test_create_drop_sync') {
             city KEY, 
             id VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
 
     // check dictionary is created
@@ -75,7 +76,8 @@ suite('test_create_drop_sync') {
             city KEY, 
             id VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
 
     // drop and recreate the database. check dic1 is dropped.
@@ -99,6 +101,7 @@ suite('test_create_drop_sync') {
             city KEY, 
             id VALUE
         )
-        LAYOUT(HASH_MAP);
+        LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
 }

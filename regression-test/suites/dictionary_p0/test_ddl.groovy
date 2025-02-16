@@ -122,7 +122,8 @@ suite("test_ddl") {
         (
             k1 KEY, 
             k0 VALUE
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
         """
         exception "Key column k1 cannot be complex type"
     }
@@ -145,7 +146,8 @@ suite("test_ddl") {
         (
             k1 KEY,
             v1 VALUE
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
         """
         exception "Key column k1 cannot be nullable"
     }
@@ -156,7 +158,8 @@ suite("test_ddl") {
         (
             k2 KEY,
             v1 VALUE
-        )LAYOUT(IP_TRIE);
+        )LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
         """
         exception "Column v1 cannot be nullable for IP_TRIE layout"
     }
@@ -167,7 +170,8 @@ suite("test_ddl") {
     (
         k2 KEY,
         v2 VALUE
-    )LAYOUT(IP_TRIE);
+    )LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
     """
     sql "drop dictionary dic_not_null"
 
@@ -177,7 +181,8 @@ suite("test_ddl") {
         (
             k1 KEY, 
             k0 VALUE
-        )LAYOUT(xxx);
+        )LAYOUT(xxx)
+        properties('data_lifetime'='600');
         """
         exception "Unknown layout type: xxx. must be IP_TRIE or HASH_MAP"
     }
@@ -188,7 +193,8 @@ suite("test_ddl") {
         (
             k0 KEY, 
             k1 VALUE
-        )LAYOUT(IP_TRIE);
+        )LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
         """
         exception "Key column k0 must be String type for IP_TRIE layout"
     }
@@ -204,7 +210,7 @@ suite("test_ddl") {
     """
     def origin_res = (sql "show dictionaries")[0]
     log.info(origin_res.toString())
-    assertTrue(origin_res[1] == "dic1" && origin_res[4] == "NORMAL")
+    assertTrue(origin_res[1] == "dic1" && (origin_res[4] == "NORMAL" || origin_res[4] == "LOADING"))
 
     // normal ip_trie
     sql """
@@ -212,7 +218,8 @@ suite("test_ddl") {
         (
             k1 KEY, 
             k0 VALUE
-        )LAYOUT(IP_TRIE);
+        )LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
     """
 
     test { // duplicate dictionary
@@ -264,7 +271,8 @@ suite("test_ddl") {
             v1 VALUE,
             k2 KEY,
             k3 KEY
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
     """
 
     // test refresh for multiple key columns dictionary
@@ -278,7 +286,8 @@ suite("test_ddl") {
         create dictionary dic_no_key using multi_key_table
         (
             v1 VALUE
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
         """
         exception "Need at least one key column"
     }
@@ -290,7 +299,8 @@ suite("test_ddl") {
         (
             k1 KEY,
             k2 KEY
-        )LAYOUT(HASH_MAP);
+        )LAYOUT(HASH_MAP)
+        properties('data_lifetime'='600');
         """
         exception "Need at least one value column"
     }
