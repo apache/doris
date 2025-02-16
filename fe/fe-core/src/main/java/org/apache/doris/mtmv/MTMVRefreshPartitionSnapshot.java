@@ -77,26 +77,13 @@ public class MTMVRefreshPartitionSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) {
-        try {
-            // snapshot add partitionId resolve problem of insert overwrite
-            compatiblePartitions(mtmv);
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatiblePartitions failed, mtmv: {}", mtmv.getName(), e);
-        }
-        try {
-            // change table id to BaseTableInfo
-            compatibleTables(mtmv);
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatibleTables failed, mtmv: {}", mtmv.getName(), e);
-        }
-
-        try {
-            // snapshot add tableId resolve problem of recreate table
-            compatibleTablesSnapshot();
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatibleTables failed, mtmv: {}", mtmv.getName(), e);
-        }
+    public void compatible(MTMV mtmv) throws Exception {
+        // snapshot add partitionId resolve problem of insert overwrite
+        compatiblePartitions(mtmv);
+        // change table id to BaseTableInfo
+        compatibleTables(mtmv);
+        // snapshot add tableId resolve problem of recreate table
+        compatibleTablesSnapshot();
     }
 
     private void compatiblePartitions(MTMV mtmv) throws AnalysisException {
@@ -113,6 +100,8 @@ public class MTMVRefreshPartitionSnapshot {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {
                 Partition partition = relatedTable.getPartition(entry.getKey());
+                // if not find partition, may be partition has been dropped,
+                // the impact is that MTMV will consider this partition to be async
                 if (partition != null) {
                     (versionSnapshot).setId(partition.getId());
                 }
@@ -129,7 +118,7 @@ public class MTMVRefreshPartitionSnapshot {
         return false;
     }
 
-    private void compatibleTablesSnapshot() {
+    private void compatibleTablesSnapshot() throws Exception {
         if (!checkHasDataWithoutTableId()) {
             return;
         }
@@ -140,7 +129,11 @@ public class MTMVRefreshPartitionSnapshot {
                     TableIf table = MTMVUtil.getTable(entry.getKey());
                     versionSnapshot.setId(table.getId());
                 } catch (AnalysisException e) {
-                    LOG.warn("MTMV compatibleTablesSnapshot failed, can not get table by: {}", entry.getKey());
+                    String msg = String.format(
+                            "Failed to get table info based on table info during compatibility process, table info: %s",
+                            entry.getKey());
+                    LOG.warn(msg);
+                    throw new Exception(msg);
                 }
             }
         }
@@ -155,7 +148,7 @@ public class MTMVRefreshPartitionSnapshot {
         return false;
     }
 
-    private void compatibleTables(MTMV mtmv) {
+    private void compatibleTables(MTMV mtmv) throws Exception {
         if (tables.size() == tablesInfo.size()) {
             return;
         }
@@ -169,8 +162,11 @@ public class MTMVRefreshPartitionSnapshot {
             if (tableInfo.isPresent()) {
                 tablesInfo.put(tableInfo.get(), entry.getValue());
             } else {
-                LOG.warn("MTMV compatibleTables failed, tableId: {}, relationTables: {}", entry.getKey(),
-                        relation.getBaseTablesOneLevel());
+                String msg = String.format(
+                        "Failed to get table info based on id during compatibility process, tableId: %s, relationTables: %s",
+                        entry.getKey(), relation.getBaseTablesOneLevel());
+                LOG.warn(msg);
+                throw new Exception(msg);
             }
         }
     }

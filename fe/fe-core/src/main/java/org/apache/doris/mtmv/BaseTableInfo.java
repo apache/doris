@@ -159,7 +159,7 @@ public class BaseTableInfo {
                 + '}';
     }
 
-    public void compatible(CatalogMgr catalogMgr) {
+    public void compatible(CatalogMgr catalogMgr) throws Exception {
         if (!StringUtils.isEmpty(ctlName)) {
             return;
         }
@@ -171,7 +171,11 @@ public class BaseTableInfo {
             this.dbName = db.getFullName();
             this.tableName = table.getName();
         } catch (AnalysisException e) {
-            LOG.warn("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
+            String msg = String.format(
+                    "Failed to get name based on id during compatibility process, ctlId: %s, dbId: %s, tableId: %s",
+                    ctlId, dbId, tableId);
+            LOG.warn(msg, e);
+            throw new Exception(msg);
         }
     }
 

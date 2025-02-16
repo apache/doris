@@ -481,6 +481,12 @@ public class MTMV extends OlapTable {
         this.refreshSnapshot = refreshSnapshot;
     }
 
+    public boolean canBeCandidate() {
+        // MTMVRefreshState.FAIL also can be candidate, because may have some sync partitions
+        return getStatus().getState() == MTMVState.NORMAL
+                && getStatus().getRefreshState() != MTMVRefreshState.INIT;
+    }
+
     public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }
@@ -558,14 +564,20 @@ public class MTMV extends OlapTable {
      * The logic here is to be compatible with older versions by converting ID to name
      */
     public void compatible(CatalogMgr catalogMgr) {
-        if (mvPartitionInfo != null) {
-            mvPartitionInfo.compatible(catalogMgr);
-        }
-        if (relation != null) {
-            relation.compatible(catalogMgr);
-        }
-        if (refreshSnapshot != null) {
-            refreshSnapshot.compatible(this);
+        try {
+            if (mvPartitionInfo != null) {
+                mvPartitionInfo.compatible(catalogMgr);
+            }
+            if (relation != null) {
+                relation.compatible(catalogMgr);
+            }
+            if (refreshSnapshot != null) {
+                refreshSnapshot.compatible(this);
+            }
+        } catch (Throwable e) {
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}", getDBName(), name, e);
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
         }
     }
 }
