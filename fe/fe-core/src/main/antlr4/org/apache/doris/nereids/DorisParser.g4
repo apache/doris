@@ -53,6 +53,7 @@ statementBase
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedCleanStatement           #supportedCleanStatementAlias
+    | supportedDescribeStatement        #supportedDescribeStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
@@ -72,7 +73,6 @@ unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
     | unsupportedKillStatement
-    | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -907,7 +907,7 @@ unsupportedKillStatement
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
     ;
 
-unsupportedDescribeStatement
+supportedDescribeStatement
     : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
