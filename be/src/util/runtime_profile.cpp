@@ -31,6 +31,7 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "gutil/integral_types.h"
@@ -300,9 +301,7 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
     }
-    if (this->is_set_sink()) {
-        child->set_is_sink(this->is_sink());
-    }
+
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -558,9 +557,6 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 pr
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-    if (this->is_set_sink()) {
-        node.__set_is_sink(this->is_sink());
-    }
 
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);

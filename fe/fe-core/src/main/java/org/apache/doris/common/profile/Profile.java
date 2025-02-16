@@ -346,10 +346,10 @@ public class Profile {
 
     private RuntimeProfile composeRootProfile() {
         RuntimeProfile rootProfile = new RuntimeProfile(getId());
-        rootProfile.addChild(summaryProfile.getSummary());
-        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        rootProfile.addChild(summaryProfile.getSummary(), true);
+        rootProfile.addChild(summaryProfile.getExecutionSummary(), true);
         for (ExecutionProfile executionProfile : executionProfiles) {
-            rootProfile.addChild(executionProfile.getRoot());
+            rootProfile.addChild(executionProfile.getRoot(), true);
         }
         rootProfile.computeTimeInProfile();
         return rootProfile;
