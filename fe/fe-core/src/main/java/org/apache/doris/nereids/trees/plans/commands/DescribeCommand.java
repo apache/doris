@@ -308,6 +308,13 @@ public class DescribeCommand extends ShowCommand {
                             }
                             String extraStr = StringUtils.join(extras, ",");
 
+                            String defineExprStr = "";
+                            Expr defineExpr = column.getDefineExpr();
+                            if (defineExpr != null) {
+                                column.getDefineExpr().setDisableTableName(true);
+                                defineExprStr = defineExpr.toSql();
+                            }
+
                             List<String> row = Arrays.asList(
                                     "",
                                     "",
@@ -321,7 +328,7 @@ public class DescribeCommand extends ShowCommand {
                                             : column.getDefaultValue(),
                                     extraStr,
                                     ((Boolean) column.isVisible()).toString(),
-                                    column.getDefineExpr() == null ? "" : column.getDefineExpr().toSql(),
+                                    defineExprStr,
                                     "");
 
                             if (column.getOriginType().isDatetimeV2()) {
