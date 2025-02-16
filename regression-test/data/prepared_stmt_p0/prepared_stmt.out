@@ -135,3 +135,30 @@ a
 -- !select24 --
 1	\N	[{"id":"1", "name":"doris"}, {"id":"2", "name":"apache"}, null]	\N
 
+-- !overflow_1 --
+1
+
+-- !overflow_2 --
+2
+
+-- !overflow_2 --
+2
+
+-- !overflow_3 --
+3
+
+-- !overflow_3 --
+3
+
+-- !overflow_4 --
+4
+
+-- !overflow_4 --
+4
+
+-- !overflow_5 --
+5
+
+-- !overflow_5 --
+5
+
