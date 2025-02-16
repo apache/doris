@@ -191,11 +191,11 @@ public class DescribeCommand extends ShowCommand {
             dbTableName.analyze(ctx);
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
             Pair<String, String> sourceTableNameWithMetaName = catalog.getSourceTableNameWithMetaTableName(
-                    dbTableName.getCtl());
+                    dbTableName.getTbl());
             if (!Strings.isNullOrEmpty(sourceTableNameWithMetaName.second)) {
                 isTableValuedFunction = true;
-                Optional<TableValuedFunctionRef> optTvfRef = catalog.getMetaTableFunctionRef(dbTableName.getDb(),
-                        dbTableName.getTbl());
+                Optional<TableValuedFunctionRef> optTvfRef = catalog.getMetaTableFunctionRef(
+                        dbTableName.getDb(), dbTableName.getTbl());
                 if (!optTvfRef.isPresent()) {
                     throw new AnalysisException("meta table not found: " + sourceTableNameWithMetaName.second);
                 }
