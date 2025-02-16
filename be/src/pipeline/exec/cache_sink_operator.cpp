@@ -51,10 +51,6 @@ CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id, int dest_id)
     _name = "CACHE_SINK_OPERATOR";
 }
 
-Status CacheSinkOperatorX::open(RuntimeState* state) {
-    return Status::OK();
-}
-
 Status CacheSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
