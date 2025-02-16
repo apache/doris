@@ -59,6 +59,7 @@ public class CreateDictionaryInfo {
 
     private final Map<String, String> properties;
     private final LayoutType layout;
+    private long dataLifetime;
 
     /**
      * Constructor.
@@ -157,6 +158,7 @@ public class CreateDictionaryInfo {
         // Check the column existance. check and set their types
         Table table = (Table) sourceDb.getTableOrDdlException(sourceTableName);
         validateAndSetColumns(table);
+        validateAndSetProperties();
     }
 
     private void validateAndSetColumns(Table table) throws DdlException {
@@ -213,6 +215,17 @@ public class CreateDictionaryInfo {
         }
     }
 
+    private void validateAndSetProperties() throws DdlException {
+        if (!properties.containsKey("data_lifetime")) {
+            throw new DdlException("Property 'data_lifetime' is required");
+        }
+        try {
+            dataLifetime = Long.parseLong(properties.get("data_lifetime"));
+        } catch (NumberFormatException e) {
+            throw new DdlException("Property 'data_lifetime' must be a number");
+        }
+    }
+
     // Getters
     public boolean isIfNotExists() {
         return ifNotExists;
@@ -242,8 +255,8 @@ public class CreateDictionaryInfo {
         return columns;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    public long getDataLifetime() {
+        return dataLifetime;
     }
 
     public LayoutType getLayout() {

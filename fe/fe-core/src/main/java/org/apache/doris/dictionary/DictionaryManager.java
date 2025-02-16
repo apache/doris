@@ -374,8 +374,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // check all dictionaries and REFRESH if needed
         for (Map<String, Dictionary> dbDictionaries : dictionaries.values()) {
             for (Dictionary dictionary : dbDictionaries.values()) {
-                // TODO: check base table's data version. then we can only refresh when base table's data changes.
-                if (dictionary.getLastUpdateTime() + Config.dictionary_out_of_date_seconds * 1000 < now) {
+                // when data duration is older than its lifetime AND TODO:, refresh it.
+                if (dictionary.getLastUpdateTime() + dictionary.getDataLifetimeSecs() * 1000 < now) {
                     // should schedule refresh. only tag when it's NORMAL because if not,
                     // it's already going to refresh or drop.
                     dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE);

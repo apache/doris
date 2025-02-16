@@ -3057,11 +3057,6 @@ public class Config extends ConfigBase {
             "Interval at which the dictionary triggers a data expiration check, in seconds" })
     public static int dictionary_auto_refresh_interval_seconds = 60;
 
-    @ConfField(mutable = true, masterOnly = true, description = { "字典自动刷新数据的间隔，距离上次刷新时间大于该值时会自动刷新",
-            "The interval at which the dictionary automatically refreshes the data when the time since the last "
-                + "refresh is greater than this value." })
-    public static int dictionary_out_of_date_seconds = 600;
-
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

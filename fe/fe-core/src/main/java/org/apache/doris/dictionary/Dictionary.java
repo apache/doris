@@ -63,14 +63,15 @@ public class Dictionary extends Table {
 
     @SerializedName(value = "columns")
     private final List<DictionaryColumnDefinition> columns;
-    @SerializedName(value = "properties")
-    private final Map<String, String> properties;
 
     // createTime saved in base class
 
     // lastUpdateTime in milliseconds
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
+
+    // when longer than lastUpdateTime + dataLifetimeSecs, data is out of date.
+    private long dataLifetimeSecs;
 
     public enum DictionaryStatus {
         NORMAL, // normal status
@@ -99,8 +100,8 @@ public class Dictionary extends Table {
         this.sourceDbName = null;
         this.sourceTableName = null;
         this.columns = null;
-        this.properties = null;
         this.lastUpdateTime = 0;
+        this.dataLifetimeSecs = 0;
         this.status.set(DictionaryStatus.NORMAL); // not replay by gson
         this.layout = null;
         this.version = 0;
@@ -116,8 +117,8 @@ public class Dictionary extends Table {
         this.sourceDbName = info.getSourceDbName();
         this.sourceTableName = info.getSourceTableName();
         this.columns = info.getColumns();
-        this.properties = info.getProperties();
         this.lastUpdateTime = createTime;
+        this.dataLifetimeSecs = info.getDataLifetime();
         this.status.set(DictionaryStatus.NORMAL);
         this.layout = info.getLayout();
         this.version = 1;
@@ -180,6 +181,10 @@ public class Dictionary extends Table {
         return columns.stream().map(DictionaryColumnDefinition::getName).collect(Collectors.toList());
     }
 
+    public long getDataLifetimeSecs() {
+        return dataLifetimeSecs;
+    }
+
     public DataType getColumnType(String columnName) {
         for (DictionaryColumnDefinition column : columns) {
             if (column.getName().equalsIgnoreCase(columnName)) {
@@ -200,10 +205,6 @@ public class Dictionary extends Table {
             throw new IllegalArgumentException("Key column not found in dictionary " + getName());
         }
         return keyTypes;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
     }
 
     public void increaseVersion() {
