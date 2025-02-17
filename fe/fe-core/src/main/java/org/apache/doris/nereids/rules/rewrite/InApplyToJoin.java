@@ -122,7 +122,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
                         apply.children(), null);
             } else {
-                if (apply.isCorrelated()) {
+                if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
                     if (inSubquery.isNot()) {
                         predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
                                         new IsNull(left), new IsNull(right)),

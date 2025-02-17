@@ -45,7 +45,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply().when(LogicalApply::isScalar).then(apply -> {
-            if (apply.isCorrelated()) {
+            if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
                 return correlatedToJoin(apply);
             } else {
                 return unCorrelatedToJoin(apply);
