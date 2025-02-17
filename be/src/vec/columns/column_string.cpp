@@ -450,7 +450,7 @@ const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
     memcpy(chars.data() + old_size, pos, string_size);
 
     offsets.push_back(new_size);
-    sanity_check();
+    sanity_check_simple();
     return pos + string_size;
 }
 
@@ -603,7 +603,7 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
     }
 
     check_chars_length(res_chars.size(), res_offsets.size(), col_size);
-    sanity_check();
+    sanity_check_simple();
     return res;
 }
 
@@ -618,10 +618,11 @@ void ColumnStr<T>::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
         offsets.resize(n);
+        chars.resize(offsets[n - 1]);
     } else if (origin_size < n) {
         insert_many_defaults(n - origin_size);
     }
-    sanity_check();
+    sanity_check_simple();
 }
 
 template <typename T>
