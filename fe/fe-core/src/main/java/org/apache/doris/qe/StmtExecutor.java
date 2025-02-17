@@ -444,6 +444,10 @@ public class StmtExecutor {
         return isForwardedToMaster;
     }
 
+    public boolean isForwardedToMaster() {
+        return isForwardedToMaster;
+    }
+
     private boolean shouldForwardToMaster() {
         if (Env.getCurrentEnv().isMaster()) {
             return false;
@@ -1701,8 +1705,9 @@ public class StmtExecutor {
             }
         }
 
-        if (killCtx == null) {
-            TUniqueId tQueryId = null;
+        if (killCtx == null || (context.getExecutor() != null
+                && context.getExecutor().isForwardedToMaster()))  {
+            TUniqueId tQueryId;
             try {
                 tQueryId = DebugUtil.parseTUniqueIdFromString(queryId);
             } catch (NumberFormatException e) {
