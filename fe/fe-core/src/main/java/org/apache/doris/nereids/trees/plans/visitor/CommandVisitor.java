@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
@@ -802,5 +803,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowQueuedAnalyzeJobsCommand(ShowQueuedAnalyzeJobsCommand showQueuedAnalyzeJobsCommand, C context) {
         return visitCommand(showQueuedAnalyzeJobsCommand, context);
+    }
+
+    default R visitDescribeCommand(DescribeCommand describeCommand, C context) {
+        return visitCommand(describeCommand, context);
     }
 }
