@@ -276,6 +276,13 @@ suite("array_agg") {
     order_qt_sql_array_agg_array """ SELECT id, array_agg(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
     order_qt_sql_array_agg_map """ SELECT id, array_agg(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
     order_qt_sql_array_agg_struct """ SELECT id, array_agg(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_array """ SELECT id, collect_list(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_map """ SELECT id, collect_list(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_struct """ SELECT id, collect_list(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_array """ SELECT group_array(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_map """ SELECT group_array(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_struct """ SELECT group_array(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+
 
 
  sql """ DROP TABLE IF EXISTS test_array_agg_ip;"""
@@ -291,6 +298,8 @@ suite("array_agg") {
 
 
      qt_select """select array_sort(array_agg(k4)),array_sort(array_agg(k6)) from test_array_agg_ip """
+     // test for collect_list
+     qt_select """select array_sort(collect_list(k4)),array_sort(collect_list(k6)) from test_array_agg_ip group by s """
 
     sql "DROP TABLE `test_array_agg`"
     sql "DROP TABLE `test_array_agg1`"	
