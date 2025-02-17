@@ -298,6 +298,12 @@ public:
         if (!_read_column_names.empty()) {
             // can't use _child_readers[*_read_column_names.begin()]
             // because the operator[] of std::unordered_map is not const :(
+            /*
+             * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
+             * to missing definition and repetition levels, when filling the null_map of the struct later, it is
+             * crucial to use the definition and repetition levels from the first read column,
+             * that is `_read_column_names.front()`.
+             */
             return _child_readers.find(_read_column_names.front())->second->get_rep_level();
         }
         return _child_readers.begin()->second->get_rep_level();
@@ -333,6 +339,7 @@ public:
 private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
     std::vector<std::string> _read_column_names;
+    //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
 
 }; // namespace doris::vectorized
