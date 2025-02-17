@@ -552,7 +552,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         builder.setDeltaRowCount(deltaRowCount);
         // if slot is invisible, use UNKNOWN
         List<SlotReference> visibleOutputSlots = new ArrayList<>();
-        for (Slot slot : ((CatalogRelation) olapScan).getOperativeSlots()) {
+        for (Slot slot : ((CatalogRelation) olapScan).getOutput()) {
             if (isVisibleSlotReference(slot)) {
                 visibleOutputSlots.add((SlotReference) slot);
             } else {
@@ -570,12 +570,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
             });
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = getColumnStatsFromPartitionCacheOrTableCache(
-                        olapScan, slot, selectedPartitionNames);
-                if (slot.getColumn().isPresent()) {
-                    cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
+                ColumnStatistic colStats;
+                if (((CatalogRelation) olapScan).getOperativeSlots().contains(slot)) {
+                    colStats = getColumnStatsFromPartitionCacheOrTableCache(
+                            olapScan, slot, selectedPartitionNames);
+                    if (slot.getColumn().isPresent()) {
+                        colStats = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, colStats);
+                    }
+                } else {
+                    colStats = ColumnStatistic.UNKNOWN;
                 }
-                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(colStats,
                         selectedPartitionsRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
