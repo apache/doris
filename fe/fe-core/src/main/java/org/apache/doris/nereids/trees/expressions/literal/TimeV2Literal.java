@@ -102,46 +102,46 @@ public class TimeV2Literal extends Literal {
     }
 
     protected String normalize(String s) {
-        boolean sign = false;
-        String tail = "";
-        if (s.charAt(0) == '-') {
-            s = s.substring(1);
-            sign = true;
-        }
-        if (s.contains(".")) {
-            tail = s.substring(s.indexOf("."));
-            s = s.substring(0, s.indexOf("."));
-        }
-        int len = s.length();
-        if (len == 1) {
-            s = "00:00:0" + s;
-        } else if (len == 2) {
-            s = "00:00:" + s;
-        } else if (len == 3) {
-            s = "00:0" + s.charAt(0) + ":" + s.substring(1);
-        } else if (len == 4) {
-            s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
-        } else {
-            s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
-        }
-        if (sign) {
-            s = '-' + s;
-        }
-        return s + tail;
-    }
-
-    protected void init(String s) throws AnalysisException {
         // remove suffix/prefix ' '
         s = s.trim();
-        // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
-        // not contain ":" should make it normalize
         if (!s.contains(":")) {
-            s = normalize(s);
+            boolean sign = false;
+            String tail = "";
+            if (s.charAt(0) == '-') {
+                s = s.substring(1);
+                sign = true;
+            }
+            if (s.contains(".")) {
+                tail = s.substring(s.indexOf("."));
+                s = s.substring(0, s.indexOf("."));
+            }
+            int len = s.length();
+            if (len == 1) {
+                s = "00:00:0" + s;
+            } else if (len == 2) {
+                s = "00:00:" + s;
+            } else if (len == 3) {
+                s = "00:0" + s.charAt(0) + ":" + s.substring(1);
+            } else if (len == 4) {
+                s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
+            } else {
+                s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
+            }
+            if (sign) {
+                s = '-' + s;
+            }
+            return s + tail;
         }
         // s maybe just contail 1 ":" like "12:00" so append a ":00" to the end
         if (s.indexOf(':') == s.lastIndexOf(':')) {
             s = s + ":00";
         }
+        return s;
+    }
+
+    // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
+    protected void init(String s) throws AnalysisException {
+        s = normalize(s);
         // start parse string
         String[] parts = s.split(":");
         if (parts.length != 3) {
