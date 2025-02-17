@@ -196,6 +196,7 @@ suite("fold_constant_numeric_arithmatic") {
 
 //Cosh function cases
     testFoldConst("SELECT COSH(0) AS cosh_case_1") //cosh(0) = 1
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
 //    testFoldConst("SELECT COSH(1E308)")
 //    testFoldConst("SELECT COSH(-1E308)")
     testFoldConst("SELECT COSH(NULL)") // NULL handling
@@ -231,6 +232,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT DEGREES(PI()/6)") // 30 degrees
     testFoldConst("SELECT DEGREES(PI()/3)") // 60 degrees
     testFoldConst("SELECT DEGREES(3*PI()/2)") // 270 degrees
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
 //    testFoldConst("SELECT DEGREES(1E308)")
 //    testFoldConst("SELECT DEGREES(-1E308)")
 
@@ -292,8 +294,10 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT POWER(NULL, 2)") // NULL base
     testFoldConst("SELECT POWER(2, NULL)") // NULL exponent
     testFoldConst("SELECT POWER(0, 0)") // Zero base, zero exponent
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
 //    testFoldConst("SELECT POWER(0, -1)")
     testFoldConst("SELECT POWER(1E308, 0.5)") // Very large base
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
 //    testFoldConst("SELECT POWER(2, 1E308)")
     testFoldConst("SELECT POWER(1E-308, 2)") // Very small base
     testFoldConst("SELECT POWER(2, -1E308)") // Very small negative exponent
