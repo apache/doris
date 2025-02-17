@@ -53,7 +53,7 @@ public:
     };
     ~MaterializationSourceOperatorX() override = default;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(doris::RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 

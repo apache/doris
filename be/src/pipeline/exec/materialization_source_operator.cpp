@@ -20,11 +20,9 @@
 #include <utility>
 
 #include "common/status.h"
-#include "pipeline/exec/operator.h"
 #include "vec/core/block.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 
 Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                  bool* eos) {
@@ -43,5 +41,4 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
     return Status::OK();
 }
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline
