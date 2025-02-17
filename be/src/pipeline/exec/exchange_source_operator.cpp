@@ -52,8 +52,9 @@ std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}",
                    OperatorX<ExchangeLocalState>::debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer, ", Info: (_num_senders = {}, _is_merging = {})",
-                   _num_senders, _is_merging);
+    fmt::format_to(debug_string_buffer,
+                   ", Info: (_num_senders = {}, _is_merging = {}, _hash_type = {})", _num_senders,
+                   _is_merging, to_string(_hash_type));
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -108,6 +109,8 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
           _partition_type(tnode.exchange_node.__isset.partition_type
                                   ? tnode.exchange_node.partition_type
                                   : TPartitionType::UNPARTITIONED),
+          _hash_type(tnode.exchange_node.__isset.hash_type ? tnode.exchange_node.hash_type
+                                                           : THashType::CRC32),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +

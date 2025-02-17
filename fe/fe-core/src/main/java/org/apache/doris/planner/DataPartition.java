@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Joiner;
@@ -50,10 +51,16 @@ public class DataPartition {
     public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
 
     private final TPartitionType type;
+    private final THashType hashType;
+
     // for hash partition: exprs used to compute hash value
     private ImmutableList<Expr> partitionExprs;
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
+        this(type, exprs, THashType.CRC32);
+    }
+
+    public DataPartition(TPartitionType type, List<Expr> exprs, THashType hashType) {
         Preconditions.checkNotNull(exprs);
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
@@ -62,6 +69,7 @@ public class DataPartition {
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
+        this.hashType = hashType;
     }
 
     public DataPartition(TPartitionType type) {
@@ -71,10 +79,15 @@ public class DataPartition {
                 || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
+        this.hashType = THashType.CRC32;
+    }
+
+    public static DataPartition hashPartitioned(List<Expr> exprs, THashType hashType) {
+        return new DataPartition(TPartitionType.HASH_PARTITIONED, exprs, hashType);
     }
 
     public static DataPartition hashPartitioned(List<Expr> exprs) {
-        return new DataPartition(TPartitionType.HASH_PARTITIONED, exprs);
+        return new DataPartition(TPartitionType.HASH_PARTITIONED, exprs, THashType.CRC32);
     }
 
     public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
@@ -98,17 +111,25 @@ public class DataPartition {
         return partitionExprs;
     }
 
+    public THashType getHashType() {
+        return hashType;
+    }
+
     public TDataPartition toThrift() {
         TDataPartition result = new TDataPartition(type);
         if (partitionExprs != null) {
             result.setPartitionExprs(Expr.treesToThrift(partitionExprs));
         }
+        result.setHashType(hashType);
         return result;
     }
 
     public String getExplainString(TExplainLevel explainLevel) {
         StringBuilder str = new StringBuilder();
         str.append(type.toString());
+        if (type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            str.append("(").append(hashType.toString()).append(")");
+        }
         if (explainLevel == TExplainLevel.BRIEF) {
             return str.toString();
         }

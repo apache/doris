@@ -711,6 +711,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String ENABLE_SPARK_BUCKET_SHUFFLE = "enable_spark_bucket_shuffle";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2427,6 +2429,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableSortSpill() {
         return enableSortSpill;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_SPARK_BUCKET_SHUFFLE)
+    public boolean enableSparkShuffle = false;
+
+    public boolean isEnableSparkShuffle() {
+        return enableSparkShuffle;
+    }
+
+    public void setEnableSparkShuffle(boolean enableSparkShuffle) {
+        this.enableSparkShuffle = enableSparkShuffle;
     }
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,

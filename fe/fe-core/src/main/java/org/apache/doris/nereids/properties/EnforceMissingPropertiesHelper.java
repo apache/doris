@@ -26,6 +26,7 @@ import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.DistributionSpecHash.StorageBucketHashType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -117,7 +118,8 @@ public class EnforceMissingPropertiesHelper {
         DistributionSpec requiredDistributionSpec = required.getDistributionSpec();
         if (requiredDistributionSpec instanceof DistributionSpecHash) {
             DistributionSpecHash requiredDistributionSpecHash = (DistributionSpecHash) requiredDistributionSpec;
-            outputDistributionSpec = requiredDistributionSpecHash.withShuffleType(ShuffleType.EXECUTION_BUCKETED);
+            outputDistributionSpec = requiredDistributionSpecHash.withShuffleType(ShuffleType.EXECUTION_BUCKETED,
+                    StorageBucketHashType.STORAGE_BUCKET_XXHASH64);
         } else {
             outputDistributionSpec = requiredDistributionSpec;
         }
