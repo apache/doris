@@ -43,22 +43,22 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     [no option]            build all components
-     --fe                   build Frontend and Spark DPP application. Default ON.
-     --be                   build Backend. Default ON.
-     --meta-tool            build Backend meta tool. Default OFF.
-     --s3-writer-tool       build Backend s3 writer tool. Default OFF.
-     --cloud                build Cloud. Default OFF.
-     --index-tool           build Backend inverted index tool. Default OFF.
-     --benchmark            build Google Benchmark. Default OFF.
-     --broker               build Broker. Default ON.
-     --spark-dpp            build Spark DPP application. Default ON.
-     --hive-udf             build Hive UDF library for Spark Load. Default ON.
-     --be-java-extensions   build Backend java extensions. Default ON.
-     --be-extension-ignore  build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
-     --clean                clean and build target
-     --output               specify the output directory
-     -j                     build Backend parallel
+     [no option]                build all components
+     --fe                       build Frontend and Spark DPP application. Default ON.
+     --be                       build Backend. Default ON.
+     --meta-tool                build Backend meta tool. Default OFF.
+     --file-cache-mircobench    build Backend file cache mircobench tool. Default OFF.
+     --cloud                    build Cloud. Default OFF.
+     --index-tool               build Backend inverted index tool. Default OFF.
+     --benchmark                build Google Benchmark. Default OFF.
+     --broker                   build Broker. Default ON.
+     --spark-dpp                build Spark DPP application. Default ON.
+     --hive-udf                 build Hive UDF library for Spark Load. Default ON.
+     --be-java-extensions       build Backend java extensions. Default ON.
+     --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
+     --clean                    clean and build target
+     --output                   specify the output directory
+     -j                         build Backend parallel
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
@@ -71,7 +71,7 @@ Usage: $0 <options>
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
-    $0 --s3-writer-tool                     build Backend S3 file writer tool
+    $0 --file-cache-mircobench              build Backend file cache mircobench tool
     $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
     $0 --benchmark                          build Google Benchmark of Backend
@@ -133,7 +133,7 @@ if ! OPTS="$(getopt \
     -l 'cloud' \
     -l 'broker' \
     -l 'meta-tool' \
-    -l 's3-writer-tool' \
+    -l 'file-cache-mircobench' \
     -l 'index-tool' \
     -l 'benchmark' \
     -l 'spark-dpp' \
@@ -157,7 +157,7 @@ BUILD_BE=0
 BUILD_CLOUD=0
 BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
-BUILD_S3_WRITER_TOOL='OFF'
+BUILD_FILE_CACHE_MIRCOBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
 BUILD_SPARK_DPP=0
@@ -178,7 +178,7 @@ if [[ "$#" == 1 ]]; then
 
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
-    BUILD_S3_WRITER_TOOL='OFF'
+    BUILD_FILE_CACHE_MIRCOBENCH_TOOL='OFF'
     BUILD_INDEX_TOOL='OFF'
     BUILD_BENCHMARK='OFF'
     BUILD_SPARK_DPP=1
@@ -212,8 +212,8 @@ else
             BUILD_META_TOOL='ON'
             shift
             ;;
-        --s3-writer-tool)
-            BUILD_S3_WRITER_TOOL='ON'
+        --file-cache-mircobench)
+            BUILD_FILE_CACHE_MIRCOBENCH_TOOL='ON'
             shift
             ;;
         --index-tool)
@@ -283,7 +283,7 @@ else
         BUILD_CLOUD=1
         BUILD_BROKER=1
         BUILD_META_TOOL='ON'
-        BUILD_S3_WRITER_TOOL='ON'
+        BUILD_FILE_CACHE_MIRCOBENCH_TOOL='ON'
         BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
@@ -504,34 +504,34 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
 fi
 
 echo "Get params:
-    BUILD_FE                    -- ${BUILD_FE}
-    BUILD_BE                    -- ${BUILD_BE}
-    BUILD_CLOUD                 -- ${BUILD_CLOUD}
-    BUILD_BROKER                -- ${BUILD_BROKER}
-    BUILD_META_TOOL             -- ${BUILD_META_TOOL}
-    BUILD_S3_WRITER_TOOL        -- ${BUILD_S3_WRITER_TOOL}
-    BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
-    BUILD_BENCHMARK             -- ${BUILD_BENCHMARK}
-    BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
-    BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
-    BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
-    PARALLEL                    -- ${PARALLEL}
-    CLEAN                       -- ${CLEAN}
-    WITH_MYSQL                  -- ${WITH_MYSQL}
-    GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
-    USE_AVX2                    -- ${USE_AVX2}
-    USE_LIBCPP                  -- ${USE_LIBCPP}
-    USE_DWARF                   -- ${USE_DWARF}
-    USE_UNWIND                  -- ${USE_UNWIND}
-    STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
-    USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
-    USE_JEMALLOC                -- ${USE_JEMALLOC}
-    USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
-    ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
-    ENABLE_CACHE_LOCK_DEBUG     -- ${ENABLE_CACHE_LOCK_DEBUG}
-    DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
-    DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
-    ENABLE_PCH                  -- ${ENABLE_PCH}
+    BUILD_FE                            -- ${BUILD_FE}
+    BUILD_BE                            -- ${BUILD_BE}
+    BUILD_CLOUD                         -- ${BUILD_CLOUD}
+    BUILD_BROKER                        -- ${BUILD_BROKER}
+    BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
+    BUILD_FILE_CACHE_MIRCOBENCH_TOOL    -- ${BUILD_FILE_CACHE_MIRCOBENCH_TOOL}
+    BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
+    BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
+    BUILD_SPARK_DPP                     -- ${BUILD_SPARK_DPP}
+    BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
+    PARALLEL                            -- ${PARALLEL}
+    CLEAN                               -- ${CLEAN}
+    WITH_MYSQL                          -- ${WITH_MYSQL}
+    GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
+    USE_AVX2                            -- ${USE_AVX2}
+    USE_LIBCPP                          -- ${USE_LIBCPP}
+    USE_DWARF                           -- ${USE_DWARF}
+    USE_UNWIND                          -- ${USE_UNWIND}
+    STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
+    USE_MEM_TRACKER                     -- ${USE_MEM_TRACKER}
+    USE_JEMALLOC                        -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
+    ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
+    ENABLE_CACHE_LOCK_DEBUG             -- ${ENABLE_CACHE_LOCK_DEBUG}
+    DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
+    DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
+    ENABLE_PCH                          -- ${ENABLE_PCH}
 "
 
 # Clean and build generated code
@@ -581,6 +581,7 @@ FE_MODULES="$(
     IFS=','
     echo "${modules[*]}"
 )"
+FE_MODULES=''
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
@@ -621,7 +622,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_MYSQL="${WITH_MYSQL}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
-        -DBUILD_S3_WRITER_TOOL="${BUILD_S3_WRITER_TOOL}" \
+        -DBUILD_FILE_CACHE_MIRCOBENCH_TOOL="${BUILD_FILE_CACHE_MIRCOBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
@@ -830,8 +831,8 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    if [[ "${BUILD_S3_WRITER_TOOL}" = "ON" ]]; then
-        cp -r -p "${DORIS_HOME}/be/output/lib/s3_writer_tool" "${DORIS_OUTPUT}/be/lib"/
+    if [[ "${BUILD_FILE_CACHE_MIRCOBENCH_TOOL}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/file_cache_microbench" "${DORIS_OUTPUT}/be/lib"/
     fi
 
     if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then

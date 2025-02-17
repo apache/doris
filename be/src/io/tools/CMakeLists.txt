@@ -23,6 +23,11 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/tools")
 
 # 编译proto文件
 execute_process(
+    COMMAND make clean -C ${CMAKE_CURRENT_SOURCE_DIR}/proto
+    RESULT_VARIABLE CLEAN_RESULT
+)
+
+execute_process(
     COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/proto
     RESULT_VARIABLE MAKE_RESULT
 )
@@ -42,22 +47,22 @@ file(GLOB PROTO_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/build/proto/*.pb.h")
 message(STATUS "PROTO_SRCS: ${PROTO_SRCS}")
 message(STATUS "PROTO_HDRS: ${PROTO_HDRS}")
 
-# 添加 s3_writer_tool_http 可执行文件
-add_executable(s3_writer_tool_http
-    s3_writer_tool.cpp
+# 添加 file_cache_microbench 可执行文件
+add_executable(file_cache_microbench
+    file_cache_microbench.cpp
     ${PROTO_SRCS}
 )
 
 # 添加proto生成文件的包含路径
-target_include_directories(s3_writer_tool_http PRIVATE
+target_include_directories(file_cache_microbench PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/build/proto
 )
 
 # 链接所需的库
-target_link_libraries(s3_writer_tool_http
+target_link_libraries(file_cache_microbench
     ${DORIS_LINK_LIBS}
     protobuf
 )
 
 # 安装规则
-install(TARGETS s3_writer_tool_http DESTINATION ${OUTPUT_DIR}/lib/)
+install(TARGETS file_cache_microbench DESTINATION ${OUTPUT_DIR}/lib/)

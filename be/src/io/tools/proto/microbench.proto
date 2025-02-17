@@ -30,4 +30,5 @@ service MicrobenchService {
       rpc submit_job(HttpRequest) returns (HttpResponse);
       rpc list_jobs(HttpRequest) returns (HttpResponse);
       rpc cancel_job(HttpRequest) returns (HttpResponse);
+      rpc get_help(HttpRequest) returns (HttpResponse);
 };
