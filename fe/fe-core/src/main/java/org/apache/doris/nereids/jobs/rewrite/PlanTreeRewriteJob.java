@@ -56,9 +56,9 @@ public abstract class PlanTreeRewriteJob extends Job {
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
             if (pattern.matchPlanTree(plan)) {
                 List<Plan> newPlans = rule.transform(plan, cascadesContext);
-                if (newPlans.size() != 1) {
-                    throw new AnalysisException("Rewrite rule should generate one plan: " + rule.getRuleType());
-                }
+                // if (newPlans.size() != 1) {
+                //     throw new AnalysisException("Rewrite rule should generate one plan: " + rule.getRuleType());
+                // }
                 Plan newPlan = newPlans.get(0);
                 if (!newPlan.deepEquals(plan)) {
                     NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);

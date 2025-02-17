@@ -331,6 +331,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_NEREIDS_SIMPLE_PLANNER = "enable_nereids_simple_planner";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
@@ -1435,6 +1436,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsPlanner = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_SIMPLE_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
+    public boolean enableNereidsSimplePlanner = false;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";

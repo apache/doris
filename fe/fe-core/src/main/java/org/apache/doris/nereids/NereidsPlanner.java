@@ -49,6 +49,9 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.simple.SimpleAnalyzer;
+import org.apache.doris.nereids.simple.SimpleOptimizer;
+import org.apache.doris.nereids.simple.SimpleRewriter;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -275,9 +278,14 @@ public class NereidsPlanner extends Planner {
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo);
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-        PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        PhysicalPlan physicalPlan;
+        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+            physicalPlan = this.physicalPlan;
+        } else {
+            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        }
 
-        physicalPlan = postProcess(physicalPlan);
+        // physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
@@ -361,7 +369,13 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
+        keepOrShowPlanProcess(showPlanProcess, () -> {
+            if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+                new SimpleAnalyzer(cascadesContext).execute();
+            } else {
+                cascadesContext.newAnalyzer().analyze();
+            }
+        });
         this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
@@ -381,7 +395,13 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start rewrite plan");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> Rewriter.getWholeTreeRewriter(cascadesContext).execute());
+        keepOrShowPlanProcess(showPlanProcess, () -> {
+            if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+                new SimpleRewriter(cascadesContext).execute();
+            } else {
+                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+            }
+        });
         NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
@@ -409,7 +429,15 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
-        new Optimizer(cascadesContext).execute();
+        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+            Plan logicalPlan = cascadesContext.getRewritePlan();
+            new SimpleOptimizer(cascadesContext).execute();
+            Plan physicalPlan = cascadesContext.getRewritePlan();
+            cascadesContext.setRewritePlan(logicalPlan);
+            this.physicalPlan = (PhysicalPlan) physicalPlan;
+        } else {
+            new Optimizer(cascadesContext).execute();
+        }
         NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
@@ -774,21 +802,22 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
-        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
-            return Optional.empty();
-        }
-
-        setFormatOptions();
-        if (physicalPlan instanceof ComputeResultSet) {
-            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
-            if (resultSet.isPresent()) {
-                return resultSet;
-            }
-        }
-
         return Optional.empty();
+        // if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+        //     return Optional.empty();
+        // }
+        //
+        // setFormatOptions();
+        // if (physicalPlan instanceof ComputeResultSet) {
+        //     Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        //     Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
+        //             .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
+        //     if (resultSet.isPresent()) {
+        //         return resultSet;
+        //     }
+        // }
+        //
+        // return Optional.empty();
     }
 
     private void setFormatOptions() {
