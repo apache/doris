@@ -26,7 +26,6 @@ import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
-import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
@@ -52,9 +51,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             LogicalSelectHint<Plan> selectHintPlan = ctx.root;
             for (SelectHint hint : selectHintPlan.getHints()) {
                 String hintName = hint.getHintName();
-                if (hintName.equalsIgnoreCase("SET_VAR")) {
-                    ((SelectHintSetVar) hint).setVarOnceInSql(ctx.statementContext);
-                } else if (hintName.equalsIgnoreCase("ORDERED")) {
+                if (hintName.equalsIgnoreCase("ORDERED")) {
                     if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
                                 .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {
                         throw new RuntimeException("set DISABLE_JOIN_REORDER=true once failed");
