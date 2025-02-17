@@ -282,8 +282,8 @@ void Recycler::recycle_callback() {
             recycling_instance_map_.erase(instance_id);
         }
         auto elpased_ms =
-                ctime_ms -
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
+                ctime_ms;
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);
@@ -545,7 +545,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init hdfs accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name()
+                      << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         } else if (vault.has_obj_info()) {
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
@@ -564,7 +566,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " s3_vault=" << vault.obj_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
+                      << " s3_vault=" << vault.obj_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
     }
@@ -1524,6 +1528,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             InvertedIndexInfo index_info;
             inverted_index_get_ret =
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
+            TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
+                                     &inverted_index_get_ret);
             if (inverted_index_get_ret == 0) {
                 index_format = index_info.first;
                 index_ids = index_info.second;
@@ -1544,6 +1550,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 // Currently index_ids is guaranteed to be empty,
                 // but we clear it again here as a safeguard against future code changes
                 // that might cause index_ids to no longer be empty
+                index_format = InvertedIndexStorageFormatPB::V2;
                 index_ids.clear();
             } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
@@ -1569,6 +1576,12 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 // try to recycle inverted index v2 when get_ret == 1
                 // we treat schema not found as if it has a v2 format inverted index
                 // to reduce chance of data leakage
+                if (inverted_index_get_ret == 1) {
+                    LOG_INFO("delete rowset data schema kv not found, try to delete index file")
+                            .tag("instance_id", instance_id_)
+                            .tag("inverted index v2 path",
+                                 inverted_index_path_v2(tablet_id, rowset_id, i));
+                }
                 file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
@@ -1582,6 +1595,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor_map_.count(*rid))
                     << "uninitilized accessor, instance_id=" << instance_id_
                     << " resource_id=" << resource_id << " path[0]=" << (*paths)[0];
+            TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.no_resource_id",
+                                     &accessor_map_);
             if (!accessor_map_.contains(*rid)) {
                 LOG_WARNING("delete rowset data accessor_map_ does not contains resouce id")
                         .tag("resource_id", resource_id)

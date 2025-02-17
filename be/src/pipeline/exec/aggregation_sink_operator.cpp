@@ -598,23 +598,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                             agg_method.init_serialized_keys(key_columns, num_rows);
                             size_t i = 0;
 
-                            auto refresh_top_limit = [&, this]() {
-                                _shared_state->limit_heap.pop();
-                                for (int j = 0; j < key_columns.size(); ++j) {
-                                    _shared_state->limit_columns[j]->insert_from(*key_columns[j],
-                                                                                 i);
-                                }
-                                _shared_state->limit_heap.emplace(
-                                        _shared_state->limit_columns[0]->size() - 1,
-                                        _shared_state->limit_columns,
-                                        _shared_state->order_directions,
-                                        _shared_state->null_directions);
-                                _shared_state->limit_columns_min =
-                                        _shared_state->limit_heap.top()._row_id;
-                            };
-
-                            auto creator = [this, refresh_top_limit](const auto& ctor, auto& key,
-                                                                     auto& origin) {
+                            auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
                                                                               *_agg_arena_pool);
@@ -626,7 +610,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                         throw Exception(st.code(), st.to_string());
                                     }
                                     ctor(key, mapped);
-                                    refresh_top_limit();
+                                    _shared_state->refresh_top_limit(i, key_columns);
                                 } catch (...) {
                                     // Exception-safety - if it can not allocate memory or create status,
                                     // the destructors will not be called.
@@ -635,7 +619,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 }
                             };
 
-                            auto creator_for_null_key = [this, refresh_top_limit](auto& mapped) {
+                            auto creator_for_null_key = [&](auto& mapped) {
                                 mapped = _agg_arena_pool->aligned_alloc(
                                         Base::_parent->template cast<AggSinkOperatorX>()
                                                 ._total_size_of_aggregate_states,
@@ -645,7 +629,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 if (!st) {
                                     throw Exception(st.code(), st.to_string());
                                 }
-                                refresh_top_limit();
+                                _shared_state->refresh_top_limit(i, key_columns);
                             };
 
                             SCOPED_TIMER(_hash_table_emplace_timer);
@@ -698,7 +682,7 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                    const TPlanNode& tnode, const DescriptorTbl& descs,
                                    bool require_bucket_distribution)
-        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id, dest_id),
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode, dest_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
@@ -714,9 +698,7 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_i
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _without_key(tnode.agg_node.grouping_exprs.empty()) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::init(tnode, state));

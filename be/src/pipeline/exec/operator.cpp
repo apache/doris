@@ -43,6 +43,7 @@
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/mock_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -435,14 +436,10 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
 
 PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
-        : _parent(parent), _state(state) {
-    _query_statistics = std::make_shared<QueryStatistics>();
-}
+        : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {
-    _query_statistics = std::make_shared<QueryStatistics>();
-}
+        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -731,6 +728,9 @@ DECLARE_OPERATOR(LocalExchangeSourceLocalState)
 DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
 
+#ifdef BE_TEST
+DECLARE_OPERATOR(MockLocalState)
+#endif
 #undef DECLARE_OPERATOR
 
 template class StreamingOperatorX<AssertNumRowsLocalState>;

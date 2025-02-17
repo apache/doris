@@ -244,9 +244,17 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
 fi
 
 # add custom_libs to CLASSPATH
+# ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
+# add plugins/java_extensions to CLASSPATH
+if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
+    for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
     done
 fi
 
@@ -376,7 +384,7 @@ if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-# check java version and choose correct JAVA_OPTS
+# check java version and choose correct JAVA_OPTS_FOR_JDK_17
 java_version="$(
     set -e
     jdk_version "${JAVA_HOME}/bin/java"
@@ -404,12 +412,13 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     fi
 
     if [[ -n "${JAVA_OPTS_FOR_JDK_17}" ]] && ! echo "${JAVA_OPTS_FOR_JDK_17}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
-        export JAVA_OPTS="${JAVA_OPTS_FOR_JDK_17} ${max_fd_limit}"
+        export JAVA_OPTS_FOR_JDK_17="${JAVA_OPTS_FOR_JDK_17} ${max_fd_limit}"
     fi
 fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
+export JAVA_OPTS="${final_java_opt}"
 
 # log "CLASSPATH: ${CLASSPATH}"
 # log "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"

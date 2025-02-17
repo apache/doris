@@ -37,7 +37,7 @@ class TDataSink;
 
 namespace pipeline {
 
-class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
+class ExchangeSinkLocalState MOCK_REMOVE(final) : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;
 
@@ -114,6 +114,8 @@ private:
     friend class vectorized::Channel;
     friend class vectorized::BlockSerializer;
 
+    MOCK_FUNCTION void _create_channels();
+
     std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
@@ -183,7 +185,7 @@ private:
     std::mutex _finished_channels_mutex;
 };
 
-class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
+class ExchangeSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
     ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
@@ -210,6 +212,8 @@ public:
 
 private:
     friend class ExchangeSinkLocalState;
+
+    MOCK_FUNCTION void _init_sink_buffer();
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);

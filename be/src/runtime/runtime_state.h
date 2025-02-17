@@ -137,10 +137,18 @@ public:
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
-    double scanner_scale_up_ratio() const {
-        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
-                                                             : 0;
+    int min_scan_concurrency_of_scan_scheduler() const {
+        return _query_options.__isset.min_scan_scheduler_concurrency
+                       ? _query_options.min_scan_scheduler_concurrency
+                       : 0;
     }
+
+    int min_scan_concurrency_of_scanner() const {
+        return _query_options.__isset.min_scanner_concurrency
+                       ? _query_options.min_scanner_concurrency
+                       : 1;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -359,6 +367,10 @@ public:
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -574,7 +586,7 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
-    bool enable_shared_exchange_sink_buffer() const {
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
     }

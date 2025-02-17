@@ -29,6 +29,12 @@ public:
     WorkloadGroupContext() = default;
     virtual ~WorkloadGroupContext() = default;
 
+    int64_t workload_group_id() {
+        if (workload_group() != nullptr) {
+            return workload_group()->id();
+        }
+        return -1;
+    }
     WorkloadGroupPtr workload_group() { return _workload_group; }
     void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 

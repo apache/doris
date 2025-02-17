@@ -124,7 +124,7 @@ public:
     Status init(RuntimeState* state);
     Status open(RuntimeState* state);
 
-    Status send_local_block(Block* block, bool eos, bool can_be_moved);
+    MOCK_FUNCTION Status send_local_block(Block* block, bool eos, bool can_be_moved);
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
@@ -148,8 +148,9 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
-    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
+    MOCK_FUNCTION Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
+    MOCK_FUNCTION Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
+                                              bool eos = false);
 
     Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
                     bool eos) {
@@ -191,6 +192,9 @@ protected:
     Status _send_local_block(bool eos);
     Status _send_current_block(bool eos);
 
+    MOCK_FUNCTION Status _init_brpc_stub(RuntimeState* state);
+    MOCK_FUNCTION Status _find_local_recvr(RuntimeState* state);
+
     Status _recvr_status() const {
         if (_local_recvr && !_local_recvr->is_closed()) {
             return Status::OK();
@@ -213,7 +217,6 @@ protected:
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
-    RuntimeState* _state = nullptr;
 
     bool _is_local;
     std::shared_ptr<VDataStreamRecvr> _local_recvr;
