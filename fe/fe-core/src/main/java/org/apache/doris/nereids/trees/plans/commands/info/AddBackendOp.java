@@ -25,8 +25,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 
-import com.google.common.collect.Maps;
-
 import java.util.List;
 import java.util.Map;
 
