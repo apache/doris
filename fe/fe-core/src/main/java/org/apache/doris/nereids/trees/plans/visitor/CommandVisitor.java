@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
@@ -284,5 +285,9 @@ public interface CommandVisitor<R, C> {
     default R visitShowIndexTokenFilterCommand(
             ShowIndexTokenFilterCommand showIndexTokenFilterCommand, C context) {
         return visitCommand(showIndexTokenFilterCommand, context);
+    }
+
+    default R visitDescribeCommand(DescribeCommand describeCommand, C context) {
+        return visitCommand(describeCommand, context);
     }
 }
