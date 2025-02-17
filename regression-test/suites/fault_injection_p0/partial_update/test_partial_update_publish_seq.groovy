@@ -113,7 +113,8 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c4) values(1,33),(2,33),(3,33);"
-            // for k=3, its sequence value is determined in flush phase as 10
+            // ATTENTION: current behavior is not correct, we should use the seq val filled in flush phase as a row's final seq val. Otherwise, it may cause inconsistency between replicas.
+            // after https://github.com/apache/doris/pull/41701 is merged, the result here should change(k=3)
         }
         Thread.sleep(1000)
         disable_block_in_publish()
@@ -154,7 +155,7 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
             sql "sync;"
-            sql "insert into ${table1}(k1,c1,c2) values(1,9,55),(2,10,55),(3,20,55);"
+            sql "insert into ${table1}(k1,c1,c2) values(1,20,55),(2,100,55),(3,120,55);"
         }
         Thread.sleep(500)
         t2 = Thread.start {
@@ -162,7 +163,8 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c4,__DORIS_DELETE_SIGN__) values(1,100,1),(2,100,1),(3,100,1);"
-            // for k=1,2,3, their sequence values are determined in flush phase as 10
+            // ATTENTION: current behavior is not correct, we should use the seq val filled in flush phase as a row's final seq val. Otherwise, it may cause inconsistency between replicas.
+            // after https://github.com/apache/doris/pull/41701 is merged, the result here should change
         }
         Thread.sleep(1000)
         disable_block_in_publish()
