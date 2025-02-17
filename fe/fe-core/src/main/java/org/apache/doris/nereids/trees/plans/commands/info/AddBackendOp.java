@@ -34,16 +34,13 @@ import java.util.Map;
  * AddBackendOp
  */
 public class AddBackendOp extends BackendOp {
-    protected Map<String, String> properties = Maps.newHashMap();
+    protected final Map<String, String> properties;
 
     private Map<String, String> tagMap;
 
     public AddBackendOp(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
         this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
-        }
     }
 
     @Override
