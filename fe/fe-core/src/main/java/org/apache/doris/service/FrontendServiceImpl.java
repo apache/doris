@@ -1038,18 +1038,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TShowVariableResult showVariables(TShowVariableRequest params) throws TException {
         TShowVariableResult result = new TShowVariableResult();
-        Map<String, String> map = Maps.newHashMap();
-        result.setVariables(map);
+        List<List<String>> vars = Lists.newArrayList();
+        result.setVariables(vars);
         // Find connect
         ConnectContext ctx = exeEnv.getScheduler().getContext((int) params.getThreadId());
         if (ctx == null) {
             return result;
         }
-        List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                null);
-        for (List<String> row : rows) {
-            map.put(row.get(0), row.get(1));
-        }
+        vars = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(), null);
+        result.setVariables(vars);
         return result;
     }
 
