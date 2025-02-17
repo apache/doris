@@ -39,10 +39,15 @@ public class ResultReceiverConsumer {
 
         public void createFuture() {
             future = executor.submit(() -> {
-                readyOffsets.offer(offset);
-                RowBatch rowBatch = receiver.getNext(status);
+                RowBatch rowBatch;
+                try {
+                    rowBatch = receiver.getNext(status);
+                } catch (Exception e) {
+                    throw e;
+                } finally {
+                    readyOffsets.offer(offset);
+                }
                 return rowBatch;
-
             });
         }
 
