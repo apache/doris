@@ -73,5 +73,13 @@ public:
         Block block({ColumnWithTypeAndName(column, data_type, "column")});
         return block;
     }
+
+    template <typename DataType>
+    static ColumnWithTypeAndName create_column_with_name(
+            const std::vector<typename DataType::FieldType>& datas) {
+        auto column = create_column<DataType>(datas);
+        auto data_type = std::make_shared<DataType>();
+        return ColumnWithTypeAndName(column, data_type, "column");
+    }
 };
 } // namespace doris::vectorized

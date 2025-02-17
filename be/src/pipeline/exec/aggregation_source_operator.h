@@ -99,6 +99,10 @@ public:
                        const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
 
+#ifdef BE_TEST
+    AggSourceOperatorX() = default;
+#endif
+
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
