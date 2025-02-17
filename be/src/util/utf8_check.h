@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-
 #include <cstddef>
 
 namespace doris {
@@ -27,6 +25,4 @@ namespace doris {
 bool validate_utf8(const char* src, size_t len);
 // check utf8 use naive c++
 bool validate_utf8_naive(const char* data, size_t len);
-
-bool validate_utf8(const TFileScanRangeParams& params, const char* src, size_t len);
 } // namespace doris
