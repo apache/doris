@@ -49,7 +49,7 @@ public:
 
     friend class MaterializationSinkLocalState;
     MaterializationSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
-                                 const TPlanNode& tnode, const DescriptorTbl& descs)
+                                 const TPlanNode& tnode)
             : Base(sink_id, tnode.node_id, child_id) {
         _name = "MATERIALIZATION_SINK_OPERATOR";
     }

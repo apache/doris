@@ -63,6 +63,8 @@
 #include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/materialization_sink_operator.h"
+#include "pipeline/exec/materialization_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -1585,9 +1587,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::MATERIALIZATION_NODE: {
-        int child_count = tnode.num_children;
-        op.reset(new UnionSourceOperatorX(pool, tnode, next_operator_id(), descs));
-        op->set_followed_by_shuffled_operator(_require_bucket_distribution);
+        op.reset(new MaterializationSourceOperatorX(pool, tnode.node_id, next_operator_id()));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
 
@@ -1595,18 +1595,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        for (int i = 0; i < child_count; i++) {
-            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
-            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
-            DataSinkOperatorPtr sink;
-            sink.reset(new UnionSinkOperatorX(i, next_sink_operator_id(), pool, tnode, descs));
-            sink->set_followed_by_shuffled_operator(_require_bucket_distribution);
-            sink->set_dests_id({op->operator_id()});
-            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
-            RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
-            // preset children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
-            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
-        }
+        auto new_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(new_pipe->id());
+
+        DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
+                op->operator_id(), next_sink_operator_id(), pool, tnode));
+        RETURN_IF_ERROR(new_pipe->set_sink(sink));
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
