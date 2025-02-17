@@ -99,7 +99,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
-    public static final String ENABLE_VERBOSE_PROFILE = "enable_verbose_profile";
     public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
@@ -814,9 +813,6 @@ public class SessionVariable implements Serializable, Writable {
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_VERBOSE_PROFILE, needForward = true)
-    public boolean enableVerboseProfile = false;
 
     @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
     public int rpcVerboseProfileMaxInstanceCount = 5;
@@ -3888,7 +3884,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
-        tResult.setEnableVerboseProfile(enableVerboseProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
