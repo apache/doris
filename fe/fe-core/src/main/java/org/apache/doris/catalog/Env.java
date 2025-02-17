@@ -3989,12 +3989,11 @@ public class Env {
                 if (indexIds.size() == 1 && indexIds.get(0) == olapTable.getBaseIndexId()) {
                     break;
                 }
+                indexIds = indexIds.stream().filter(item -> item != olapTable.getBaseIndexId())
+                        .collect(Collectors.toList());
                 sb.append("\nROLLUP (\n");
                 for (int i = 0; i < indexIds.size(); i++) {
                     Long indexId = indexIds.get(i);
-                    if (indexId == olapTable.getBaseIndexId()) {
-                        continue;
-                    }
 
                     MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(indexId);
                     String indexName = olapTable.getIndexNameById(indexId);
@@ -4009,7 +4008,6 @@ public class Env {
                         }
                     }
                     sb.append(")");
-
                     if (i != indexIds.size() - 1) {
                         sb.append(",\n");
                     }
