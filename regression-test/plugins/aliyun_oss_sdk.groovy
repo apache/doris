@@ -28,6 +28,8 @@ import com.aliyun.oss.ClientException;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.OSSException;
+import com.aliyun.oss.model.CopyObjectRequest;
+import com.aliyun.oss.model.CopyObjectResult;
 import com.aliyun.oss.model.DeleteObjectsRequest;
 import com.aliyun.oss.model.DeleteObjectsResult;
 import com.aliyun.oss.model.ListObjectsRequest;
@@ -169,4 +171,41 @@ Suite.metaClass.getOssAllDirSizeWithPrefix = { OSS client, String bucketName, St
         //client.shutdown();
         logger.info("Done!")
     }
+}
+
+Suite.metaClass.copyObject = { OSS client, String bucketName, String srcObject, String dstObject="" -> 
+
+    try {
+
+        if (!client.doesBucketExist(bucketName)) {
+            logger.info("no bucket named ${bucketName} in ${endpoint}")
+            return false;
+        }
+            
+        // 创建CopyObjectRequest对象
+        CopyObjectRequest copyObjectRequest = new CopyObjectRequest(bucketName, srcObject, bucketName, dstObject);
+        
+        // 执行复制操作
+        CopyObjectResult result = client.copyObject(copyObjectRequest);
+        
+        // 输出结果
+        logger.info("ETag: " + result.getETag());
+        logger.info("LastModified: " + result.getLastModified());
+    } catch (OSSException oe) {
+        logger.error("Caught an OSSException, which means your request made it to OSS, but was rejected with an error response for some reason.");
+        logger.error("Error Message:" + oe.getErrorMessage());
+        logger.error("Error Code:" + oe.getErrorCode());
+        logger.error("Request ID:" + oe.getRequestId());
+        logger.error("Host ID:" + oe.getHostId());
+        return false;
+    } catch (ClientException ce) {
+        logger.error("Caught an ClientException, which means the client encountered a serious internal problem while trying to communicate with OSS, such as not being able to access the network.");
+        logger.error("Error Message:" + ce.getMessage());
+        return false;
+    } finally {
+        logger.info("Done!")
+    }
+
+    return true;
+
 }
