@@ -345,6 +345,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::Time:
         nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
+    case TypeIndex::VARIANT:
+        // only in nested type which is Array<ColumnObject>
+        nested = std::make_shared<vectorized::DataTypeObject>(0);
+        break;
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid typeindex: {}",
                                getTypeName(type_index));

@@ -194,6 +194,8 @@ public:
 
         friend class ColumnObject;
 
+        bool is_empty_nested(size_t row) const;
+
     private:
         class LeastCommonType {
         public:

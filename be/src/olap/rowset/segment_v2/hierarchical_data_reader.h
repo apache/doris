@@ -100,7 +100,8 @@ private:
     Status _process_nested_columns(
             vectorized::ColumnObject& container_variant,
             const std::map<vectorized::PathInData, vectorized::PathsWithColumnAndType>&
-                    nested_subcolumns);
+                    nested_subcolumns,
+            size_t nrows);
 
     Status _process_sparse_column(vectorized::ColumnObject& container_variant, size_t nrows);
 

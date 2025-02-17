@@ -164,10 +164,6 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
-    // add sparse column to footer
-    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
-        _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
-    }
     meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
 }
 
@@ -1029,7 +1025,9 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 // 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
 //    which will be used to contruct the new schema for rowset
 Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock& data) {
-    if (_tablet_schema->num_variant_columns() == 0) {
+    if (_tablet_schema->num_variant_columns() == 0 ||
+        std::any_of(_tablet_schema->columns().begin(), _tablet_schema->columns().end(),
+                    [](const auto& col) { return col->variant_max_subcolumns_count() > 0; })) {
         return Status::OK();
     }
     size_t column_id = _tablet_schema->num_columns();
@@ -1140,10 +1138,10 @@ Status VerticalSegmentWriter::write_batch() {
                 RETURN_IF_ERROR(_append_block_with_partial_content(data, full_block));
             }
         }
-        // for (auto& data : _batched_blocks) {
-        //     RowsInBlock full_rows_block {&full_block, data.row_pos, data.num_rows};
-        //     RETURN_IF_ERROR(_append_block_with_variant_subcolumns(full_rows_block));
-        // }
+        for (auto& data : _batched_blocks) {
+            RowsInBlock full_rows_block {&full_block, data.row_pos, data.num_rows};
+            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(full_rows_block));
+        }
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
             RETURN_IF_ERROR(column_writer->write_data());
@@ -1208,18 +1206,19 @@ Status VerticalSegmentWriter::write_batch() {
         _num_rows_written += data.num_rows;
     }
 
-    // if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-    //     _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-    //     size_t original_writers_cnt = _column_writers.size();
-    //     // handle variant dynamic sub columns
-    //     for (auto& data : _batched_blocks) {
-    //         RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
-    //     }
-    //     for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
-    //         RETURN_IF_ERROR(_column_writers[i]->finish());
-    //         RETURN_IF_ERROR(_column_writers[i]->write_data());
-    //     }
-    // }
+    // no sparse columns, need to flatten
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        size_t original_writers_cnt = _column_writers.size();
+        // handle variant dynamic sub columns
+        for (auto& data : _batched_blocks) {
+            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
+        }
+        for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
+            RETURN_IF_ERROR(_column_writers[i]->finish());
+            RETURN_IF_ERROR(_column_writers[i]->write_data());
+        }
+    }
 
     _batched_blocks.clear();
     return Status::OK();
