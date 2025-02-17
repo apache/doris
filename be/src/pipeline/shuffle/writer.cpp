@@ -34,7 +34,8 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
     bool already_sent = false;
     {
         SCOPED_TIMER(local_state->split_block_hash_compute_timer());
-        RETURN_IF_ERROR(local_state->partitioner()->do_partitioning(state, block, &already_sent));
+        RETURN_IF_ERROR(
+                local_state->partitioner()->do_partitioning(state, block, eos, &already_sent));
     }
     if (already_sent) {
         // The same block may be sent twice by TabletSinkHashPartitioner. To get the correct

@@ -28,7 +28,7 @@ namespace doris::vectorized {
 
 template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
-                                                         bool* already_sent) const {
+                                                         bool eos, bool* already_sent) const {
     size_t rows = block->rows();
 
     if (rows > 0) {
