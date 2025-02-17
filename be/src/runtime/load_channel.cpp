@@ -62,7 +62,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             wg_ptr = ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
             if (wg_ptr != nullptr) {
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);
-                _resource_ctx->workload_group_context()->set_workload_group(wg_ptr);
+                _resource_ctx->set_workload_group(wg_ptr);
             }
         }
     }
