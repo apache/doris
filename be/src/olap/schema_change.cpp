@@ -802,11 +802,15 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
               << ", alter_version=" << request.alter_version;
 
     // Lock schema_change_lock util schema change info is stored in tablet header
-    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("failed to obtain schema change lock. base_tablet={}",
-                                              request.base_tablet_id);
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (owns_lock) {
+        return Status::Error<TRY_LOCK_FAILED>(
+                "Failed to obtain schema change lock, there might be inverted index being "
+                "built or cooldown runnning on base_tablet={}",
+                request.base_tablet_id);
     }
 
     Status res = _do_process_alter_tablet(request);

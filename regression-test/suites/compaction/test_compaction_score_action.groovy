@@ -24,7 +24,6 @@ suite("test_compaction_score_action") {
             id INT NOT NULL,
             name STRING NOT NULL
         ) DUPLICATE KEY (`id`)
-          DISTRIBUTED BY HASH(`id`) BUCKETS 1
           PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     for (i in 0..<30) {
