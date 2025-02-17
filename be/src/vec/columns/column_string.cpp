@@ -569,25 +569,18 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
     res_chars.reserve(chars.size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
-    T prev_replicate_offset = 0;
-    T prev_string_offset = 0;
     T current_new_offset = 0;
-
     for (size_t i = 0; i < col_size; ++i) {
-        T size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
-        T string_size = offsets[i] - prev_string_offset;
+        T size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
+        T string_size = offsets[i] - offsets[i - 1];
 
+        res_chars.resize(res_chars.size() + size_to_replicate * string_size);
         for (size_t j = 0; j < size_to_replicate; ++j) {
+            memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
+                                                     &chars[offsets[i - 1]], string_size);
             current_new_offset += string_size;
             res_offsets.push_back(current_new_offset);
-
-            res_chars.resize(res_chars.size() + string_size);
-            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
-                                                     &chars[prev_string_offset], string_size);
         }
-
-        prev_replicate_offset = replicate_offsets[i];
-        prev_string_offset = offsets[i];
     }
 
     check_chars_length(res_chars.size(), res_offsets.size(), col_size);
