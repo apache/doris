@@ -134,7 +134,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         _partition_count = channels.size();
         _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+                                  fmt::format("TabletSinkHashPartitioner({})", _partition_count));
         _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
                 _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
@@ -161,7 +161,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+                                  fmt::format("ScaleWriterPartitioner({})", _partition_count));
     }
 
     return Status::OK();
