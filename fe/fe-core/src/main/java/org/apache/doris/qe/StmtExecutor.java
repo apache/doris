@@ -717,7 +717,7 @@ public class StmtExecutor {
             }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
-            logicalPlan = new PrepareCommand(String.valueOf(stmtId % Integer.MAX_VALUE),
+            logicalPlan = new PrepareCommand(String.valueOf(stmtId),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
         }
         // when we in transaction mode, we only support insert into command and transaction command

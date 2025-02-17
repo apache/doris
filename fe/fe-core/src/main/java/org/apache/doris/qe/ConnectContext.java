@@ -117,7 +117,8 @@ public class ConnectContext {
     // set for http_stream
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
-    protected int preparedStmtId = 0;
+    // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
+    protected int preparedStmtId = Integer.MIN_VALUE;
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
