@@ -885,7 +885,7 @@ struct MaterializationSharedState : public BasicSharedState {
 public:
     MaterializationSharedState() = default;
 
-    Status merge_multi_response();
+    Status merge_multi_response(vectorized::Block* block);
     Status create_muiltget_result(const vectorized::Columns& columns, bool eos);
 
     Dependency* create_source_dependency(int operator_id, int node_id,
@@ -893,6 +893,8 @@ public:
 
     Status rpc_status = Status::OK();
     bool last_block = false;
+    vectorized::Block origin_block;
+    std::vector<int> row_id_locs;
     std::vector<vectorized::MutableBlock> rest_blocks;
     std::map<int64_t, FetchRpcStruct> rpc_struct_map;
     std::vector<std::vector<uint64_t>> block_order_results;

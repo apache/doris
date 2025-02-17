@@ -34,10 +34,12 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
     if (!local_state._shared_state->rpc_status.ok()) {
         return local_state._shared_state->rpc_status;
     }
+    RETURN_IF_ERROR(local_state._shared_state->merge_multi_response(block));
+    *eos = local_state._shared_state->last_block;
+    if (!*eos) {
+        local_state._shared_state->sink_deps.back()->ready();
+    }
 
-    local_state._shared_state->merge_multi_response()
-
-            * eos = local_state._shared_state->last_block;
     return Status::OK();
 }
 

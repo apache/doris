@@ -33,6 +33,7 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+#include "vec/utils/util.hpp"
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
@@ -456,7 +457,7 @@ void AggSharedState::refresh_top_limit(size_t row_id,
     limit_columns_min = limit_heap.top()._row_id;
 }
 
-Status MaterializationSharedState::merge_multi_response() {
+Status MaterializationSharedState::merge_multi_response(vectorized::Block* block) {
     // init the rest_blocks
     if (rest_blocks.empty()) {
         rest_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
@@ -496,6 +497,37 @@ Status MaterializationSharedState::merge_multi_response() {
         }
         rpc_struct.response.clear_blocks();
     }
+
+    block->clear();
+    for (int i = 0, j = 0, rest_block_loc = row_id_locs[j]; i < origin_block.columns(); ++i) {
+        if (i < rest_block_loc) {
+            block->insert(origin_block.get_by_position(i));
+        } else {
+            bool need_convert_null = origin_block.get_by_position(i).column->is_nullable();
+            const auto& src_null_map = assert_cast<const vectorized::ColumnNullable*>(
+                                               origin_block.get_by_position(i).column.get())
+                                               ->get_null_map_data();
+
+            auto rest_block = rest_blocks[rest_block_loc].to_block();
+            for (auto& data : rest_block) {
+                if (need_convert_null) {
+                    data.type = make_nullable(data.type);
+                    data.column = make_nullable(data.column);
+                    const auto& dest_null_map =
+                            assert_cast<const vectorized::ColumnNullable*>(data.column.get())
+                                    ->get_null_map_data();
+                    vectorized::VectorizedUtils::update_null_map(
+                            const_cast<NullMap&>(dest_null_map), src_null_map);
+                }
+                block->insert(data);
+            }
+            if (++j < row_id_locs.size()) {
+                rest_block_loc = row_id_locs[j];
+            }
+        }
+    }
+    origin_block.clear();
+    rest_blocks.clear();
 
     return Status::OK();
 }
