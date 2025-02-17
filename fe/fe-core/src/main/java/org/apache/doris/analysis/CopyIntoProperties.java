@@ -84,7 +84,7 @@ public class CopyIntoProperties extends CopyProperties {
         return result;
     }
 
-    protected void mergeProperties(StageProperties stageProperties) {
+    public void mergeProperties(StageProperties stageProperties) {
         Map<String, String> properties = stageProperties.getDefaultPropertiesWithoutPrefix();
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!this.properties.containsKey(entry.getKey())) {
