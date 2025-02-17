@@ -686,6 +686,12 @@ public class IcebergUtils {
         hiveCatalog.setConf(externalCatalog.getConfiguration());
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
+        if (!catalogProperties.containsKey(HiveCatalog.LIST_ALL_TABLES)) {
+            // This configuration will display all tables (including non-Iceberg type tables),
+            // which can save the time of obtaining table objects.
+            // Later, type checks will be performed when loading the table.
+            catalogProperties.put(HiveCatalog.LIST_ALL_TABLES, "true");
+        }
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
 
