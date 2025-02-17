@@ -185,6 +185,8 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
                                        std::string(raw_data, raw_data_len).c_str());
             }
             col_data.emplace_back(ipv6_val);
+        } else {
+            col_data.emplace_back(0);
         }
     }
 }
