@@ -628,6 +628,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered
+                    col.checkSchemaChangeAllowed(modColumn);
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         ColumnType.checkSupportSchemaChangeForCharType(col.getType(), modColumn.getType());
