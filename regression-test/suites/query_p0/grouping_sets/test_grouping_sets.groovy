@@ -44,21 +44,8 @@ suite("test_grouping_sets", "p0") {
                  group by grouping sets((k_if, k1),()) order by k_if, k1, k2_sum
                """
 
-    test {
-        sql """
-              SELECT k1, k2, SUM(k3) FROM test_query_db.test
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
-            """
-        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
-    }
-
-    test {
-        sql """
-              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
-              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
-            """
-        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
-    }
+    sql """set enable_nereids_planner=false;"""
+    sql """set enable_fallback_to_original_planner=true;"""
 
     qt_select7 """ select k1,k2,sum(k3) from test_query_db.test where 1 = 2 group by grouping sets((k1), (k1,k2)) """
 
@@ -230,10 +217,9 @@ suite("test_grouping_sets", "p0") {
         contains "(idx1)"
     }
     sql "drop table if exists test_query_db.test_grouping_sets_rollup"
-    // test_grouping_select
-    test {
-        sql "select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
-        exception "`k1` cannot both in select list and aggregate functions " +
-                "when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
-    }
+
+    qt_select24 """
+        select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))
+        order by 1,2
+        """
 }
