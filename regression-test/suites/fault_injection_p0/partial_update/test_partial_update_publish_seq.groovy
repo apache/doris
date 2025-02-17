@@ -113,8 +113,6 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c4) values(1,33),(2,33),(3,33);"
-            // ATTENTION: current behavior is not correct, we should use the seq val filled in flush phase as a row's final seq val. Otherwise, it may cause inconsistency between replicas.
-            // after https://github.com/apache/doris/pull/41701 is merged, the result here should change(k=3)
         }
         Thread.sleep(1000)
         disable_block_in_publish()
@@ -163,8 +161,6 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c4,__DORIS_DELETE_SIGN__) values(1,100,1),(2,100,1),(3,100,1);"
-            // ATTENTION: current behavior is not correct, we should use the seq val filled in flush phase as a row's final seq val. Otherwise, it may cause inconsistency between replicas.
-            // after https://github.com/apache/doris/pull/41701 is merged, the result here should change
         }
         Thread.sleep(1000)
         disable_block_in_publish()
