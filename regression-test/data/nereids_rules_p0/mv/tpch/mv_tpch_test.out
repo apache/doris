@@ -127,6 +127,30 @@ R	F	3785523.00	5337950526.47	5071818532.9420	5274405503.049367	25.5259	35994.029
 573861	351238.2770	1995-03-09	0
 584291	354494.7318	1995-02-21	0
 
+-- !query3_1_before --
+108514	314967.0754	1995-02-20	0
+121604	318576.4154	1995-03-07	0
+178727	309728.9306	1995-02-25	0
+223140	355369.0698	1995-03-14	0
+405063	353125.4577	1995-03-03	0
+462502	312604.5420	1995-03-08	0
+506021	321075.5810	1995-03-10	0
+554757	349181.7426	1995-03-14	0
+573861	351238.2770	1995-03-09	0
+584291	354494.7318	1995-02-21	0
+
+-- !query3_1_after --
+108514	314967.0754	1995-02-20	0
+121604	318576.4154	1995-03-07	0
+178727	309728.9306	1995-02-25	0
+223140	355369.0698	1995-03-14	0
+405063	353125.4577	1995-03-03	0
+462502	312604.5420	1995-03-08	0
+506021	321075.5810	1995-03-10	0
+554757	349181.7426	1995-03-14	0
+573861	351238.2770	1995-03-09	0
+584291	354494.7318	1995-02-21	0
+
 -- !query4_before --
 1-URGENT	999
 2-HIGH	997
@@ -558,6 +582,50 @@ VIETNAM	1998	1924313.4862
 961	Customer#000000961	401198.1737	6963.68	JAPAN	5,81YDLFuRR47KKzv8GXdmi3zyP37PlPn	22-989-463-6089	e final requests: busily final accounts believe a
 
 -- !query10_after --
+11026	Customer#000011026	417913.4142	7738.76	ALGERIA	XorIktoJOAEJkpNNMx	10-184-163-4632	ly even dolphins eat along the blithely even instructions. express attainments cajole slyly. busy dolphins in
+11032	Customer#000011032	512500.9641	8496.93	UNITED KINGDOM	WIKHC7K3Cn7156iNOyfVG3cZ7YqkgsR,Ly	33-102-772-3533	posits-- furiously ironic accounts are again
+12106	Customer#000012106	479414.2133	5342.11	UNITED STATES	wth3twOmu6vy	34-905-346-4472	ly after the blithely regular foxes. accounts haggle carefully alongside of the blithely even ideas.
+12595	Customer#000012595	401402.2391	-6.92	INDIA	LmeaX5cR,w9NqKugl yRm98	18-186-132-3352	o the busy accounts. blithely special gifts maintain a
+13478	Customer#000013478	395513.1358	-778.11	KENYA	9VIsvIeZrJpC6OOdYheMC2vdtq8Ai0Rt	24-983-202-8240	r theodolites. slyly unusual pinto beans sleep fluffily against the asymptotes. quickly r
+13984	Customer#000013984	446316.5104	3482.28	IRAN	qZXwuapCHvxbX	20-981-264-2952	y unusual courts could wake furiously
+14299	Customer#000014299	400968.3751	6595.97	RUSSIA	7lFczTya0iM1bhEWT	32-156-618-1224	 carefully regular requests. quickly ironic accounts against the ru
+14398	Customer#000014398	408575.3600	-602.24	UNITED STATES	GWRCgIPHajtU21vICVvbJJerFu2cUk	34-814-111-5424	s. blithely even accounts cajole blithely. even foxes doubt-- 
+1465	Customer#000001465	405055.3457	9365.93	INDIA	tDRaTC7UgFbBX7VF6cVXYQA0	18-807-487-1074	s lose blithely ironic, regular packages. regular, final foxes haggle c
+14819	Customer#000014819	396271.1036	7308.39	FRANCE	w8StIbymUXmLCcUag6sx6LUIp8E3pA,Ux	16-769-398-7926	ss, final asymptotes use furiously slyly ironic dependencies. special, express dugouts according to the dep
+1565	Customer#000001565	412506.0062	1820.03	BRAZIL	EWQO5Ck,nMuHVQimqL8dLrixRP6QKveXcz9QgorW	12-402-178-2007	ously regular accounts wake slyly ironic idea
+1966	Customer#000001966	444059.0382	1937.72	ALGERIA	jPv1 UHra5JLALR5Isci5u0636RoAu7t vH	10-973-269-8886	the blithely even accounts. final deposits cajole around the blithely final packages. 
+2455	Customer#000002455	481592.4053	2070.99	GERMANY	RVn1ZSRtLqPlJLIZxvpmsbgC02	17-946-225-9977	al asymptotes. finally ironic accounts cajole furiously. permanently unusual theodolites aro
+623	Customer#000000623	399883.4257	7887.60	INDONESIA	HXiFb9oWlgqZXrJPUCEJ6zZIPxAM4m6	19-113-202-7085	 requests. dolphins above the busily regular dependencies cajole after
+7714	Customer#000007714	557400.3053	9799.98	IRAN	SnnIGB,SkmnWpX3	20-922-418-6024	arhorses according to the blithely express re
+8242	Customer#000008242	622786.7297	6322.09	ETHIOPIA	P2n4nJhy,UqSo2s43YfSvYJDZ6lk	15-792-676-1184	slyly regular packages haggle carefully ironic ideas. courts are furiously. furiously unusual theodolites cajole. i
+8501	Customer#000008501	412797.5100	6906.70	ARGENTINA	776af4rOa mZ66hczs	11-317-552-5840	y final deposits after the fluffily even accounts are slyly final, regular
+8530	Customer#000008530	457855.9467	9734.95	MOROCCO	GMQyte94oDM7eD7exnkj 4hH9yq3	25-736-932-5850	slyly asymptotes. quickly final deposits in
+9151	Customer#000009151	396562.0295	5691.95	IRAQ	7gIdRdaxB91EVdyx8DyPjShpMD	21-834-147-4906	ajole fluffily. furiously regular accounts are special, silent account
+961	Customer#000000961	401198.1737	6963.68	JAPAN	5,81YDLFuRR47KKzv8GXdmi3zyP37PlPn	22-989-463-6089	e final requests: busily final accounts believe a
+
+-- !query10_1_before --
+11026	Customer#000011026	417913.4142	7738.76	ALGERIA	XorIktoJOAEJkpNNMx	10-184-163-4632	ly even dolphins eat along the blithely even instructions. express attainments cajole slyly. busy dolphins in
+11032	Customer#000011032	512500.9641	8496.93	UNITED KINGDOM	WIKHC7K3Cn7156iNOyfVG3cZ7YqkgsR,Ly	33-102-772-3533	posits-- furiously ironic accounts are again
+12106	Customer#000012106	479414.2133	5342.11	UNITED STATES	wth3twOmu6vy	34-905-346-4472	ly after the blithely regular foxes. accounts haggle carefully alongside of the blithely even ideas.
+12595	Customer#000012595	401402.2391	-6.92	INDIA	LmeaX5cR,w9NqKugl yRm98	18-186-132-3352	o the busy accounts. blithely special gifts maintain a
+13478	Customer#000013478	395513.1358	-778.11	KENYA	9VIsvIeZrJpC6OOdYheMC2vdtq8Ai0Rt	24-983-202-8240	r theodolites. slyly unusual pinto beans sleep fluffily against the asymptotes. quickly r
+13984	Customer#000013984	446316.5104	3482.28	IRAN	qZXwuapCHvxbX	20-981-264-2952	y unusual courts could wake furiously
+14299	Customer#000014299	400968.3751	6595.97	RUSSIA	7lFczTya0iM1bhEWT	32-156-618-1224	 carefully regular requests. quickly ironic accounts against the ru
+14398	Customer#000014398	408575.3600	-602.24	UNITED STATES	GWRCgIPHajtU21vICVvbJJerFu2cUk	34-814-111-5424	s. blithely even accounts cajole blithely. even foxes doubt-- 
+1465	Customer#000001465	405055.3457	9365.93	INDIA	tDRaTC7UgFbBX7VF6cVXYQA0	18-807-487-1074	s lose blithely ironic, regular packages. regular, final foxes haggle c
+14819	Customer#000014819	396271.1036	7308.39	FRANCE	w8StIbymUXmLCcUag6sx6LUIp8E3pA,Ux	16-769-398-7926	ss, final asymptotes use furiously slyly ironic dependencies. special, express dugouts according to the dep
+1565	Customer#000001565	412506.0062	1820.03	BRAZIL	EWQO5Ck,nMuHVQimqL8dLrixRP6QKveXcz9QgorW	12-402-178-2007	ously regular accounts wake slyly ironic idea
+1966	Customer#000001966	444059.0382	1937.72	ALGERIA	jPv1 UHra5JLALR5Isci5u0636RoAu7t vH	10-973-269-8886	the blithely even accounts. final deposits cajole around the blithely final packages. 
+2455	Customer#000002455	481592.4053	2070.99	GERMANY	RVn1ZSRtLqPlJLIZxvpmsbgC02	17-946-225-9977	al asymptotes. finally ironic accounts cajole furiously. permanently unusual theodolites aro
+623	Customer#000000623	399883.4257	7887.60	INDONESIA	HXiFb9oWlgqZXrJPUCEJ6zZIPxAM4m6	19-113-202-7085	 requests. dolphins above the busily regular dependencies cajole after
+7714	Customer#000007714	557400.3053	9799.98	IRAN	SnnIGB,SkmnWpX3	20-922-418-6024	arhorses according to the blithely express re
+8242	Customer#000008242	622786.7297	6322.09	ETHIOPIA	P2n4nJhy,UqSo2s43YfSvYJDZ6lk	15-792-676-1184	slyly regular packages haggle carefully ironic ideas. courts are furiously. furiously unusual theodolites cajole. i
+8501	Customer#000008501	412797.5100	6906.70	ARGENTINA	776af4rOa mZ66hczs	11-317-552-5840	y final deposits after the fluffily even accounts are slyly final, regular
+8530	Customer#000008530	457855.9467	9734.95	MOROCCO	GMQyte94oDM7eD7exnkj 4hH9yq3	25-736-932-5850	slyly asymptotes. quickly final deposits in
+9151	Customer#000009151	396562.0295	5691.95	IRAQ	7gIdRdaxB91EVdyx8DyPjShpMD	21-834-147-4906	ajole fluffily. furiously regular accounts are special, silent account
+961	Customer#000000961	401198.1737	6963.68	JAPAN	5,81YDLFuRR47KKzv8GXdmi3zyP37PlPn	22-989-463-6089	e final requests: busily final accounts believe a
+
+-- !query10_1_after --
 11026	Customer#000011026	417913.4142	7738.76	ALGERIA	XorIktoJOAEJkpNNMx	10-184-163-4632	ly even dolphins eat along the blithely even instructions. express attainments cajole slyly. busy dolphins in
 11032	Customer#000011032	512500.9641	8496.93	UNITED KINGDOM	WIKHC7K3Cn7156iNOyfVG3cZ7YqkgsR,Ly	33-102-772-3533	posits-- furiously ironic accounts are again
 12106	Customer#000012106	479414.2133	5342.11	UNITED STATES	wth3twOmu6vy	34-905-346-4472	ly after the blithely regular foxes. accounts haggle carefully alongside of the blithely even ideas.
@@ -11305,6 +11373,20 @@ Customer#000006655	6655	29158	1995-10-21	452805.02	305.00
 Customer#000011459	11459	551136	1993-05-19	386812.74	308.00
 Customer#000014110	14110	565574	1995-09-24	425099.85	301.00
 
+-- !query18_1_before --
+Customer#000001639	1639	502886	1994-04-12	456423.88	312.00
+Customer#000001775	1775	6882	1997-04-09	408368.10	303.00
+Customer#000006655	6655	29158	1995-10-21	452805.02	305.00
+Customer#000011459	11459	551136	1993-05-19	386812.74	308.00
+Customer#000014110	14110	565574	1995-09-24	425099.85	301.00
+
+-- !query18_1_after --
+Customer#000001639	1639	502886	1994-04-12	456423.88	312.00
+Customer#000001775	1775	6882	1997-04-09	408368.10	303.00
+Customer#000006655	6655	29158	1995-10-21	452805.02	305.00
+Customer#000011459	11459	551136	1993-05-19	386812.74	308.00
+Customer#000014110	14110	565574	1995-09-24	425099.85	301.00
+
 -- !query19_before --
 168597.2860
 
@@ -11383,6 +11465,104 @@ Supplier#000000929	11
 Supplier#000000977	13
 
 -- !query21_after --
+Supplier#000000074	8
+Supplier#000000114	6
+Supplier#000000144	12
+Supplier#000000167	9
+Supplier#000000188	12
+Supplier#000000262	10
+Supplier#000000357	14
+Supplier#000000379	6
+Supplier#000000380	11
+Supplier#000000399	14
+Supplier#000000415	12
+Supplier#000000427	7
+Supplier#000000436	6
+Supplier#000000445	16
+Supplier#000000460	10
+Supplier#000000472	12
+Supplier#000000486	10
+Supplier#000000496	14
+Supplier#000000500	6
+Supplier#000000503	7
+Supplier#000000565	8
+Supplier#000000578	9
+Supplier#000000602	11
+Supplier#000000610	7
+Supplier#000000633	12
+Supplier#000000648	8
+Supplier#000000659	11
+Supplier#000000660	6
+Supplier#000000669	10
+Supplier#000000670	7
+Supplier#000000673	9
+Supplier#000000687	9
+Supplier#000000708	12
+Supplier#000000709	15
+Supplier#000000718	10
+Supplier#000000762	15
+Supplier#000000778	10
+Supplier#000000788	6
+Supplier#000000811	7
+Supplier#000000821	11
+Supplier#000000825	16
+Supplier#000000846	6
+Supplier#000000889	12
+Supplier#000000918	8
+Supplier#000000920	4
+Supplier#000000929	11
+Supplier#000000977	13
+
+-- !query21_1_before --
+Supplier#000000074	8
+Supplier#000000114	6
+Supplier#000000144	12
+Supplier#000000167	9
+Supplier#000000188	12
+Supplier#000000262	10
+Supplier#000000357	14
+Supplier#000000379	6
+Supplier#000000380	11
+Supplier#000000399	14
+Supplier#000000415	12
+Supplier#000000427	7
+Supplier#000000436	6
+Supplier#000000445	16
+Supplier#000000460	10
+Supplier#000000472	12
+Supplier#000000486	10
+Supplier#000000496	14
+Supplier#000000500	6
+Supplier#000000503	7
+Supplier#000000565	8
+Supplier#000000578	9
+Supplier#000000602	11
+Supplier#000000610	7
+Supplier#000000633	12
+Supplier#000000648	8
+Supplier#000000659	11
+Supplier#000000660	6
+Supplier#000000669	10
+Supplier#000000670	7
+Supplier#000000673	9
+Supplier#000000687	9
+Supplier#000000708	12
+Supplier#000000709	15
+Supplier#000000718	10
+Supplier#000000762	15
+Supplier#000000778	10
+Supplier#000000788	6
+Supplier#000000811	7
+Supplier#000000821	11
+Supplier#000000825	16
+Supplier#000000846	6
+Supplier#000000889	12
+Supplier#000000918	8
+Supplier#000000920	4
+Supplier#000000929	11
+Supplier#000000977	13
+
+-- !query21_1_after --
 Supplier#000000074	8
 Supplier#000000114	6
 Supplier#000000144	12

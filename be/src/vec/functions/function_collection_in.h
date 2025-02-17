@@ -117,7 +117,8 @@ public:
             DCHECK(const_column_ptr != nullptr);
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
-                auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
+                const auto* null_col =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(col.get());
                 if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
@@ -138,7 +139,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto in_state = reinterpret_cast<CollectionInState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
@@ -161,7 +162,7 @@ public:
         if (materialized_column_not_null->is_nullable()) {
             materialized_column_not_null = assert_cast<ColumnPtr>(
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                            materialized_column_not_null)
+                            materialized_column_not_null.get())
                             ->get_nested_column_ptr());
         }
 

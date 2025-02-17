@@ -46,7 +46,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <bool reverse>
 class FunctionArraySplit : public IFunction {
 public:
@@ -61,7 +61,7 @@ public:
     };
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         // <Nullable>(Array(<Nullable>(Int)))
         auto src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();

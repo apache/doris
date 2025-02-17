@@ -50,7 +50,7 @@ suite("test_create_mv_mtmv","mtmv") {
         CREATE MATERIALIZED VIEW mv_mtmv1  as select k2 from ${mvName};
         """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${mvName}' ORDER BY CreateTime DESC LIMIT 1; """
         String res = jobStateResult[0][8]

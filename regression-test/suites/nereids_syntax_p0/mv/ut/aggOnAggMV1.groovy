@@ -45,6 +45,8 @@ suite ("aggOnAggMV1") {
     sql """insert into aggOnAggMV1 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV1 with sync;"
+    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV1 order by empid;", "aggOnAggMV1_mv")

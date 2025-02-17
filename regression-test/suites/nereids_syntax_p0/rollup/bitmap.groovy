@@ -34,9 +34,10 @@ suite("bitmap", "rollup") {
             ) 
             DISTRIBUTED BY HASH(k1) properties("replication_num" = "1");
         """
+    sql """alter table test_materialized_view_bitmap1 modify column k1 set stats ('row_count'='2');"""
 
     sql "CREATE MATERIALIZED VIEW test_neg as select k1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {

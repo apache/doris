@@ -43,7 +43,7 @@ suite("test_hive_parquet_alter_column", "p0,external,hive,external_docker,extern
 
 
 
-        types = ["int","smallint","tinyint","bigint","float","double","boolean","string","char","varchar","date","timestamp","decimal"]
+        def types = ["int","smallint","tinyint","bigint","float","double","boolean","string","char","varchar","date","timestamp","decimal"]
 
         for( String type1 in types) {
             qt_desc """ desc parquet_alter_column_to_${type1} ; """

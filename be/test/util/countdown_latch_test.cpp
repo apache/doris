@@ -59,6 +59,7 @@ TEST(TestCountDownLatch, TestLatch) {
     EXPECT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1000)).ok());
     latch.wait();
     EXPECT_EQ(0, latch.count());
+    pool.reset();
 }
 
 // Test that resetting to zero while there are waiters lets the waiters

@@ -17,11 +17,12 @@
 
 #pragma once
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
@@ -31,6 +32,8 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 class SlotDescriptor;
 class ObjectPool;
@@ -46,11 +49,13 @@ class BufferWritable;
 class IColumn;
 
 class AggFnEvaluator {
+public:
     ENABLE_FACTORY_CREATOR(AggFnEvaluator);
+    MOCK_DEFINE(virtual) ~AggFnEvaluator() = default;
 
 public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
-                         AggFnEvaluator** result);
+                         const bool without_key, AggFnEvaluator** result);
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    const SlotDescriptor* intermediate_slot_desc,
@@ -97,7 +102,7 @@ public:
     bool is_merge() const { return _is_merge; }
     const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
-    static Status check_agg_fn_output(int64_t key_size,
+    static Status check_agg_fn_output(uint32_t key_size,
                                       const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                       const RowDescriptor& output_row_desc);
 
@@ -109,10 +114,18 @@ private:
     const TFunction _fn;
 
     const bool _is_merge;
+    // We need this flag to distinguish between the two types of aggregation functions:
+    // 1. executed without group by key (agg function used with window function is also regarded as this type)
+    // 2. executed with group by key
+    const bool _without_key;
 
-    AggFnEvaluator(const TExprNode& desc);
+    AggFnEvaluator(const TExprNode& desc, const bool without_key);
     AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
+#ifdef BE_TEST
+    AggFnEvaluator(bool is_merge, bool without_key)
+            : _is_merge(is_merge), _without_key(without_key) {};
+#endif
     Status _calc_argument_columns(Block* block);
 
     DataTypes _argument_types_with_sort;
@@ -141,4 +154,5 @@ private:
 };
 } // namespace vectorized
 
+#include "common/compile_check_end.h"
 } // namespace doris

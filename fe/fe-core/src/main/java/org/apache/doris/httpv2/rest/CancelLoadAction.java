@@ -50,9 +50,8 @@ public class CancelLoadAction extends RestBaseController {
         }
 
         executeCheckPassword(request, response);
-        Object redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
+        if (checkForwardToMaster(request)) {
+            return forwardToMaster(request);
         }
 
         if (Strings.isNullOrEmpty(dbName)) {

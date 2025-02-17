@@ -91,7 +91,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
 }
 
 Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
-                                      const ColumnNumbers& arguments, size_t result,
+                                      const ColumnNumbers& arguments, uint32_t result,
                                       size_t num_rows) const {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));

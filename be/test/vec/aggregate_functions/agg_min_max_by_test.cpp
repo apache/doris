@@ -71,7 +71,7 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
             min_pair.first = str_val;
             min_pair.second = i;
         }
-        column_vector_key_str->insert(cast_to_nearest_field_type(str_val));
+        column_vector_key_str->insert(Field(cast_to_nearest_field_type(str_val)));
     }
 
     // Prepare test function and parameters.

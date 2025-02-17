@@ -21,6 +21,9 @@
 #include "io/cache/block_file_cache_factory.h"
 
 #include <glog/logging.h>
+
+#include <string>
+#include <vector>
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -116,6 +119,20 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     }
 
     return Status::OK();
+}
+
+std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128Wrapper& hash) {
+    io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    auto blocks = cache->get_blocks_by_key(hash);
+    std::vector<std::string> ret;
+    if (blocks.empty()) {
+        return ret;
+    } else {
+        for (auto& [_, fb] : blocks) {
+            ret.emplace_back(fb->get_cache_file());
+        }
+    }
+    return ret;
 }
 
 BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {

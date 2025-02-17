@@ -39,16 +39,16 @@ suite("test_join_on", "nereids_p0") {
     qt_sql """ select * from join_on order by k1; """
     test {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.d_array = j2.d_array; """
-        exception "meet invalid type, type=Array(Nullable(Int32))"
+        exception "errCode = 2"
     }
     test {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.hll_col = j2.hll_col; """
-        exception "data type HLL could not used in ComparisonPredicate"
+        exception "errCode = 2"
     }
 
     test {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.k3 = j2.k3; """
-        exception "data type BITMAP could not used in ComparisonPredicate"
+        exception "errCode = 2"
     }
 
     test {

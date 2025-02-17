@@ -49,7 +49,7 @@ suite("test_update_configs", "p0") {
     (code, out, err) = show_be_config(beIp, bePort)
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
-    configList2 = parseJson(out.trim())
+    def configList2 = parseJson(out.trim())
     assert configList instanceof List
     for (Object ele in (List) configList2) {
         assert ele instanceof List<String>

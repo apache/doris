@@ -41,17 +41,19 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
@@ -105,6 +107,8 @@ public class IcebergUtils {
 
     // nickname in spark
     public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
+
+    public static final long UNKNOWN_SNAPSHOT_ID = -1;
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -569,22 +573,38 @@ public class IcebergUtils {
                 : metadataCache.getIcebergTable(catalog, dbName, tblName);
     }
 
+    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
+        return getSchema(catalog, dbName, name, UNKNOWN_SNAPSHOT_ID);
+    }
+
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
-        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
-            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
-            Schema schema = icebergTable.schema();
-            List<Types.NestedField> columns = schema.columns();
-            List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-            for (Types.NestedField field : columns) {
-                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
-                        IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                        schema.caseInsensitiveFindField(field.name()).fieldId()));
-            }
-            return tmpSchema;
-        });
+    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name, long schemaId) {
+        try {
+            return catalog.getPreExecutionAuthenticator().execute(() -> {
+                org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+                Schema schema;
+                if (schemaId == UNKNOWN_SNAPSHOT_ID || icebergTable.currentSnapshot() == null) {
+                    schema = icebergTable.schema();
+                } else {
+                    schema = icebergTable.schemas().get((int) schemaId);
+                }
+                Preconditions.checkNotNull(schema,
+                        "Schema for table " + catalog.getName() + "." + dbName + "." + name + " is null");
+                List<Types.NestedField> columns = schema.columns();
+                List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
+                for (Types.NestedField field : columns) {
+                    tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
+                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                            schema.caseInsensitiveFindField(field.name()).fieldId()));
+                }
+                return tmpSchema;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+
     }
 
 
@@ -604,9 +624,9 @@ public class IcebergUtils {
                 .getIcebergTable(catalog, dbName, tbName);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
-            LOG.info("Iceberg table {}.{}.{} is empty, return row count 0.", catalog.getName(), dbName, tbName);
+            LOG.info("Iceberg table {}.{}.{} is empty, return -1.", catalog.getName(), dbName, tbName);
             // empty table
-            return 0;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         Map<String, String> summary = snapshot.summary();
         long rows = Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
@@ -677,6 +697,12 @@ public class IcebergUtils {
         hiveCatalog.setConf(externalCatalog.getConfiguration());
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
+        if (!catalogProperties.containsKey(HiveCatalog.LIST_ALL_TABLES)) {
+            // This configuration will display all tables (including non-Iceberg type tables),
+            // which can save the time of obtaining table objects.
+            // Later, type checks will be performed when loading the table.
+            catalogProperties.put(HiveCatalog.LIST_ALL_TABLES, "true");
+        }
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
 

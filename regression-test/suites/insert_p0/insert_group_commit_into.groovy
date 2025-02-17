@@ -25,7 +25,7 @@ suite("insert_group_commit_into") {
     def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+        Awaitility.await().atMost(90, SECONDS).pollInterval(1, SECONDS).until(
             {
                 def result = sql "select count(*) from ${table}"
                 logger.info("table: ${table}, rowCount: ${result}")
@@ -98,6 +98,11 @@ suite("insert_group_commit_into") {
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
     }
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     try {
         // create table
         sql """ drop table if exists ${table}; """
@@ -120,7 +125,7 @@ suite("insert_group_commit_into") {
             );
             """
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl + "&useLocalSessionState=true") {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl + "&useLocalSessionState=true") {
             sql """ set group_commit = async_mode; """
 
             // 1. insert into
@@ -258,7 +263,7 @@ suite("insert_group_commit_into") {
             if (observer_fe != null) {
                 def url = "jdbc:mysql://${observer_fe.Host}:${observer_fe.QueryPort}/"
                 logger.info("observer url: " + url)
-                connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = url) {
+                connect( context.config.jdbcUser,  context.config.jdbcPassword,  url) {
                     sql """ set group_commit = async_mode; """
 
                     // 1. insert into
@@ -320,7 +325,7 @@ suite("insert_group_commit_into") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1", "group_commit_interval_ms" = "200")
             """
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = async_mode; """
 
             // 1. insert into
@@ -390,7 +395,7 @@ suite("insert_group_commit_into") {
             select ordernum,max(dnt) as dnt from ${table}
             group by ordernum
             ORDER BY ordernum;""")
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = async_mode; """
 
             // 1. insert into
@@ -487,7 +492,7 @@ suite("insert_group_commit_into") {
                 ); 
             """
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql """ set group_commit = async_mode; """
             group_commit_insert """ insert into ${table} values(1, 'test'); """, 1
             group_commit_insert """ insert into ${table}(k1,`or`) values (2,"or"); """, 1

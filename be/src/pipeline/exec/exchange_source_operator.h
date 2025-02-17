@@ -22,6 +22,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ExecNode;
 } // namespace doris
 
@@ -109,4 +110,5 @@ private:
     std::vector<bool> _nulls_first;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

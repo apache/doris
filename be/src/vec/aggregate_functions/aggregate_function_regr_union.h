@@ -36,6 +36,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 struct AggregateFunctionRegrData {
@@ -82,19 +83,19 @@ struct AggregateFunctionRegrData {
     }
 
     void add(T value_y, T value_x) {
-        sum_x += value_x;
-        sum_y += value_y;
-        sum_of_x_mul_y += value_x * value_y;
-        sum_of_x_squared += value_x * value_x;
+        sum_x += (double)value_x;
+        sum_y += (double)value_y;
+        sum_of_x_mul_y += (double)value_x * (double)value_y;
+        sum_of_x_squared += (double)value_x * (double)value_x;
         count += 1;
     }
 
     Float64 get_slope() const {
-        Float64 denominator = count * sum_of_x_squared - sum_x * sum_x;
+        Float64 denominator = (double)count * sum_of_x_squared - sum_x * sum_x;
         if (count < 2 || denominator == 0.0) {
             return std::numeric_limits<Float64>::quiet_NaN();
         }
-        Float64 slope = (count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
+        Float64 slope = ((double)count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
         return slope;
     }
 };
@@ -115,7 +116,7 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
         if (std::isnan(slope)) {
             return slope;
         } else {
-            Float64 intercept = (this->sum_y - slope * this->sum_x) / this->count;
+            Float64 intercept = (this->sum_y - slope * this->sum_x) / (double)this->count;
             return intercept;
         }
     }
@@ -214,3 +215,5 @@ public:
     }
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -59,6 +59,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
             + "FROM `${dbName}`.`${tblName}` ${index}";
 
+    private boolean keyColumnSampleTooManyRows = false;
+    private boolean partitionColumnSampleTooManyRows = false;
+    private boolean scanFullTable = false;
+    private static final long MAXIMUM_SAMPLE_ROWS = 1_000_000_000;
+    private static final int PARTITION_COUNT_TO_SAMPLE = 5;
+
     @VisibleForTesting
     public OlapAnalysisTask() {
     }
@@ -83,6 +89,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             doFull();
         }
+        LOG.info("AnalysisTask Done {}", this.toString());
     }
 
     /**
@@ -95,77 +102,34 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
-        Pair<List<Long>, Long> pair = calcActualSampleTablets(tbl.isPartitionColumn(col.getName()));
-        LOG.info("Number of tablets selected {}, rows in tablets {}", pair.first.size(), pair.second);
-        List<Long> tabletIds = pair.first;
-        long totalRowCount = info.indexId == -1
-                ? tbl.getRowCount()
-                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
-        double scaleFactor = (double) totalRowCount / (double) pair.second;
-        // might happen if row count in fe metadata hasn't been updated yet
-        if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
-            LOG.debug("Scale factor is infinite or Nan, will set scale factor to 1.");
-            scaleFactor = 1;
-            tabletIds = Collections.emptyList();
-            pair.second = totalRowCount;
-        }
-        String tabletStr = tabletIds.stream()
-                .map(Object::toString)
-                .collect(Collectors.joining(", "));
         // Get basic stats, including min and max.
-        ResultRow basicStats = collectBasicStat();
-        String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
-                ? basicStats.get(0) : null);
-        String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
-                ? basicStats.get(1) : null);
+        ResultRow minMax = collectMinMax();
+        String min = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 0
+                ? minMax.get(0) : null);
+        String max = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 1
+                ? minMax.get(1) : null);
 
-        boolean limitFlag = false;
-        long rowsToSample = pair.second;
         Map<String, String> params = buildSqlParams();
-        params.put("scaleFactor", String.valueOf(scaleFactor));
-        params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
-        params.put("ndvFunction", getNdvFunction(String.valueOf(totalRowCount)));
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
-        params.put("rowCount", String.valueOf(totalRowCount));
-        params.put("type", col.getType().toString());
-        params.put("limit", "");
-        if (needLimit()) {
-            // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
-            // the scaleFactor.
-            rowsToSample = Math.min(getSampleRows(), pair.second);
-            // Empty table doesn't need to limit.
-            if (rowsToSample > 0) {
-                limitFlag = true;
-                params.put("limit", "limit " + rowsToSample);
-                params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
-            }
-        }
+        long tableRowCount = info.indexId == -1
+                ? tbl.getRowCount()
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
+        getSampleParams(params, tableRowCount);
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql;
         if (useLinearAnalyzeTemplate()) {
-            // For single unique key, use count as ndv.
-            if (isSingleUniqueKey()) {
-                params.put("ndvFunction", String.valueOf(totalRowCount));
-            } else {
-                params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
-            }
             sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
         } else {
-            params.put("dataSizeFunction", getDataSizeFunction(col, true));
-            params.put("subStringColName", getStringTypeColName(col));
             sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
         }
-        LOG.info("Sample for column [{}]. Total rows [{}], rows to sample [{}], scale factor [{}], "
-                + "limited [{}], distribute column [{}], partition column [{}], key column [{}], "
-                + "is single unique key [{}]",
-                col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
-                limitFlag, tbl.isDistributionColumn(col.getName()),
-                tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
+        LOG.info("Analyze param: scanFullTable {}, partitionColumnTooMany {}, keyColumnTooMany {}",
+                scanFullTable, partitionColumnSampleTooManyRows, keyColumnSampleTooManyRows);
+        LOG.debug(sql);
         runQuery(sql);
     }
 
-    protected ResultRow collectBasicStat() {
+    protected ResultRow collectMinMax() {
         // Agg table value columns has no zone map.
         // For these columns, skip collecting min and max value to avoid scan whole table.
         if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
@@ -187,8 +151,138 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             }
             // Release the reference to stmtExecutor, reduce memory usage.
             stmtExecutor = null;
+        } catch (Exception e) {
+            LOG.info("Failed to collect basic stat {}. Reason {}", sql, e.getMessage());
+            throw e;
         }
         return resultRow;
+    }
+
+    /**
+     * Select the tablets to read.
+     * @return Pair of tablet id list and how many rows are going to read.
+     */
+    protected Pair<List<Long>, Long> getSampleTablets() {
+        long targetSampleRows = getSampleRows();
+        OlapTable olapTable = (OlapTable) tbl;
+        boolean forPartitionColumn = tbl.isPartitionColumn(col.getName());
+        long avgTargetRowsPerPartition = targetSampleRows / Math.max(olapTable.getPartitions().size(), 1);
+        List<Long> sampleTabletIds = new ArrayList<>();
+        long selectedRows = 0;
+        boolean enough = false;
+        // Sort the partitions to get stable result.
+        List<Partition> sortedPartitions = olapTable.getPartitions().stream().sorted(
+                Comparator.comparing(Partition::getName)).collect(Collectors.toList());
+        for (Partition p : sortedPartitions) {
+            MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
+            if (materializedIndex == null) {
+                continue;
+            }
+            List<Long> ids = materializedIndex.getTabletIdsInOrder();
+            if (ids.isEmpty()) {
+                continue;
+            }
+            long avgRowsPerTablet = Math.max(materializedIndex.getRowCount() / ids.size(), 1);
+            long tabletCounts = Math.max(avgTargetRowsPerPartition / avgRowsPerTablet
+                    + (avgTargetRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
+            tabletCounts = Math.min(tabletCounts, ids.size());
+            long seek = tableSample.getSeek() != -1 ? tableSample.getSeek()
+                    : (long) (new SecureRandom().nextDouble() * ids.size());
+            for (int i = 0; i < tabletCounts; i++) {
+                int seekTid = (int) ((i + seek) % ids.size());
+                long tabletId = ids.get(seekTid);
+                sampleTabletIds.add(tabletId);
+                long tabletRows = materializedIndex.getTablet(tabletId).getMinReplicaRowCount(p.getVisibleVersion());
+                if (tabletRows > 0) {
+                    selectedRows += tabletRows;
+                    // For regular column, will stop adding more tablets when selected tablets'
+                    // row count is more than the target sample rows.
+                    // But for partition columns, will not stop adding. For ndv sample accuracy,
+                    // better to choose at least one tablet in each partition.
+                    if (selectedRows >= targetSampleRows && !forPartitionColumn) {
+                        enough = true;
+                        break;
+                    }
+                }
+            }
+            if (enough) {
+                break;
+            }
+        }
+        if (selectedRows < targetSampleRows) {
+            scanFullTable = true;
+        } else if (forPartitionColumn && selectedRows > MAXIMUM_SAMPLE_ROWS) {
+            // If the selected tablets for partition column contain too many rows, change to linear sample.
+            partitionColumnSampleTooManyRows = true;
+            sampleTabletIds.clear();
+            Collections.shuffle(sortedPartitions);
+            selectedRows = pickSamplePartition(sortedPartitions, sampleTabletIds);
+        } else if (col.isKey() && selectedRows > MAXIMUM_SAMPLE_ROWS) {
+            // For key column, if a single tablet contains too many rows, need to use limit to control rows to read.
+            // In most cases, a single tablet shouldn't contain more than MAXIMUM_SAMPLE_ROWS, in this case, we
+            // don't use limit for key column for ndv accuracy reason.
+            keyColumnSampleTooManyRows = true;
+        }
+        return Pair.of(sampleTabletIds, selectedRows);
+    }
+
+    /**
+     * Get the sql params for this sample task.
+     * @param params Sql params to use in analyze task.
+     * @param tableRowCount BE reported table/index row count.
+     */
+    protected void getSampleParams(Map<String, String> params, long tableRowCount) {
+        long targetSampleRows = getSampleRows();
+        params.put("rowCount", String.valueOf(tableRowCount));
+        params.put("type", col.getType().toString());
+        params.put("limit", "");
+
+        // If table row count is less than the target sample row count, simple scan the full table.
+        if (tableRowCount <= targetSampleRows) {
+            params.put("scaleFactor", "1");
+            params.put("sampleHints", "");
+            params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            scanFullTable = true;
+            return;
+        }
+        Pair<List<Long>, Long> sampleTabletsInfo = getSampleTablets();
+        String tabletStr = sampleTabletsInfo.first.stream()
+                .map(Object::toString)
+                .collect(Collectors.joining(", "));
+        String sampleHints = scanFullTable ? "" : String.format("TABLET(%s)", tabletStr);
+        params.put("sampleHints", sampleHints);
+        long selectedRows = sampleTabletsInfo.second;
+        long finalScanRows = selectedRows;
+        double scaleFactor = scanFullTable ? 1 : (double) tableRowCount / finalScanRows;
+        params.put("scaleFactor", String.valueOf(scaleFactor));
+
+        // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
+        // the scaleFactor.
+        if (needLimit()) {
+            finalScanRows = Math.min(targetSampleRows, selectedRows);
+            if (col.isKey() && keyColumnSampleTooManyRows) {
+                finalScanRows = MAXIMUM_SAMPLE_ROWS;
+            }
+            // Empty table doesn't need to limit.
+            if (finalScanRows > 0) {
+                scaleFactor = (double) tableRowCount / finalScanRows;
+                params.put("limit", "limit " + finalScanRows);
+                params.put("scaleFactor", String.valueOf(scaleFactor));
+            }
+        }
+        // Set algorithm related params.
+        if (useLinearAnalyzeTemplate()) {
+            // For single unique key, use count as ndv.
+            if (isSingleUniqueKey()) {
+                params.put("ndvFunction", String.valueOf(tableRowCount));
+            } else {
+                params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            }
+        } else {
+            params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
+            params.put("dataSizeFunction", getDataSizeFunction(col, true));
+            params.put("subStringColName", getStringTypeColName(col));
+        }
     }
 
     protected void doFull() throws Exception {
@@ -279,70 +373,29 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
     }
 
-    // Get sample tablets id and sample row count
-    protected Pair<List<Long>, Long> calcActualSampleTablets(boolean forPartitionColumn) {
-        // Below code copied from OlapScanNode.java
-        long sampleRows; // The total number of sample rows
-        long totalRows = 0; // The total number of partition rows hit
-        long totalTablet = 0; // The total number of tablets in the hit partition
-        OlapTable olapTable = (OlapTable) tbl;
-        sampleRows = getSampleRows();
-
-        // calculate the number of tablets by each partition
-        long avgRowsPerPartition = sampleRows / Math.max(olapTable.getPartitions().size(), 1);
-        List<Long> sampleTabletIds = new ArrayList<>();
-        long actualSampledRowCount = 0;
-        boolean enough = false;
-        List<Partition> sortedPartitions = olapTable.getPartitions().stream().sorted(
-                Comparator.comparing(Partition::getName)).collect(Collectors.toList());
-        for (Partition p : sortedPartitions) {
-            MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
-            if (materializedIndex == null) {
-                continue;
+    protected long pickSamplePartition(List<Partition> partitions, List<Long> pickedTabletIds) {
+        long averageRowsPerPartition = tbl.getRowCount() / partitions.size();
+        long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
+        long pickedRows = 0;
+        int pickedPartitionCount = 0;
+        for (Partition p : partitions) {
+            long partitionRowCount = p.getRowCount();
+            if (partitionRowCount >= averageRowsPerPartition) {
+                pickedRows += partitionRowCount;
+                pickedPartitionCount++;
+                MaterializedIndex materializedIndex = p.getIndex(indexId);
+                pickedTabletIds.addAll(materializedIndex.getTabletIdsInOrder());
             }
-            List<Long> ids = materializedIndex.getTabletIdsInOrder();
-            if (ids.isEmpty()) {
-                continue;
-            }
-
-            // Skip partitions with row count < row count / 2 expected to be sampled per partition.
-            // It can be expected to sample a smaller number of partitions to avoid uneven distribution
-            // of sampling results.
-            if (materializedIndex.getRowCount() < (avgRowsPerPartition / 2)) {
-                continue;
-            }
-            long avgRowsPerTablet = Math.max(materializedIndex.getRowCount() / ids.size(), 1);
-            long tabletCounts = Math.max(
-                    avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
-            tabletCounts = Math.min(tabletCounts, ids.size());
-            long seek = tableSample.getSeek() != -1
-                    ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * ids.size());
-            for (int i = 0; i < tabletCounts; i++) {
-                int seekTid = (int) ((i + seek) % ids.size());
-                long tabletId = ids.get(seekTid);
-                sampleTabletIds.add(tabletId);
-                actualSampledRowCount += materializedIndex.getTablet(tabletId)
-                        .getMinReplicaRowCount(p.getVisibleVersion());
-                if (actualSampledRowCount >= sampleRows && !forPartitionColumn) {
-                    enough = true;
-                    break;
-                }
-            }
-            totalRows += materializedIndex.getRowCount();
-            totalTablet += ids.size();
-            if (enough) {
+            if (pickedRows >= MAXIMUM_SAMPLE_ROWS || pickedPartitionCount > PARTITION_COUNT_TO_SAMPLE) {
                 break;
             }
         }
+        return pickedRows;
+    }
 
-        // all hit, direct full
-        if (totalRows < sampleRows) {
-            // can't fill full sample rows
-            sampleTabletIds.clear();
-        } else if (sampleTabletIds.size() == totalTablet && !enough) {
-            sampleTabletIds.clear();
-        }
-        return Pair.of(sampleTabletIds, actualSampledRowCount);
+    @VisibleForTesting
+    protected void setTable(OlapTable table) {
+        tbl = table;
     }
 
     /**
@@ -350,8 +403,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * @return Return true when need to limit.
      */
     protected boolean needLimit() {
+        if (scanFullTable) {
+            return false;
+        }
         // Key column is sorted, use limit will cause the ndv not accurate enough, so skip key columns.
-        if (col.isKey()) {
+        if (col.isKey() && !keyColumnSampleTooManyRows) {
             return false;
         }
         // Partition column need to scan tablets from all partitions.
@@ -377,6 +433,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * @return True for single unique key column and single distribution column.
      */
     protected boolean useLinearAnalyzeTemplate() {
+        if (partitionColumnSampleTooManyRows || scanFullTable) {
+            return true;
+        }
         if (isSingleUniqueKey()) {
             return true;
         }
@@ -419,5 +478,25 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     protected String concatColumnStatsId() {
         return info.tblId + "-" + info.indexId + "-" + info.colName;
+    }
+
+    @VisibleForTesting
+    public void setKeyColumnSampleTooManyRows(boolean value) {
+        keyColumnSampleTooManyRows = value;
+    }
+
+    @VisibleForTesting
+    public void setPartitionColumnSampleTooManyRows(boolean value) {
+        partitionColumnSampleTooManyRows = value;
+    }
+
+    @VisibleForTesting
+    public void setScanFullTable(boolean value) {
+        scanFullTable = value;
+    }
+
+    @VisibleForTesting
+    public boolean scanFullTable() {
+        return scanFullTable;
     }
 }

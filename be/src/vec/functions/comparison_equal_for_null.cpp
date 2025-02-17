@@ -66,7 +66,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& col_right = block.get_by_position(arguments[1]);
 
@@ -139,18 +139,20 @@ public:
             left_column = check_and_get_column<const ColumnNullable>(
                     assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
                             col_left.column.get())
-                            ->get_data_column_ptr());
+                            ->get_data_column_ptr()
+                            .get());
         } else {
-            left_column = check_and_get_column<const ColumnNullable>(col_left.column);
+            left_column = check_and_get_column<const ColumnNullable>(col_left.column.get());
         }
 
         if (right_const) {
             right_column = check_and_get_column<const ColumnNullable>(
                     assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(
                             col_right.column.get())
-                            ->get_data_column_ptr());
+                            ->get_data_column_ptr()
+                            .get());
         } else {
-            right_column = check_and_get_column<const ColumnNullable>(col_right.column);
+            right_column = check_and_get_column<const ColumnNullable>(col_right.column.get());
         }
 
         bool left_nullable = left_column != nullptr;

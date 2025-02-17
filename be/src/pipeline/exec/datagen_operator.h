@@ -24,6 +24,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -52,6 +53,9 @@ class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
 public:
     DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
+#ifdef BE_TEST
+    DataGenSourceOperatorX() = default;
+#endif
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status open(RuntimeState* state) override;
@@ -70,4 +74,5 @@ private:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

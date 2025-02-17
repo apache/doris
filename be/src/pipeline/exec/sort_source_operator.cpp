@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<SortSharedState>(state, parent) {}
@@ -30,9 +31,7 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
                                          const DescriptorTbl& descs)
         : OperatorX<SortLocalState>(pool, tnode, operator_id, descs),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
-          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0) {}
 
 Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
@@ -66,17 +65,5 @@ const vectorized::SortDescription& SortSourceOperatorX::get_sort_description(
     return local_state._shared_state->sorter->get_sort_description();
 }
 
-Status SortSourceOperatorX::build_merger(RuntimeState* state,
-                                         std::unique_ptr<vectorized::VSortedRunMerger>& merger,
-                                         RuntimeProfile* profile) {
-    // now only use in LocalMergeSortExchanger::get_block
-    vectorized::VSortExecExprs vsort_exec_exprs;
-    // clone vsort_exec_exprs in LocalMergeSortExchanger
-    RETURN_IF_ERROR(_vsort_exec_exprs.clone(state, vsort_exec_exprs));
-    merger = std::make_unique<vectorized::VSortedRunMerger>(
-            vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
-            state->batch_size(), _limit, _offset, profile);
-    return Status::OK();
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

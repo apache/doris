@@ -267,6 +267,10 @@ suite("test_array_with_inverted_index_all_type"){
                 assertEquals(101, json.NumberLoadedRows)
             }
         }
+
+        // insert into null array
+        sql """insert into ${tableName} (k1) values(101);"""
+        qt_sql_null """ select * from ${tableName} where k1 = 101; """
     }
 
     // stream load with table

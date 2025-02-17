@@ -91,10 +91,10 @@ export DORIS_HOME
 
 # export env variables from fe.conf
 #
-# JAVA_OPTS
+# JAVA_OPTS_FOR_JDK_17
 # LOG_DIR
 # PID_DIR
-export JAVA_OPTS="-Xmx1024m"
+export JAVA_OPTS_FOR_JDK_17="-Xmx1024m"
 export LOG_DIR="${DORIS_HOME}/log"
 PID_DIR="$(
     cd "${curdir}"
@@ -204,6 +204,7 @@ else
 fi
 log "Using Java version ${java_version}"
 log "${final_java_opt}"
+export JAVA_OPTS="${final_java_opt}"
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=
@@ -216,8 +217,16 @@ for f in "${DORIS_HOME}/lib"/*.jar; do
 done
 
 # add custom_libs to CLASSPATH
+# ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
+    done
+fi
+
+# add plugins/java_extensions to CLASSPATH
+if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
+    for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
         CLASSPATH="${CLASSPATH}:${f}"
     done
 fi
@@ -256,6 +265,12 @@ log "start time: ${CUR_DATE}"
 if [[ "${HELPER}" != "" ]]; then
     # change it to '-helper' to be compatible with code in Frontend
     HELPER="-helper ${HELPER}"
+fi
+
+if [[ "${OPT_VERSION}" != "" ]]; then
+    export DORIS_LOG_TO_STDERR=1
+    ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE --version
+    exit 0
 fi
 
 if [[ "${IMAGE_TOOL}" -eq 1 ]]; then

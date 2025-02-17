@@ -197,7 +197,7 @@ suite("test_rowstore", "p0,nonConcurrent") {
         """
 
     // set server side prepared statement url
-    connect(user = user, password = password, url = prepare_url) {
+    connect(user, password, prepare_url) {
         def prep_sql = { sql_str, k ->
             def stmt = prepareStatement sql_str
             stmt.setInt(1, k)
@@ -281,7 +281,7 @@ suite("test_rowstore", "p0,nonConcurrent") {
                "storage_format" = "V2"
                )
     """
-    sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ * from table_with_column_group where k1 = 1"
+    sql "select /*+ SET_VAR(enable_nereids_planner=true, enable_short_circuit_query_access_column_store=true)*/ * from table_with_column_group where k1 = 1"
 
     sql """DROP TABLE IF EXISTS rs_query"""
     sql "set enable_decimal256 = true"

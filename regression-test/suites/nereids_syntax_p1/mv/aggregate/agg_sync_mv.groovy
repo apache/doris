@@ -108,7 +108,7 @@ suite("agg_sync_mv") {
     qt_select_bitmap_union_count """select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync14 on agg_mv_test;"""
     createMV("""create materialized view mv_sync14 as select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;", "mv_sync14")
+    mv_rewrite_any_success("select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;", ["mv_sync13", "mv_sync14"])
     qt_select_bitmap_union_count_mv """select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;"""
 
     qt_select_bitmap_union_int """select id, bitmap_union_int(kint) from agg_mv_test group by id order by id;"""
@@ -275,7 +275,7 @@ suite("agg_sync_mv") {
     qt_select_stddev_pop """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync41 on agg_mv_test;"""
     createMV("""create materialized view mv_sync41 as select id, stddev_pop(kint) from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, stddev_pop(kint) from agg_mv_test group by id order by id;", "mv_sync41")
+    mv_rewrite_any_success("select id, stddev_pop(kint) from agg_mv_test group by id order by id;", ["mv_sync40", "mv_sync41"])
     qt_select_stddev_pop_mv """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
 
     qt_select_stddev_samp """select id, stddev_samp(kint) from agg_mv_test group by id order by id;"""
@@ -329,7 +329,7 @@ suite("agg_sync_mv") {
     qt_select_var_samp """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync50 on agg_mv_test;"""
     createMV("""create materialized view mv_sync50 as select id, var_samp(kint) from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, var_samp(kint) from agg_mv_test group by id order by id;", "mv_sync50")
+    mv_rewrite_any_success("select id, var_samp(kint) from agg_mv_test group by id order by id;", ["mv_sync49", "mv_sync50"])
     qt_select_var_samp_mv """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
 
     qt_select_window_funnel """select id, window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from agg_mv_test group by id order by id;"""

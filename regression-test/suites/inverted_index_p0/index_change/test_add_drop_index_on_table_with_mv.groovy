@@ -104,7 +104,7 @@ suite("test_add_drop_index_on_table_with_mv") {
 
     sql """ SHOW ALTER TABLE MATERIALIZED VIEW """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tableName)
         if (res == "FINISHED" || res == "CANCELLED") {

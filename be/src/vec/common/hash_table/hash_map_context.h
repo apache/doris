@@ -27,16 +27,11 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/utils/util.hpp"
-
-namespace doris::pipeline {
-struct RowRefListWithFlags;
-}
 
 namespace doris::vectorized {
 
@@ -375,7 +370,7 @@ struct MethodOneNumber : public MethodBase<TData> {
     }
 };
 
-template <typename TData, bool has_nullable_keys = false>
+template <typename TData>
 struct MethodKeysFixed : public MethodBase<TData> {
     using Base = MethodBase<TData>;
     using typename Base::Key;
@@ -384,8 +379,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     using Base::hash_table;
     using Base::iterator;
 
-    using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped,
-                                                      has_nullable_keys>;
+    using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped>;
 
     // need keep until the hash probe end. use only in join
     std::vector<Key> build_stored_keys;
@@ -469,20 +463,22 @@ struct MethodKeysFixed : public MethodBase<TData> {
                               bool is_build = false, uint32_t bucket_size = 0) override {
         ColumnRawPtrs actual_columns;
         ColumnRawPtrs null_maps;
-        if (has_nullable_keys) {
-            actual_columns.reserve(key_columns.size());
-            null_maps.reserve(key_columns.size());
-            for (const auto& col : key_columns) {
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col)) {
-                    actual_columns.push_back(&nullable_col->get_nested_column());
-                    null_maps.push_back(&nullable_col->get_null_map_column());
-                } else {
-                    actual_columns.push_back(col);
-                    null_maps.push_back(nullptr);
-                }
+        actual_columns.reserve(key_columns.size());
+        null_maps.reserve(key_columns.size());
+        bool has_nullable_key = false;
+
+        for (const auto& col : key_columns) {
+            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col)) {
+                actual_columns.push_back(&nullable_col->get_nested_column());
+                null_maps.push_back(&nullable_col->get_null_map_column());
+                has_nullable_key = true;
+            } else {
+                actual_columns.push_back(col);
+                null_maps.push_back(nullptr);
             }
-        } else {
-            actual_columns = key_columns;
+        }
+        if (!has_nullable_key) {
+            null_maps.clear();
         }
 
         if (is_build) {
@@ -503,7 +499,13 @@ struct MethodKeysFixed : public MethodBase<TData> {
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
         // In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = has_nullable_keys ? get_bitmap_size(key_columns.size()) : 0;
+        size_t pos = 0;
+        for (size_t i = 0; i < key_columns.size(); ++i) {
+            if (key_columns[i]->is_nullable()) {
+                pos = get_bitmap_size(key_columns.size());
+                break;
+            }
+        }
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
@@ -581,8 +583,7 @@ struct DataWithNullKey : public Base {
 
 private:
     bool has_null_key = false;
-    // null_key_data store AggregateDataPtr on agg node, store PartitionBlocks on partition sort node.
-    void* null_key_data = nullptr;
+    Base::Value null_key_data;
 };
 
 /// Single low cardinality column.
@@ -606,11 +607,5 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
         }
     }
 };
-
-template <class T>
-using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>>>;
-
-template <class Key, bool has_null>
-using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>>, has_null>;
 
 } // namespace doris::vectorized

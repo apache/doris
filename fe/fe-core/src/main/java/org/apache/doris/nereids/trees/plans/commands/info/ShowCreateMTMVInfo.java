@@ -74,18 +74,13 @@ public class ShowCreateMTMVInfo {
      * @throws DdlException DdlException
      * @throws IOException IOException
      */
-    public void run(StmtExecutor executor) throws DdlException, IOException {
+    public void run(StmtExecutor executor) throws DdlException, IOException, org.apache.doris.common.AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         MTMV mtmv = (MTMV) db.getTableOrDdlException(mvName.getTbl());
-        mtmv.readLock();
-        try {
-            String mtmvDdl = Env.getMTMVDdl(mtmv);
-            rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-            executor.handleShowCreateMTMVStmt(rows);
-        } finally {
-            mtmv.readUnlock();
-        }
+        String mtmvDdl = Env.getMTMVDdl(mtmv);
+        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+        executor.handleShowCreateMTMVStmt(rows);
     }
 
     /**

@@ -75,6 +75,6 @@ suite("replay_wal_restart_fe", 'docker') {
             }
             sleep(1000)
         }
-        order_qt_select_1 'SELECT * FROM tbl_2'
+        order_qt_select_1 'SELECT k2, k1 FROM tbl_2'
     }
 }

@@ -121,7 +121,10 @@ public class PolicyMgr implements Writable {
      * Create policy through stmt.
      **/
     public void createPolicy(CreatePolicyStmt stmt) throws UserException {
-        Policy policy = Policy.fromCreateStmt(stmt);
+        createPolicy(Policy.fromCreateStmt(stmt), stmt.isIfNotExists());
+    }
+
+    public void createPolicy(Policy policy, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
             boolean storagePolicyExists = false;
@@ -134,7 +137,7 @@ public class PolicyMgr implements Writable {
                         .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
             }
             if (storagePolicyExists || existPolicy(policy)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("the policy " + policy.getPolicyName() + " already create");
@@ -171,11 +174,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    /**
-     * Drop policy through stmt.
-     **/
-    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
-        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
+    public void dropPolicy(DropPolicyLog dropPolicyLog, boolean ifExists) throws DdlException, AnalysisException {
         if (dropPolicyLog.getType() == PolicyTypeEnum.STORAGE) {
             List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
             for (Database db : databases) {
@@ -198,7 +197,7 @@ public class PolicyMgr implements Writable {
         writeLock();
         try {
             if (!existPolicy(dropPolicyLog)) {
-                if (stmt.isIfExists()) {
+                if (ifExists) {
                     return;
                 }
                 throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " not exist");
@@ -208,6 +207,14 @@ public class PolicyMgr implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Drop policy through stmt.
+     **/
+    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
+        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
+        dropPolicy(dropPolicyLog, stmt.isIfExists());
     }
 
     /**

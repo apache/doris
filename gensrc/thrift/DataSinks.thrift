@@ -182,13 +182,14 @@ struct TDataStreamSink {
   // per-destination runtime filters
   7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
 
-  // used for partition_type = TABLET_SINK_SHUFFLE_PARTITIONED
+  // used for partition_type = OLAP_TABLE_SINK_HASH_PARTITIONED
   8: optional Descriptors.TOlapTableSchemaParam tablet_sink_schema
   9: optional Descriptors.TOlapTablePartitionParam tablet_sink_partition
   10: optional Descriptors.TOlapTableLocationParam tablet_sink_location
   11: optional i64 tablet_sink_txn_id
   12: optional Types.TTupleId tablet_sink_tuple_id
   13: optional list<Exprs.TExpr> tablet_sink_exprs
+  14: optional bool is_merge
 }
 
 struct TMultiCastDataStreamSink {

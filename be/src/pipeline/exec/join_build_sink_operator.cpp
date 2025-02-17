@@ -43,9 +43,9 @@ Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* stat
 
 template <typename LocalStateType>
 JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                               const TPlanNode& tnode,
+                                                               int dest_id, const TPlanNode& tnode,
                                                                const DescriptorTbl& descs)
-        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
+        : DataSinkOperatorX<LocalStateType>(operator_id, tnode, dest_id),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
@@ -78,8 +78,6 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join),
           _runtime_filter_descs(tnode.runtime_filters) {
-    DataSinkOperatorX<LocalStateType>::_is_serial_operator =
-            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||

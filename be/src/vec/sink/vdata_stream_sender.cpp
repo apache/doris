@@ -21,6 +21,7 @@
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
@@ -56,22 +57,30 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 Status Channel::init(RuntimeState* state) {
-    if (_brpc_dest_addr.hostname.empty()) {
-        LOG(WARNING) << "there is no brpc destination address's hostname"
-                        ", maybe version is not compatible.";
-        return Status::InternalError("no brpc destination");
-    }
-    if (state->query_options().__isset.enable_local_exchange) {
-        _is_local &= state->query_options().enable_local_exchange;
-    }
+    // only enable_local_exchange() is true and the destination address is localhost, then the channel is local
+    _is_local &= state->enable_local_exchange();
 
     if (_is_local) {
         return Status::OK();
     }
 
+    RETURN_IF_ERROR(_init_brpc_stub(state));
+
+    return Status::OK();
+}
+
+Status Channel::_init_brpc_stub(RuntimeState* state) {
+    if (_brpc_dest_addr.hostname.empty()) {
+        LOG(WARNING) << "there is no brpc destination address's hostname"
+                        ", maybe version is not compatible.";
+        return Status::InternalError("no brpc destination");
+    }
+
+    auto network_address = _brpc_dest_addr;
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
+        network_address.hostname = "127.0.0.1";
     } else {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
     }
@@ -82,17 +91,16 @@ Status Channel::init(RuntimeState* state) {
         LOG(WARNING) << msg;
         return Status::InternalError(msg);
     }
+
+    if (config::enable_brpc_connection_check) {
+        state->get_query_ctx()->add_using_brpc_stub(_brpc_dest_addr, _brpc_stub);
+    }
     return Status::OK();
 }
 
 Status Channel::open(RuntimeState* state) {
     if (_is_local) {
-        auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr);
-        if (!st.ok()) {
-            // Recvr not found. Maybe downstream task is finished already.
-            LOG(INFO) << "Recvr is not found : " << st.to_string();
-        }
+        RETURN_IF_ERROR(_find_local_recvr(state));
     }
     _be_number = state->be_number();
 
@@ -105,7 +113,22 @@ Status Channel::open(RuntimeState* state) {
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
 
-    _state = state;
+    return Status::OK();
+}
+
+Status Channel::_find_local_recvr(RuntimeState* state) {
+    auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
+                                                                      _dest_node_id, &_local_recvr);
+    if (!st.ok()) {
+        // If could not find local receiver, then it means the channel is EOF.
+        // Maybe downstream task is finished already.
+        //if (_receiver_status.ok()) {
+        //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        //}
+        LOG(INFO) << "Query: " << print_id(state->query_id())
+                  << " recvr is not found, maybe downstream task is finished. error st is: "
+                  << st.to_string();
+    }
     return Status::OK();
 }
 
@@ -156,6 +179,7 @@ Status Channel::_send_current_block(bool eos) {
     if (is_local()) {
         return _send_local_block(eos);
     }
+    // here _pblock maybe nullptr , but we must send the eos to the receiver
     return send_remote_block(std::move(_pblock), eos);
 }
 
@@ -186,8 +210,20 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
     if (is_receiver_eof()) {
         return _receiver_status;
     }
-
     auto receiver_status = _recvr_status();
+    // _local_recvr depdend on pipeline::ExchangeLocalState* _parent to do some memory counter settings
+    // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
+    // Lock the fragment context to ensure the runtime state and other objects are not deconstructed
+    TaskExecutionContextSPtr ctx_lock = nullptr;
+    if (receiver_status.ok() && _local_recvr != nullptr) {
+        ctx_lock = _local_recvr->task_exec_ctx();
+        // Do not return internal error, because when query finished, the downstream node
+        // may finish before upstream node. And the object maybe deconstructed. If return error
+        // then the upstream node may report error status to FE, the query is failed.
+        if (ctx_lock == nullptr) {
+            receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        }
+    }
     if (receiver_status.ok()) {
         COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
         COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
@@ -232,18 +268,18 @@ BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool 
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
 Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
-                                              bool* serialized, bool eos,
-                                              const std::vector<uint32_t>* rows) {
+                                              bool* serialized, bool eos, const uint32_t* data,
+                                              const uint32_t offset, const uint32_t size) {
     if (_mutable_block == nullptr) {
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     {
         SCOPED_TIMER(_parent->merge_block_timer());
-        if (rows) {
-            if (!rows->empty()) {
-                const auto* begin = rows->data();
-                RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
+        if (data) {
+            if (size > 0) {
+                RETURN_IF_ERROR(
+                        _mutable_block->add_rows(block, data + offset, data + offset + size));
             }
         } else if (!block->empty()) {
             RETURN_IF_ERROR(_mutable_block->merge(*block));
@@ -255,9 +291,9 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
             RETURN_IF_ERROR(serialize_block(dest, num_receivers));
         }
         *serialized = true;
-        return Status::OK();
+    } else {
+        *serialized = false;
     }
-    *serialized = false;
     return Status::OK();
 }
 
@@ -282,8 +318,12 @@ Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t n
     COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
     COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
-    _parent->get_query_statistics_ptr()->add_shuffle_send_bytes(compressed_bytes * num_receivers);
-    _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
+#ifndef BE_TEST
+    _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_bytes(
+            compressed_bytes * num_receivers);
+    _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_rows(
+            src->rows() * num_receivers);
+#endif
 
     return Status::OK();
 }

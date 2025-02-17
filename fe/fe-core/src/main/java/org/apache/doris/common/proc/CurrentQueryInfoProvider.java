@@ -18,9 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.Counter;
+import org.apache.doris.common.profile.Counter;
+import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;

@@ -76,7 +76,6 @@ public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
     private  ThreadPoolExecutor mysqlLoadPool;
-    private final TokenManager tokenManager;
 
     private static class MySqlLoadContext {
         private boolean finished;
@@ -143,8 +142,7 @@ public class MysqlLoadManager {
     private  EvictingQueue<MySqlLoadFailRecord> failedRecords;
     private ScheduledExecutorService periodScheduler;
 
-    public MysqlLoadManager(TokenManager tokenManager) {
-        this.tokenManager = tokenManager;
+    public MysqlLoadManager() {
     }
 
     public void start() {
@@ -178,7 +176,7 @@ public class MysqlLoadManager {
             VariableMgr.setVar(sessionVariable,
                     new SetVar(SessionVariable.QUERY_TIMEOUT, new StringLiteral(String.valueOf(newTimeOut))));
         }
-        String token = tokenManager.acquireToken();
+        String token = Env.getCurrentEnv().getTokenManager().acquireToken();
         boolean clientLocal = dataDesc.isClientLocal();
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);

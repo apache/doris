@@ -26,7 +26,11 @@ public class BackendWorker implements DistributedPlanWorker {
     private final Backend backend;
 
     public BackendWorker(Backend backend) {
-        this.backend = backend;
+        this.backend = Objects.requireNonNull(backend, "backend can not be null");
+    }
+
+    public Backend getBackend() {
+        return backend;
     }
 
     @Override
@@ -37,6 +41,16 @@ public class BackendWorker implements DistributedPlanWorker {
     @Override
     public String address() {
         return backend.getAddress();
+    }
+
+    @Override
+    public String brpcAddress() {
+        return backend.getHost() + brpcPort();
+    }
+
+    @Override
+    public int brpcPort() {
+        return backend.getBrpcPort();
     }
 
     @Override

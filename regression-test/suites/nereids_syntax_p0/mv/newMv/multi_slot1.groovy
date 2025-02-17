@@ -44,6 +44,8 @@ suite ("multi_slot1") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table multi_slot1 with sync;"
+    sql """alter table multi_slot1 modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     order_qt_select_star "select * from multi_slot1 order by k1;"

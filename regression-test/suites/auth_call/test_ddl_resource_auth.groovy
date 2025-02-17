@@ -36,7 +36,7 @@ suite("test_ddl_resource_auth","p0,auth_call") {
     sql """create database ${dbName}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
                     PROPERTIES(
@@ -68,7 +68,7 @@ suite("test_ddl_resource_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
                 PROPERTIES(
                     "type" = "s3",

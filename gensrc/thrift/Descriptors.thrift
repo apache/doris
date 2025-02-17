@@ -138,7 +138,8 @@ enum TSchemaTableType {
     SCH_WORKLOAD_GROUP_RESOURCE_USAGE = 49,
     SCH_TABLE_PROPERTIES = 50,
     SCH_FILE_CACHE_STATISTICS = 51,
-    SCH_CATALOG_META_CACHE_STATISTICS = 52;
+    SCH_CATALOG_META_CACHE_STATISTICS = 52,
+    SCH_BACKEND_KERBEROS_TICKET_CACHE = 53;
 }
 
 enum THdfsCompression {
@@ -256,7 +257,7 @@ struct TOlapTableSchemaParam {
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
     13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
-    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode = Types.TUniqueKeyUpdateMode.UPSERT
+    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
 }
 

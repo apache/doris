@@ -105,7 +105,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl_inner(context, block, arguments, result, input_rows_count);
     }
 };
@@ -181,7 +181,7 @@ struct EncryptionAndDecryptTwoImpl {
     }
 
     static Status execute_impl_inner(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& arguments, size_t result,
+                                     const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -292,7 +292,7 @@ struct EncryptionAndDecryptMultiImpl {
     }
 
     static Status execute_impl_inner(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& arguments, size_t result,
+                                     const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);

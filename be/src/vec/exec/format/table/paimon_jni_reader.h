@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstddef>
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -39,7 +38,7 @@ struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
@@ -53,7 +52,8 @@ public:
     static const std::string PAIMON_OPTION_PREFIX;
     static const std::string HADOOP_OPTION_PREFIX;
     PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                    RuntimeProfile* profile, const TFileRangeDesc& range);
+                    RuntimeProfile* profile, const TFileRangeDesc& range,
+                    const TFileScanRangeParams* range_params);
 
     ~PaimonJniReader() override = default;
 
@@ -69,4 +69,5 @@ private:
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

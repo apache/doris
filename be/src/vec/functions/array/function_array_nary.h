@@ -25,6 +25,7 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 // Functions with more than two arrays of the same element type.
 template <typename Impl, typename Name>
@@ -59,7 +60,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr res_ptr;
         ColumnArrayExecutionDatas datas(arguments.size());
         std::vector<bool> col_const(arguments.size());
@@ -78,4 +79,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

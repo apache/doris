@@ -33,6 +33,7 @@ suite ("projectMV1") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into projectMV1 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV1 values("2020-01-02",2,"b",2,2,2);"""
 
@@ -43,6 +44,8 @@ suite ("projectMV1") {
     sql """insert into projectMV1 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table projectMV1 with sync;"
+    sql """alter table projectMV1 modify column time_col set stats ('row_count'='3');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from projectMV1 where time_col='2020-01-01' order by empid;", "projectMV1_mv")
@@ -52,6 +55,7 @@ suite ("projectMV1") {
     order_qt_select_mv "select empid, deptno from projectMV1 order by empid;"
 
     sql """set enable_stats=true;"""
+
     mv_rewrite_fail("select * from projectMV1 where time_col='2020-01-01' order by empid;", "projectMV1_mv")
 
     mv_rewrite_success("select empid, deptno from projectMV1 where deptno=0 order by empid;", "projectMV1_mv")

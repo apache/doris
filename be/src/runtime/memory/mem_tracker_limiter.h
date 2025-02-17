@@ -35,7 +35,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_counter.h"
-#include "runtime/query_statistics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
@@ -77,12 +76,14 @@ public:
     enum class GCType { PROCESS = 0, WORK_LOAD_GROUP = 1 };
 
     enum class Type {
-        GLOBAL = 0,        // Life cycle is the same as the process, e.g. Cache and default Orphan
+        GLOBAL = 0,        // Life cycle is the same as the process, except cache and metadata.
         QUERY = 1,         // Count the memory consumption of all Query tasks.
         LOAD = 2,          // Count the memory consumption of all Load tasks.
         COMPACTION = 3,    // Count the memory consumption of all Base and Cumulative tasks.
         SCHEMA_CHANGE = 4, // Count the memory consumption of all SchemaChange tasks.
-        OTHER = 5,
+        METADATA = 5,      // Count the memory consumption of all Metadata.
+        CACHE = 6,         // Count the memory consumption of all Cache.
+        OTHER = 7, // Count the memory consumption of all other tasks, such as Clone, Snapshot, etc..
     };
 
     static std::string type_string(Type type) {
@@ -97,8 +98,12 @@ public:
             return "compaction";
         case Type::SCHEMA_CHANGE:
             return "schema_change";
+        case Type::METADATA:
+            return "metadata";
+        case Type::CACHE:
+            return "cache";
         case Type::OTHER:
-            return "other";
+            return "other_task";
         default:
             LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
         }
@@ -133,7 +138,6 @@ public:
 
     Type type() const { return _type; }
     const std::string& label() const { return _label; }
-    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
     int64_t group_num() const { return _group_num; }
     bool has_limit() const { return _limit >= 0; }
     int64_t limit() const { return _limit; }
@@ -158,13 +162,9 @@ public:
     int64_t consumption() const { return _mem_counter.current_value(); }
     int64_t peak_consumption() const { return _mem_counter.peak_value(); }
 
-    void consume(int64_t bytes) {
-        _mem_counter.add(bytes);
-        if (_query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
-        }
-    }
+    // Use carefully! only memory that cannot be allocated using Doris Allocator needs to be consumed manually.
+    // Ideally, all memory should use Doris Allocator.
+    void consume(int64_t bytes) { _mem_counter.add(bytes); }
 
     void consume_no_update_peak(int64_t bytes) { _mem_counter.add_no_update_peak(bytes); }
 
@@ -179,10 +179,6 @@ public:
             rt = _mem_counter.try_add(bytes, _limit);
         } else {
             _mem_counter.add(bytes);
-        }
-        if (rt && _query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
         }
         return rt;
     }
@@ -216,7 +212,7 @@ public:
         return rt;
     }
 
-    void release_reserved(int64_t bytes) {
+    void shrink_reserved(int64_t bytes) {
         _reserved_counter.sub(bytes);
         DCHECK(reserved_consumption() >= 0);
     }
@@ -284,6 +280,9 @@ private:
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
         parse_id(queryid, &querytid);
+        if (querytid == TUniqueId()) {
+            LOG(WARNING) << "Task ID parsing failed, label: " << label;
+        }
         return querytid;
     }
 
@@ -321,8 +320,6 @@ private:
 
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     struct AddressSanitizer {
         size_t size;

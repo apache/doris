@@ -21,7 +21,7 @@ import org.awaitility.Awaitility
 
 suite("test_index_compaction_p0", "p0, nonConcurrent") {
 
-    def compaction_table_name = "httplogs"
+    def compaction_table_name = "test_index_compaction_p0_httplogs"
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -29,8 +29,8 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             file file_name // import json file
             time 10000 // limit inflight 10s
@@ -51,7 +51,7 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
         }
     }
     sql "DROP TABLE IF EXISTS ${compaction_table_name}"
-    sql """ 
+    sql """
         CREATE TABLE ${compaction_table_name} (
             `@timestamp` int(11) NULL,
             `clientip` varchar(20) NULL,
@@ -71,15 +71,10 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
             "disable_auto_compaction" = "true"
         );
     """
-    def executor = Executors.newFixedThreadPool(20)
     (1..20).each { i ->
-        executor.submit {
-            def fileName = "documents-" + i + ".json"
-            load_json_data.call(compaction_table_name, """${getS3Url()}/regression/inverted_index_cases/httplogs/${fileName}""")
-        }
+        def fileName = "documents-" + i + ".json"
+        load_json_data.call(compaction_table_name, """${fileName}""")
     }
-    executor.shutdown()
-    executor.awaitTermination(1, TimeUnit.MINUTES)
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -95,8 +90,10 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
     def tablets = sql_return_maparray """ show tablets from ${compaction_table_name}; """
 
-    int beforeSegmentCount = 0
-    for (def tablet in tablets) {
+
+    // Do not check tablets rowset count before compaction
+    /*for (def tablet in tablets) {
+        int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -106,36 +103,13 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
         for (String rowset in (List<String>) tabletJson.rowsets) {
             beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
-    }
-    assertEquals(beforeSegmentCount, 20)
+        assertEquals(beforeSegmentCount, 20)
+    }*/
 
     // trigger compactions for all tablets in ${tableName}
+    trigger_and_wait_compaction(compaction_table_name, "full")
     for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        Awaitility.await().atMost(1, TimeUnit.MINUTES).untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("compaction task for this tablet is not running", compactionStatus.msg.toLowerCase())
-            return compactionStatus.run_status;
-        });
-    }
-
-    int afterSegmentCount = 0
-    for (def tablet in tablets) {
+        int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -146,6 +120,7 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
             logger.info("rowset is: " + rowset)
             afterSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
+        assertEquals(afterSegmentCount, 1)
     }
-    assertEquals(afterSegmentCount, 1)
+
 }

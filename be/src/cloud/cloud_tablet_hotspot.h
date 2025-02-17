@@ -49,6 +49,19 @@ struct HotspotCounter {
 };
 
 using HotspotCounterPtr = std::shared_ptr<HotspotCounter>;
+using TabletHotspotMapKey = std::pair<int64_t, int64_t>;
+
+struct TabletHotspotMapValue {
+    uint64_t qpd = 0; // query per day
+    uint64_t qpw = 0; // query per week
+    int64_t last_access_time;
+};
+
+struct MapKeyHash {
+    int64_t operator()(const std::pair<int64_t, int64_t>& key) const {
+        return std::hash<int64_t> {}(key.first) + std::hash<int64_t> {}(key.second);
+    }
+};
 
 class TabletHotspot {
 public:
@@ -71,6 +84,12 @@ private:
     bool _closed {false};
     std::mutex _mtx;
     std::condition_variable _cond;
+    std::unordered_map<TabletHotspotMapKey, std::unordered_map<int64_t, TabletHotspotMapValue>,
+                       MapKeyHash>
+            _last_day_hot_partitions;
+    std::unordered_map<TabletHotspotMapKey, std::unordered_map<int64_t, TabletHotspotMapValue>,
+                       MapKeyHash>
+            _last_week_hot_partitions;
 };
 
 } // namespace doris

@@ -37,9 +37,11 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -80,9 +82,10 @@ import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
 
-public class BackupJob extends AbstractJob {
+public class BackupJob extends AbstractJob implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(BackupJob.class);
     private static final String TABLE_COMMIT_SEQ_PREFIX = "table_commit_seq:";
+    private static final String SNAPSHOT_COMMIT_SEQ = "commit_seq";
 
     public enum BackupJobState {
         PENDING, // Job is newly created. Send snapshot tasks and save copied meta info, then transfer to SNAPSHOTING
@@ -100,7 +103,7 @@ public class BackupJob extends AbstractJob {
     private List<TableRef> tableRefs = Lists.newArrayList();
 
     @SerializedName("st")
-    private BackupJobState state;
+    private volatile BackupJobState state;
 
     @SerializedName("sft")
     private long snapshotFinishedTime = -1;
@@ -130,8 +133,7 @@ public class BackupJob extends AbstractJob {
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
-    private byte[] metaInfoBytes = null;
-    private byte[] jobInfoBytes = null;
+    private long commitSeq = 0;
 
     public BackupJob() {
         super(JobType.BACKUP);
@@ -143,11 +145,13 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId) {
+                     BackupContent content, Env env, long repoId, long commitSeq) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
+        this.commitSeq = commitSeq;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
+        properties.put(SNAPSHOT_COMMIT_SEQ, String.valueOf(commitSeq));
     }
 
     public BackupJobState getState() {
@@ -247,7 +251,7 @@ public class BackupJob extends AbstractJob {
             if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
                     && !tryNewTabletSnapshotTask(task)) {
                 status = new Status(ErrCode.NOT_FOUND,
-                        "make snapshot failed, failed to ge tablet, table will be droped or truncated");
+                        "make snapshot failed, failed to ge tablet, table will be dropped or truncated");
                 cancelInternal();
             }
 
@@ -344,11 +348,7 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized void replayRun() {
-        LOG.info("replay run backup job: {}", this);
-        if (state == BackupJobState.FINISHED && repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
-        }
+        // nothing to do
     }
 
     @Override
@@ -364,6 +364,11 @@ public class BackupJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == BackupJobState.CANCELLED;
+    }
+
+    @Override
+    public boolean isFinished() {
+        return state == BackupJobState.FINISHED;
     }
 
     @Override
@@ -414,6 +419,14 @@ public class BackupJob extends AbstractJob {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("run backup job: {}", this);
+        }
+
+        if (state == BackupJobState.PENDING) {
+            String pausedLabel = DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_PENDING_BACKUP_JOB", "");
+            if (!pausedLabel.isEmpty() && label.startsWith(pausedLabel)) {
+                LOG.info("pause pending backup job by debug point: {}", this);
+                return;
+            }
         }
 
         // run job base on current state
@@ -570,7 +583,7 @@ public class BackupJob extends AbstractJob {
 
     private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
-        // Add barrier editolog for barrier commit seq
+        // Add barrier editlog for barrier commit seq
         long dbId = db.getId();
         String dbName = db.getFullName();
         long tableId = olapTable.getId();
@@ -584,10 +597,15 @@ public class BackupJob extends AbstractJob {
         // check backup table again
         if (backupTableRef.getPartitionNames() != null) {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
+                Partition partition = olapTable.getPartition(partName, false); // exclude tmp partitions
                 if (partition == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                            + " does not exist  in table" + backupTableRef.getName().getTbl());
+                    if (olapTable.getPartition(partName, true) != null) {
+                        status = new Status(ErrCode.NOT_FOUND, "backup tmp partition " + partName
+                                + " in table " + backupTableRef.getName().getTbl() + " is not supported");
+                    } else {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist in table " + backupTableRef.getName().getTbl());
+                    }
                     return;
                 }
             }
@@ -596,10 +614,10 @@ public class BackupJob extends AbstractJob {
         // create snapshot tasks
         List<Partition> partitions = Lists.newArrayList();
         if (backupTableRef.getPartitionNames() == null) {
-            partitions.addAll(olapTable.getPartitions());
+            partitions.addAll(olapTable.getPartitions()); // no temp partitions in OlapTable.getPartitions()
         } else {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
+                Partition partition = olapTable.getPartition(partName, false);  // exclude tmp partitions
                 partitions.add(partition);
             }
         }
@@ -657,8 +675,6 @@ public class BackupJob extends AbstractJob {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
             return;
         }
-
-        removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
     }
 
@@ -692,20 +708,12 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void removeUnsupportProperties(OlapTable tbl) {
-        // We cannot support the colocate attribute because the colocate information is not backed up
-        // synchronously when backing up.
-        tbl.setColocateGroup(null);
-    }
-
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
-
             if (env.getEditLog().exceedMaxJournalSize(this)) {
                 status = new Status(ErrCode.COMMON_ERROR, "backupJob is too large ");
                 return;
             }
-
 
             snapshotFinishedTime = System.currentTimeMillis();
             state = BackupJobState.UPLOAD_SNAPSHOT;
@@ -740,13 +748,10 @@ public class BackupJob extends AbstractJob {
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
-            int batchNum = totalNum;
-            if (Config.backup_upload_task_num_per_be > 0) {
-                batchNum = Math.min(totalNum, Config.backup_upload_task_num_per_be);
-            }
             // each task contains several upload sub tasks
-            int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
-            LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
+            int taskNumPerBatch = Config.backup_upload_snapshot_batch_size;
+            LOG.info("backend {} has total {} snapshots, per task batch size {}, {}",
+                    beId, totalNum, taskNumPerBatch, this);
 
             List<FsBroker> brokers = Lists.newArrayList();
             Status st = repo.getBrokerAddress(beId, env, brokers);
@@ -757,12 +762,10 @@ public class BackupJob extends AbstractJob {
             Preconditions.checkState(brokers.size() == 1);
 
             // allot tasks
-            int index = 0;
-            for (int batch = 0; batch < batchNum; batch++) {
+            for (int index = 0; index < totalNum; index += taskNumPerBatch) {
                 Map<String, String> srcToDest = Maps.newHashMap();
-                int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
-                for (int j = 0; j < currentBatchTaskNum; j++) {
-                    SnapshotInfo info = infos.get(index++);
+                for (int j = 0; j < taskNumPerBatch && index + j < totalNum; j++) {
+                    SnapshotInfo info = infos.get(index + j);
                     String src = info.getTabletPath();
                     String dest = repo.getRepoTabletPathBySnapshotInfo(label, info);
                     if (dest == null) {
@@ -839,8 +842,6 @@ public class BackupJob extends AbstractJob {
             }
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
-            // read meta info to metaInfoBytes
-            metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
 
             // 3. save job info file
             Map<Long, Long> tableCommitSeqMap = Maps.newHashMap();
@@ -867,8 +868,6 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo.writeToFile(jobInfoFile);
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
-            // read job info to jobInfoBytes
-            jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
             return;
@@ -922,7 +921,6 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-
         finishedTime = System.currentTimeMillis();
         state = BackupJobState.FINISHED;
 
@@ -931,8 +929,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("job is finished. {}", this);
 
         if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
+            env.getBackupHandler().addSnapshot(label, this);
             return;
         }
     }
@@ -1025,7 +1022,53 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
 
-    public List<String> getInfo() {
+    public boolean isLocalSnapshot() {
+        return repoId == Repository.KEEP_ON_LOCAL_REPO_ID;
+    }
+
+    public long getCommitSeq() {
+        return commitSeq;
+    }
+
+    // read meta and job info bytes from disk, and return the snapshot
+    public synchronized Snapshot getSnapshot() {
+        if (state != BackupJobState.FINISHED || repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
+            return null;
+        }
+
+        // Avoid loading expired meta.
+        long expiredAt = createTime + timeoutMs;
+        if (System.currentTimeMillis() >= expiredAt) {
+            return new Snapshot(label, new byte[0], new byte[0], expiredAt, commitSeq);
+        }
+
+        try {
+            File metaInfoFile = new File(localMetaInfoFilePath);
+            File jobInfoFile = new File(localJobInfoFilePath);
+            byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
+            byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
+            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt, commitSeq);
+        } catch (IOException e) {
+            LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
+                    localMetaInfoFilePath, localJobInfoFilePath, e);
+            return null;
+        }
+    }
+
+    public synchronized List<String> getInfo() {
+        String unfinishedTaskIdsStr = unfinishedTaskIds.entrySet().stream()
+                .map(e -> "[" + e.getKey() + "=" + e.getValue() + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+        String taskProgressStr = taskProgress.entrySet().stream()
+                .map(e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+        String taskErrMsgStr = taskErrMsg.entrySet().stream()
+                .map(e -> "[" + e.getKey() + ": " + e.getValue() + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -1036,12 +1079,9 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(snapshotUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
-        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
-                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                        Collectors.toList())));
-        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList())));
+        info.add(unfinishedTaskIdsStr);
+        info.add(taskProgressStr);
+        info.add(taskErrMsgStr);
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;
@@ -1078,7 +1118,7 @@ public class BackupJob extends AbstractJob {
             ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
             try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
                 try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(in);
+                    readOthers(stream);
                 }
             }
         } else {
@@ -1129,6 +1169,14 @@ public class BackupJob extends AbstractJob {
             String key = Text.readString(in);
             String value = Text.readString(in);
             properties.put(key, value);
+        }
+
+        gsonPostProcess();
+    }
+
+    public void gsonPostProcess() throws IOException {
+        if (properties.containsKey(SNAPSHOT_COMMIT_SEQ)) {
+            commitSeq = Long.parseLong(properties.get(SNAPSHOT_COMMIT_SEQ));
         }
     }
 

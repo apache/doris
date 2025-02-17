@@ -18,4 +18,6 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
+#undef COMPILE_CHECK
+
 // #include "common/compile_check_end.h"

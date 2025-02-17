@@ -23,6 +23,7 @@
 #include "util/deletion_vector.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, const TFileScanRangeParams& params)
         : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
@@ -40,6 +41,9 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         return Status::OK();
     }
 
+    // set push down agg type to NONE because we can not do count push down opt
+    // if there are delete files.
+    _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
@@ -95,4 +99,5 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

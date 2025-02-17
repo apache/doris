@@ -45,29 +45,27 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(
-                    _load_id.to_thrift());
-    std::shared_ptr<MemTrackerLimiter> mem_tracker = nullptr;
-    WorkloadGroupPtr wg_ptr = nullptr;
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(_load_id.to_thrift());
 
     if (query_context != nullptr) {
-        mem_tracker = query_context->query_mem_tracker;
-        wg_ptr = query_context->workload_group();
+        _resource_ctx = query_context->resource_ctx();
     } else {
+        _resource_ctx = ResourceContext::create_shared();
+        _resource_ctx->task_controller()->set_task_id(_load_id.to_thrift());
         // when memtable on sink is not enabled, load can not find queryctx
-        mem_tracker = MemTrackerLimiter::create_shared(
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD,
                 fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()));
+        _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
+        WorkloadGroupPtr wg_ptr = nullptr;
         if (wg_id > 0) {
-            WorkloadGroupPtr workload_group_ptr =
-                    ExecEnv::GetInstance()->workload_group_mgr()->get_task_group_by_id(wg_id);
-            if (workload_group_ptr) {
-                wg_ptr = workload_group_ptr;
+            wg_ptr = ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
+            if (wg_ptr != nullptr) {
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);
+                _resource_ctx->workload_group_context()->set_workload_group(wg_ptr);
             }
         }
     }
-    _query_thread_context = {_load_id.to_thrift(), mem_tracker, wg_ptr};
 
     g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to
@@ -98,7 +96,6 @@ void LoadChannel::_init_profile() {
                                                _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
-    _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
     _handle_eos_timer = ADD_CHILD_TIMER(_self_profile, "HandleEosTime", "AddBatchTime");
     _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);
@@ -110,7 +107,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
                 params.txn_expiration());
     }
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
 
     int64_t index_id = params.index_id();
     std::shared_ptr<BaseTabletsChannel> channel;
@@ -177,7 +174,6 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
-    SCOPED_ATTACH_TASK(_query_thread_context);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;

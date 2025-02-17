@@ -28,6 +28,7 @@ import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -80,8 +81,8 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     String readType;
 
-    public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv);
+    public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -209,7 +210,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getSplits with columnFilters={}", columnFilters);
             LOG.debug("getSplits with columnNameToRange={}", columnNameToRange);

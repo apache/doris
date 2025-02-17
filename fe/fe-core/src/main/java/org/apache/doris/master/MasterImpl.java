@@ -30,9 +30,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudTablet;
+import org.apache.doris.cloud.master.CloudReportHandler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
@@ -76,13 +78,28 @@ import java.util.stream.Collectors;
 public class MasterImpl {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
 
-    private ReportHandler reportHandler = new ReportHandler();
+    private ReportHandler reportHandler =  Config.isCloudMode() ? new CloudReportHandler() : new ReportHandler();
 
     public MasterImpl() {
         reportHandler.start();
     }
 
     public TMasterResult finishTask(TFinishTaskRequest request) {
+        TMasterResult result = null;
+        long startTime = System.currentTimeMillis();
+        try {
+            result = finishTaskInternal(request);
+            return result;
+        } finally {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+            if (result != null && duration > 1000L) {
+                LOG.warn("Finish task rpc exceeded 1s, request={}, result={}", request, result);
+            }
+        }
+    }
+
+    public TMasterResult finishTaskInternal(TFinishTaskRequest request) {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
@@ -126,6 +143,8 @@ public class MasterImpl {
                 List<String> errorMsgs = new ArrayList<String>();
                 errorMsgs.add(errMsg);
                 tStatus.setErrorMsgs(errorMsgs);
+            } else {
+                LOG.warn("Finish task rpc got null task for request={}", request);
             }
             return result;
         } else {
@@ -142,6 +161,7 @@ public class MasterImpl {
                         + (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "")
                         + ", backendId: " + backend + ", signature: " + signature;
                 task.setErrorMsg(errMsg);
+                task.setErrorCode(taskStatus.getStatusCode());
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
@@ -427,7 +447,11 @@ public class MasterImpl {
                             olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
                     // if the replica is under schema change, could not find the replica with aim schema hash
                     if (replica != null) {
-                        ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
+                        if (job instanceof SparkLoadJob) {
+                            ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
+                        } else if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
+                        }
                     }
                 }
             }
@@ -656,7 +680,7 @@ public class MasterImpl {
         }
 
         AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-        LOG.info("beigin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
+        LOG.info("begin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
                 alterInvertedIndexTask.getSignature(),
                 alterInvertedIndexTask.getTabletId(),
                 alterInvertedIndexTask.toString());
@@ -679,9 +703,9 @@ public class MasterImpl {
             CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
             if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
                 calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                        "backend: " + task.getBackendId() + ", error_tablet_size: "
-                                + request.getErrorTabletIdsSize() + ", err_msg: "
-                                + request.getTaskStatus().getErrorMsgs().toString());
+                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
+                                + ", error_tablets: " + request.getErrorTabletIds()
+                                + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
             } else if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
                 LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"

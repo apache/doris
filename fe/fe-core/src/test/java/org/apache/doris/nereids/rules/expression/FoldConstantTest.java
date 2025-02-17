@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -220,11 +222,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         hoursAdd = new HoursAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 1, 1)),
                 new IntegerLiteral(24));
         rewritten = executor.rewrite(hoursAdd, context);
-        Assertions.assertEquals(new NullLiteral(hoursAdd.getDataType()), rewritten);
+        Assertions.assertEquals(hoursAdd, rewritten);
         hoursAdd = new HoursAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 1, 1, 1)),
                 new IntegerLiteral(-25));
         rewritten = executor.rewrite(hoursAdd, context);
-        Assertions.assertEquals(new NullLiteral(hoursAdd.getDataType()), rewritten);
+        Assertions.assertEquals(hoursAdd, rewritten);
 
         MinutesAdd minutesAdd = new MinutesAdd(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 new IntegerLiteral(1));
@@ -237,11 +239,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         minutesAdd = new MinutesAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1)),
                 new IntegerLiteral(1440));
         rewritten = executor.rewrite(minutesAdd, context);
-        Assertions.assertEquals(new NullLiteral(minutesAdd.getDataType()), rewritten);
+        Assertions.assertEquals(minutesAdd, rewritten);
         minutesAdd = new MinutesAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1)),
                 new IntegerLiteral(-2));
         rewritten = executor.rewrite(minutesAdd, context);
-        Assertions.assertEquals(new NullLiteral(minutesAdd.getDataType()), rewritten);
+        Assertions.assertEquals(minutesAdd, rewritten);
 
         SecondsAdd secondsAdd = new SecondsAdd(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 new IntegerLiteral(1));
@@ -254,11 +256,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         secondsAdd = new SecondsAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 59)),
                 new IntegerLiteral(86400));
         rewritten = executor.rewrite(secondsAdd, context);
-        Assertions.assertEquals(new NullLiteral(secondsAdd.getDataType()), rewritten);
+        Assertions.assertEquals(secondsAdd, rewritten);
         secondsAdd = new SecondsAdd(DateV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1)),
                 new IntegerLiteral(-61));
         rewritten = executor.rewrite(secondsAdd, context);
-        Assertions.assertEquals(new NullLiteral(secondsAdd.getDataType()), rewritten);
+        Assertions.assertEquals(secondsAdd, rewritten);
 
         ToDays toDays = new ToDays(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)));
         rewritten = executor.rewrite(toDays, context);
@@ -279,11 +281,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         ConvertTz c = new ConvertTz(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("Asia/Shanghai"), StringLiteral.of("GMT"));
         Expression rewritten = executor.rewrite(c, context);
-        Assertions.assertTrue(new DateTimeV2Literal("0000-12-31 16:55:18.000000").compareTo((Literal) rewritten) == 0);
+        Assertions.assertTrue(new DateTimeV2Literal("0000-12-31 16:55:18.000000").compareTo((ComparableLiteral) rewritten) == 0);
         c = new ConvertTz(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000)),
                         StringLiteral.of("Pacific/Galapagos"), StringLiteral.of("Pacific/Galapagos"));
         rewritten = executor.rewrite(c, context);
-        Assertions.assertTrue(new DateTimeV2Literal("9999-12-31 23:59:59.999999").compareTo((Literal) rewritten) == 0);
+        Assertions.assertTrue(new DateTimeV2Literal("9999-12-31 23:59:59.999999").compareTo((ComparableLiteral) rewritten) == 0);
 
         DateFormat d = new DateFormat(DateTimeLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("%y %m %d"));
@@ -309,7 +311,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         t = new DateTrunc(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
         rewritten = executor.rewrite(t, context);
-        Assertions.assertTrue(((Literal) rewritten).compareTo(new DateTimeV2Literal("0001-01-01 00:00:00.000000")) == 0);
+        Assertions.assertTrue(((ComparableLiteral) rewritten).compareTo(new DateTimeV2Literal("0001-01-01 00:00:00.000000")) == 0);
         t = new DateTrunc(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
         rewritten = executor.rewrite(t, context);
@@ -395,6 +397,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             executor.rewrite(exExp, context);
         }, "input -1 is out of boundary");
 
+        Assertions.assertThrows(NotSupportedException.class, () -> {
+            Log exExp = new Log(new DoubleLiteral(1.0d), new DoubleLiteral(1.0d));
+            executor.rewrite(exExp, context);
+        }, "the first input of function log can not be 1.0");
+
         Sqrt sqrt = new Sqrt(new DoubleLiteral(16d));
         rewritten = executor.rewrite(sqrt, context);
         Assertions.assertEquals(new DoubleLiteral(4d), rewritten);
@@ -413,6 +420,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             Power exExp = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
             executor.rewrite(exExp, context);
         }, "infinite result is invalid");
+        Assertions.assertThrows(NotSupportedException.class, () -> {
+            Power exExp = new Power(new DoubleLiteral(-1d), new DoubleLiteral(1.1d));
+            executor.rewrite(exExp, context);
+        }, "input pair of function power can not be negative number and non-integer");
 
         Sin sin = new Sin(new DoubleLiteral(Math.PI / 2));
         rewritten = executor.rewrite(sin, context);
@@ -852,9 +863,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new DateTimeLiteral("2023-05-07 02:41:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
 
-        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:14.000000").compareTo((Literal) TimeRoundSeries
+        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:14.000000").compareTo((ComparableLiteral) TimeRoundSeries
                 .secondCeil(new DateTimeV2Literal("2021-01-01 12:12:12.123"), new IntegerLiteral(2))) == 0);
-        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:12.000000").compareTo((Literal) TimeRoundSeries
+        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:12.000000").compareTo((ComparableLiteral) TimeRoundSeries
                 .secondFloor(new DateTimeV2Literal("2021-01-01 12:12:12.123"), new IntegerLiteral(2))) == 0);
     }
 

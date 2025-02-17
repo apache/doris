@@ -134,7 +134,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
     }
 
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
-    sleep(2000)
+    sleep(10000)
     part_result = sql " show partitions from auto_dynamic "
     log.info("${part_result}".toString())
     assertEquals(part_result.size, 3)

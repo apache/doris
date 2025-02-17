@@ -40,6 +40,7 @@ suite ("test_tbl_name") {
     sql """insert into functionality_olap values(143,'mv',18);"""
 
     sql """analyze table functionality_olap with sync;"""
+    sql """alter table functionality_olap modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("""select 

@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 
+@Deprecated
 public class SparkLoadAppHandle implements Writable {
     private static final Logger LOG = LogManager.getLogger(SparkLoadAppHandle.class);
     // 5min

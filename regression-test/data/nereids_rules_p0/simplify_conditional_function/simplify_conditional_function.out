@@ -131,3 +131,6 @@ abc
 ab
 abc
 
+-- !test_nullable_nullif --
+1	1
+

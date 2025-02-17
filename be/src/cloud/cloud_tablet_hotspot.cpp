@@ -57,18 +57,55 @@ TabletHotspot::~TabletHotspot() {
     }
 }
 
-struct MapKeyHash {
-    int64_t operator()(const std::pair<int64_t, int64_t>& key) const {
-        return std::hash<int64_t> {}(key.first) + std::hash<int64_t> {}(key.second);
+void get_return_partitions(
+        const std::unordered_map<TabletHotspotMapKey,
+                                 std::unordered_map<int64_t, TabletHotspotMapValue>, MapKeyHash>&
+                hot_partition,
+        const std::unordered_map<TabletHotspotMapKey,
+                                 std::unordered_map<int64_t, TabletHotspotMapValue>, MapKeyHash>&
+                last_hot_partition,
+        std::vector<THotTableMessage>* hot_tables, int& return_partitions, int N) {
+    for (const auto& [key, partition_to_value] : hot_partition) {
+        THotTableMessage msg;
+        msg.table_id = key.first;
+        msg.index_id = key.second;
+        for (const auto& [partition_id, value] : partition_to_value) {
+            if (return_partitions > N) {
+                return;
+            }
+            auto last_value_iter = last_hot_partition.find(key);
+            if (last_value_iter != last_hot_partition.end()) {
+                auto last_partition_iter = last_value_iter->second.find(partition_id);
+                if (last_partition_iter != last_value_iter->second.end()) {
+                    const auto& last_value = last_partition_iter->second;
+                    if (std::abs(static_cast<int64_t>(value.qpd) -
+                                 static_cast<int64_t>(last_value.qpd)) < 5 &&
+                        std::abs(static_cast<int64_t>(value.qpw) -
+                                 static_cast<int64_t>(last_value.qpw)) < 10 &&
+                        std::abs(static_cast<int64_t>(value.last_access_time) -
+                                 static_cast<int64_t>(last_value.last_access_time)) < 60) {
+                        LOG(INFO) << "skip partition_id=" << partition_id << " qpd=" << value.qpd
+                                  << " qpw=" << value.qpw
+                                  << " last_access_time=" << value.last_access_time
+                                  << " last_qpd=" << last_value.qpd
+                                  << " last_qpw=" << last_value.qpw
+                                  << " last_access_time=" << last_value.last_access_time;
+                        continue;
+                    }
+                }
+            }
+            THotPartition hot_partition;
+            hot_partition.__set_partition_id(partition_id);
+            hot_partition.__set_query_per_day(value.qpd);
+            hot_partition.__set_query_per_week(value.qpw);
+            hot_partition.__set_last_access_time(value.last_access_time);
+            msg.hot_partitions.push_back(hot_partition);
+            return_partitions++;
+        }
+        msg.__isset.hot_partitions = !msg.hot_partitions.empty();
+        hot_tables->push_back(std::move(msg));
     }
-};
-struct TabletHotspotMapValue {
-    uint64_t qpd = 0; // query per day
-    uint64_t qpw = 0; // query per week
-    int64_t last_access_time;
-};
-
-using TabletHotspotMapKey = std::pair<int64_t, int64_t>;
+}
 
 void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables) {
     // map<pair<table_id, index_id>, map<partition_id, value>> for day
@@ -108,33 +145,14 @@ void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_t
     });
     constexpr int N = 50;
     int return_partitions = 0;
-    auto get_return_partitions =
-            [=, &return_partitions](
-                    const std::unordered_map<TabletHotspotMapKey,
-                                             std::unordered_map<int64_t, TabletHotspotMapValue>,
-                                             MapKeyHash>& hot_partition) {
-                for (const auto& [key, partition_to_value] : hot_partition) {
-                    THotTableMessage msg;
-                    msg.table_id = key.first;
-                    msg.index_id = key.second;
-                    for (const auto& [partition_id, value] : partition_to_value) {
-                        if (return_partitions > N) {
-                            return;
-                        }
-                        THotPartition hot_partition;
-                        hot_partition.__set_partition_id(partition_id);
-                        hot_partition.__set_query_per_day(value.qpd);
-                        hot_partition.__set_query_per_week(value.qpw);
-                        hot_partition.__set_last_access_time(value.last_access_time);
-                        msg.hot_partitions.push_back(hot_partition);
-                        return_partitions++;
-                    }
-                    msg.__isset.hot_partitions = !msg.hot_partitions.empty();
-                    hot_tables->push_back(std::move(msg));
-                }
-            };
-    get_return_partitions(day_hot_partitions);
-    get_return_partitions(week_hot_partitions);
+
+    get_return_partitions(day_hot_partitions, _last_day_hot_partitions, hot_tables,
+                          return_partitions, N);
+    get_return_partitions(week_hot_partitions, _last_week_hot_partitions, hot_tables,
+                          return_partitions, N);
+
+    _last_day_hot_partitions = std::move(day_hot_partitions);
+    _last_week_hot_partitions = std::move(week_hot_partitions);
 }
 
 void HotspotCounter::make_dot_point() {

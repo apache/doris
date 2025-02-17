@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
@@ -95,6 +96,8 @@ public class Backend implements Writable {
 
     @SerializedName("isDecommissioned")
     private AtomicBoolean isDecommissioned;
+
+    private AtomicBoolean isDecommissioning = new AtomicBoolean(false);
 
     // rootPath -> DiskInfo
     @SerializedName("disksRef")
@@ -340,6 +343,8 @@ public class Backend implements Writable {
             sb.append(", isDecommissioned=true, exclude it");
         } else if (isComputeNode()) {
             sb.append(", isComputeNode=true, exclude it");
+        } else if (!Config.disable_backend_black_list && !SimpleScheduler.isAvailable(this)) {
+            sb.append(", is in black list, exclude it");
         } else {
             sb.append(", hdd disks count={");
             if (hddOk > 0) {
@@ -396,6 +401,14 @@ public class Backend implements Writable {
     public boolean setDecommissioned(boolean isDecommissioned) {
         if (this.isDecommissioned.compareAndSet(!isDecommissioned, isDecommissioned)) {
             LOG.warn("{} set decommission: {}", this.toString(), isDecommissioned);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean setDecommissioning(boolean isDecommissioning) {
+        if (this.isDecommissioning.compareAndSet(!isDecommissioning, isDecommissioning)) {
+            LOG.warn("{} set decommissioning: {}", this.toString(), isDecommissioning);
             return true;
         }
         return false;
@@ -485,6 +498,10 @@ public class Backend implements Writable {
 
     public boolean isDecommissioned() {
         return this.isDecommissioned.get();
+    }
+
+    public boolean isDecommissioning() {
+        return this.isDecommissioning.get();
     }
 
     public boolean isQueryAvailable() {

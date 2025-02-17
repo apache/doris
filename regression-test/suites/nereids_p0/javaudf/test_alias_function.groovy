@@ -33,7 +33,7 @@ suite("nereids_test_alias_function") {
     CREATE ALIAS FUNCTION f2(DATETIMEV2(3), INT) with PARAMETER (datetime1, int1) as
         DATE_FORMAT(HOURS_ADD(
             date_trunc(datetime1, 'day'),
-            add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')
+            add(multiply(floor(divide(day(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')
     '''
     sql '''
     CREATE ALIAS FUNCTION f3(INT) with PARAMETER (int1) as
@@ -50,11 +50,11 @@ suite("nereids_test_alias_function") {
     }
     test {
         sql 'select f2(f1(\'2023-05-20\', 2), 3)'
-        result([['20230518:01']])
+        result([['20230518:03']])
     }
     test {
         sql 'select f3(4)'
-        result([['20230518:01']])
+        result([['20230518:04']])
     }
     test {
         sql 'select cast(f1(\'2023-06-01\', k1) as string) from test order by k1'
@@ -67,17 +67,17 @@ suite("nereids_test_alias_function") {
     test {
         sql 'select f2(f1(\'2023-05-20\', k1), 4) from test order by k1'
         result([
-                ['20230519:01'],
-                ['20230518:01'],
-                ['20230517:01']
+                ['20230519:04'],
+                ['20230518:04'],
+                ['20230517:03']
         ])
     }
     test {
         sql 'select f3(k1) from test order by k1'
         result([
                 ['20230518:01'],
-                ['20230518:01'],
-                ['20230518:01']
+                ['20230518:02'],
+                ['20230518:03']
         ])
     }
 

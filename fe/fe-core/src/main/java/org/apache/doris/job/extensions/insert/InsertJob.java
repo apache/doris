@@ -297,12 +297,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
-    public void cancelAllTasks() throws JobException {
+    public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         try {
             if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
                 checkAuth("CANCEL LOAD");
             }
-            super.cancelAllTasks();
+            super.cancelAllTasks(needWaitCancelComplete);
             this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
         } catch (DdlException e) {
             throw new JobException(e);
@@ -440,7 +440,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
 
             // progress
-            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
+            String progress = Env.getCurrentProgressManager()
+                    .getProgressInfo(String.valueOf(getJobId()), getJobStatus() == JobStatus.FINISHED);
             switch (getJobStatus()) {
                 case RUNNING:
                     if (isPending()) {

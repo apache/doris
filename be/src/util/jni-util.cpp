@@ -92,6 +92,10 @@ const std::string GetDorisJNIClasspathOption() {
     }
 }
 
+const std::string GetKerb5ConfPath() {
+    return "-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path;
+}
+
 [[maybe_unused]] void SetEnvIfNecessary() {
     const auto* doris_home = getenv("DORIS_HOME");
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
@@ -103,12 +107,14 @@ const std::string GetDorisJNIClasspathOption() {
     setenv("CLASSPATH", classpath.c_str(), 0);
 
     // LIBHDFS_OPTS
-    const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
+    const std::string java_opts =
+            getenv("JAVA_OPTS_FOR_JDK_17") ? getenv("JAVA_OPTS_FOR_JDK_17") : "";
     std::string libhdfs_opts =
-            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{}", java_opts,
+            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{} ", java_opts,
                         getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
+    libhdfs_opts += fmt::format("{} ", GetKerb5ConfPath());
 
-    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 0);
+    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
 }
 
 // Only used on non-x86 platform
@@ -118,7 +124,7 @@ const std::string GetDorisJNIClasspathOption() {
     if (rv == 0) {
         std::vector<std::string> options;
 
-        char* java_opts = getenv("JAVA_OPTS");
+        char* java_opts = getenv("JAVA_OPTS_FOR_JDK_17");
         if (java_opts == nullptr) {
             options = {
                     GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
@@ -138,6 +144,7 @@ const std::string GetDorisJNIClasspathOption() {
                                                std::istream_iterator<std::string>());
             options.push_back(GetDorisJNIClasspathOption());
         }
+        options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
@@ -210,7 +217,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 }
 
 void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
-    // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
+    // The start_be.sh would set JAVA_OPTS_FOR_JDK_17 inside LIBHDFS_OPTS
     std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     std::istringstream iss(java_opts);
     std::string opt;

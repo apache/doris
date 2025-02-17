@@ -102,6 +102,8 @@ suite("partition_mv_rewrite_dimension_2_full_join") {
     sql """analyze table orders_2_full_join with sync;"""
     sql """analyze table lineitem_2_full_join with sync;"""
 
+    sql """alter table orders_2_full_join modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_2_full_join modify column l_comment set stats ('row_count'='7');"""
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"

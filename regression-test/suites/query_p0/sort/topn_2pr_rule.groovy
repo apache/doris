@@ -21,7 +21,7 @@ suite("topn_2pr_rule") {
 
     def create_table = { table_name, key_type="DUPLICATE" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
-        value_type = "v string"
+        def value_type = "v string"
         if ("${key_type}" == "AGGREGATE") {
             value_type = "v string REPLACE_IF_NOT_NULL NULL" 
         }
@@ -52,7 +52,7 @@ suite("topn_2pr_rule") {
         } else if("${key_type}" == "UNIQUE") {
              explain {
                 sql("select * from ${table_name}  order by k limit 1;")
-                notContains "OPT TWO PHASE"
+                 contains "OPT TWO PHASE"
             } 
         } else if("${key_type}" == "AGGREGATE") {
              explain {

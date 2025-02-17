@@ -24,28 +24,51 @@
 
 #include "vec/core/block.h"
 #include "vec/exec/skewed_partition_rebalancer.h"
+#include "vec/runtime/partitioner.h"
 
 namespace doris::vectorized {
 
-template <typename PartitionFunction>
-class ScaleWriterPartitioningExchanger {
+class ScaleWriterPartitioner final : public PartitionerBase {
 public:
-    ScaleWriterPartitioningExchanger(int channel_size, PartitionFunction& partition_function,
-                                     int partition_count, int task_count, int task_bucket_count,
-                                     long min_partition_data_processed_rebalance_threshold,
-                                     long min_data_processed_rebalance_threshold)
-            : _channel_size(channel_size),
-              _partition_function(partition_function),
+    using HashValType = uint32_t;
+    ScaleWriterPartitioner(int channel_size, int partition_count, int task_count,
+                           int task_bucket_count,
+                           long min_partition_data_processed_rebalance_threshold,
+                           long min_data_processed_rebalance_threshold)
+            : PartitionerBase(partition_count),
+              _channel_size(channel_size),
               _partition_rebalancer(partition_count, task_count, task_bucket_count,
                                     min_partition_data_processed_rebalance_threshold,
                                     min_data_processed_rebalance_threshold),
               _partition_row_counts(partition_count, 0),
               _partition_writer_ids(partition_count, -1),
-              _partition_writer_indexes(partition_count, 0) {}
+              _partition_writer_indexes(partition_count, 0),
+              _task_count(task_count),
+              _task_bucket_count(task_bucket_count),
+              _min_partition_data_processed_rebalance_threshold(
+                      min_partition_data_processed_rebalance_threshold),
+              _min_data_processed_rebalance_threshold(min_data_processed_rebalance_threshold) {
+        _crc_partitioner =
+                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                        _partition_count);
+    }
 
-    std::vector<std::vector<uint32_t>> accept(Block* block) {
-        std::vector<std::vector<uint32_t>> writerAssignments(_channel_size,
-                                                             std::vector<uint32_t>());
+    ~ScaleWriterPartitioner() override = default;
+
+    Status init(const std::vector<TExpr>& texprs) override {
+        return _crc_partitioner->init(texprs);
+    }
+
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc) override {
+        return _crc_partitioner->prepare(state, row_desc);
+    }
+
+    Status open(RuntimeState* state) override { return _crc_partitioner->open(state); }
+
+    Status close(RuntimeState* state) override { return _crc_partitioner->close(state); }
+
+    Status do_partitioning(RuntimeState* state, Block* block) const override {
+        _hash_vals.resize(block->rows());
         for (int partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
             _partition_row_counts[partition_id] = 0;
             _partition_writer_ids[partition_id] = -1;
@@ -53,40 +76,59 @@ public:
 
         _partition_rebalancer.rebalance();
 
-        for (int position = 0; position < block->rows(); position++) {
-            int partition_id = _partition_function.get_partition(block, position);
+        RETURN_IF_ERROR(_crc_partitioner->do_partitioning(state, block));
+        const auto* crc_values = _crc_partitioner->get_channel_ids().get<uint32_t>();
+        for (size_t position = 0; position < block->rows(); position++) {
+            int partition_id = crc_values[position];
             _partition_row_counts[partition_id] += 1;
 
             // Get writer id for this partition by looking at the scaling state
             int writer_id = _partition_writer_ids[partition_id];
             if (writer_id == -1) {
-                writer_id = get_next_writer_id(partition_id);
+                writer_id = _get_next_writer_id(partition_id);
                 _partition_writer_ids[partition_id] = writer_id;
             }
-            writerAssignments[writer_id].push_back(position);
+            _hash_vals[position] = writer_id;
         }
 
-        for (int partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
+        for (size_t partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
             _partition_rebalancer.add_partition_row_count(partition_id,
                                                           _partition_row_counts[partition_id]);
         }
         _partition_rebalancer.add_data_processed(block->bytes());
 
-        return writerAssignments;
+        return Status::OK();
     }
 
-    int get_next_writer_id(int partition_id) {
+    ChannelField get_channel_ids() const override {
+        return {_hash_vals.data(), sizeof(HashValType)};
+    }
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override {
+        partitioner.reset(new ScaleWriterPartitioner(
+                _channel_size, _partition_count, _task_count, _task_bucket_count,
+                _min_partition_data_processed_rebalance_threshold,
+                _min_data_processed_rebalance_threshold));
+        return Status::OK();
+    }
+
+private:
+    int _get_next_writer_id(int partition_id) const {
         return _partition_rebalancer.get_task_id(partition_id,
                                                  _partition_writer_indexes[partition_id]++);
     }
 
-private:
     int _channel_size;
-    PartitionFunction& _partition_function;
-    SkewedPartitionRebalancer _partition_rebalancer;
-    std::vector<int> _partition_row_counts;
-    std::vector<int> _partition_writer_ids;
-    std::vector<int> _partition_writer_indexes;
+    std::unique_ptr<PartitionerBase> _crc_partitioner;
+    mutable SkewedPartitionRebalancer _partition_rebalancer;
+    mutable std::vector<int> _partition_row_counts;
+    mutable std::vector<int> _partition_writer_ids;
+    mutable std::vector<int> _partition_writer_indexes;
+    mutable std::vector<HashValType> _hash_vals;
+    const int _task_count;
+    const int _task_bucket_count;
+    const long _min_partition_data_processed_rebalance_threshold;
+    const long _min_data_processed_rebalance_threshold;
 };
 
 } // namespace doris::vectorized

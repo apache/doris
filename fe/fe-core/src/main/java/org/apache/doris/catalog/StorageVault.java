@@ -23,12 +23,11 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.protobuf.TextFormat;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,12 +36,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.IntStream;
 
 public abstract class StorageVault {
-    private static final Logger LOG = LogManager.getLogger(StorageVault.class);
     public static final String REFERENCE_SPLIT = "@";
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
+
+    public static final String VAULT_NAME = "VAULT_NAME";
 
     public enum StorageVaultType {
         UNKNOWN,
@@ -59,7 +59,6 @@ public abstract class StorageVault {
         }
     }
 
-    protected static final String VAULT_NAME = "VAULT_NAME";
     protected String name;
     protected StorageVaultType type;
     protected String id;
@@ -144,6 +143,10 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
+                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
+                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
+                }
+
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
@@ -210,6 +213,10 @@ public abstract class StorageVault {
             builder.mergeFrom(vault.getObjInfo());
             builder.clearId();
             builder.setSk("xxxxxxx");
+            if (!vault.getObjInfo().hasUsePathStyle()) {
+                // There is no `use_path_style` field in old version, think `use_path_style` false
+                builder.setUsePathStyle(false);
+            }
             row.add(printer.shortDebugString(builder));
         }
         row.add("false");

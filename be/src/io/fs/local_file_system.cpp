@@ -57,6 +57,8 @@ LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                          const FileWriterOptions* opts) {
+    VLOG_DEBUG << "create file: " << file.native()
+               << ", sync_data: " << (opts ? opts->sync_file_data : true);
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::create_file_impl",
                                       Status::IOError("inject io error"));
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
@@ -108,6 +110,8 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
 }
 
 Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
+    VLOG_DEBUG << "create directory: " << dir.native()
+               << ", failed_if_exists: " << failed_if_exists;
     bool exists = true;
     RETURN_IF_ERROR(exists_impl(dir, &exists));
     if (exists && failed_if_exists) {
@@ -124,6 +128,7 @@ Status LocalFileSystem::create_directory_impl(const Path& dir, bool failed_if_ex
 }
 
 Status LocalFileSystem::delete_file_impl(const Path& file) {
+    VLOG_DEBUG << "delete file: " << file.native();
     bool exists = true;
     RETURN_IF_ERROR(exists_impl(file, &exists));
     if (!exists) {
@@ -141,6 +146,7 @@ Status LocalFileSystem::delete_file_impl(const Path& file) {
 }
 
 Status LocalFileSystem::delete_directory_impl(const Path& dir) {
+    VLOG_DEBUG << "delete directory: " << dir.native();
     bool exists = true;
     RETURN_IF_ERROR(exists_impl(dir, &exists));
     if (!exists) {
@@ -249,6 +255,7 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
 }
 
 Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
+    VLOG_DEBUG << "rename file: " << orig_name.native() << " to " << new_name.native();
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileSystem::rename",
                                       Status::IOError("inject io error"));
     std::error_code ec;
@@ -265,6 +272,7 @@ Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
 }
 
 Status LocalFileSystem::link_file_impl(const Path& src, const Path& dest) {
+    VLOG_DEBUG << "link file: " << src.native() << " to " << dest.native();
     if (::link(src.c_str(), dest.c_str()) != 0) {
         return localfs_error(errno, fmt::format("failed to create hard link from {} to {}",
                                                 src.native(), dest.native()));
@@ -364,6 +372,7 @@ Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
 }
 
 Status LocalFileSystem::copy_path_impl(const Path& src, const Path& dest) {
+    VLOG_DEBUG << "copy from " << src.native() << " to " << dest.native();
     std::error_code ec;
     std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive, ec);
     if (ec) {
@@ -468,6 +477,56 @@ Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms
     if (ec) {
         return localfs_error(ec, fmt::format("failed to change file permission {}", file.native()));
     }
+    return Status::OK();
+}
+
+Status LocalFileSystem::convert_to_abs_path(const Path& input_path_str, Path& abs_path) {
+    // valid path include:
+    //   1. abc/def                         will return abc/def
+    //   2. /abc/def                        will return /abc/def
+    //   3. file:/abc/def                   will return /abc/def
+    //   4. file://<authority>/abc/def      will return /abc/def
+    std::string path_str = input_path_str;
+    size_t slash = path_str.find('/');
+    if (slash == 0) {
+        abs_path = input_path_str;
+        return Status::OK();
+    }
+
+    // Initialize scheme and authority
+    std::string scheme;
+    size_t start = 0;
+
+    // Parse URI scheme
+    size_t colon = path_str.find(':');
+    if (colon != std::string::npos && (slash == std::string::npos || colon < slash)) {
+        // Has a scheme
+        scheme = path_str.substr(0, colon);
+        if (scheme != "file") {
+            return Status::InternalError(
+                    "Only supports `file` type scheme, like 'file:///path', 'file:/path'.");
+        }
+        start = colon + 1;
+    }
+
+    // Parse URI authority, if any
+    if (path_str.compare(start, 2, "//") == 0 && path_str.length() - start > 2) {
+        // Has authority
+        // such as : path_str = "file://authority/abc/def"
+        // and now : start = 5
+        size_t next_slash = path_str.find('/', start + 2);
+        // now : next_slash = 16
+        if (next_slash == std::string::npos) {
+            return Status::InternalError(
+                    "This input string only has authority, but has no path information");
+        }
+        // We will skit authority
+        // now : start = 16
+        start = next_slash;
+    }
+
+    // URI path is the rest of the string
+    abs_path = path_str.substr(start);
     return Status::OK();
 }
 

@@ -35,6 +35,7 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 
@@ -83,8 +84,7 @@ void TimezoneUtils::load_timezones_to_cache() {
 
     const auto root_path = fs::path {base_str};
     if (!exists(root_path)) {
-        LOG(FATAL) << "Cannot find system tzfile. Doris exiting!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Cannot find system tzfile. Doris exiting!"));
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications. ignore them.

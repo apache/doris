@@ -17,21 +17,39 @@
 
 package org.apache.doris.common.security.authentication;
 
+import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Map;
 
 public abstract class AuthenticationConfig {
+    private static final Logger LOG = LogManager.getLogger(AuthenticationConfig.class);
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
     public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
     public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
+    private static final String DEFAULT_HADOOP_USERNAME = "hadoop";
 
     /**
      * @return true if the config is valid, otherwise false.
      */
     public abstract boolean isValid();
+
+    protected static String generalAuthenticationConfigKey(Map<String, String> conf) {
+        String authentication = conf.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
+                null);
+        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+            return conf.get(HADOOP_KERBEROS_PRINCIPAL) + "-" + conf.get(HADOOP_KERBEROS_KEYTAB) + "-"
+                    + conf.getOrDefault(DORIS_KRB5_DEBUG, "false");
+        } else {
+            return conf.getOrDefault(HADOOP_USER_NAME, DEFAULT_HADOOP_USERNAME);
+        }
+    }
 
     /**
      * get kerberos config from hadoop conf
@@ -40,6 +58,10 @@ public abstract class AuthenticationConfig {
      */
     public static AuthenticationConfig getKerberosConfig(Configuration conf) {
         return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
+    }
+
+    public static AuthenticationConfig getSimpleAuthenticationConfig(Configuration conf) {
+        return AuthenticationConfig.createSimpleAuthenticationConfig(conf);
     }
 
     /**
@@ -54,17 +76,36 @@ public abstract class AuthenticationConfig {
                                                          String krbKeytabKey) {
         String authentication = conf.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, null);
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            KerberosAuthenticationConfig krbConfig = new KerberosAuthenticationConfig();
-            krbConfig.setKerberosPrincipal(conf.get(krbPrincipalKey));
-            krbConfig.setKerberosKeytab(conf.get(krbKeytabKey));
-            krbConfig.setConf(conf);
-            krbConfig.setPrintDebugLog(Boolean.parseBoolean(conf.get(DORIS_KRB5_DEBUG, "false")));
-            return krbConfig;
-        } else {
-            // AuthType.SIMPLE
-            SimpleAuthenticationConfig simpleAuthenticationConfig = new SimpleAuthenticationConfig();
-            simpleAuthenticationConfig.setUsername(conf.get(HADOOP_USER_NAME));
-            return simpleAuthenticationConfig;
+            String principalKey = conf.get(krbPrincipalKey);
+            String keytabKey = conf.get(krbKeytabKey);
+            if (!Strings.isNullOrEmpty(principalKey) && !Strings.isNullOrEmpty(keytabKey)) {
+                KerberosAuthenticationConfig krbConfig = new KerberosAuthenticationConfig();
+                krbConfig.setKerberosPrincipal(principalKey);
+                krbConfig.setKerberosKeytab(keytabKey);
+                krbConfig.setConf(conf);
+                krbConfig.setPrintDebugLog(Boolean.parseBoolean(conf.get(DORIS_KRB5_DEBUG, "false")));
+                return krbConfig;
+            } else {
+                // Due to some historical reasons, `core-size.xml` may be stored in path:`fe/conf`,
+                // but this file may only contain `hadoop.security.authentication configuration`,
+                // and no krbPrincipalKey and krbKeytabKey,
+                // which will cause kerberos initialization failure.
+                // Now:
+                //   if kerberos is needed, the relevant configuration can be written in the catalog properties,
+                //   if kerberos is not needed, to prevent the influence of historical reasons,
+                //      the following simple authentication method needs to be used.
+                LOG.warn("{} or {} is null or empty, fallback to simple authentication",
+                        krbPrincipalKey, krbKeytabKey);
+            }
         }
+        return createSimpleAuthenticationConfig(conf);
+    }
+
+    private static AuthenticationConfig createSimpleAuthenticationConfig(Configuration conf) {
+        // AuthType.SIMPLE
+        SimpleAuthenticationConfig simpleAuthenticationConfig = new SimpleAuthenticationConfig();
+        String hadoopUserName = conf.get(HADOOP_USER_NAME, DEFAULT_HADOOP_USERNAME);
+        simpleAuthenticationConfig.setUsername(hadoopUserName);
+        return simpleAuthenticationConfig;
     }
 }

@@ -37,6 +37,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
+#include "common/be_mock_util.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -85,12 +86,7 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
-    // for only use in pipelineX
-    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
-                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
-
-    // Used by pipelineX. This runtime state is only used for setup.
+    // Used by pipeline. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -101,7 +97,7 @@ public:
     RuntimeState();
 
     // Empty d'tor to avoid issues with unique_ptr.
-    ~RuntimeState();
+    MOCK_DEFINE(virtual) ~RuntimeState();
 
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -123,7 +119,7 @@ public:
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    int batch_size() const { return _query_options.batch_size; }
+    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
     int wait_full_block_schedule_times() const {
         return _query_options.wait_full_block_schedule_times;
     }
@@ -141,10 +137,18 @@ public:
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
-    double scanner_scale_up_ratio() const {
-        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
-                                                             : 0;
+    int min_scan_concurrency_of_scan_scheduler() const {
+        return _query_options.__isset.min_scan_scheduler_concurrency
+                       ? _query_options.min_scan_scheduler_concurrency
+                       : 0;
     }
+
+    int min_scan_concurrency_of_scanner() const {
+        return _query_options.__isset.min_scanner_concurrency
+                       ? _query_options.min_scanner_concurrency
+                       : 1;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -363,6 +367,10 @@ public:
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -408,20 +416,6 @@ public:
 
     bool enable_page_cache() const;
 
-    int partitioned_hash_join_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_join_rows_threshold;
-    }
-
-    int partitioned_hash_agg_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_agg_rows_threshold;
-    }
-
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -449,6 +443,8 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
+
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
@@ -457,6 +453,17 @@ public:
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
+
+    bool enable_verbose_profile() const {
+        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
+               _query_options.enable_verbose_profile;
+    }
+
+    int rpc_verbose_profile_max_instance_count() const {
+        return _query_options.__isset.rpc_verbose_profile_max_instance_count
+                       ? _query_options.rpc_verbose_profile_max_instance_count
+                       : 0;
     }
 
     bool enable_share_hash_table_for_broadcast_join() const {
@@ -548,9 +555,7 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
-                                            bool build_bf_exactly);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
@@ -581,6 +586,16 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
+        return _query_options.__isset.enable_shared_exchange_sink_buffer &&
+               _query_options.enable_shared_exchange_sink_buffer;
+    }
+
+    bool fuzzy_disable_runtime_filter_in_be() const {
+        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
+               _query_options.fuzzy_disable_runtime_filter_in_be;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
@@ -604,6 +619,8 @@ public:
 
     int task_num() const { return _task_num; }
 
+    int profile_level() const { return _profile_level; }
+
 private:
     Status create_error_log_file();
 
@@ -622,6 +639,10 @@ private:
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
+    // Why 2?
+    // During cluster upgrade, fe will not pass profile_level to be, so we need to set it to 2
+    // to make sure user can see all profile counters like before.
+    int _profile_level = 2;
 
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;

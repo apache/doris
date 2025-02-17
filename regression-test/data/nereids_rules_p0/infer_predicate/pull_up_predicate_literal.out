@@ -262,15 +262,7 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type16 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as SMALLINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_tinyint as SMALLINT) = 32767))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type17 --
 PhysicalResultSink
@@ -414,27 +406,11 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type32 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as INT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_tinyint as INT) = 32768))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type33 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_smallint as INT) = 32768))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type34 --
 PhysicalResultSink
@@ -566,39 +542,15 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type48 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as BIGINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_tinyint as BIGINT) = 214748364799))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type49 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as BIGINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_smallint as BIGINT) = 214748364799))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type50 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as BIGINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_int as BIGINT) = 214748364799))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type51 --
 PhysicalResultSink
@@ -718,51 +670,19 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type64 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as LARGEINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_tinyint as LARGEINT) = 922337203685477580722))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type65 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as LARGEINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_smallint as LARGEINT) = 922337203685477580722))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type66 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as LARGEINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_int as LARGEINT) = 922337203685477580722))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type67 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as LARGEINT) = t.c1)) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_bigint as LARGEINT) = 922337203685477580722))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type68 --
 PhysicalResultSink
@@ -814,15 +734,7 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type72 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
-------PhysicalLimit[GLOBAL]
---------PhysicalLimit[LOCAL]
-----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
-------PhysicalProject
---------filter((cast(d_decimal as DOUBLE) = 9.223372036854776E20))
-----------PhysicalOlapScan[test_types]
+--PhysicalEmptyRelation
 
 -- !const_value_and_join_column_type73 --
 PhysicalResultSink
@@ -1616,7 +1528,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_date as DATETIMEV2(0)) = '2024-08-02 10:10:00'))
+--------filter((t2.d_date = '2024-08-02'))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type170 --

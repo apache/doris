@@ -23,7 +23,7 @@ suite('test_partial_update_delete') {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
 
             def tableName1 = "test_partial_update_delete1"
@@ -40,6 +40,7 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -52,6 +53,7 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
             
@@ -91,6 +93,7 @@ suite('test_partial_update_delete') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -98,13 +101,11 @@ suite('test_partial_update_delete') {
             qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
             streamLoad {
                 table "${tableName3}"
-
                 set 'column_separator', ','
                 set 'format', 'csv'
                 set 'columns', 'k1'
                 set 'partial_columns', 'true'
                 set 'merge_type', 'DELETE'
-
                 file 'partial_update_delete.csv'
                 time 10000
 

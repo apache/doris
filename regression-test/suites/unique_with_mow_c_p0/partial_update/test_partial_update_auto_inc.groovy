@@ -23,7 +23,7 @@ suite("test_partial_update_auto_inc") {
     for (def use_mow : [/*false,*/ true]) {
         for (def use_nereids_planner : [false, true]) {
             logger.info("current params: use_mow: ${use_mow}, use_nereids_planner: ${use_nereids_planner}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
                 sql "use ${db};"
 
                 if (use_nereids_planner) {
