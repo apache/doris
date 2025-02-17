@@ -90,7 +90,7 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
             if (resource_ctx == nullptr) {
                 continue;
             }
-            WorkloadAction::RuntimeContext policy_runtime_ctx(resource_ctx);
+            WorkloadAction::RuntimeContext action_runtime_ctx(resource_ctx);
 
             // 2 get matched policy
             std::map<WorkloadActionType, std::shared_ptr<WorkloadSchedPolicy>> matched_policy_map;
@@ -98,7 +98,7 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
                 std::shared_lock<std::shared_mutex> read_lock(_policy_lock);
                 for (auto& entity : _id_policy_map) {
                     auto& new_policy = entity.second;
-                    if (new_policy->is_match(&policy_runtime_ctx)) {
+                    if (new_policy->is_match(&action_runtime_ctx)) {
                         WorkloadActionType new_policy_type = new_policy->get_first_action_type();
                         if (matched_policy_map.find(new_policy_type) == matched_policy_map.end() ||
                             new_policy->priority() >
@@ -132,7 +132,7 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
 
             // 4 exec policy action
             for (const auto& [key, value] : matched_policy_map) {
-                value->exec_action(&policy_runtime_ctx);
+                value->exec_action(&action_runtime_ctx);
             }
         }
     }

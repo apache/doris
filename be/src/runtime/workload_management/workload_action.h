@@ -43,14 +43,14 @@ public:
     WorkloadAction() = default;
     virtual ~WorkloadAction() = default;
 
-    virtual void exec(WorkloadAction::RuntimeContext* policy_runtime_ctx) = 0;
+    virtual void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) = 0;
 
     virtual WorkloadActionType get_action_type() = 0;
 };
 
 class WorkloadActionCancelQuery : public WorkloadAction {
 public:
-    void exec(WorkloadAction::RuntimeContext* policy_runtime_ctx) override;
+    void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) override;
 
     WorkloadActionType get_action_type() override { return WorkloadActionType::CANCEL_QUERY; }
 };
@@ -59,7 +59,7 @@ public:
 class WorkloadActionMoveQuery : public WorkloadAction {
 public:
     WorkloadActionMoveQuery(std::string wg_name) : _wg_name(wg_name) {}
-    void exec(WorkloadAction::RuntimeContext* policy_runtime_ctx) override;
+    void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) override;
 
     WorkloadActionType get_action_type() override {
         return WorkloadActionType::MOVE_QUERY_TO_GROUP;

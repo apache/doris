@@ -50,7 +50,7 @@ void WorkloadSchedPolicy::init(int64_t id, std::string name, int version, bool e
     }
 }
 
-bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* policy_runtime_ctx) const {
+bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtime_ctx) const {
     if (!_enabled) {
         return false;
     }
@@ -58,8 +58,8 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* policy_runtim
     // 1 when policy has no group(_wg_id_set.size() < 0), it should match all query
     // 2 when policy has group, it can only match the query which has the same group
     if (!_wg_id_set.empty() &&
-        (policy_runtime_ctx->resource_ctx->workload_group() == nullptr ||
-         _wg_id_set.find(policy_runtime_ctx->resource_ctx->workload_group()->id()) ==
+        (action_runtime_ctx->resource_ctx->workload_group() == nullptr ||
+         _wg_id_set.find(action_runtime_ctx->resource_ctx->workload_group()->id()) ==
                  _wg_id_set.end())) {
         return false;
     }
@@ -71,17 +71,17 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* policy_runtim
         case WorkloadMetricType::QUERY_TIME: {
             val = std::to_string(
                     MonotonicMillis() -
-                    policy_runtime_ctx->resource_ctx->task_controller()->finish_time());
+                    action_runtime_ctx->resource_ctx->task_controller()->finish_time());
         }
         case WorkloadMetricType::SCAN_BYTES: {
-            val = std::to_string(policy_runtime_ctx->resource_ctx->io_context()->scan_bytes());
+            val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_bytes());
         }
         case WorkloadMetricType::SCAN_ROWS: {
-            val = std::to_string(policy_runtime_ctx->resource_ctx->io_context()->scan_rows());
+            val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_rows());
         }
         case WorkloadMetricType::QUERY_MEMORY_BYTES: {
             val = std::to_string(
-                    policy_runtime_ctx->resource_ctx->memory_context()->current_memory_bytes());
+                    action_runtime_ctx->resource_ctx->memory_context()->current_memory_bytes());
         }
         default:
             return false;
@@ -94,15 +94,15 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* policy_runtim
                          cond->get_metric_value_string() + "), ";
     }
     cond_eval_msg = cond_eval_msg.substr(0, cond_eval_msg.size() - 2);
-    policy_runtime_ctx->cond_eval_msg = cond_eval_msg;
+    action_runtime_ctx->cond_eval_msg = cond_eval_msg;
     return true;
 }
 
-void WorkloadSchedPolicy::exec_action(WorkloadAction::RuntimeContext* policy_runtime_ctx) {
+void WorkloadSchedPolicy::exec_action(WorkloadAction::RuntimeContext* action_runtime_ctx) {
     for (auto& action : _action_list) {
-        policy_runtime_ctx->policy_id = this->_id;
-        policy_runtime_ctx->policy_name = this->_name;
-        action->exec(policy_runtime_ctx);
+        action_runtime_ctx->policy_id = this->_id;
+        action_runtime_ctx->policy_name = this->_name;
+        action->exec(action_runtime_ctx);
     }
 }
 

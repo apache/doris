@@ -37,11 +37,11 @@ public:
     bool enabled() const { return _enabled; }
     int priority() const { return _priority; }
 
-    bool is_match(WorkloadAction::RuntimeContext* policy_runtime_ctx) const;
+    bool is_match(WorkloadAction::RuntimeContext* action_runtime_ctx) const;
 
     WorkloadActionType get_first_action_type() { return _first_action_type; }
 
-    void exec_action(WorkloadAction::RuntimeContext* policy_runtime_ctx);
+    void exec_action(WorkloadAction::RuntimeContext* action_runtime_ctx);
 
     int version() const { return _version; }
 
