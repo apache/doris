@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -361,24 +360,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
+                && isSupportedTransactionalFileFormat();
     }
 
-    private boolean isSupportedFullAcidTransactionalFileFormat() {
+    private boolean isSupportedTransactionalFileFormat() {
         // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
         // So we need to check the input format for transactional table.
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
-    public boolean isFullAcidTable() throws UserException {
-        if (dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable)) {
-            if (!isSupportedFullAcidTransactionalFileFormat()) {
-                throw new UserException("This table is full Acid Table, but no Orc Format.");
-            }
-            return true;
-        }
-        return false;
+    public boolean isFullAcidTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
     }
 
     @Override
