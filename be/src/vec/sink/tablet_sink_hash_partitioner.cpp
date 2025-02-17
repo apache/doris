@@ -82,8 +82,8 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block) const {
-    _already_sent = false;
+Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block,
+                                                  bool* already_sent) const {
     _hash_vals.resize(block->rows());
     if (block->empty()) {
         return Status::OK();
@@ -99,6 +99,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     if (_row_distribution.batching_rows() > 0) {
         SCOPED_TIMER(_local_state->send_new_partition_timer());
         RETURN_IF_ERROR(_send_new_partition_batch(state, block));
+        *already_sent = true;
     } else {
         const auto& row_ids = _row_part_tablet_ids[0].row_ids;
         const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
@@ -147,7 +148,6 @@ Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state,
     _row_distribution._batching_block->clear_column_data();
     _row_distribution._deal_batched = false;
     RETURN_IF_ERROR(p.sink(state, input_block, false));
-    _already_sent = true;
     return Status::OK();
 }
 

@@ -46,13 +46,12 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status do_partitioning(RuntimeState* state, Block* block) const override;
+    Status do_partitioning(RuntimeState* state, Block* block, bool* already_sent) const override;
 
     ChannelField get_channel_ids() const override;
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
     Status close(RuntimeState* state) override;
-    int32_t valid_rows() const override { return _already_sent ? 0 : -1; }
 
 private:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
@@ -78,7 +77,6 @@ private:
     mutable RowDescriptor* _tablet_sink_row_desc = nullptr;
     mutable std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
     mutable std::vector<HashValType> _hash_vals;
-    mutable bool _already_sent = false;
 };
 #include "common/compile_check_end.h"
 

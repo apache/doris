@@ -47,12 +47,10 @@ public:
 
     virtual Status close(RuntimeState* state) = 0;
 
-    virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
+    virtual Status do_partitioning(RuntimeState* state, Block* block,
+                                   bool* already_sent = nullptr) const = 0;
 
     virtual ChannelField get_channel_ids() const = 0;
-    // The same block may be sent twice by TabletSinkHashPartitioner. To get the correct
-    // result, we should not send any rows the last time.
-    virtual int32_t valid_rows() const { return -1; }
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
@@ -80,7 +78,7 @@ public:
 
     Status close(RuntimeState* state) override { return Status::OK(); }
 
-    Status do_partitioning(RuntimeState* state, Block* block) const override;
+    Status do_partitioning(RuntimeState* state, Block* block, bool* already_sent) const override;
 
     ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
 
