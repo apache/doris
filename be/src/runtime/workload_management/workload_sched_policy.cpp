@@ -17,10 +17,7 @@
 
 #include "runtime/workload_management/workload_sched_policy.h"
 
-#include "runtime/workload_management/io_context.h"
-#include "runtime/workload_management/memory_context.h"
 #include "runtime/workload_management/resource_context.h"
-#include "runtime/workload_management/task_controller.h"
 #include "util/time.h"
 
 namespace doris {
@@ -75,16 +72,20 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtim
             val = std::to_string(
                     MonotonicMillis() -
                     action_runtime_ctx->resource_ctx->task_controller()->finish_time());
+            break;
         }
         case WorkloadMetricType::SCAN_BYTES: {
             val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_bytes());
+            break;
         }
         case WorkloadMetricType::SCAN_ROWS: {
             val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_rows());
+            break;
         }
         case WorkloadMetricType::QUERY_MEMORY_BYTES: {
             val = std::to_string(
                     action_runtime_ctx->resource_ctx->memory_context()->current_memory_bytes());
+            break;
         }
         default:
             return false;
