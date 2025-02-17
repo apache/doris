@@ -42,10 +42,10 @@ public class ResultReceiverConsumer {
                 RowBatch rowBatch;
                 try {
                     rowBatch = receiver.getNext(status);
-                } catch (Exception e) {
-                    throw e;
-                } finally {
                     readyOffsets.offer(offset);
+                } catch (TException e) {
+                    readyOffsets.offer(offset);
+                    throw e;
                 }
                 return rowBatch;
             });
