@@ -192,12 +192,12 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             desc[i].direction = is_asc_order[i] ? 1 : -1;
             desc[i].nulls_direction = nulls_first[i] ? -desc[i].direction : desc[i].direction;
         }
-        _is_eof = !has_next_block();
+        has_next_block();
     }
 
     BlockSupplierSortCursorImpl(BlockSupplier block_supplier, const SortDescription& desc_)
             : MergeSortCursorImpl(desc_), _block_supplier(std::move(block_supplier)) {
-        _is_eof = !has_next_block();
+        has_next_block();
     }
 
     bool has_next_block() override {
@@ -205,9 +205,8 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             return false;
         }
         block->clear();
-        do {
-            THROW_IF_ERROR(_block_supplier(block.get(), &_is_eof));
-        } while (block->empty() && !_is_eof);
+        THROW_IF_ERROR(_block_supplier(block.get(), &_is_eof));
+        DCHECK(!block->empty() || _is_eof);
         if (!block->empty()) {
             DCHECK_EQ(_ordering_expr.size(), desc.size());
             for (int i = 0; i < desc.size(); ++i) {

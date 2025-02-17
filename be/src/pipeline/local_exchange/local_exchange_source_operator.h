@@ -40,6 +40,11 @@ public:
     std::string debug_string(int indentation_level) const override;
 
     std::vector<Dependency*> dependencies() const override;
+    Dependency* get_dependency(int id) {
+        return _exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT
+                       ? _local_merge_deps[id].get()
+                       : _dependency;
+    }
 
 private:
     friend class LocalExchangeSourceOperatorX;
