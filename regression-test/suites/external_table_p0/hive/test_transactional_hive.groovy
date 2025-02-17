@@ -56,11 +56,9 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
 
     def test_acid = {
         try {
-            sql """SET enable_fallback_to_original_planner=false;"""
             sql """ select * from orc_to_acid_tb """ 
         }catch( Exception e) {
-            logger.info("e.getMessage()" + e.getMessage())
-            assertTrue(e.getMessage().contains("Original non-ACID files in transactional tables are not supported"));
+            assertTrue(e.getMessage().contains("For no acid table convert to acid, please COMPACT"));
         }
 
         qt_2 """ select * from orc_to_acid_compacted_tb order by id """
