@@ -45,8 +45,19 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .analyze("select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1 left join split_join_for_null_skew_t t2 on t1.a=t2.a order by 1,2,3,4")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalUnion(logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
-                        logicalProject(logicalJoin(logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not)), any()))));
+                .matches(
+                        logicalUnion(
+                                logicalProject(
+                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalProject(
+                                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not)),
+                                                any()
+                                        )
+                                )
+                        )
+                );
     }
 
     @Test
@@ -55,8 +66,18 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .analyze("select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ * from split_join_for_null_skew_t t1 left join split_join_for_null_skew_t t2 on t1.a=t2.a order by 1,2,3,4")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalUnion(logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
-                        logicalProject(logicalJoin(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not), any()))));
+                .matches(
+                        logicalUnion(
+                                logicalProject(
+                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not),
+                                                any()
+                                        )
+                                )
+                        )
+                );
     }
 
     @Test
@@ -156,8 +177,19 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .analyze("select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1 right join split_join_for_null_skew_t t2 on t1.a=t2.a order by 1,2,3,4")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalUnion(logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
-                        logicalProject(logicalJoin(any(), logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not))))));
+                .matches(
+                        logicalUnion(
+                                logicalProject(
+                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
+                                logicalProject(
+                                        logicalJoin(
+                                                any(),
+                                                logicalProject(
+                                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not))
+                                        )
+                                )
+                        )
+                );
     }
 
     @Test
@@ -166,8 +198,19 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .analyze("select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.a,t1.b,t2.c,t2.dt from split_join_for_null_skew_t t1 right join split_join_for_null_skew_t t2 on t1.b=t2.b order by 1,2,3,4")
                 .rewrite()
                 .printlnTree()
-                .nonMatch(logicalUnion(logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
-                        logicalProject(logicalJoin(any(), logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not))))));
+                .nonMatch(
+                        logicalUnion(
+                                logicalProject(
+                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
+                                logicalProject(
+                                        logicalJoin(
+                                                any(),
+                                                logicalProject(
+                                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not))
+                                        )
+                                )
+                        )
+                );
     }
 
     @Test
@@ -176,7 +219,16 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .analyze("select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ * from split_join_for_null_skew_t t1 right join split_join_for_null_skew_t t2 on t1.a=t2.a order by 1,2,3,4")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalUnion(logicalProject(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
-                        logicalProject(logicalJoin(any(), logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not)))));
+                .matches(
+                        logicalUnion(
+                                logicalProject(
+                                        logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof IsNull)),
+                                logicalProject(
+                                        logicalJoin(
+                                                any(),
+                                                logicalFilter().when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not))
+                                )
+                        )
+                );
     }
 }
