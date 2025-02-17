@@ -83,7 +83,8 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    virtual Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
+    virtual Dependency* create_source_dependency(int operator_id, int node_id,
+                                                 const std::string& name);
 
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
 };
@@ -888,8 +889,7 @@ public:
     Status create_muiltget_result(const vectorized::Columns& columns, bool eos);
 
     Dependency* create_source_dependency(int operator_id, int node_id,
-                                        const std::string& name) override;
-
+                                         const std::string& name) override;
 
     Status rpc_status = Status::OK();
     bool last_block = false;

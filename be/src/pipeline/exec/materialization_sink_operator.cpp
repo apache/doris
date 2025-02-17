@@ -92,7 +92,7 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                         .stub = std::move(client), .request = multi_get_request, .response = {}});
     }
     ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
-        ->add(tnode.materialization_node.nodes_info.nodes.size());
+            ->add(tnode.materialization_node.nodes_info.nodes.size());
 
     return Status::OK();
 }
@@ -106,11 +106,12 @@ Status MaterializationSinkOperatorX::open(RuntimeState* state) {
 
 template <typename Response>
 class MaterializationCallback : public ::doris::DummyBrpcCallback<Response> {
-ENABLE_FACTORY_CREATOR(MaterializationCallback);
+    ENABLE_FACTORY_CREATOR(MaterializationCallback);
 
 public:
-    MaterializationCallback(std::weak_ptr<TaskExecutionContext> tast_exec_ctx, MaterializationSharedState* shared_state)
-        : _tast_exec_ctx(std::move(tast_exec_ctx)), _shared_state(shared_state) {}
+    MaterializationCallback(std::weak_ptr<TaskExecutionContext> tast_exec_ctx,
+                            MaterializationSharedState* shared_state)
+            : _tast_exec_ctx(std::move(tast_exec_ctx)), _shared_state(shared_state) {}
 
     ~MaterializationCallback() override = default;
     MaterializationCallback(const MaterializationCallback& other) = delete;
@@ -151,7 +152,7 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         if (!eos) {
             local_state._shared_state->sink_deps.back()->block();
         }
-        
+
         vectorized::Columns columns;
         for (auto& _rowid_expr : _rowid_exprs) {
             int result_column_id = -1;
@@ -162,16 +163,15 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         RETURN_IF_ERROR(local_state._shared_state->create_muiltget_result(columns, eos));
 
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
-            auto callback =
-                    MaterializationCallback<int>::create_shared(
-                            state->get_task_execution_context(), local_state._shared_state);
+            auto callback = MaterializationCallback<int>::create_shared(
+                    state->get_task_execution_context(), local_state._shared_state);
             auto send_closure =
-                    AutoReleaseClosure<int, MaterializationCallback<int>>::
-                    create_unique(std::make_shared<int>(), callback, state->get_query_ctx_weak());
+                    AutoReleaseClosure<int, MaterializationCallback<int>>::create_unique(
+                            std::make_shared<int>(), callback, state->get_query_ctx_weak());
 
             callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
-            rpc_struct.stub->multiget_data_v2(callback->cntl_.get(), &rpc_struct.request, &rpc_struct.response,
-                                              send_closure.get());
+            rpc_struct.stub->multiget_data_v2(callback->cntl_.get(), &rpc_struct.request,
+                                              &rpc_struct.response, send_closure.get());
         }
     }
 

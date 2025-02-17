@@ -500,8 +500,10 @@ Status MaterializationSharedState::merge_multi_response() {
     return Status::OK();
 }
 
-Dependency* MaterializationSharedState::create_source_dependency(int operator_id, int node_id, const std::string &name) {
-    source_deps.push_back(std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY"));
+Dependency* MaterializationSharedState::create_source_dependency(int operator_id, int node_id,
+                                                                 const std::string& name) {
+    source_deps.push_back(
+            std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }

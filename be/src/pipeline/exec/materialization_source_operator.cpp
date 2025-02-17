@@ -37,7 +37,7 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
 
     local_state._shared_state->merge_multi_response()
 
-    *eos = local_state._shared_state->last_block;
+            * eos = local_state._shared_state->last_block;
     return Status::OK();
 }
 
