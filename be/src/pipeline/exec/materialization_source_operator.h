@@ -39,9 +39,6 @@ public:
     MaterializationSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : Base(state, parent) {};
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
-
 private:
     friend class MaterializationSourceOperatorX;
     friend class OperatorX<MaterializationSourceLocalState>;

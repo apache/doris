@@ -26,38 +26,18 @@
 namespace doris {
 namespace pipeline {
 
-Status MaterializationSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_init_timer);
-    ((DataQueueSharedState*)_dependency->shared_state())
-            ->data_queue.set_source_dependency(_shared_state->source_deps.front());
-    return Status::OK();
-}
-
-Status MaterializationSourceLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
-    return Status::OK();
-}
-
 Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                  bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
-    std::unique_ptr<vectorized::Block> output_block;
-    int child_idx = 0;
-    RETURN_IF_ERROR(
-            local_state._shared_state->data_queue.get_block_from_queue(&output_block, &child_idx));
-    *eos = !_has_data(state) && local_state._shared_state->data_queue.is_all_finish();
-
-    if (!output_block) {
-        return Status::OK();
+    if (!local_state._shared_state->rpc_status.ok()) {
+        return local_state._shared_state->rpc_status;
     }
 
-    *block = std::move(*output_block);
+    local_state._shared_state->merge_multi_response()
+
+    *eos = local_state._shared_state->last_block;
     return Status::OK();
 }
 

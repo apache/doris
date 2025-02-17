@@ -83,7 +83,7 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
+    virtual Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
 
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
 };
@@ -884,9 +884,15 @@ struct MaterializationSharedState : public BasicSharedState {
 public:
     MaterializationSharedState() = default;
 
-    Status merge_multi_response(std::vector<brpc::Controller>& cntls);
+    Status merge_multi_response();
     Status create_muiltget_result(const vectorized::Columns& columns, bool eos);
 
+    Dependency* create_source_dependency(int operator_id, int node_id,
+                                        const std::string& name) override;
+
+
+    Status rpc_status = Status::OK();
+    bool last_block = false;
     std::vector<vectorized::MutableBlock> rest_blocks;
     std::map<int64_t, FetchRpcStruct> rpc_struct_map;
     std::vector<std::vector<uint64_t>> block_order_results;

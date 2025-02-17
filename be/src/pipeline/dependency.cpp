@@ -456,15 +456,7 @@ void AggSharedState::refresh_top_limit(size_t row_id,
     limit_columns_min = limit_heap.top()._row_id;
 }
 
-Status MaterializationSharedState::merge_multi_response(std::vector<brpc::Controller>& cntls) {
-    for (const auto& cntl : cntls) {
-        if (cntl.Failed()) {
-            LOG(WARNING) << "Failed to fetch meet rpc error:" << cntl.ErrorText()
-                         << ", host:" << cntl.remote_side();
-            return Status::InternalError(cntl.ErrorText());
-        }
-    }
-
+Status MaterializationSharedState::merge_multi_response() {
     // init the rest_blocks
     if (rest_blocks.empty()) {
         rest_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
@@ -495,7 +487,23 @@ Status MaterializationSharedState::merge_multi_response(std::vector<brpc::Contro
             source_block_rows.second++;
         }
     }
+
+    // clear request/response
+    for (auto& [_, rpc_struct] : rpc_struct_map) {
+        for (int i = 0; i < rpc_struct.request.schemas_size(); ++i) {
+            rpc_struct.request.mutable_schemas(i)->clear_row_id();
+            rpc_struct.request.mutable_schemas(i)->clear_file_id();
+        }
+        rpc_struct.response.clear_blocks();
+    }
+
     return Status::OK();
+}
+
+Dependency* MaterializationSharedState::create_source_dependency(int operator_id, int node_id, const std::string &name) {
+    source_deps.push_back(std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY"));
+    source_deps.back()->set_shared_state(this);
+    return source_deps.back().get();
 }
 
 Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
@@ -537,6 +545,7 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
             rpc_struct.request.set_gc_id_map(true);
         }
     }
+    last_block = eos;
 
     return Status::OK();
 }

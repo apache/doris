@@ -36,8 +36,6 @@ public:
     ENABLE_FACTORY_CREATOR(MaterializationSinkLocalState);
     MaterializationSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override;
 
 private:
     friend class MaterializationSinkOperatorX;

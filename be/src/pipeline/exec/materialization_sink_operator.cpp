@@ -30,25 +30,12 @@
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
 #include "util/brpc_client_cache.h"
+#include "util/ref_count_closure.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 
 namespace doris {
 namespace pipeline {
-
-Status MaterializationSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_init_timer);
-    return Status::OK();
-}
-
-Status MaterializationSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
-    return Status::OK();
-}
 
 Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                                           doris::RuntimeState* state) {
@@ -104,6 +91,8 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                 FetchRpcStruct {
                         .stub = std::move(client), .request = multi_get_request, .response = {}});
     }
+    ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
+        ->add(tnode.materialization_node.nodes_info.nodes.size());
 
     return Status::OK();
 }
@@ -115,6 +104,42 @@ Status MaterializationSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
+template <typename Response>
+class MaterializationCallback : public ::doris::DummyBrpcCallback<Response> {
+ENABLE_FACTORY_CREATOR(MaterializationCallback);
+
+public:
+    MaterializationCallback(std::weak_ptr<TaskExecutionContext> tast_exec_ctx, MaterializationSharedState* shared_state)
+        : _tast_exec_ctx(std::move(tast_exec_ctx)), _shared_state(shared_state) {}
+
+    ~MaterializationCallback() override = default;
+    MaterializationCallback(const MaterializationCallback& other) = delete;
+    MaterializationCallback& operator=(const MaterializationCallback& other) = delete;
+
+    void call() noexcept override {
+        auto tast_exec_ctx = _tast_exec_ctx.lock();
+        if (!tast_exec_ctx) {
+            return;
+        }
+
+        if (::doris::DummyBrpcCallback<Response>::cntl_->Failed()) {
+            std::string err = fmt::format(
+                    "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
+                    "latency = {}",
+                    berror(::doris::DummyBrpcCallback<Response>::cntl_->ErrorCode()),
+                    ::doris::DummyBrpcCallback<Response>::cntl_->ErrorText(),
+                    BackendOptions::get_localhost(),
+                    ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
+            _shared_state->rpc_status = Status::InternalError(err);
+        }
+        ((CountedFinishDependency*)_shared_state->source_deps.back().get())->sub();
+    }
+
+private:
+    std::weak_ptr<TaskExecutionContext> _tast_exec_ctx;
+    MaterializationSharedState* _shared_state;
+};
+
 Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                           bool eos) {
     auto& local_state = get_local_state(state);
@@ -122,6 +147,11 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     if (in_block->rows() > 0 || eos) {
+        // block the pipeline wait the rpc response
+        if (!eos) {
+            local_state._shared_state->sink_deps.back()->block();
+        }
+        
         vectorized::Columns columns;
         for (auto& _rowid_expr : _rowid_exprs) {
             int result_column_id = -1;
@@ -131,22 +161,20 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
 
         RETURN_IF_ERROR(local_state._shared_state->create_muiltget_result(columns, eos));
 
-        bthread::CountdownEvent counter(local_state._shared_state->rpc_struct_map.size());
-        std::vector<brpc::Controller> cntls(local_state._shared_state->rpc_struct_map.size());
-        size_t i = 0;
-
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
-            cntls[i].set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
-            auto callback = brpc::NewCallback(fetch_callback, &counter);
-            rpc_struct.stub->multiget_data_v2(&cntls[i], &rpc_struct.request, &rpc_struct.response,
-                                              callback);
-            i++;
+            auto callback =
+                    MaterializationCallback<int>::create_shared(
+                            state->get_task_execution_context(), local_state._shared_state);
+            auto send_closure =
+                    AutoReleaseClosure<int, MaterializationCallback<int>>::
+                    create_unique(std::make_shared<int>(), callback, state->get_query_ctx_weak());
+
+            callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
+            rpc_struct.stub->multiget_data_v2(callback->cntl_.get(), &rpc_struct.request, &rpc_struct.response,
+                                              send_closure.get());
         }
-
-        counter.wait();
-
-        RETURN_IF_ERROR(local_state._shared_state->merge_multi_response(cntls));
     }
+
     return Status::OK();
 }
 
