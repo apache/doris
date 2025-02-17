@@ -43,6 +43,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -749,5 +750,23 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // Because we have added a test configuration item,
         // it needs to be judged together with Env.isTableNamesCaseInsensitive()
         return Env.isTableNamesCaseInsensitive() || extCatalog.getOnlyTestLowerCaseTableNames() == 2;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalDatabase)) {
+            return false;
+        }
+        ExternalDatabase<?> that = (ExternalDatabase<?>) o;
+        return Objects.equal(name, that.name) && Objects.equal(extCatalog,
+                that.extCatalog);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name, extCatalog);
     }
 }
