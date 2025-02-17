@@ -351,7 +351,7 @@ ThreadPool* QueryContext::get_memtable_flush_pool() {
 }
 
 void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
-    _resource_ctx->workload_group_context()->set_workload_group(wg);
+    _resource_ctx->set_workload_group(wg);
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     workload_group()->add_mem_tracker_limiter(query_mem_tracker());

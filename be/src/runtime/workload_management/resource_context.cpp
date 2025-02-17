@@ -48,7 +48,11 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
     statistics->__set_scan_bytes_from_remote_storage(
             io_context()->scan_bytes_from_remote_storage());
     statistics->__set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
-    statistics->__set_workload_group_id(workload_group_context()->workload_group_id());
+    if (workload_group() != nullptr) {
+        statistics->__set_workload_group_id(workload_group()->id());
+    } else {
+        statistics->__set_workload_group_id(-1);
+    }
 }
 
 } // namespace doris

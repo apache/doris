@@ -28,7 +28,6 @@
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/memory_context.h"
 #include "runtime/workload_management/task_controller.h"
-#include "runtime/workload_management/workload_group_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -46,7 +45,6 @@ public:
         cpu_context_ = CPUContext::create_unique();
         memory_context_ = MemoryContext::create_unique();
         io_context_ = IOContext::create_unique();
-        workload_group_context_ = WorkloadGroupContext::create_unique();
         task_controller_ = TaskController::create_unique();
 
         cpu_context_->set_resource_ctx(this);
@@ -59,8 +57,8 @@ public:
     CPUContext* cpu_context() const { return cpu_context_.get(); }
     MemoryContext* memory_context() const { return memory_context_.get(); }
     IOContext* io_context() const { return io_context_.get(); }
-    WorkloadGroupContext* workload_group_context() const { return workload_group_context_.get(); }
     TaskController* task_controller() const { return task_controller_.get(); }
+    WorkloadGroupPtr workload_group() const { return _workload_group; }
 
     void set_cpu_context(std::unique_ptr<CPUContext> cpu_context) {
         cpu_context_ = std::move(cpu_context);
@@ -74,12 +72,10 @@ public:
         io_context_ = std::move(io_context);
         io_context_->set_resource_ctx(this);
     }
-    void set_workload_group_context(std::unique_ptr<WorkloadGroupContext> wg_context) {
-        workload_group_context_ = std::move(wg_context);
-    }
     void set_task_controller(std::unique_ptr<TaskController> task_controller) {
         task_controller_ = std::move(task_controller);
     }
+    void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
     RuntimeProfile* profile() { return const_cast<RuntimeProfile*>(resource_profile_.get().get()); }
 
@@ -109,9 +105,9 @@ private:
     std::unique_ptr<CPUContext> cpu_context_ = nullptr;
     std::unique_ptr<MemoryContext> memory_context_ = nullptr;
     std::unique_ptr<IOContext> io_context_ = nullptr;
-    std::unique_ptr<WorkloadGroupContext> workload_group_context_ = nullptr;
     std::unique_ptr<TaskController> task_controller_ = nullptr;
 
+    WorkloadGroupPtr _workload_group = nullptr;
     MultiVersion<RuntimeProfile> resource_profile_;
 };
 

@@ -25,9 +25,8 @@ namespace doris {
 
 void CPUContext::update_cpu_cost_ms(int64_t delta) const {
     stats_.cpu_cost_ms_counter_->update(delta);
-    if (resource_ctx_ != nullptr &&
-        resource_ctx_->workload_group_context()->workload_group() != nullptr) {
-        resource_ctx_->workload_group_context()->workload_group()->update_cpu_time(delta);
+    if (resource_ctx_ != nullptr && resource_ctx_->workload_group() != nullptr) {
+        resource_ctx_->workload_group()->update_cpu_time(delta);
     }
 }
 

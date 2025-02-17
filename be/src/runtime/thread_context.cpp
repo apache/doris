@@ -64,8 +64,7 @@ SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceConte
         old_resource_ctx_ = thread_context()->resource_ctx();
         thread_context()->resource_ctx_ = rc;
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
-                rc->memory_context()->mem_tracker(),
-                rc->workload_group_context()->workload_group());
+                rc->memory_context()->mem_tracker(), rc->workload_group());
     }
 }
 
