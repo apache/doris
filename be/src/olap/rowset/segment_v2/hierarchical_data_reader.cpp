@@ -194,7 +194,8 @@ Status HierarchicalDataReader::_process_nested_columns(
     // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
     // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
     for (const auto& entry : nested_subcolumns) {
-        MutableColumnPtr nested_object = ColumnObject::create(true);
+        MutableColumnPtr nested_object =
+                ColumnObject::create(container_variant.max_subcolumns_count());
         const auto* base_array =
                 check_and_get_column<ColumnArray>(*remove_nullable(entry.second[0].column));
         MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
@@ -238,13 +239,13 @@ Status HierarchicalDataReader::_process_nested_columns(
         parent_path.unset_nested();
         DCHECK(!parent_path.has_nested_part());
         container_variant.add_sub_column(parent_path, array->assume_mutable(),
-                                         ColumnObject::NESTED_TYPE);
+                                         container_variant.NESTED_TYPE);
     }
     return Status::OK();
 }
 
 Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& container,
-                                               size_t nrows) {
+                                               size_t nrows, int32_t max_subcolumns_count) {
     using namespace vectorized;
 
     // build variant as container
@@ -262,12 +263,13 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
         MutableColumnPtr column = _root_reader->column->get_ptr();
         // container_variant.add_sub_column({}, std::move(column), _root_reader->type);
         DCHECK(column->size() == nrows);
-        container = ColumnObject::create(_root_reader->type, std::move(column));
+        container =
+                ColumnObject::create(max_subcolumns_count, _root_reader->type, std::move(column));
     } else {
         auto root_type =
                 vectorized::DataTypeFactory::instance().create_data_type(TypeIndex::Nothing, false);
         auto column = vectorized::ColumnNothing::create(nrows);
-        container = ColumnObject::create(root_type, std::move(column));
+        container = ColumnObject::create(max_subcolumns_count, root_type, std::move(column));
     }
 
     auto& container_variant = assert_cast<ColumnObject&>(*container);

@@ -3737,6 +3737,12 @@ public class Env {
             sb.append(olapTable.variantEnableFlattenNested()).append("\"");
         }
 
+        // variant max subcolumns count
+        if (olapTable.getVariantMaxSubcolumnsCount() != 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT).append("\" = \"");
+            sb.append(olapTable.getVariantMaxSubcolumnsCount()).append("\"");
+        }
+
         // binlog
         if (Config.enable_feature_binlog) {
             BinlogConfig binlogConfig = olapTable.getBinlogConfig();

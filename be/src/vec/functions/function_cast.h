@@ -1946,12 +1946,13 @@ private:
         static Status execute(FunctionContext* context, Block& block,
                               const ColumnNumbers& arguments, const uint32_t result,
                               size_t input_rows_count) {
-            // auto& data_type_to = block.get_by_position(result).type;
+            auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
             // set variant root column/type to from column/type
-            auto variant = ColumnObject::create(true /*always nullable*/);
+            const auto& data_type_object = assert_cast<const DataTypeObject&>(*data_type_to);
+            auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
             variant->create_root(from_type, col_from->assume_mutable());
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
@@ -2265,10 +2266,10 @@ private:
 
         // variant needs to be judged first
         if (to_type->get_type_id() == TypeIndex::VARIANT) {
-            return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
+            return create_variant_wrapper(from_type, assert_cast<const DataTypeObject&>(*to_type));
         }
         if (from_type->get_type_id() == TypeIndex::VARIANT) {
-            return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
+            return create_variant_wrapper(assert_cast<const DataTypeObject&>(*from_type), to_type);
         }
 
         switch (from_type->get_type_id()) {

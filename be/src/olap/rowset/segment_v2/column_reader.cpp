@@ -331,7 +331,21 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
     for (const ColumnMetaPB& column_pb : footer.columns()) {
-        if (column_pb.unique_id() != self_column_pb.unique_id()) {
+        // Find all columns belonging to the current variant column
+        // 1. not the variant column
+        if (!column_pb.has_column_path_info()) {
+            continue;
+        }
+
+        // 2. other variant root columns
+        if (column_pb.type() == (int)FieldType::OLAP_FIELD_TYPE_VARIANT &&
+            column_pb.unique_id() != self_column_pb.unique_id()) {
+            continue;
+        }
+
+        // 3. other variant's subcolumns
+        if (column_pb.type() != (int)FieldType::OLAP_FIELD_TYPE_VARIANT &&
+            column_pb.column_path_info().parrent_column_unique_id() != self_column_pb.unique_id()) {
             continue;
         }
         DCHECK(column_pb.has_column_path_info());

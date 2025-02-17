@@ -579,11 +579,14 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _sparse_cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
         _num_sparse_columns++;
     }
+    if (column.has_variant_max_subcolumns_count()) {
+        _variant_max_subcolumns_count = column.variant_max_subcolumns_count();
+    }
 }
 
-TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
-                                                              const std::vector<std::string>& paths,
-                                                              int32_t parent_unique_id) {
+TabletColumn TabletColumn::create_materialized_variant_column(
+        const std::string& root, const std::vector<std::string>& paths, int32_t parent_unique_id,
+        int32_t variant_max_subcolumns_count) {
     TabletColumn subcol;
     subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     subcol.set_is_nullable(true);
@@ -592,6 +595,7 @@ TabletColumn TabletColumn::create_materialized_variant_column(const std::string&
     vectorized::PathInData path(root, paths);
     subcol.set_path_info(path);
     subcol.set_name(path.get_path());
+    subcol.set_variant_max_subcolumns_count(variant_max_subcolumns_count);
     return subcol;
 }
 
@@ -656,6 +660,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         ColumnPB* sparse_column = column->add_sparse_columns();
         col->to_schema_pb(sparse_column);
     }
+    column->set_variant_max_subcolumns_count(_variant_max_subcolumns_count);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
