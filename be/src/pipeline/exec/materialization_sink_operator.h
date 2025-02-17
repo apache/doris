@@ -37,7 +37,8 @@ struct FetchRpcStruct {
 };
 
 class MaterializationSinkOperatorX;
-class MaterializationSinkLocalState final : public PipelineXSinkLocalState<DataQueueSharedState> {
+class MaterializationSinkLocalState final
+        : public PipelineXSinkLocalState<MaterializationSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(MaterializationSinkLocalState);
     MaterializationSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -47,7 +48,7 @@ public:
 
 private:
     friend class MaterializationSinkOperatorX;
-    using Base = PipelineXSinkLocalState<DataQueueSharedState>;
+    using Base = PipelineXSinkLocalState<MaterializationSharedState>;
     using Parent = MaterializationSinkOperatorX;
 };
 
@@ -69,14 +70,9 @@ public:
 
 private:
     Status _create_muiltget_result(const vectorized::Columns& columns);
-    Status _merge_muilt_respose(std::vector<brpc::Controller>& cntls);
-
-    std::map<int64_t, FetchRpcStruct> _rpc_struct_map;
 
     /// Materialized slot by this node. The i-th result expr list refers to a slot of RowId
     vectorized::VExprContextSPtrs _rowid_exprs;
-    std::vector<std::vector<uint64_t>> _block_order_results;
-
     std::vector<bool> _fetch_row_stores;
 };
 

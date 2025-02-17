@@ -30,10 +30,11 @@ class RuntimeState;
 namespace pipeline {
 
 class MaterializationSourceOperatorX;
-class MaterializationSourceLocalState final : public PipelineXLocalState<DataQueueSharedState> {
+class MaterializationSourceLocalState final
+        : public PipelineXLocalState<MaterializationSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(MaterializationSourceLocalState);
-    using Base = PipelineXLocalState<DataQueueSharedState>;
+    using Base = PipelineXLocalState<MaterializationSharedState>;
     using Parent = MaterializationSourceOperatorX;
     MaterializationSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : Base(state, parent) {};

@@ -209,11 +209,11 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
 
         RETURN_IF_ERROR(_create_muiltget_result(columns));
 
-        bthread::CountdownEvent counter(_rpc_struct_map.size());
-        std::vector<brpc::Controller> cntls(_rpc_struct_map.size());
+        bthread::CountdownEvent counter(local_state._shared_state->rpc_struct_map.size());
+        std::vector<brpc::Controller> cntls(local_state._shared_state->rpc_struct_map.size());
         size_t i = 0;
 
-        for (auto& [_, rpc_struct] : _rpc_struct_map) {
+        for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             cntls[i].set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
             auto callback = brpc::NewCallback(fetch_callback, &counter);
             rpc_struct.stub->multiget_data_v2(&cntls[i], &rpc_struct.request, &rpc_struct.response,
@@ -222,6 +222,8 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         }
 
         counter.wait();
+
+        RETURN_IF_ERROR(local_state._shared_state->merge_multi_response(cntls));
     }
 
     if (UNLIKELY(eos)) {

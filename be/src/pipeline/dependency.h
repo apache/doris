@@ -872,5 +872,16 @@ class QueryGlobalDependency final : public Dependency {
     ~QueryGlobalDependency() override = default;
     Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
 };
+
+struct MaterializationSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(MaterializationSharedState)
+public:
+    MaterializationSharedState() = default;
+
+    Status merge_multi_response(std::vector<brpc::Controller>& cntls);
+
+    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
+    std::vector<std::vector<uint64_t>> block_order_results;
+};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

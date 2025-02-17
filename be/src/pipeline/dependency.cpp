@@ -456,4 +456,42 @@ void AggSharedState::refresh_top_limit(size_t row_id,
     limit_columns_min = limit_heap.top()._row_id;
 }
 
+Status MaterializationSharedState::merge_multi_response(std::vector<brpc::Controller>& cntls) {
+    for (const auto& cntl : cntls) {
+        if (cntl.Failed()) {
+            LOG(WARNING) << "Failed to fetch meet rpc error:" << cntl.ErrorText()
+                         << ", host:" << cntl.remote_side();
+            return Status::InternalError(cntl.ErrorText());
+        }
+    }
+
+    std::vector<vectorized::MutableBlock> _rest_blocks(block_order_results.size());
+    std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
+    for (int i = 0; i < block_order_results.size(); ++i) {
+        for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+            vectorized::Block partial_block;
+            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
+
+            if (!partial_block.is_empty_column()) {
+                if (!_rest_blocks[i].columns()) {
+                    _rest_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
+                }
+                _block_maps.emplace(backend_id, std::make_pair(std::move(partial_block), 0));
+            }
+        }
+
+        for (int j = 0; j < block_order_results[i].size(); ++j) {
+            auto& source_block_rows = _block_maps[block_order_results[i][j]];
+            DCHECK(source_block_rows.second < source_block_rows.first.rows());
+            for (int k = 0; k < _rest_blocks[i].columns(); ++k) {
+                _rest_blocks[i].get_column_by_position(k)->insert_from(
+                        *source_block_rows.first.get_by_position(k).column,
+                        source_block_rows.second);
+            }
+            source_block_rows.second++;
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace doris::pipeline
