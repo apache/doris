@@ -40,11 +40,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  *  LogicalLeftOuterJoin(hashConjuncts:t1.a=t2.a)
@@ -102,10 +98,15 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
         if (!splitExpr.nullable()) {
             return null;
         }
+        // avoid duplicate application of rules
+        Expression isNotNull = new Not(new IsNull(splitExpr));
+        if (primarySide instanceof LogicalFilter
+                && ((LogicalFilter<?>) primarySide).getConjuncts().contains(isNotNull)) {
+            return null;
+        }
 
         // is not null side construct
-        LogicalFilter<Plan> isNotNullFilter = new LogicalFilter<>(
-                ImmutableSet.of(new Not(new IsNull(splitExpr))), primarySide);
+        LogicalFilter<Plan> isNotNullFilter = new LogicalFilter<>(ImmutableSet.of(isNotNull), primarySide);
         LogicalJoin<Plan, Plan> newJoin;
         if (isLeftJoin) {
             newJoin = join.withChildren(ImmutableList.of(isNotNullFilter, associatedSide));
@@ -113,23 +114,6 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
             newJoin = join.withChildren(ImmutableList.of(associatedSide, isNotNullFilter));
         }
         Plan deepCopyJoin = LogicalPlanDeepCopier.INSTANCE.deepCopy(newJoin, new DeepCopierContext());
-
-        // avoid duplicate application of rules
-        if (primarySide instanceof LogicalFilter) {
-            int primaryIndex = isLeftJoin ? 0 : 1;
-            Map<Expression, Expression> newJoinOutputToOriginJoinOutput = new HashMap<>();
-            for (int i = 0; i < primarySide.getOutput().size(); ++i) {
-                newJoinOutputToOriginJoinOutput.put(deepCopyJoin.child(primaryIndex).getOutput().get(i),
-                        primarySide.getOutput().get(i));
-            }
-            Set<Expression> conjuncts = ((LogicalFilter<Plan>) deepCopyJoin.child(primaryIndex)).getConjuncts();
-            Set<Expression> replacedConjuncts = conjuncts.stream()
-                    .map(c -> c.rewriteUp(e -> newJoinOutputToOriginJoinOutput.getOrDefault(e, e)))
-                    .collect(Collectors.toSet());
-            if (((LogicalFilter<?>) primarySide).getConjuncts().equals(replacedConjuncts)) {
-                return null;
-            }
-        }
 
         // is null side construct
         LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(splitExpr)), primarySide);

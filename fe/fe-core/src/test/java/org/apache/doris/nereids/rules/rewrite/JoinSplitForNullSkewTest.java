@@ -168,7 +168,7 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .analyze("select /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ t1.dt,t1.b,t2.a,t2.b from split_join_for_null_skew_t t1 left join split_join_for_null_skew_t t2 on t1.a=t2.a where t1.a is not null order by 1,2,3,4")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalUnion(any(), any()));
+                .nonMatch(logicalUnion());
     }
 
     @Test
