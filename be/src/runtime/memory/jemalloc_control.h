@@ -34,8 +34,6 @@ namespace doris {
 
 class JemallocControl {
 public:
-    static void refresh_allocator_mem();
-
     static inline int64_t get_tc_metrics(const std::string& name) {
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -91,8 +89,10 @@ public:
     // here add a total size limit.
     // only free the thread cache of the current thread, which will be fast.
     static void je_thread_tcache_flush();
+
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
+    static void refresh_allocator_mem();
 
     static inline size_t je_cache_bytes() {
         return je_cache_bytes_.load(std::memory_order_relaxed);

@@ -130,11 +130,6 @@ void JemallocControl::je_decay_all_arena_dirty_pages() {
     action_jemallctl(fmt::format("arena.{}.decay", MALLCTL_ARENAS_ALL));
 }
 
-// the limit of `tcache` is the number of pages, not the total number of page bytes.
-// `tcache` has two cleaning opportunities: 1. the number of memory alloc and releases reaches a certain number,
-// recycle pages that has not been used for a long time; 2. recycle all `tcache` when the thread exits.
-// here add a total size limit.
-// only free the thread cache of the current thread, which will be fast.
 void JemallocControl::je_thread_tcache_flush() {
     constexpr size_t TCACHE_LIMIT = (1ULL << 30); // 1G
     if (je_tcache_mem() > TCACHE_LIMIT) {
@@ -143,17 +138,18 @@ void JemallocControl::je_thread_tcache_flush() {
 }
 
 #else
-void action_jemallctl(const std::string& name) {}
-int64_t get_je_all_arena_metrics(const std::string& name) {
+void JemallocControl::action_jemallctl(const std::string& name) {}
+int64_t JemallocControl::get_je_all_arena_metrics(const std::string& name) {
     return 0;
 }
-int64_t get_je_all_arena_extents_metrics(int64_t page_size_index, const std::string& extent_type) {
+int64_t JemallocControl::get_je_all_arena_extents_metrics(int64_t page_size_index,
+                                                          const std::string& extent_type) {
     return 0;
 }
-void je_purge_all_arena_dirty_pages() {}
-void je_reset_all_arena_dirty_decay_ms(ssize_t dirty_decay_ms) {}
-void je_decay_all_arena_dirty_pages() {}
-void je_thread_tcache_flush() {}
+void JemallocControl::je_purge_all_arena_dirty_pages() {}
+void JemallocControl::je_reset_all_arena_dirty_decay_ms(ssize_t dirty_decay_ms) {}
+void JemallocControl::je_decay_all_arena_dirty_pages() {}
+void JemallocControl::je_thread_tcache_flush() {}
 #endif
 
 } // namespace doris
