@@ -118,4 +118,154 @@ suite("split_join_for_null_skew") {
     3 asc
     LIMIT
     10000;"""
+
+    sql "drop table if exists t3"
+    sql """
+    CREATE TABLE t3 (
+        x INT NULL,
+        y INT NOT NULL,
+        z VARCHAR(10),
+        dt DATETIME
+    ) DISTRIBUTED BY HASH(x) PROPERTIES("replication_num"="1");
+    """
+
+    sql """
+    INSERT INTO t3 (x, y, z, dt) VALUES
+    (1, 200, 'apple', '2023-01-01 10:00:00'),
+    (2, 201, 'banana', '2023-01-02 11:00:00'),
+    (NULL, 202, 'cherry', '2023-01-03 12:00:00'),
+    (4, 203, NULL, '2023-01-04 13:00:00'),
+    (5, 204, 'elderberry', '2023-01-05 14:00:00');
+    """
+    sql "drop table if exists t4"
+    sql """
+    CREATE TABLE t4 (
+        a INT NULL,
+        b INT NOT NULL,
+        c VARCHAR(10),
+        d DATE
+    ) DISTRIBUTED BY HASH(a) PROPERTIES("replication_num"="1");
+    """
+
+    sql """
+    INSERT INTO t4 (a, b, c, d) VALUES
+    (1, 300, 'apple', '2023-01-01'),
+    (2, 301, 'banana', '2023-01-02'),
+    (NULL, 302, 'cherry', '2023-01-03'),
+    (4, 303, NULL, '2023-01-04'),
+    (5, 304, 'elderberry', '2023-01-05');
+    """
+
+    qt_multi_left_join_and_non_equal """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t1.b, t2.c, t3.z, t4.d
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN split_join_for_null_skew_t t2 ON t1.a = t2.a AND t1.b < t2.b
+    LEFT JOIN t3 ON t1.a = t3.x AND t3.y > 200
+    LEFT JOIN t4 ON t1.d = t4.d
+    ORDER BY 1,2,3,4,5;
+    """
+
+    qt_multi_right_join_and_non_equal """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t2.b, t3.x, t4.c
+    FROM split_join_for_null_skew_t t1
+    RIGHT JOIN t3 ON t1.a = t3.x
+    RIGHT JOIN t4 ON t3.z = t4.c
+    RIGHT JOIN split_join_for_null_skew_t t2 ON t4.a = t2.a
+    ORDER BY 1,2,3,4;
+    """
+    qt_mixed_join_types """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t2.b, t3.z, t4.d
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a = t3.x
+    RIGHT JOIN t4 ON t1.d = t4.d
+    LEFT JOIN split_join_for_null_skew_t t2 ON t4.a = t2.a
+    ORDER BY 1,2,3,4;
+    """
+
+    qt_non_equi_join_chain """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t2.b, t3.y, t4.c
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a < t3.x
+    LEFT JOIN t4 ON t3.y > t4.b
+    LEFT JOIN split_join_for_null_skew_t t2 ON t4.a = t2.a
+    ORDER BY 1,2,3,4;
+    """
+
+    qt_mixed_inner_left """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t2.b, t3.z, t4.d
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a = t3.x
+    INNER JOIN t4 ON t1.d = t4.d
+    LEFT JOIN split_join_for_null_skew_t t2 ON t4.a = t2.a
+    ORDER BY 1,2,3,4;
+    """
+
+    qt_mixed_inner_right """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t2.b, t3.z, t4.d
+    FROM split_join_for_null_skew_t t1
+    RIGHT JOIN t3 ON t1.a = t3.x
+    INNER JOIN t4 ON t3.z = t4.c
+    RIGHT JOIN split_join_for_null_skew_t t2 ON t4.a = t2.a
+    ORDER BY 1,2,3,4;
+    """
+
+    qt_join_with_agg """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, AVG(t3.y)
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a = t3.x
+    LEFT JOIN t4 ON t3.x = t4.a
+    GROUP BY t1.a
+    ORDER BY 1,2;
+    """
+
+    qt_join_with_window """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t2.b, 
+        ROW_NUMBER() OVER (PARTITION BY t1.a ORDER BY t2.dt)
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN split_join_for_null_skew_t t2 ON t1.a = t2.a
+    ORDER BY 1,2,3;
+    """
+
+    qt_join_with_sort_filter """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t4.b, t3.z
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a = t3.x
+    RIGHT JOIN t4 ON t3.z = t4.c
+    WHERE t4.b > 300
+    ORDER BY t1.a DESC, t4.b;
+    """
+
+    qt_multi_column_expr_join """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t1.b, t3.x, t3.y
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a + t3.x = 10 AND t1.b < t3.y
+    ORDER BY 1,2,3,4;
+    """
+
+    qt_mixed_left_right_condition """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t4.b, t3.z
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON t1.a = t3.x AND t3.y > t1.b
+    RIGHT JOIN t4 ON t1.d = t4.d AND t4.a = t3.x
+    ORDER BY 1,2,3;
+    """
+
+    qt_complex_expr_join """
+    SELECT /*+use_cbo_rule(JOIN_SPLIT_FOR_NULL_SKEW)*/ 
+        t1.a, t1.b, t3.z
+    FROM split_join_for_null_skew_t t1
+    LEFT JOIN t3 ON COALESCE(t1.a, 0) = COALESCE(t3.x, 0)
+    ORDER BY 1,2,3;
+    """
 }
