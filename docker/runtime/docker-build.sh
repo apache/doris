@@ -100,8 +100,8 @@ mv -f apache-doris-${version}-bin-${url_arch}/be be/resource/$sub_path/apache-do
 mv -f apache-doris-${version}-bin-${url_arch}/ms ms/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
 mv -f apache-doris-${version}-bin-${url_arch}/extensions broker/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
 
-echo "docker build base iamge,tag=selectdb/base:latest"
-cd base-image/ && docker build -t selectdb/base:latest -f Dockerfile_base .
+echo "docker build base iamge,tag=apache/doris:base-latest"
+cd base-image/ && docker build -t apache/doris:base-latest -f Dockerfile_base .
 cd -
 
 echo "docker build fe image,tag=doris.fe:${version}"
