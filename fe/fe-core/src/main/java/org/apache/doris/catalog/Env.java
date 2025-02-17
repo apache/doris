@@ -200,6 +200,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
@@ -5696,6 +5697,10 @@ public class Env {
      */
     public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
         this.alter.processAlterSystem(stmt);
+    }
+
+    public void alterSystem(AlterSystemCommand command) throws UserException {
+        this.alter.processAlterSystem(command);
     }
 
     public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {

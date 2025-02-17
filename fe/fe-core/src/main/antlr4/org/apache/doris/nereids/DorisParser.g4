@@ -246,6 +246,10 @@ supportedAlterStatement
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+    | ALTER SYSTEM ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
+            properties=propertyClause?                                                      #addBackendClause
+    | ALTER SYSTEM (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
+            (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBackendClause
 
     ;
 
@@ -634,11 +638,7 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
-        properties=propertyClause?                                                  #addBackendClause
-    | (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBackendClause
-    | DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+    : DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #decommissionBackendClause
     | ADD OBSERVER hostPort=STRING_LITERAL                                          #addObserverClause
     | DROP OBSERVER hostPort=STRING_LITERAL                                         #dropObserverClause
