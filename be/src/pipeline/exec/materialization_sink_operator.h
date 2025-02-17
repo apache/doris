@@ -28,13 +28,6 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-class DataQueue;
-
-struct FetchRpcStruct {
-    std::shared_ptr<PBackendService_Stub> stub;
-    PMultiGetRequestV2 request;
-    PMultiGetResponseV2 response;
-};
 
 class MaterializationSinkOperatorX;
 class MaterializationSinkLocalState final
@@ -69,8 +62,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
-    Status _create_muiltget_result(const vectorized::Columns& columns);
-
     /// Materialized slot by this node. The i-th result expr list refers to a slot of RowId
     vectorized::VExprContextSPtrs _rowid_exprs;
     std::vector<bool> _fetch_row_stores;

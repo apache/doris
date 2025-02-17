@@ -465,7 +465,11 @@ Status MaterializationSharedState::merge_multi_response(std::vector<brpc::Contro
         }
     }
 
-    std::vector<vectorized::MutableBlock> _rest_blocks(block_order_results.size());
+    // init the rest_blocks
+    if (rest_blocks.empty()) {
+        rest_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
+    }
+
     std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
@@ -473,8 +477,8 @@ Status MaterializationSharedState::merge_multi_response(std::vector<brpc::Contro
             RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
 
             if (!partial_block.is_empty_column()) {
-                if (!_rest_blocks[i].columns()) {
-                    _rest_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
+                if (!rest_blocks[i].columns()) {
+                    rest_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
                 }
                 _block_maps.emplace(backend_id, std::make_pair(std::move(partial_block), 0));
             }
@@ -483,14 +487,57 @@ Status MaterializationSharedState::merge_multi_response(std::vector<brpc::Contro
         for (int j = 0; j < block_order_results[i].size(); ++j) {
             auto& source_block_rows = _block_maps[block_order_results[i][j]];
             DCHECK(source_block_rows.second < source_block_rows.first.rows());
-            for (int k = 0; k < _rest_blocks[i].columns(); ++k) {
-                _rest_blocks[i].get_column_by_position(k)->insert_from(
+            for (int k = 0; k < rest_blocks[i].columns(); ++k) {
+                rest_blocks[i].get_column_by_position(k)->insert_from(
                         *source_block_rows.first.get_by_position(k).column,
                         source_block_rows.second);
             }
             source_block_rows.second++;
         }
     }
+    return Status::OK();
+}
+
+Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
+                                                          bool eos) {
+    const auto rows = columns[0]->size();
+    block_order_results.resize(columns.size());
+
+    for (int i = 0; i < columns.size(); ++i) {
+        const vectorized::ColumnString* column_rowid = nullptr;
+        auto& column = columns[i];
+        if (auto column_ptr = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            column_rowid = assert_cast<const vectorized::ColumnString*>(
+                    column_ptr->get_nested_column_ptr().get());
+        } else {
+            column_rowid = assert_cast<const vectorized::ColumnString*>(column.get());
+        }
+
+        const GlobalRowLoacationV2* row_locations =
+                reinterpret_cast<const GlobalRowLoacationV2*>(column_rowid->get_chars().data());
+        auto& block_order = block_order_results[i];
+        block_order.resize(rows);
+
+        for (int j = 0; j < rows; ++j) {
+            GlobalRowLoacationV2 row_location = row_locations[j];
+            auto rpc_struct = rpc_struct_map.find(row_location.backend_id);
+            if (UNLIKELY(rpc_struct == rpc_struct_map.end())) {
+                return Status::InternalError(
+                        "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
+                        row_location.backend_id);
+            }
+            rpc_struct->second.request.mutable_schemas(i)->add_row_id(row_location.row_id);
+            rpc_struct->second.request.mutable_schemas(i)->add_file_id(row_location.file_id);
+            block_order[j++] = row_location.backend_id;
+        }
+    }
+
+    if (eos) {
+        for (auto& [_, rpc_struct] : rpc_struct_map) {
+            rpc_struct.request.set_gc_id_map(true);
+        }
+    }
+
     return Status::OK();
 }
 

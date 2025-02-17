@@ -67,10 +67,7 @@ public:
     const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 
 private:
-    bool _has_data(RuntimeState* state) const {
-        auto& local_state = get_local_state(state);
-        return local_state._shared_state->data_queue.remaining_has_data();
-    }
+    bool _has_data(RuntimeState* state) const { auto& local_state = get_local_state(state); }
 };
 
 } // namespace pipeline

@@ -36,15 +36,10 @@
 namespace doris {
 namespace pipeline {
 
-static void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
-}
-
 Status MaterializationSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _shared_state->data_queue.set_sink_dependency(_dependency, 0);
     return Status::OK();
 }
 
@@ -52,12 +47,12 @@ Status MaterializationSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    _shared_state->data_queue.set_max_blocks_in_sub_queue(state->data_queue_max_blocks());
     return Status::OK();
 }
 
 Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                                           doris::RuntimeState* state) {
+    auto& local_state = get_local_state(state);
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.materialization_node);
     {
@@ -104,9 +99,10 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
             return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
                                          node_info.host, node_info.async_internal_port);
         }
-        _rpc_struct_map.emplace(node_info.id, FetchRpcStruct {.stub = std::move(client),
-                                                              .request = multi_get_request,
-                                                              .response = {}});
+        local_state._shared_state->rpc_struct_map.emplace(
+                node_info.id,
+                FetchRpcStruct {
+                        .stub = std::move(client), .request = multi_get_request, .response = {}});
     }
 
     return Status::OK();
@@ -119,87 +115,13 @@ Status MaterializationSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MaterializationSinkOperatorX::_create_muiltget_result(const vectorized::Columns& columns) {
-    const auto rows = columns[0]->size();
-    _block_order_results.resize(columns.size());
-
-    for (int i = 0; i < columns.size(); ++i) {
-        const vectorized::ColumnString* column_rowid = nullptr;
-        auto& column = columns[i];
-        if (auto column_ptr = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            column_rowid = assert_cast<const vectorized::ColumnString*>(
-                    column_ptr->get_nested_column_ptr().get());
-        } else {
-            column_rowid = assert_cast<const vectorized::ColumnString*>(column.get());
-        }
-
-        const GlobalRowLoacationV2* row_locations =
-                reinterpret_cast<const GlobalRowLoacationV2*>(column_rowid->get_chars().data());
-        auto& block_order = _block_order_results[i];
-        block_order.resize(rows);
-
-        for (int j = 0; j < rows; ++j) {
-            GlobalRowLoacationV2 row_location = row_locations[j];
-            auto rpc_struct = _rpc_struct_map.find(row_location.backend_id);
-            if (UNLIKELY(rpc_struct == _rpc_struct_map.end())) {
-                return Status::InternalError(
-                        "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
-                        row_location.backend_id);
-            }
-            rpc_struct->second.request.mutable_schemas(i)->add_row_id(row_location.row_id);
-            rpc_struct->second.request.mutable_schemas(i)->add_file_id(row_location.file_id);
-            block_order[j++] = row_location.backend_id;
-        }
-    }
-
-    return Status::OK();
-}
-
-Status MaterializationSinkOperatorX::_merge_muilt_respose(std::vector<brpc::Controller>& cntls) {
-    for (const auto& cntl : cntls) {
-        if (cntl.Failed()) {
-            LOG(WARNING) << "Failed to fetch meet rpc error:" << cntl.ErrorText()
-                         << ", host:" << cntl.remote_side();
-            return Status::InternalError(cntl.ErrorText());
-        }
-    }
-
-    std::vector<vectorized::MutableBlock> _rest_blocks(_block_order_results.size());
-    std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
-    for (int i = 0; i < _block_order_results.size(); ++i) {
-        for (auto& [backend_id, rpc_struct] : _rpc_struct_map) {
-            vectorized::Block partial_block;
-            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
-
-            if (!partial_block.is_empty_column()) {
-                if (!_rest_blocks[i].columns()) {
-                    _rest_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
-                }
-                _block_maps.emplace(backend_id, std::make_pair(std::move(partial_block), 0));
-            }
-        }
-
-        for (int j = 0; j < _block_order_results[i].size(); ++j) {
-            auto& source_block_rows = _block_maps[_block_order_results[i][j]];
-            DCHECK(source_block_rows.second < source_block_rows.first.rows());
-            for (int k = 0; k < _rest_blocks[i].columns(); ++k) {
-                _rest_blocks[i].get_column_by_position(k)->insert_from(
-                        *source_block_rows.first.get_by_position(k).column,
-                        source_block_rows.second);
-            }
-            source_block_rows.second++;
-        }
-    }
-    return Status::OK();
-}
-
 Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                           bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    if (in_block->rows() > 0) {
+    if (in_block->rows() > 0 || eos) {
         vectorized::Columns columns;
         for (auto& _rowid_expr : _rowid_exprs) {
             int result_column_id = -1;
@@ -207,7 +129,7 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
             columns.emplace_back(in_block->get_by_position(result_column_id).column);
         }
 
-        RETURN_IF_ERROR(_create_muiltget_result(columns));
+        RETURN_IF_ERROR(local_state._shared_state->create_muiltget_result(columns, eos));
 
         bthread::CountdownEvent counter(local_state._shared_state->rpc_struct_map.size());
         std::vector<brpc::Controller> cntls(local_state._shared_state->rpc_struct_map.size());
@@ -224,10 +146,6 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         counter.wait();
 
         RETURN_IF_ERROR(local_state._shared_state->merge_multi_response(cntls));
-    }
-
-    if (UNLIKELY(eos)) {
-        local_state._shared_state->data_queue.set_finish(0);
     }
     return Status::OK();
 }

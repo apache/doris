@@ -173,12 +173,12 @@ public:
     CountedFinishDependency(int id, int node_id, std::string name)
             : Dependency(id, node_id, std::move(name), true) {}
 
-    void add() {
+    void add(uint32_t count = 1) {
         std::unique_lock<std::mutex> l(_mtx);
         if (!_counter) {
             block();
         }
-        _counter++;
+        _counter += count;
     }
 
     void sub() {
@@ -873,13 +873,21 @@ class QueryGlobalDependency final : public Dependency {
     Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
 };
 
+struct FetchRpcStruct {
+    std::shared_ptr<PBackendService_Stub> stub;
+    PMultiGetRequestV2 request;
+    PMultiGetResponseV2 response;
+};
+
 struct MaterializationSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(MaterializationSharedState)
 public:
     MaterializationSharedState() = default;
 
     Status merge_multi_response(std::vector<brpc::Controller>& cntls);
+    Status create_muiltget_result(const vectorized::Columns& columns, bool eos);
 
+    std::vector<vectorized::MutableBlock> rest_blocks;
     std::map<int64_t, FetchRpcStruct> rpc_struct_map;
     std::vector<std::vector<uint64_t>> block_order_results;
 };
