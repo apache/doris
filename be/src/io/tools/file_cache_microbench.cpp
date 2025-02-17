@@ -368,12 +368,12 @@ std::string get_usage(const std::string& progname) {
     ss << "  POST /submit_job\n";
     ss << "    Submit a job with the following JSON body:\n";
     ss << "    {\n";
-    ss << "      \"file_size_bytes\": <size>,           // Number of bytes to write per segment file\n";
+    ss << "      \"size_bytes_perfile\": <size>,           // Number of bytes to write per segment file\n";
     ss << "      \"write_iops\": <limit>,               // IOPS limit for writing per segment files\n";
     ss << "      \"read_iops\": <limit>,                // IOPS limit for reading per segment files\n";
     ss << "      \"num_threads\": <count>,              // Number of threads in the thread pool, default 200\n";
-    ss << "      \"segment_num\": <count>,              // Number of segments to write/read\n";
-    ss << "      \"segment_prefix\": \"<prefix>\",      // Prefix for segment files\n";
+    ss << "      \"num_keys\": <count>,                 // Number of segments to write/read\n";
+    ss << "      \"key_prefix\": \"<prefix>\",      // Prefix for segment files\n";
     ss << "      \"write_batch_size\": <size>,          // Size of data to write in each write operation\n";
     ss << "      \"read_offset\": [<left>, <right>],    // Range for reading (left inclusive, right exclusive)\n";
     ss << "      \"read_length\": [<left>, <right>]     // Range for reading length (left inclusive, right exclusive)\n";
@@ -397,12 +397,12 @@ std::string get_usage(const std::string& progname) {
 
 // Job配置结构
 struct JobConfig {
-    int64_t file_size_bytes;
+    int64_t size_bytes_perfile;
     int32_t write_iops;
     int32_t read_iops;
     int32_t num_threads;
-    int32_t segment_num;
-    std::string segment_prefix;
+    int32_t num_keys;
+    std::string key_prefix;
     int64_t write_batch_size;
     int64_t read_offset_left;
     int64_t read_offset_right;
@@ -420,18 +420,18 @@ struct JobConfig {
             throw std::runtime_error("JSON parse error");
         }
         validate(d);
-        config.segment_num = d["segment_num"].GetInt();
-        if (config.segment_num == 0) {
-            config.segment_num = 1;
+        config.num_keys = d["num_keys"].GetInt();
+        if (config.num_keys == 0) {
+            config.num_keys = 1;
         }
-        config.file_size_bytes = d["file_size_bytes"].GetInt64();
+        config.size_bytes_perfile = d["size_bytes_perfile"].GetInt64();
         config.write_iops = d["write_iops"].GetInt();
         config.read_iops = d["read_iops"].GetInt();
         config.num_threads = d["num_threads"].GetInt();
         if (config.num_threads == 0) {
             config.num_threads = 200;
         }
-        config.segment_prefix = d["segment_prefix"].GetString();
+        config.key_prefix = d["key_prefix"].GetString();
         config.write_batch_size = d["write_batch_size"].GetInt64();
         if (config.write_batch_size == 0) {
             config.write_batch_size = doris::config::s3_write_buffer_size;
@@ -463,18 +463,18 @@ struct JobConfig {
     }
 
     static void validate(const rapidjson::Document& json_data) {
-        if (!json_data.HasMember("segment_prefix") || 
-            !json_data["segment_prefix"].IsString() || 
-            strlen(json_data["segment_prefix"].GetString()) == 0) {
-            throw std::runtime_error("segment_prefix is required and cannot be empty");
+        if (!json_data.HasMember("key_prefix") || 
+            !json_data["key_prefix"].IsString() || 
+            strlen(json_data["key_prefix"].GetString()) == 0) {
+            throw std::runtime_error("key_prefix is required and cannot be empty");
         }
     }
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "file_size_bytes: " << file_size_bytes << ", write_iops: " << write_iops
+        ss << "size_bytes_perfile: " << size_bytes_perfile << ", write_iops: " << write_iops
            << ", read_iops: " << read_iops << ", num_threads: " << num_threads
-           << ", segment_num: " << segment_num << ", segment_prefix: " << segment_prefix
+           << ", num_keys: " << num_keys << ", key_prefix: " << key_prefix
            << ", more than write_batch_size: " << write_batch_size
            << " will append data to s3 writer, read_offset: [" << read_offset_left << " , "
            << read_offset_right << "), read_length: [" << read_length_left << " , "
@@ -623,7 +623,7 @@ public:
 
         // 生成多个key
         std::vector<std::string> keys;
-        keys.reserve(config.segment_num);
+        keys.reserve(config.num_keys);
 
         std::string rewrite_job_id = job_id;
         // Job Read the previously job uploaded files
@@ -633,8 +633,8 @@ public:
             for (const auto& pair : s3_file_records) {
                 const std::vector<FileInfo>& file_infos = pair.second; // 获取对应 job_id 的 FileInfo 向量
                 for (const auto& file_info : file_infos) { // 遍历每个 FileInfo
-                    if (file_info.filename.compare(0, config.segment_prefix.length(), config.segment_prefix) == 0) {
-                        // 找到以 segment_prefix 开头的文件名，替换 job_id
+                    if (file_info.filename.compare(0, config.key_prefix.length(), config.key_prefix) == 0) {
+                        // 找到以 key_prefix 开头的文件名，替换 job_id
                         rewrite_job_id = file_info.job_id; // 替换 job_id
                         found = true;
                         break; // 找到后退出内层循环
@@ -648,8 +648,8 @@ public:
         }
 
         // 继续生成 keys
-        for (int i = 0; i < config.segment_num; ++i) {
-            keys.push_back(config.segment_prefix + "/" + rewrite_job_id + "_" + std::to_string(i));
+        for (int i = 0; i < config.num_keys; ++i) {
+            keys.push_back(config.key_prefix + "/" + rewrite_job_id + "_" + std::to_string(i));
         }
 
         if (config.write_iops) {
@@ -689,8 +689,8 @@ private:
 
         // 创建速率限制器和统计器
         std::vector<std::shared_ptr<IopsRateLimiter>> write_limiters;
-        write_limiters.reserve(config.segment_num);
-        for (int i = 0; i < config.segment_num; ++i) {
+        write_limiters.reserve(config.num_keys);
+        for (int i = 0; i < config.num_keys; ++i) {
             write_limiters.push_back(std::make_shared<IopsRateLimiter>(config.write_iops));
         }
         auto write_stats = std::make_shared<IopsStats>();
@@ -706,7 +706,7 @@ private:
             const auto& key = keys[i];
             write_futures.push_back(write_pool.enqueue([&, key, i]() {
                 try {
-                    DataGenerator data_generator(config.file_size_bytes);
+                    DataGenerator data_generator(config.size_bytes_perfile);
                     doris::io::FileWriterOptions options;
                     options.write_file_cache = true;
                     auto writer = std::make_unique<IopsControlledS3FileWriter>(
@@ -760,7 +760,7 @@ private:
 
         // 记录写入的文件信息
         for (const auto& key : keys) {
-            size_t data_size = config.file_size_bytes;
+            size_t data_size = config.size_bytes_perfile;
             record_file_info(key, data_size, job.job_id);
         }
     }
@@ -772,9 +772,9 @@ private:
         io_ctx.file_cache_stats = &total_stats;
         ThreadPool read_pool(config.num_threads);
         std::vector<std::shared_ptr<IopsRateLimiter>> read_limiters;
-        read_limiters.reserve(config.segment_num);
+        read_limiters.reserve(config.num_keys);
         auto read_stats = std::make_shared<IopsStats>();
-        for (int i = 0; i < config.segment_num; ++i) {
+        for (int i = 0; i < config.num_keys; ++i) {
             read_limiters.push_back(std::make_shared<IopsRateLimiter>(config.read_iops));
         }
         std::atomic<int> completed_reads(0);
@@ -830,12 +830,12 @@ private:
 
                         size_t read_offset = config.read_offset_left;
                         int64_t read_length = config.read_length_left;
-                        if (read_length == -1 || read_offset + read_length > config.file_size_bytes) {
-                            read_length = config.file_size_bytes - read_offset;
+                        if (read_length == -1 || read_offset + read_length > config.size_bytes_perfile) {
+                            read_length = config.size_bytes_perfile - read_offset;
                         }
                         LOG(INFO) << "Initial read_length=" << read_length;
-                        if (read_length == -1 || read_offset + read_length > config.file_size_bytes) {
-                            read_length = config.file_size_bytes - read_offset;
+                        if (read_length == -1 || read_offset + read_length > config.size_bytes_perfile) {
+                            read_length = config.size_bytes_perfile - read_offset;
                         }
                         LOG(INFO) << "Calculated read_length=" << read_length;
                         CHECK(read_length >= 0) << "Calculated read_length is negative: " << read_length;
