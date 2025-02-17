@@ -440,6 +440,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
                                  tcolumn.children_column[i], children_column);
     }
+    if (tcolumn.column_type.__isset.variant_max_subcolumns_count) {
+        column->set_variant_max_subcolumns_count(tcolumn.column_type.variant_max_subcolumns_count);
+    }
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {

@@ -1221,8 +1221,6 @@ DECLARE_mBool(variant_use_cloud_schema_dict);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 
-DECLARE_mInt32(variant_max_subcolumns_count);
-
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table

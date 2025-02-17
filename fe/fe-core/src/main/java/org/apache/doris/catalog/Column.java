@@ -610,6 +610,10 @@ public class Column implements GsonPostProcessable {
         tColumnType.setScale(this.getScale());
 
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
+        if (this.getType().isVariantType()) {
+            ScalarType variantType = (ScalarType) this.getType();
+            tColumnType.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
+        }
 
         tColumn.setColumnType(tColumnType);
         if (null != this.aggregationType) {
@@ -832,6 +836,9 @@ public class Column implements GsonPostProcessable {
             for (Column c : childrenColumns) {
                 builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
             }
+        } else if (this.type.isVariantType()) {
+            ScalarType variantType = (ScalarType) this.getType();
+            builder.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
         }
 
         OlapFile.ColumnPB col = builder.build();

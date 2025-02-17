@@ -107,7 +107,8 @@ public:
     // add them into tablet_schema for later column indexing.
     static TabletColumn create_materialized_variant_column(const std::string& root,
                                                            const std::vector<std::string>& paths,
-                                                           int32_t parent_unique_id);
+                                                           int32_t parent_unique_id,
+                                                           int32_t max_subcolumns_count);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     size_t length() const { return _length; }
@@ -199,6 +200,11 @@ public:
         return Status::OK();
     }
 
+    void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
+        _variant_max_subcolumns_count = variant_max_subcolumns_count;
+    }
+    int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
+
 private:
     int32_t _unique_id = -1;
     std::string _col_name;
@@ -247,6 +253,7 @@ private:
     // Use shared_ptr for reuse and reducing column memory usage
     std::vector<TabletColumnPtr> _sparse_cols;
     size_t _num_sparse_columns = 0;
+    int32_t _variant_max_subcolumns_count = 0;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -582,6 +589,7 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _variant_enable_flatten_nested = false;
+
     int64_t _vl_field_mem_size {0}; // variable length field
 };
 

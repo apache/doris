@@ -163,19 +163,12 @@ public:
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Identify the column by unique id or path info
-    struct ColumnIdentifier {
-        int32_t unique_id = -1;
-        int32_t parent_unique_id = -1;
-        vectorized::PathInDataPtr path;
-        bool is_nullable = false;
-    };
     // Get the inner file column's data type
     // ignore_chidren set to false will treat field as variant
     // when it contains children with field paths.
     // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(
-            const ColumnIdentifier& identifier, bool read_flat_leaves) const;
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const TabletColumn& column,
+                                                                  bool read_flat_leaves) const;
     // Check is schema read type equals storage column type
     bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) const;
 
@@ -185,11 +178,7 @@ public:
                                     ReaderType read_type) const {
         const Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(ColumnIdentifier {.unique_id = col->unique_id(),
-                                                   .parent_unique_id = col->parent_unique_id(),
-                                                   .path = col->path(),
-                                                   .is_nullable = col->is_nullable()},
-                                 read_type != ReaderType::READER_QUERY);
+                get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
         if (storage_column_type == nullptr) {
             // Default column iterator
             return true;

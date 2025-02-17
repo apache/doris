@@ -1020,7 +1020,6 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
 DEFINE_mBool(variant_use_cloud_schema_dict, "true");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
-DEFINE_mInt32(variant_max_subcolumns_count, "5");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");

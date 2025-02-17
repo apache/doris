@@ -166,6 +166,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
+    meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
 }
 
 Status SegmentWriter::init() {

@@ -693,6 +693,8 @@ public class SessionVariable implements Serializable, Writable {
      */
     public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
 
+    public static final String GLOBAL_VARIANT_SUBCOLUMNS_COUNT = "global_variant_max_subcolumns_count";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2323,6 +2325,14 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean skipCheckingAcidVersionFile = false;
 
+    @VariableMgr.VarAttr(
+            name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
+            needForward = true,
+            checker = "checkGlobalVariantMaxSubcolumnsCount",
+            fuzzy = true
+    )
+    public int globalVariantMaxSubcolumnsCount = 5;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2362,6 +2372,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
+        this.globalVariantMaxSubcolumnsCount = random.nextInt(10);
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -3674,6 +3685,14 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkGlobalVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        int value = Integer.valueOf(variantMaxSubcolumnsCount);
+        if (value < 0 || value > 10000) {
+            throw new UnsupportedOperationException(
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + "it must between 0 and 10000");
+        }
+    }
+
     public void checkQueryTimeoutValid(String newQueryTimeout) {
         int value = Integer.valueOf(newQueryTimeout);
         if (value <= 0) {
@@ -4569,5 +4588,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
+    }
+
+    public int getGlobalVariantMaxSubcolumnsCount() {
+        return globalVariantMaxSubcolumnsCount;
     }
 }

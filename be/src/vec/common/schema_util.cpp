@@ -162,10 +162,16 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
-        // set variant root column/type to from column/type
-        auto variant = ColumnObject::create(true /*always nullable*/);
+    if (auto to_type = remove_nullable(type); WhichDataType(to_type).is_variant_type()) {
+        if (auto from_type = remove_nullable(arg.type);
+            WhichDataType(from_type).is_variant_type()) {
+            return Status::InternalError("Not support cast: from {} to {}", arg.type->get_name(),
+                                         type->get_name());
+        }
         CHECK(arg.column->is_nullable());
+        const auto& data_type_object = assert_cast<const DataTypeObject&>(*to_type);
+        auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
+
         variant->create_root(arg.type, arg.column->assume_mutable());
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
@@ -511,7 +517,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         }
 
         if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnObject::create(true);
+            variant_column = ColumnObject::create(var.max_subcolumns_count());
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
@@ -614,6 +620,7 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {SPARSE_COLUMN_PATH});
+    res.set_parent_unique_id(variant.unique_id());
 
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);

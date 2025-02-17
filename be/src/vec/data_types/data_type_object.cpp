@@ -47,10 +47,17 @@ class IColumn;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-DataTypeObject::DataTypeObject(const String& schema_format_, bool is_nullable_)
-        : schema_format(to_lower(schema_format_)), is_nullable(is_nullable_) {}
+DataTypeObject::DataTypeObject(int32_t max_subcolumns_count)
+        : _max_subcolumns_count(max_subcolumns_count) {}
 bool DataTypeObject::equals(const IDataType& rhs) const {
-    return typeid_cast<const DataTypeObject*>(&rhs) != nullptr;
+    auto rhs_type = typeid_cast<const DataTypeObject*>(&rhs);
+    if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
+        VLOG_DEBUG << "_max_subcolumns_count is" << _max_subcolumns_count
+                  << "rhs_type->variant_max_subcolumns_count()"
+                  << rhs_type->variant_max_subcolumns_count();
+        return false;
+    }
+    return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count();
 }
 
 int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
@@ -182,7 +189,6 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
         num_rows = *reinterpret_cast<const uint32_t*>(buf);
-        column_object->set_num_rows(num_rows);
         buf += sizeof(uint32_t);
     }
 
@@ -191,6 +197,12 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     MutableColumnPtr sparse_column = ColumnObject::get_sparse_column_type()->create_column();
     buf = ColumnObject::get_sparse_column_type()->deserialize(buf, &sparse_column, be_exec_version);
     column_object->set_sparse_column(std::move(sparse_column));
+
+    if (!root_added && column_object->get_subcolumn({})) {
+        column_object->get_subcolumn({})->insert_many_defaults(num_rows);
+    }
+
+    column_object->set_num_rows(num_rows);
 
     column_object->finalize();
 #ifndef NDEBUG
@@ -210,6 +222,15 @@ std::string DataTypeObject::to_string(const IColumn& column, size_t row_num) con
 void DataTypeObject::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), ostr));
+}
+
+void DataTypeObject::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->set_variant_max_subcolumns_count(_max_subcolumns_count);
+}
+
+MutableColumnPtr DataTypeObject::create_column() const {
+    return ColumnObject::create(_max_subcolumns_count);
 }
 
 } // namespace doris::vectorized
