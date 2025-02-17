@@ -510,7 +510,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                                            std::unique_lock<std::shared_mutex>& scheduler_lock) {
     if (current_scan_task &&
         (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos())) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner schduler logical error.");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
     }
 
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
@@ -535,7 +535,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
         // We need to make sure each scan operator could have at least 1 scan tasks.
         // Or this scan operator will not be re-scheduled.
         if (!_pending_scanners.empty() && _num_scheduled_scanners == 0 && _tasks_queue.empty()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner schduler logical error.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
         }
 #endif
 
@@ -563,7 +563,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                     if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
                         // This should not happen.
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                               "Scanner schduler logical error.");
+                                               "Scanner scheduler logical error.");
                     }
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
@@ -614,7 +614,7 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     if (current_scan_task != nullptr) {
         if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
             // This should not happen.
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner schduler logical error.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
         }
         return current_scan_task;
     }
