@@ -15,49 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AddBackendClause;
+import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.SystemInfoService.HostInfo;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
-import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
 
-public class AddBackendClause extends BackendClause {
-    protected Map<String, String> properties = Maps.newHashMap();
-    @Getter
+/**
+ * AddBackendOp
+ */
+public class AddBackendOp extends BackendOp {
+    protected final Map<String, String> properties;
+
     private Map<String, String> tagMap;
 
-    public AddBackendClause(List<String> hostPorts) {
-        super(hostPorts);
-    }
-
-    public AddBackendClause(List<String> hostPorts, Map<String, String> properties) {
+    public AddBackendOp(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
         this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
-        }
-    }
-
-    public AddBackendClause(List<String> ids, List<HostInfo> hostPorts,
-            Map<String, String> tagMap) {
-        super(ImmutableList.of());
-        this.ids = ids;
-        this.hostInfos = hostPorts;
-        this.tagMap = tagMap;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        super.analyze(analyzer);
+    public void validate(ConnectContext ctx) throws AnalysisException {
+        super.validate(ctx);
         tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
         if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
             throw new AnalysisException(NEED_LOCATION_TAG_MSG);
@@ -65,11 +51,6 @@ public class AddBackendClause extends BackendClause {
         if (!Config.enable_multi_tags && tagMap.size() > 1) {
             throw new AnalysisException(MUTLI_TAG_DISABLED_MSG);
         }
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
     }
 
     @Override
@@ -84,5 +65,19 @@ public class AddBackendClause extends BackendClause {
             }
         }
         return sb.toString();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new AddBackendClause(ids, hostInfos, tagMap);
+    }
+
+    public Map<String, String> getTagMap() {
+        return tagMap;
     }
 }
