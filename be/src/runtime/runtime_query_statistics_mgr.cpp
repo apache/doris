@@ -453,28 +453,6 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     }
 }
 
-void RuntimeQueryStatisticsMgr::get_metric_map(
-        std::string query_id, std::map<WorkloadMetricType, std::string>& metric_map) {
-    std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
-    if (_resource_contexts_map.find(query_id) != _resource_contexts_map.end()) {
-        auto* resource_ctx = _resource_contexts_map.at(query_id).get();
-        metric_map.emplace(
-                WorkloadMetricType::QUERY_TIME,
-                std::to_string(MonotonicMillis() - resource_ctx->task_controller()->finish_time()));
-        metric_map.emplace(WorkloadMetricType::SCAN_ROWS,
-                           std::to_string(resource_ctx->io_context()->scan_rows()));
-        metric_map.emplace(WorkloadMetricType::SCAN_BYTES,
-                           std::to_string(resource_ctx->io_context()->scan_bytes()));
-        metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES,
-                           std::to_string(resource_ctx->memory_context()->current_memory_bytes()));
-    } else {
-        metric_map.emplace(WorkloadMetricType::QUERY_TIME, "-1");
-        metric_map.emplace(WorkloadMetricType::SCAN_ROWS, "-1");
-        metric_map.emplace(WorkloadMetricType::SCAN_BYTES, "-1");
-        metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES, "-1");
-    }
-}
-
 void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
     int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
