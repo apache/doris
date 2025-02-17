@@ -5,6 +5,7 @@ import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
+import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalResultSinkToPhysicalResultSink;
@@ -28,6 +29,7 @@ public class SimpleOptimizer extends AbstractBatchJobExecutor {
                         new LogicalProjectToPhysicalProject(),
                         new LogicalTopNToPhysicalTopN(),
                         new LogicalResultSinkToPhysicalResultSink(),
+                        new LogicalLimitToPhysicalLimit(),
                         new LogicalEmptyRelationToPhysicalEmptyRelation()
                 )
         );

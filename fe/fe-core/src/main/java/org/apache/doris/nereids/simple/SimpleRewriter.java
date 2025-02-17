@@ -5,12 +5,15 @@ import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
+import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
+import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 
@@ -25,12 +28,14 @@ public class SimpleRewriter extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildRewriteJobs() {
         return jobs(
-            topDown(
+            bottomUp(
                 new LimitSortToTopN(),
                 new PushDownFilterThroughProject(),
                 new MergeProjects(),
                 new MergeFilters(),
-                new PruneOlapScanPartition()
+                new MergeLimits(),
+                new PruneOlapScanPartition(),
+                new PruneOlapScanTablet()
             ),
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
             topDown(
