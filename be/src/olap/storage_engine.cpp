@@ -1252,7 +1252,9 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
     {
-        SCOPED_TIMER(ADD_TIMER(profile, "GetStores"));
+        RuntimeProfile::Counter* getStoresCounter = profile->get_counter("GetStores");
+        DCHECK(getStoresCounter != nullptr);
+        SCOPED_TIMER(getStoresCounter);
         stores = get_stores_for_create_tablet(request.partition_id, request.storage_medium);
     }
     if (stores.empty()) {
