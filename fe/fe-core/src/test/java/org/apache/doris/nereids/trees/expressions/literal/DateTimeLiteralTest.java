@@ -93,9 +93,9 @@ class DateTimeLiteralTest {
     @Test
     void testDetermineScale() {
         int scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.0");
-        Assertions.assertEquals(0, scale);
+        Assertions.assertEquals(1, scale);
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.00000");
-        Assertions.assertEquals(0, scale);
+        Assertions.assertEquals(5, scale);
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.000001");
         Assertions.assertEquals(6, scale);
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.123456");
@@ -103,11 +103,11 @@ class DateTimeLiteralTest {
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.0001");
         Assertions.assertEquals(4, scale);
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.00010");
-        Assertions.assertEquals(4, scale);
+        Assertions.assertEquals(5, scale);
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.12010");
-        Assertions.assertEquals(4, scale);
+        Assertions.assertEquals(5, scale);
         scale = DateTimeLiteral.determineScale("2022-08-01T01:01:01.02010");
-        Assertions.assertEquals(4, scale);
+        Assertions.assertEquals(5, scale);
     }
 
     @Test

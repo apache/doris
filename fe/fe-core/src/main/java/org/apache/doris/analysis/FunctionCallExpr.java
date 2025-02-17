@@ -1978,7 +1978,11 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
-                    this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
+                    if (DateLiteral.hasMicroSecondPart(child1Result.getStringValue())) {
+                        this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
+                    } else {
+                        this.type = Type.DEFAULT_DATETIMEV2;
+                    }
                 } else {
                     this.type = Type.DATEV2;
                 }
