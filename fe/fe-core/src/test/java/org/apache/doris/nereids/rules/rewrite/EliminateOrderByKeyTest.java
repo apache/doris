@@ -141,10 +141,10 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     @Test
     void testEliminateByUniformTopN() {
         PlanChecker.from(connectContext)
-                .analyze("select 1 as c1,a,b,c from eliminate_order_by_constant_t where a=1 order by a,'abc',b,c1 limit 5")
+                .analyze("select 1 as c1,a,b,c from eliminate_order_by_constant_t where a=1 order by a,'abc',c1 limit 5")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalTopN().when(sort -> sort.getOrderKeys().size() == 1));
+                .nonMatch(logicalTopN());
     }
 
     @Test
