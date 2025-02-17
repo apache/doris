@@ -18,13 +18,14 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/If.cpp
 // and modified by Doris
 
+#include "if.h"
+
 #include <glog/logging.h>
 #include <stddef.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
-#include <ostream>
 #include <type_traits>
 #include <utility>
 
@@ -37,10 +38,8 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/pod_array_fwd.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -62,61 +61,6 @@ struct Error;
 } // namespace doris
 
 namespace doris::vectorized {
-
-template <typename Type>
-struct NumIfImpl {
-    using ArrayCond = PaddedPODArray<UInt8>;
-    using Array = PaddedPODArray<Type>;
-    using ColVecResult = ColumnVector<Type>;
-
-    static void vector_vector(const ArrayCond& cond, const Array& a, const Array& b, Block& block,
-                              uint32_t result, UInt32) {
-        size_t size = cond.size();
-        auto col_res = ColVecResult::create(size);
-        typename ColVecResult::Container& res = col_res->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            res[i] = cond[i] ? a[i] : b[i];
-        }
-        block.replace_by_position(result, std::move(col_res));
-    }
-
-    static void vector_constant(const ArrayCond& cond, const Array& a, Type b, Block& block,
-                                uint32_t result, UInt32) {
-        size_t size = cond.size();
-        auto col_res = ColVecResult::create(size);
-        typename ColVecResult::Container& res = col_res->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            res[i] = cond[i] ? a[i] : b;
-        }
-        block.replace_by_position(result, std::move(col_res));
-    }
-
-    static void constant_vector(const ArrayCond& cond, Type a, const Array& b, Block& block,
-                                uint32_t result, UInt32) {
-        size_t size = cond.size();
-        auto col_res = ColVecResult::create(size);
-        typename ColVecResult::Container& res = col_res->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            res[i] = cond[i] ? a : b[i];
-        }
-        block.replace_by_position(result, std::move(col_res));
-    }
-
-    static void constant_constant(const ArrayCond& cond, Type a, Type b, Block& block,
-                                  uint32_t result, UInt32) {
-        size_t size = cond.size();
-        auto col_res = ColVecResult::create(size);
-        typename ColVecResult::Container& res = col_res->get_data();
-
-        for (size_t i = 0; i < size; ++i) {
-            res[i] = cond[i] ? a : b;
-        }
-        block.replace_by_position(result, std::move(col_res));
-    }
-};
 
 size_t count_true_with_notnull(const ColumnPtr& col) {
     if (col->only_null()) {
@@ -256,38 +200,17 @@ public:
             return;
         }
         DCHECK(WhichDataType {then_col.type}.is_int() || WhichDataType {then_col.type}.is_float());
-
         auto valid = cast_type_to_either<DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
                                          DataTypeInt128, DataTypeFloat32, DataTypeFloat64>(
                 then_col.type.get(), [&](const auto& type) -> bool {
                     using DataType = std::decay_t<decltype(type)>;
-                    using T0 = typename DataType::FieldType;
-                    using ColVecT0 = ColumnVector<T0>;
-                    if (auto col_then = check_and_get_column<ColVecT0>(then_col.column.get())) {
-                        if (auto col_else = check_and_get_column<ColVecT0>(else_col.column.get())) {
-                            NumIfImpl<T0>::vector_vector(cond_col->get_data(), col_then->get_data(),
-                                                         col_else->get_data(), block, result, 0);
-                        } else if (auto col_const_else = check_and_get_column_const<ColVecT0>(
-                                           else_col.column.get())) {
-                            NumIfImpl<T0>::vector_constant(
-                                    cond_col->get_data(), col_then->get_data(),
-                                    col_const_else->template get_value<T0>(), block, result, 0);
-                        }
-                    } else if (auto col_const_then = check_and_get_column_const<ColVecT0>(
-                                       then_col.column.get())) {
-                        if (auto col_else = check_and_get_column<ColVecT0>(else_col.column.get())) {
-                            NumIfImpl<T0>::constant_vector(cond_col->get_data(),
-                                                           col_const_then->template get_value<T0>(),
-                                                           col_else->get_data(), block, result, 0);
-                        } else if (auto col_const_else = check_and_get_column_const<ColVecT0>(
-                                           else_col.column.get())) {
-                            NumIfImpl<T0>::constant_constant(
-                                    cond_col->get_data(), col_const_then->template get_value<T0>(),
-                                    col_const_else->template get_value<T0>(), block, result, 0);
-                        }
-                    } else {
-                        status = Status::InternalError("unexpected args column type");
+                    using Type = typename DataType::FieldType;
+                    auto res_column = NumIfImpl<Type>::execute_if(cond_col->get_data(),
+                                                                  then_col.column, else_col.column);
+                    if (!res_column) {
+                        return false;
                     }
+                    block.replace_by_position(result, std::move(res_column));
                     return true;
                 });
         if (!valid) {
