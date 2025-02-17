@@ -685,9 +685,9 @@ void ExecEnv::clear_wal_mgr() {
 
 void ExecEnv::init_file_cache_microbench_env() {
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                            .set_min_threads(256)
-                            .set_max_threads(512)
-                            .build(&_s3_file_upload_thread_pool)); 
+                              .set_min_threads(256)
+                              .set_max_threads(512)
+                              .build(&_s3_file_upload_thread_pool));
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
