@@ -19,7 +19,6 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.datasource.CatalogMgr;
 
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 
@@ -67,16 +66,9 @@ public class MTMVRelation {
     }
 
     public void compatible(CatalogMgr catalogMgr) throws Exception {
-        try {
-            compatible(catalogMgr, baseTables);
-            compatible(catalogMgr, baseViews);
-            compatible(catalogMgr, baseTablesOneLevel);
-        } catch (Exception e) {
-            baseTables = Sets.newHashSet();
-            baseViews = Sets.newHashSet();
-            baseTablesOneLevel = Sets.newHashSet();
-            throw new Exception(e);
-        }
+        compatible(catalogMgr, baseTables);
+        compatible(catalogMgr, baseViews);
+        compatible(catalogMgr, baseTablesOneLevel);
     }
 
     private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
