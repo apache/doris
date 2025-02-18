@@ -66,7 +66,7 @@ public class MTMVRelation {
                 + '}';
     }
 
-    public Optional<String> compatible(CatalogMgr catalogMgr){
+    public Optional<String> compatible(CatalogMgr catalogMgr) {
         Optional<String> errMsg = compatible(catalogMgr, baseTables);
         if (errMsg.isPresent()) {
             return errMsg;
