@@ -51,34 +51,13 @@ SkewedPartitionRebalancer::SkewedPartitionRebalancer(
         int task_id = partition % task_count;
         int bucket_id = task_bucket_ids[task_id]++ % task_bucket_count;
         TaskBucket task_bucket(task_id, bucket_id, task_bucket_count);
-        _partition_assignments[partition].emplace_back(std::move(task_bucket));
+        _partition_assignments[partition].emplace_back(task_bucket);
     }
-}
-
-std::vector<std::list<int>> SkewedPartitionRebalancer::get_partition_assignments() {
-    std::vector<std::list<int>> assigned_tasks;
-
-    for (const auto& partition_assignment : _partition_assignments) {
-        std::list<int> tasks;
-        std::transform(partition_assignment.begin(), partition_assignment.end(),
-                       std::back_inserter(tasks),
-                       [](const TaskBucket& task_bucket) { return task_bucket.task_id; });
-        assigned_tasks.push_back(tasks);
-    }
-
-    return assigned_tasks;
-}
-
-int SkewedPartitionRebalancer::get_task_count() {
-    return _task_count;
 }
 
 int SkewedPartitionRebalancer::get_task_id(int partition_id, int64_t index) {
     const std::vector<TaskBucket>& task_ids = _partition_assignments[partition_id];
-
-    int task_id_index = (index % task_ids.size() + task_ids.size()) % task_ids.size();
-
-    return task_ids[task_id_index].task_id;
+    return task_ids[index % task_ids.size()].task_id;
 }
 
 void SkewedPartitionRebalancer::add_data_processed(long data_size) {
@@ -113,7 +92,7 @@ long SkewedPartitionRebalancer::_calculate_task_bucket_data_size_since_last_reba
         IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>&
                 max_partitions) {
     long estimated_data_size_since_last_rebalance = 0;
-    for (auto& elem : max_partitions) {
+    for (const auto& elem : max_partitions) {
         estimated_data_size_since_last_rebalance +=
                 _partition_data_size_since_last_rebalance_per_task[elem];
     }
@@ -140,6 +119,7 @@ void SkewedPartitionRebalancer::_rebalance_based_on_task_bucket_skewness(
             continue;
         }
 
+        // All `TaskBucket`s are skewed.
         std::vector<TaskBucket> min_skewed_task_buckets =
                 _find_skewed_min_task_buckets(max_task_bucket.value(), min_task_buckets);
         if (min_skewed_task_buckets.empty()) {
@@ -155,6 +135,7 @@ void SkewedPartitionRebalancer::_rebalance_based_on_task_bucket_skewness(
 
             if (std::find(scaled_partitions.begin(), scaled_partitions.end(),
                           max_partition_value) != scaled_partitions.end()) {
+                // already scaled
                 continue;
             }
 
@@ -242,33 +223,29 @@ bool SkewedPartitionRebalancer::_should_rebalance(long data_processed) {
 }
 
 void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
-    if (!_should_rebalance(data_processed)) {
-        return;
-    }
+    DCHECK(_should_rebalance(data_processed));
 
     _calculate_partition_data_size(data_processed);
 
     for (int partition = 0; partition < _partition_count; partition++) {
-        int total_assigned_tasks = _partition_assignments[partition].size();
         long data_size = _partition_data_size[partition];
+        auto delta = data_size - _partition_data_size_at_last_rebalance[partition];
         _partition_data_size_since_last_rebalance_per_task[partition] =
-                (data_size - _partition_data_size_at_last_rebalance[partition]) /
-                total_assigned_tasks;
+                delta / _partition_assignments[partition].size();
         _partition_data_size_at_last_rebalance[partition] = data_size;
     }
 
     std::vector<IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>>
             task_bucket_max_partitions;
-
     for (int i = 0; i < _task_count * _task_bucket_count; ++i) {
         task_bucket_max_partitions.push_back(
                 IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>());
     }
 
     for (int partition = 0; partition < _partition_count; partition++) {
-        auto& taskAssignments = _partition_assignments[partition];
-        for (const auto& taskBucket : taskAssignments) {
-            auto& queue = task_bucket_max_partitions[taskBucket.id];
+        auto& task_assignments = _partition_assignments[partition];
+        for (const auto& task_bucket : task_assignments) {
+            auto& queue = task_bucket_max_partitions[task_bucket.id];
             queue.add_or_update(partition,
                                 _partition_data_size_since_last_rebalance_per_task[partition]);
         }
@@ -279,18 +256,18 @@ void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
     IndexedPriorityQueue<TaskBucket, IndexedPriorityQueuePriorityOrdering::LOW_TO_HIGH>
             min_task_buckets;
 
-    for (int taskId = 0; taskId < _task_count; taskId++) {
-        for (int bucketId = 0; bucketId < _task_bucket_count; bucketId++) {
-            TaskBucket task_bucket1(taskId, bucketId, _task_bucket_count);
-            TaskBucket task_bucket2(taskId, bucketId, _task_bucket_count);
+    for (int task_id = 0; task_id < _task_count; task_id++) {
+        for (int bucket_id = 0; bucket_id < _task_bucket_count; bucket_id++) {
+            TaskBucket task_bucket1(task_id, bucket_id, _task_bucket_count);
+            TaskBucket task_bucket2(task_id, bucket_id, _task_bucket_count);
             _estimated_task_bucket_data_size_since_last_rebalance[task_bucket1.id] =
                     _calculate_task_bucket_data_size_since_last_rebalance(
                             task_bucket_max_partitions[task_bucket1.id]);
             max_task_buckets.add_or_update(
-                    std::move(task_bucket1),
+                    task_bucket1,
                     _estimated_task_bucket_data_size_since_last_rebalance[task_bucket1.id]);
             min_task_buckets.add_or_update(
-                    std::move(task_bucket2),
+                    task_bucket2,
                     _estimated_task_bucket_data_size_since_last_rebalance[task_bucket2.id]);
         }
     }

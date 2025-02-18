@@ -35,9 +35,9 @@ private:
     std::vector<std::list<int>> _get_partition_positions(
             std::unique_ptr<SkewedPartitionRebalancer>& rebalancer,
             std::vector<long>& partition_row_count, int partition_count, int max_position) {
-        std::vector<std::list<int>> partitionPositions(rebalancer->get_task_count());
+        std::vector<std::list<int>> partitionPositions(rebalancer->_task_count);
 
-        for (int partition = 0; partition < rebalancer->get_task_count(); partition++) {
+        for (int partition = 0; partition < rebalancer->_task_count; partition++) {
             partitionPositions[partition] = std::list<int>();
         }
 
@@ -79,6 +79,22 @@ private:
     }
 };
 
+std::vector<std::list<int>> get_partition_assignments(SkewedPartitionRebalancer* rebalancer) {
+    std::vector<std::list<int>> assigned_tasks;
+
+    for (const auto& partition_assignment : rebalancer->_partition_assignments) {
+        std::list<int> tasks;
+        std::transform(partition_assignment.begin(), partition_assignment.end(),
+                       std::back_inserter(tasks),
+                       [](const SkewedPartitionRebalancer::TaskBucket& task_bucket) {
+                           return task_bucket.task_id;
+                       });
+        assigned_tasks.push_back(tasks);
+    }
+
+    return assigned_tasks;
+}
+
 TEST_F(SkewedPartitionRebalancerTest, test_rebalance_with_skewness) {
     const int partitionCount = 3;
     const int taskCount = 3;
@@ -102,7 +118,8 @@ TEST_F(SkewedPartitionRebalancerTest, test_rebalance_with_skewness) {
     ASSERT_TRUE(_vectors_equal(
             {{0, 3, 6, 9, 12, 15}, {1, 4, 7, 10, 13, 16}, {2, 5, 8, 11, 14}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
-    EXPECT_TRUE(_compare_vector_of_lists({{0}, {1}, {2}}, rebalancer->get_partition_assignments()));
+    EXPECT_TRUE(
+            _compare_vector_of_lists({{0}, {1}, {2}}, get_partition_assignments(rebalancer.get())));
 
     rebalancer->add_partition_row_count(0, 1000);
     rebalancer->add_partition_row_count(1, 1000);
@@ -117,7 +134,7 @@ TEST_F(SkewedPartitionRebalancerTest, test_rebalance_with_skewness) {
             {{0, 2, 4, 6, 8, 10, 12, 14, 16}, {1, 3, 7, 9, 13, 15}, {5, 11}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
     EXPECT_TRUE(_compare_vector_of_lists({{0, 1}, {1, 0}, {2, 0}},
-                                         rebalancer->get_partition_assignments()));
+                                         get_partition_assignments(rebalancer.get())));
 
     rebalancer->add_partition_row_count(0, 1000);
     rebalancer->add_partition_row_count(1, 1000);
@@ -132,7 +149,7 @@ TEST_F(SkewedPartitionRebalancerTest, test_rebalance_with_skewness) {
             {{0, 2, 4, 9, 11, 13}, {1, 3, 5, 10, 12, 14}, {6, 7, 8, 15, 16}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
     EXPECT_TRUE(_compare_vector_of_lists({{0, 1, 2}, {1, 0, 2}, {2, 0, 1}},
-                                         rebalancer->get_partition_assignments()));
+                                         get_partition_assignments(rebalancer.get())));
 }
 
 TEST_F(SkewedPartitionRebalancerTest, test_rebalance_without_skewness) {
@@ -164,7 +181,7 @@ TEST_F(SkewedPartitionRebalancerTest, test_rebalance_without_skewness) {
             {{0, 3}, {1, 4}, {2, 5}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 6)));
     EXPECT_TRUE(_compare_vector_of_lists({{0}, {1}, {2}, {0}, {1}, {2}},
-                                         rebalancer->get_partition_assignments()));
+                                         get_partition_assignments(rebalancer.get())));
 }
 
 TEST_F(SkewedPartitionRebalancerTest,
@@ -194,7 +211,8 @@ TEST_F(SkewedPartitionRebalancerTest,
     ASSERT_TRUE(_vectors_equal(
             {{0, 3}, {1, 4}, {2, 5}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 6)));
-    EXPECT_TRUE(_compare_vector_of_lists({{0}, {1}, {2}}, rebalancer->get_partition_assignments()));
+    EXPECT_TRUE(
+            _compare_vector_of_lists({{0}, {1}, {2}}, get_partition_assignments(rebalancer.get())));
 }
 
 TEST_F(SkewedPartitionRebalancerTest,
@@ -224,7 +242,8 @@ TEST_F(SkewedPartitionRebalancerTest,
     ASSERT_TRUE(_vectors_equal(
             {{0, 3}, {1, 4}, {2, 5}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 6)));
-    EXPECT_TRUE(_compare_vector_of_lists({{0}, {1}, {2}}, rebalancer->get_partition_assignments()));
+    EXPECT_TRUE(
+            _compare_vector_of_lists({{0}, {1}, {2}}, get_partition_assignments(rebalancer.get())));
 }
 
 TEST_F(SkewedPartitionRebalancerTest,
@@ -254,8 +273,8 @@ TEST_F(SkewedPartitionRebalancerTest,
     ASSERT_TRUE(_vectors_equal(
             {{0, 6, 12}, {1, 3, 4, 7, 9, 10, 13, 15, 16}, {2, 5, 8, 11, 14}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
-    EXPECT_TRUE(
-            _compare_vector_of_lists({{0, 1}, {1}, {2}}, rebalancer->get_partition_assignments()));
+    EXPECT_TRUE(_compare_vector_of_lists({{0, 1}, {1}, {2}},
+                                         get_partition_assignments(rebalancer.get())));
 
     rebalancer->add_partition_row_count(0, 1000);
     rebalancer->add_partition_row_count(1, 0);
@@ -267,7 +286,7 @@ TEST_F(SkewedPartitionRebalancerTest,
             {{0, 9}, {1, 3, 4, 7, 10, 12, 13, 16}, {2, 5, 6, 8, 11, 14, 15}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
     EXPECT_TRUE(_compare_vector_of_lists({{0, 1, 2}, {1}, {2}},
-                                         rebalancer->get_partition_assignments()));
+                                         get_partition_assignments(rebalancer.get())));
 }
 
 TEST_F(SkewedPartitionRebalancerTest, test_consider_skewed_partition_only_within_a_cycle) {
@@ -296,8 +315,8 @@ TEST_F(SkewedPartitionRebalancerTest, test_consider_skewed_partition_only_within
     ASSERT_TRUE(_vectors_equal(
             {{0, 6, 12}, {1, 4, 7, 10, 13, 16}, {2, 3, 5, 8, 9, 11, 14, 15}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
-    EXPECT_TRUE(
-            _compare_vector_of_lists({{0, 2}, {1}, {2}}, rebalancer->get_partition_assignments()));
+    EXPECT_TRUE(_compare_vector_of_lists({{0, 2}, {1}, {2}},
+                                         get_partition_assignments(rebalancer.get())));
 
     rebalancer->add_partition_row_count(0, 0);
     rebalancer->add_partition_row_count(1, 800);
@@ -312,7 +331,7 @@ TEST_F(SkewedPartitionRebalancerTest, test_consider_skewed_partition_only_within
             {{0, 2, 6, 8, 12, 14}, {1, 4, 7, 10, 13, 16}, {3, 5, 9, 11, 15}},
             _get_partition_positions(rebalancer, partitionRowCount, partitionCount, 17)));
     EXPECT_TRUE(_compare_vector_of_lists({{0, 2}, {1}, {2, 0}},
-                                         rebalancer->get_partition_assignments()));
+                                         get_partition_assignments(rebalancer.get())));
 }
 
 } // namespace doris::vectorized
