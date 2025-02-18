@@ -1229,10 +1229,10 @@ public class Auth implements Writable {
         }
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public Set<Tag> getComputeGroupTags(String qualifiedUser) {
         readLock();
         try {
-            return propertyMgr.getResourceTags(qualifiedUser);
+            return propertyMgr.getComputeGroupTags(qualifiedUser);
         } finally {
             readUnlock();
         }

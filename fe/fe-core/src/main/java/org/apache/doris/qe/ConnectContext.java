@@ -52,6 +52,7 @@ import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -59,6 +60,8 @@ import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -197,16 +200,18 @@ public class ConnectContext {
     // cloud cluster name
     protected volatile String cloudCluster = null;
 
+    protected volatile Set<String> computeGroupSet = null;
+
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
-    // The resource tag is used to limit the node resources that the user can use for query.
+    // The compute group tag is used to limit the node resources that the user can use for query.
     // The default is empty, that is, unlimited.
     // This property is obtained from UserProperty when the client connection is created.
     // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
-    private Set<Tag> resourceTags = Sets.newHashSet();
+    private Set<Tag> computeGroupTags = Sets.newHashSet();
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
-    private boolean isResourceTagsSet = false;
+    private boolean isSetComputeGroup = false;
 
     private PlSqlOperation plSqlOperation = null;
 
@@ -996,17 +1001,17 @@ public class ConnectContext {
         return threadInfo;
     }
 
-    public boolean isResourceTagsSet() {
-        return isResourceTagsSet;
+    public boolean isSetComputeGroup() {
+        return isSetComputeGroup;
     }
 
-    public Set<Tag> getResourceTags() {
-        return resourceTags;
+    private Set<Tag> getComputeGroupTags() {
+        return computeGroupTags;
     }
 
-    public void setResourceTags(Set<Tag> resourceTags) {
-        this.resourceTags = resourceTags;
-        this.isResourceTagsSet = !this.resourceTags.isEmpty();
+    public void setComputeGroupTags(Set<Tag> computeGroupTags) {
+        this.computeGroupTags = computeGroupTags;
+        this.isSetComputeGroup = !this.computeGroupTags.isEmpty();
     }
 
     public void setCurrentConnectedFEIp(String ip) {
@@ -1184,6 +1189,10 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
+    public void setComputeGroupSet(Set<String> computeGroupSet) {
+        this.computeGroupSet = this.computeGroupSet;
+    }
+
     public String getCloudCluster() throws ComputeGroupException {
         return getCloudCluster(true);
     }
@@ -1264,6 +1273,44 @@ public class ConnectContext {
         }
         return hasAuthCluster.isEmpty() ? null
             : new CloudClusterResult(hasAuthCluster.get(0), CloudClusterResult.Comment.FOUND_BY_FRIST_CLUSTER_HAS_AUTH);
+    }
+
+    public ComputeGroup getComputeGroupSafely() {
+        try {
+            return getComputeGroup();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public ComputeGroup getComputeGroup() throws UserException {
+        ComputeGroupMgr cgMgr = Env.getCurrentEnv().getComputeGroupMgr();
+        if (Config.isCloudMode()) {
+            return cgMgr.getComputeGroup(getCurrentCloudCluster());
+        } else {
+            String currentUser = getQualifiedUser();
+
+            Set<Tag> cgTags = getComputeGroupTags();
+            if (cgTags.isEmpty() && !StringUtils.isEmpty(currentUser)) {
+                cgTags = Env.getCurrentEnv().getAuth().getComputeGroupTags(currentUser);
+            }
+
+            // this invalid tag check is used to be compatible with resource tag's check logic
+            // (refer FederationBackendPolicy.init 's old logic)
+            if (cgTags == UserProperty.INVALID_RESOURCE_TAGS) {
+                throw new UserException("No valid resource tag for user: " + currentUser);
+            }
+
+            Set<String> ret = Sets.newHashSet();
+            if (cgTags.isEmpty()) {
+                ret.add(Tag.VALUE_DEFAULT_TAG);
+            } else {
+                for (Tag rg : cgTags) {
+                    ret.add(rg.value);
+                }
+            }
+            return cgMgr.getComputeGroup(ret);
+        }
     }
 
     /**

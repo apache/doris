@@ -606,7 +606,7 @@ public abstract class ConnectProcessor {
         }
 
         // set resource tag
-        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+        ctx.setComputeGroupTags(Env.getCurrentEnv().getAuth().getComputeGroupTags(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

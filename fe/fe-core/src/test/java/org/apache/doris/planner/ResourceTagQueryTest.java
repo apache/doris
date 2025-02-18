@@ -195,17 +195,17 @@ public class ResourceTagQueryTest {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
-        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
+        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getComputeGroupTags(Auth.ROOT_USER);
         Assert.assertEquals(0, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getComputeGroupTags(Auth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
 
         // update connection context and query
-        connectContext.setResourceTags(userTags);
+        connectContext.setComputeGroupTags(userTags);
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
@@ -214,15 +214,15 @@ public class ResourceTagQueryTest {
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getComputeGroupTags(Auth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
         for (Tag tag : userTags) {
             Assert.assertEquals(tag1, tag);
         }
 
         // update connection context and query, it will failed because no zone1 backend
-        connectContext.setResourceTags(userTags);
-        Assert.assertTrue(connectContext.isResourceTagsSet());
+        connectContext.setComputeGroupTags(userTags);
+        Assert.assertTrue(connectContext.isSetComputeGroup());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(error.contains("no queryable replicas"));

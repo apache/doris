@@ -63,6 +63,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -231,6 +232,14 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            context = new ConnectContext();
+            context.setThreadLocalInfo();
+        }
+        if (StringUtils.isEmpty(context.getQualifiedUser())) {
+            context.setQualifiedUser(getUserInfo().getQualifiedUser());
+        }
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
         task.settWorkloadGroups(tWorkloadGroups);

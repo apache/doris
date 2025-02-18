@@ -266,7 +266,7 @@ public class MysqlProto {
         }
 
         // set resource tag if has
-        context.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser));
+        context.setComputeGroupTags(Env.getCurrentEnv().getAuth().getComputeGroupTags(qualifiedUser));
         return true;
     }
 
