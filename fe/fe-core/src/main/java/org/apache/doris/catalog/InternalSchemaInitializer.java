@@ -358,7 +358,46 @@ public class InternalSchemaInitializer extends Thread {
 
         // 3. check audit table
         optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
-        return optionalStatsTbl.isPresent();
-    }
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
 
+        // 4. check and update audit table schema
+        OlapTable auditTable = (OlapTable) optionalStatsTbl.get();
+        List<Column> currentSchema = auditTable.getFullSchema();
+        List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;
+
+        // 5. check if we need to add new columns
+        List<AlterClause> alterClauses = Lists.newArrayList();
+        for (ColumnDef def : expectedSchema) {
+            if (auditTable.getColumn(def.getName()) == null) {
+                // add column if it doesn't exist
+                try {
+                    ColumnDef columnDef = new ColumnDef(def.getName(),
+                            def.getTypeDef(), def.isAllowNull());
+                    ModifyColumnClause clause = new ModifyColumnClause(columnDef, null, null,
+                            Maps.newHashMap());
+                    clause.setColumn(columnDef.toColumn());
+                    alterClauses.add(clause);
+                } catch (Exception e) {
+                    LOG.warn("Failed to create alter clause for column: " + def.getName(), e);
+                    return false;
+                }
+            }
+        }
+
+        // apply schema changes if needed
+        if (!alterClauses.isEmpty()) {
+            try {
+                TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+                        FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
+                AlterTableStmt alterTableStmt = new AlterTableStmt(tableName, alterClauses);
+                Env.getCurrentEnv().alterTable(alterTableStmt);
+            } catch (Exception e) {
+                LOG.warn("Failed to alter audit table schema", e);
+                return false;
+            }
+        }
+        return true;
+    }
 }
