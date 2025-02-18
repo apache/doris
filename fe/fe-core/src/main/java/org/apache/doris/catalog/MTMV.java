@@ -575,7 +575,7 @@ public class MTMV extends OlapTable {
                 refreshSnapshot.compatible(this);
             }
             Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
-            Env.getCurrentEnv().getMtmvService().registerMTMV(this,this.getDatabase().getId());
+            Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
         } catch (Throwable e) {
             LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}", getDBName(), name, e);
             status.setState(MTMVState.SCHEMA_CHANGE);

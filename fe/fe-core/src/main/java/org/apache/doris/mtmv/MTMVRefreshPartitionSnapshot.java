@@ -158,7 +158,8 @@ public class MTMVRefreshPartitionSnapshot {
                 tablesInfo.put(tableInfo.get(), entry.getValue());
             } else {
                 String msg = String.format(
-                        "Failed to get table info based on id during compatibility process, tableId: %s, relationTables: %s",
+                        "Failed to get table info based on id during compatibility process, "
+                                + "tableId: %s, relationTables: %s",
                         entry.getKey(), relation.getBaseTablesOneLevel());
                 LOG.warn(msg);
                 throw new Exception(msg);
