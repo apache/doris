@@ -364,7 +364,6 @@ public class InternalSchemaInitializer extends Thread {
 
         // 4. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalStatsTbl.get();
-        List<Column> currentSchema = auditTable.getFullSchema();
         List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;
 
         // 5. check if we need to add new columns
