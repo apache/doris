@@ -228,6 +228,10 @@ CONF_mInt64(max_s3_client_retry, "10");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
+CONF_Int32(delete_bitmap_txn_conflict_retry_times, "4");
+CONF_Int32(delete_bitmap_txn_conflict_retry_base_intervals_ms, "50");
 
 // Max byte txn commit when updating delete bitmap, default is 7MB.
 // Because the size of one fdb transaction can't exceed 10MB, and
