@@ -88,4 +88,6 @@ suite("analyze_agg") {
                 1,
                 x
         """
+
+    sql """select * from (select id from t2) t group by id"""
 }
