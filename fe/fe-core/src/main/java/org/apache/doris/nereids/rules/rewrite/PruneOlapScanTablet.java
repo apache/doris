@@ -53,12 +53,17 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             LogicalOlapScan olapScan = filter.child();
             OlapTable table = olapScan.getTable();
             Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
+
+            Map<String, PartitionColumnFilter> filterMap = new CaseInsensitiveMap();
+            filter.getConjuncts().stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
+                    .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
+
             if (olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
                 for (Long id : olapScan.getSelectedPartitionIds()) {
                     Partition partition = table.getPartition(id);
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
                     selectedTabletIdsBuilder
-                            .addAll(getSelectedTabletIds(filter.getConjuncts(), index,
+                            .addAll(getSelectedTabletIds(filter.getConjuncts(), filterMap, index,
                                     olapScan.getSelectedIndexId() == olapScan.getTable()
                                             .getBaseIndexId(),
                                     partition.getDistributionInfo()));
@@ -75,14 +80,12 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     }
 
     private Collection<Long> getSelectedTabletIds(Set<Expression> expressions,
+            Map<String, PartitionColumnFilter> filterMap,
             MaterializedIndex index, boolean isBaseIndexSelected, DistributionInfo info) {
         if (info.getType() != DistributionInfoType.HASH) {
             return index.getTabletIdsInOrder();
         }
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
-        Map<String, PartitionColumnFilter> filterMap = new CaseInsensitiveMap();
-        expressions.stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
-                .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
         return new HashDistributionPruner(index.getTabletIdsInOrder(),
                 hashInfo.getDistributionColumns(),
                 filterMap,

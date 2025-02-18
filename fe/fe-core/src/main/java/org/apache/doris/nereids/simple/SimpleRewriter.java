@@ -4,14 +4,13 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
-import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
+import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
-import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -28,6 +27,7 @@ public class SimpleRewriter extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildRewriteJobs() {
         return jobs(
+            custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
             bottomUp(
                 new LimitSortToTopN(),
                 new PushDownFilterThroughProject(),
@@ -35,13 +35,22 @@ public class SimpleRewriter extends AbstractBatchJobExecutor {
                 new MergeFilters(),
                 new MergeLimits(),
                 new PruneOlapScanPartition(),
+                new PruneEmptyPartition(),
                 new PruneOlapScanTablet()
             ),
-            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
             topDown(
                 new SplitLimit()
             ),
-            custom(RuleType.COLUMN_PRUNING, ColumnPruning::new)
+            custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+            bottomUp(
+                    new PushDownFilterThroughProject(),
+                    new MergeProjects(),
+                    new MergeFilters(),
+                    new MergeLimits()
+            ),
+            topDown(
+                    new AdjustPreAggStatus()
+            )
         );
     }
 
