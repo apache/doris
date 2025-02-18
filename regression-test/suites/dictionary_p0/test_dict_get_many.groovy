@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_dict_get_many") {
-    sql "drop database if exists test_dictionary_function"
-    sql "create database test_dictionary_function"
-    sql "use test_dictionary_function"
+    sql "drop database if exists test_dict_get_many"
+    sql "create database test_dict_get_many"
+    sql "use test_dict_get_many"
 
     sql """
         create table if not exists multi_key_table(
@@ -57,8 +57,8 @@ suite("test_dict_get_many") {
     
     sleep(1000)
 
-    qt_sql1 """ select dict_get("test_dictionary_function.single_key_dict", "k1", 1)  ,  dict_get("test_dictionary_function.single_key_dict", "k1", 2),dict_get("test_dictionary_function.single_key_dict", "k1", 3) """  
-    qt_sql2 """ select dict_get("test_dictionary_function.single_key_dict", "k3", 1)  ,  dict_get("test_dictionary_function.single_key_dict", "k3", 2),dict_get("test_dictionary_function.single_key_dict", "k3", 3) """  
-    qt_sql3 """ select dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(1)) , dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(2)) ,  dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(3))  """  
-    qt_sql4 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(2,'ABC')); """  
+    qt_sql1 """ select dict_get("test_dict_get_many.single_key_dict", "k1", 1)  ,  dict_get("test_dict_get_many.single_key_dict", "k1", 2),dict_get("test_dict_get_many.single_key_dict", "k1", 3) """  
+    qt_sql2 """ select dict_get("test_dict_get_many.single_key_dict", "k3", 1)  ,  dict_get("test_dict_get_many.single_key_dict", "k3", 2),dict_get("test_dict_get_many.single_key_dict", "k3", 3) """  
+    qt_sql3 """ select dict_get_many("test_dict_get_many.single_key_dict", ["k1","k3"], struct(1)) , dict_get_many("test_dict_get_many.single_key_dict", ["k1","k3"], struct(2)) ,  dict_get_many("test_dict_get_many.single_key_dict", ["k1","k3"], struct(3))  """  
+    qt_sql4 """ select dict_get_many("test_dict_get_many.multi_key_dict", ["k2","k3"], struct(2,'ABC')); """  
 }

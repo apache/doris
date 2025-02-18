@@ -194,6 +194,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
     }
 
+    /// for all drop operations, we don't care about data drop on BE. drop metadata and when BEs report them,
+    /// they are unknown dicts at that time. daemon will schedule to drop them on BEs.
     /**
      * Delete a dictionary.
      *
@@ -222,9 +224,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } finally {
             unlockWrite();
         }
-        // submit an async task, not block here. if failed, just rely on
-        // checkAndUpdateDictionaries() to drop unrecognized dictionary.
-        submitDataUnload(dictionary);
     }
 
     /**
@@ -232,7 +231,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      */
     public void dropTableDictionaries(String dbName, String tableName) {
         lockWrite();
-        List<Dictionary> droppedDictionaries = Lists.newArrayList();
         try {
             ListMultimap<String, Long> tableToDictIds = dbTableToDicIds.get(dbName);
             if (tableToDictIds == null) { // this db has no table with dictionary records.
@@ -252,15 +250,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     continue;
                 }
                 nameToIds.remove(dict.getName());
-                droppedDictionaries.add(dict);
                 // Log the drop operation
                 Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, dict.getName());
             }
         } finally {
             unlockWrite();
-        }
-        for (Dictionary dictionary : droppedDictionaries) {
-            submitDataUnload(dictionary);
         }
     }
 
@@ -269,14 +263,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
      */
     public void dropDbDictionaries(String dbName) {
         lockWrite();
-        List<Dictionary> droppedDictionaries = Lists.newArrayList();
         try {
             // pop and save item from dictionaries
             Map<String, Long> dbDictIds = dictionaryIds.remove(dbName);
             // Log the drop operation
             if (dbDictIds != null) {
                 for (Map.Entry<String, Long> entry : dbDictIds.entrySet()) {
-                    droppedDictionaries.add(idToDictionary.remove(entry.getValue()));
                     Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, entry.getKey());
                 }
                 // also drop all name mapping records.
@@ -284,9 +276,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             }
         } finally {
             unlockWrite();
-        }
-        for (Dictionary dictionary : droppedDictionaries) {
-            submitDataUnload(dictionary);
         }
     }
 
@@ -343,11 +332,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
         // DROP unknown dictionaries
         for (Map.Entry<Long, List<Long>> entry : unknownDictsIdtoBes.entrySet()) {
-            long dictId = entry.getKey();
-            boolean status = rawDataUnload(dictId, "unknown", null);
-            if (status) {
-                LOG.info("Unknown dictionary {} unload succeed", dictId);
-            } // else already logged in rawDataUnload
+            Long dictId = entry.getKey();
+            List<Long> beIds = entry.getValue();
+            submitDataUnload(dictId, beIds);
         }
 
         // check all dictionaries and REFRESH if needed
@@ -358,8 +345,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 if (dictionary.getLastUpdateTime() + dictionary.getDataLifetimeSecs() * 1000 < now) {
                     // should schedule refresh. ONLY trigger when it's NORMAL because if not,
                     // it's already going to refresh or drop.
-                    if (dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE))
-                    {
+                    if (dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE)) {
                         submitDataLoad(dictionary);
                     }
                 }
@@ -439,52 +425,28 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
     }
 
-    // we dont care whether it's succeed or not. if failed, rely on checkAndUpdateDictionaries() to drop it.
-    private void submitDataUnload(Dictionary dictionary) {
-        LOG.info("Submit dictionary {} unload task", dictionary.getName());
+    private void submitDataUnload(long dictId, List<Long> beIds) {
+        LOG.info("Submit dictionary {} unload data task", dictId);
         executor.execute(() -> {
             try {
-                dataUnload(dictionary);
+                dataUnload(dictId, beIds);
+                LOG.info("Unload data of dictionary {} succeed", dictId);
             } catch (Exception e) {
-                LOG.warn("Failed to unload dictionary " + dictionary.getName(), e);
+                // already logged in dataUnload
             }
         });
-    }
-
-    private boolean dataUnload(Dictionary dictionary) {
-        // use atomic status as a lock.
-        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.REMOVING)) {
-            return false;
-        }
-        boolean allSucceed = rawDataUnload(dictionary.getId(), dictionary.getName(), null);
-
-        if (allSucceed) {
-            dictionary
-                    .trySetStatus(Dictionary.DictionaryStatus.REMOVED); // wont fail cuz status is REMOVING owned by me.
-            LOG.info("Dictionary {} unload succeed", dictionary.getName());
-            return true;
-        }
-        // when fail, maybe some of data dropped. so imcomplete. need reloading to complete it.
-        dictionary
-                .trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE); // wont fail cuz status is REMOVING owned by me.
-        return false;
     }
 
     /**
      * Unload dictionary data from all alive backends. Only for drop unknown dictionary we could directly call this.
      *
-     * @param dictId   dictionary id
-     * @param dictName dictionary name
-     * @param beIds    backend ids to unload. if null, unload all alive backends.
+     * @param dictId dictionary id
+     * @param beIds backend ids to unload. if null, unload all alive backends.
      * @return true if all succeed, false if some failed.
      */
-    private boolean rawDataUnload(long dictId, String dictName, List<Long> beIds) {
-        List<Backend> aliveBes;
-        if (beIds == null) {
-            aliveBes = Env.getCurrentSystemInfo().getAllClusterBackends(true);
-        } else {
-            aliveBes = Env.getCurrentSystemInfo().getBackends(beIds);
-        }
+    private boolean dataUnload(long dictId, List<Long> beIds) {
+        // some of them not alive will lead to fail. acceptable(try next time collect infos of them).
+        List<Backend> aliveBes = Env.getCurrentSystemInfo().getBackends(beIds);
         // get all alive BEs and send rpc.
         List<Future<InternalService.PDeleteDictionaryResponse>> futureList = new ArrayList<>();
         boolean allSucceed = true;
@@ -511,17 +473,17 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 if (response.hasStatus()) {
                     Status status = new Status(response.getStatus());
                     if (status.getErrorCode() != TStatusCode.OK) {
-                        LOG.warn("Failed to unload dictionary " + dictName + " on be "
+                        LOG.warn("Failed to unload dictionary " + dictId + " on be "
                                 + be.getAddress() + " because " + status.getErrorMsg());
                         allSucceed = false;
                     }
                 } else {
-                    LOG.warn("Failed to unload dictionary " + dictName + " on be " + be.getAddress());
+                    LOG.warn("Failed to unload dictionary " + dictId + " on be " + be.getAddress());
                     allSucceed = false;
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to unload dictionary " + dictName, e);
+            LOG.warn("Failed to unload dictionary " + dictId, e);
             allSucceed = false;
         }
         return allSucceed;

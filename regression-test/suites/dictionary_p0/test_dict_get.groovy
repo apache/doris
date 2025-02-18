@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_dict_get") {
-    sql "drop database if exists test_dictionary_function"
-    sql "create database test_dictionary_function"
-    sql "use test_dictionary_function"
+    sql "drop database if exists test_dict_get"
+    sql "create database test_dict_get"
+    sql "use test_dict_get"
 
     sql """
         create table dc(
@@ -40,13 +40,13 @@ suite("test_dict_get") {
         properties('data_lifetime'='600');
     """
     explain {
-        sql """select dict_get("test_dictionary_function.dic1", "k1", "2020-12-12")"""
+        sql """select dict_get("test_dict_get.dic1", "k1", "2020-12-12")"""
         verbose true
         notContains "type=datetimev2(6)"
         contains "type=varchar(65533)"
     }
     test {
-        sql """select dict_get("test_dictionary_function.dic1", "k0", "2020-12-12")"""
+        sql """select dict_get("test_dict_get.dic1", "k0", "2020-12-12")"""
         exception "Can't ask for key k0 by dict_get()"
     }
 
@@ -60,7 +60,7 @@ suite("test_dict_get") {
         properties('data_lifetime'='600');
     """
     explain {
-        sql """select dict_get("test_dictionary_function.dic2", "k0", "abc")"""
+        sql """select dict_get("test_dict_get.dic2", "k0", "abc")"""
         verbose true
         contains "type=datetimev2(6)"
         notContains "type=varchar(65533)"
@@ -77,7 +77,7 @@ suite("test_dict_get") {
         properties('data_lifetime'='600');
     """
     explain {
-        sql """select dict_get("test_dictionary_function.dic_ip_trie", "k0", cast("127.0.0.1" as ipv4))"""
+        sql """select dict_get("test_dict_get.dic_ip_trie", "k0", cast("127.0.0.1" as ipv4))"""
         verbose true
         contains "type=datetimev2(6)"
         notContains "type=varchar(65533)"

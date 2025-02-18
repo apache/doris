@@ -76,9 +76,7 @@ public class Dictionary extends Table {
     public enum DictionaryStatus {
         NORMAL, // normal status
         LOADING, // wait load task finishs
-        OUT_OF_DATE, // wait load task be scheduled
-        REMOVING, // wait unload task be scheduled and finish
-        REMOVED // data unloaded. wait clean item.
+        OUT_OF_DATE // wait load task be scheduled
     }
 
     private final AtomicReference<DictionaryStatus> status = new AtomicReference<>();
@@ -241,15 +239,11 @@ public class Dictionary extends Table {
             DictionaryStatus currentStatus = status.get();
 
             if (currentStatus == DictionaryStatus.NORMAL) {
-                // can't directly move to target status.
-                if (newStatus != DictionaryStatus.REMOVED) {
-                    if (status.compareAndSet(currentStatus, newStatus)) {
-                        return true;
-                    } else {
-                        continue; // status changed, retry
-                    }
+                if (status.compareAndSet(currentStatus, newStatus)) {
+                    return true;
+                } else {
+                    continue; // status changed, retry
                 }
-                return false;
             } else if (currentStatus == DictionaryStatus.LOADING) {
                 // may success or failed
                 if (newStatus == DictionaryStatus.NORMAL || newStatus == DictionaryStatus.OUT_OF_DATE) {
@@ -262,29 +256,15 @@ public class Dictionary extends Table {
                 return false;
             } else if (currentStatus == DictionaryStatus.OUT_OF_DATE) {
                 // we could load or drop it
-                if (newStatus == DictionaryStatus.LOADING || newStatus == DictionaryStatus.REMOVING) {
+                if (newStatus == DictionaryStatus.LOADING) {
                     if (status.compareAndSet(currentStatus, newStatus)) {
                         return true;
                     } else {
                         continue; // status changed, retry
                     }
                 }
-                return false;
-            } else if (currentStatus == DictionaryStatus.REMOVING) {
-                // success to REMOVED, or failed to OUT_OF_DATE wait reload to re complete it.
-                if (newStatus == DictionaryStatus.REMOVED || newStatus == DictionaryStatus.OUT_OF_DATE) {
-                    if (status.compareAndSet(currentStatus, newStatus)) {
-                        return true;
-                    } else {
-                        continue; // status changed, retry
-                    }
-                }
-                return false;
-            } else if (currentStatus == DictionaryStatus.REMOVED) {
-                // cant do anything. only directly dropping is allowed
                 return false;
             }
-
             return false; // unknown status
         }
     }
