@@ -191,9 +191,6 @@ public class CreateDictionaryInfo {
             if (columnDef.isKey()) {
                 validateKeyColumn(sourceColumn);
             }
-            if (getLayout() == LayoutType.IP_TRIE && sourceColumn.isAllowNull()) {
-                throw new DdlException("Column " + sourceColumn.getName() + " cannot be nullable for IP_TRIE layout");
-            }
             columnDef.setType(sourceColumn.getType());
             columnDef.setNullable(sourceColumn.isAllowNull());
             columnDef.setOriginColumn(new Column(sourceColumn)); // copy to avoid changing. TODO: consider SC

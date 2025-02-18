@@ -37,7 +37,7 @@ suite("test_ddl") {
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "mismatched input"
     }
@@ -50,7 +50,7 @@ suite("test_ddl") {
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
-        ("x"="x", "y"="y");
+        ('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "mismatched input"
     }
@@ -63,7 +63,7 @@ suite("test_ddl") {
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "Unknown table"
     }
@@ -76,7 +76,7 @@ suite("test_ddl") {
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "Column col1 not found in source table dc"
     }
@@ -89,7 +89,7 @@ suite("test_ddl") {
             k1 VALUE,
             k1 VARCHAR
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "mismatched input 'VARCHAR'"
     }
@@ -102,7 +102,7 @@ suite("test_ddl") {
             k0 VALUE,
             k0 VALUE
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "Column k0 is used more than once"
     }
@@ -152,18 +152,6 @@ suite("test_ddl") {
         exception "Key column k1 cannot be nullable"
     }
 
-    test { // test nullable value column in IP_TRIE
-        sql """
-        create dictionary dic_null_value using nullable_table
-        (
-            k2 KEY,
-            v1 VALUE
-        )LAYOUT(IP_TRIE)
-        properties('data_lifetime'='600');
-        """
-        exception "Column v1 cannot be nullable for IP_TRIE layout"
-    }
-
     // test right nullable
     sql """
     create dictionary dic_not_null using nullable_table
@@ -171,7 +159,7 @@ suite("test_ddl") {
         k2 KEY,
         v2 VALUE
     )LAYOUT(IP_TRIE)
-        properties('data_lifetime'='600');
+    properties('data_lifetime'='600');
     """
     sql "drop dictionary dic_not_null"
 
@@ -199,6 +187,18 @@ suite("test_ddl") {
         exception "Key column k0 must be String type for IP_TRIE layout"
     }
 
+    test { // no data_lifetime
+        sql """
+        create dictionary dic_trie using dc
+        (
+            k1 KEY, 
+            k0 VALUE
+        )LAYOUT(IP_TRIE)
+        properties('x' = '1');
+        """
+        exception "Property 'data_lifetime' is required"
+    }
+
     // normal
     sql """
         create dictionary dic1 using dc
@@ -206,7 +206,7 @@ suite("test_ddl") {
             k1 KEY, 
             k0 VALUE
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
     """
     def origin_res = (sql "show dictionaries")[0]
     log.info(origin_res.toString())
@@ -229,7 +229,7 @@ suite("test_ddl") {
             k1 KEY, 
             k0 VALUE
         )LAYOUT(HASH_MAP)
-        properties("x"="x", "y"="y");
+        properties('data_lifetime'='600', "x"="x", "y"="y");
         """
         exception "Dictionary dic1 already exists in database test"
     }
@@ -275,8 +275,8 @@ suite("test_ddl") {
         properties('data_lifetime'='600');
     """
 
-    // test refresh for multiple key columns dictionary
-    sql "refresh dictionary dic_multi_key"
+    // test refresh result for multiple key columns dictionary
+    sleep(1500)
     def refresh_res = (sql "show dictionaries")[0]
     assertTrue(refresh_res[1] == "dic_multi_key" && refresh_res[4] == "NORMAL")
 

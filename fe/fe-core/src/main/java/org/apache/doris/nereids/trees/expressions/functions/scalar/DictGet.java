@@ -91,10 +91,6 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
         Dictionary dictionary;
         try {
             dictionary = dicMgr.getDictionary(dbName, dictName);
-            if (dictionary.getStatus() != Dictionary.DictionaryStatus.NORMAL) {
-                throw new AnalysisException("Dictionary " + dictName + " not ready to accept query. Its status is "
-                        + dictionary.getStatus().toString());
-            }
             // check is not key column
             if (dictionary.getDicColumns().stream().anyMatch(col -> col.getName().equals(colName) && col.isKey())) {
                 throw new AnalysisException("Can't ask for key " + colName + " by dict_get()");
@@ -107,7 +103,7 @@ public class DictGet extends ScalarFunction implements CustomSignature, AlwaysNu
         DataType queryType = getArgumentType(2);
         if (dictionary.getLayout() == LayoutType.HASH_MAP) {
             List<DataType> colTypes = dictionary.getKeyColumnTypes();
-            if (colTypes.size() != 1) {
+            if (colTypes.size() != 1) { // multi-key dict should only use dict_get_many
                 throw new AnalysisException("dict_get() only support one key column");
             }
             DataType colType = colTypes.get(0);

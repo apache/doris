@@ -97,10 +97,6 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         Dictionary dictionary;
         try {
             dictionary = dicMgr.getDictionary(dbName, dictName);
-            if (dictionary.getStatus() != Dictionary.DictionaryStatus.NORMAL) {
-                throw new AnalysisException("Dictionary " + dictName + " not ready to accept query. Its status is "
-                        + dictionary.getStatus().toString());
-            }
             // check is not key column
             for (Literal colName : colNames) {
                 if (dictionary.getDicColumns().stream()

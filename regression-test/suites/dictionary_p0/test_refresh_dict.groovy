@@ -122,7 +122,6 @@ suite("test_refresh_dict") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sql "refresh dictionary product_dict"
 
     sql """
         create dictionary ip_dict using ip_info
@@ -133,7 +132,6 @@ suite("test_refresh_dict") {
         LAYOUT(IP_TRIE)
         properties('data_lifetime'='600');
     """
-    sql "refresh dictionary ip_dict"
 
     sql """
         create dictionary user_dict using user_info
@@ -144,7 +142,6 @@ suite("test_refresh_dict") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sql "refresh dictionary user_dict"
 
     // Create dictionary for precision test
     sql """
@@ -159,7 +156,6 @@ suite("test_refresh_dict") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sql "refresh dictionary precision_dict"
 
     // Create dictionary with different column order
     sql """
@@ -173,7 +169,9 @@ suite("test_refresh_dict") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sql "refresh dictionary order_dict"
+
+    // Wait for dictionary to be loaded
+    sleep(2000)
 
     // Test initial dict_get queries
     qt_sql1 """select dict_get("test_refresh_dict.product_dict", "product_name", 1);"""
