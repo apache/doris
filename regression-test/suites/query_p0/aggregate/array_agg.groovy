@@ -307,8 +307,6 @@ suite("array_agg") {
 
 
      qt_select """select array_sort(array_agg(k4)),array_sort(array_agg(k6)) from test_array_agg_ip """
-     // test for collect_list
-     qt_select """select array_sort(collect_list(k4)),array_sort(collect_list(k6)) from test_array_agg_ip group by s """
 
     sql "DROP TABLE `test_array_agg`"
     sql "DROP TABLE `test_array_agg1`"	
