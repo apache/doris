@@ -85,11 +85,13 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_DATE:
-    case TYPE_DATETIME:
     case TYPE_STRING:
     case TYPE_JSONB:
         *result = arrow::utf8();
+        break;
+    case TYPE_DATE:
+    case TYPE_DATETIME:
+        *result = std::make_shared<arrow::Date64Type>();
         break;
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
