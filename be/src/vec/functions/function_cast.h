@@ -1951,18 +1951,17 @@ private:
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
             auto variant = ColumnObject::create(true /*always nullable*/);
-            // set variant root column/type to from column/type
-            auto dst_str = ColumnString::create();
-            dst_str->clear();
-            dst_str->reserve(input_rows_count);
-            VectorBufferWriter write_buffer(*dst_str.get());
-            auto from_serde = from_type->get_serde();
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            if (WhichDataType(from_type).is_map() || WhichDataType(from_type).is_struct() ||
-                WhichDataType(from_type).is_array()) {
+            if (WhichDataType(from_type).is_complex_type()) {
                 // if we convert map or struct to variant, we should convert the map or struct to string first
                 // convert to string, json has been cast as string in schema_util::_parse_variant_columns
+                // set variant root column/type to from column/type
+                auto dst_str = ColumnString::create();
+                dst_str->clear();
+                dst_str->reserve(input_rows_count);
+                VectorBufferWriter write_buffer(*dst_str.get());
+                auto from_serde = from_type->get_serde();
+                DataTypeSerDe::FormatOptions options;
+                options.escape_char = '\\';
                 for (size_t i = 0; i < block.rows(); i++) {
                     // convert to string
                     Status st = from_serde->serialize_column_to_json(*col_from, i, i + 1,
