@@ -806,7 +806,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
     std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
     bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
 
-    if (owns_lock) {
+    if (!owns_lock) {
         return Status::Error<TRY_LOCK_FAILED>(
                 "Failed to obtain schema change lock, there might be inverted index being "
                 "built or cooldown runnning on base_tablet={}",
