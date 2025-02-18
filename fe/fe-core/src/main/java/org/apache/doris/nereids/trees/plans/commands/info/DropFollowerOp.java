@@ -32,11 +32,6 @@ public class DropFollowerOp extends FrontendOp {
     }
 
     @Override
-    public void validate(ConnectContext ctx) throws AnalysisException {
-        super.validate(ctx);
-    }
-
-    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER CLUSTER DROP FOLLOWER \"");
