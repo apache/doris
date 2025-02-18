@@ -27,6 +27,7 @@
 #include <time.h>
 
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -1122,6 +1123,25 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
     }
+}
+
+void DeleteBitmap::traverse_rowset_id_prefix(
+        const std::function<void(const RowsetId& rowsetId)>& func) const {
+    auto it = delete_bitmap.cbegin();
+    while (it != delete_bitmap.cend()) {
+        RowsetId rowset_id = std::get<0>(it->first);
+        func(rowset_id);
+        // find next rowset id
+        it = delete_bitmap.upper_bound({rowset_id, std::numeric_limits<SegmentId>::max(),
+                                        std::numeric_limits<Version>::max()});
+    }
+}
+
+void DeleteBitmap::remove_by_rowset_prefix(const RowsetId& rowset_id) {
+    BitmapKey start {rowset_id, 0, 0};
+    BitmapKey end {rowset_id, std::numeric_limits<SegmentId>::max(),
+                   std::numeric_limits<Version>::max()};
+    remove(start, end);
 }
 
 // We cannot just copy the underlying memory to construct a string

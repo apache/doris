@@ -499,6 +499,10 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
+    void traverse_rowset_id_prefix(const std::function<void(const RowsetId& rowsetId)>& func) const;
+
+    void remove_by_rowset_prefix(const RowsetId& rowset_id);
+
     class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)

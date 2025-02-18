@@ -1387,6 +1387,8 @@ DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
+DECLARE_mBool(enable_remove_useless_delete_bitmaps);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

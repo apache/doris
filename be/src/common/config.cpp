@@ -1305,6 +1305,8 @@ DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
+DEFINE_mBool(enable_remove_useless_delete_bitmaps, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
