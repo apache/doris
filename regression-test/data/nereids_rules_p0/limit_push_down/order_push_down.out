@@ -199,14 +199,14 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_offset_sort_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_subquery_order_by_inside_limit_outside --
 PhysicalResultSink
@@ -278,17 +278,15 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
->>>>>>> e482b0f726 (fix regression tpcds shape)
 ------filter((t1.id = 1))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_offset_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
->>>>>>> e482b0f726 (fix regression tpcds shape)
 ------filter((t1.id = 1))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_project_filter --
 PhysicalDeferMaterializeResultSink
