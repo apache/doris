@@ -165,6 +165,7 @@ import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
@@ -2550,6 +2551,16 @@ public class Env {
         long curTime = System.currentTimeMillis();
         List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime))
                 .collect(Collectors.toList());
+        if (jobs.size() > Config.max_export_history_job_num) {
+            jobs.sort(Comparator.comparingLong(ExportJob::getCreateTimeMs));
+            Iterator<ExportJob> iterator = jobs.iterator();
+            while (jobs.size() > Config.max_export_history_job_num && iterator.hasNext()) {
+                ExportJob job = iterator.next();
+                if (job.getState() == ExportJobState.FINISHED || job.getState() == ExportJobState.CANCELLED) {
+                    iterator.remove();
+                }
+            }
+        }
         int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
