@@ -37,7 +37,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -47,6 +46,7 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
@@ -414,6 +414,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
 
     @Override
     public boolean needAuditEncryption() {
-        return originLogicalQuery.anyMatch(node -> node instanceof UnboundTVFRelation);
+        return originLogicalQuery.anyMatch(node -> node instanceof TVFRelation);
     }
 }
