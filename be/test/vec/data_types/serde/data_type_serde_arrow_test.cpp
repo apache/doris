@@ -30,11 +30,10 @@
 #include <gen_cpp/types.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <math.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <time.h>
+#include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -42,20 +41,14 @@
 #include <utility>
 #include <vector>
 
-#include "gtest/gtest_pred_impl.h"
 #include "olap/hll.h"
 #include "runtime/descriptors.cpp"
-#include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
-#include "util/bitmap_value.h"
-#include "util/quantile_state.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -78,7 +71,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
-#include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -109,31 +101,23 @@ void serialize_and_deserialize_arrow_test() {
     }
 
     int row_num = 7;
-    // make desc and generate block
-    TupleDescriptor tuple_desc(PTupleDescriptor(), true);
+    // generate block
     for (auto t : cols) {
-        TSlotDescriptor tslot;
         std::string col_name = std::get<0>(t);
-        tslot.__set_colName(col_name);
         TypeDescriptor type_desc(std::get<3>(t));
         bool is_nullable(std::get<4>(t));
         switch (std::get<3>(t)) {
-        case TYPE_BOOLEAN:
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto vec = vectorized::ColumnVector<UInt8>::create();
-                auto& data = vec->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    data.push_back(i % 2);
-                }
-                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeUInt8>());
-                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
-                block.insert(std::move(type_and_name));
+        case TYPE_BOOLEAN: {
+            auto vec = vectorized::ColumnVector<UInt8>::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(i % 2);
             }
-            break;
+            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeUInt8>());
+            vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block.insert(std::move(type_and_name));
+        } break;
         case TYPE_INT:
-            tslot.__set_slotType(type_desc.to_thrift());
             if (is_nullable) {
                 {
                     auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
@@ -168,7 +152,6 @@ void serialize_and_deserialize_arrow_test() {
         case TYPE_DECIMAL32:
             type_desc.precision = 9;
             type_desc.scale = 2;
-            tslot.__set_slotType(type_desc.to_thrift());
             {
                 vectorized::DataTypePtr decimal_data_type =
                         std::make_shared<DataTypeDecimal<Decimal32>>(type_desc.precision,
@@ -202,7 +185,6 @@ void serialize_and_deserialize_arrow_test() {
         case TYPE_DECIMAL64:
             type_desc.precision = 18;
             type_desc.scale = 6;
-            tslot.__set_slotType(type_desc.to_thrift());
             {
                 vectorized::DataTypePtr decimal_data_type =
                         std::make_shared<DataTypeDecimal<Decimal64>>(type_desc.precision,
@@ -234,7 +216,6 @@ void serialize_and_deserialize_arrow_test() {
         case TYPE_DECIMAL128I:
             type_desc.precision = 27;
             type_desc.scale = 9;
-            tslot.__set_slotType(type_desc.to_thrift());
             {
                 vectorized::DataTypePtr decimal_data_type(
                         doris::vectorized::create_decimal(27, 9, true));
@@ -243,7 +224,7 @@ void serialize_and_deserialize_arrow_test() {
                                       decimal_column.get())
                                      ->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
+                    auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                     data.push_back(value);
                 }
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
@@ -251,125 +232,105 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(type_and_name);
             }
             break;
-        case TYPE_STRING:
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto strcol = vectorized::ColumnString::create();
-                for (int i = 0; i < row_num; ++i) {
-                    std::string is = std::to_string(i);
-                    strcol->insert_data(is.c_str(), is.size());
-                }
-                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-                vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                                col_name);
-                block.insert(type_and_name);
+        case TYPE_STRING: {
+            auto strcol = vectorized::ColumnString::create();
+            for (int i = 0; i < row_num; ++i) {
+                std::string is = std::to_string(i);
+                strcol->insert_data(is.c_str(), is.size());
             }
-            break;
-        case TYPE_HLL:
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
-                auto hll_column = hll_data_type->create_column();
-                std::vector<HyperLogLog>& container =
-                        ((vectorized::ColumnHLL*)hll_column.get())->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    HyperLogLog hll;
-                    hll.update(i);
-                    container.push_back(hll);
-                }
-                vectorized::ColumnWithTypeAndName type_and_name(hll_column->get_ptr(),
-                                                                hll_data_type, col_name);
+            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
+            vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+            block.insert(type_and_name);
+        } break;
+        case TYPE_HLL: {
+            vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+            auto hll_column = hll_data_type->create_column();
+            std::vector<HyperLogLog>& container =
+                    ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                HyperLogLog hll;
+                hll.update(i);
+                container.push_back(hll);
+            }
+            vectorized::ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type,
+                                                            col_name);
 
-                block.insert(type_and_name);
+            block.insert(type_and_name);
+        } break;
+        case TYPE_DATEV2: {
+            auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+            auto& date_v2_data = column_vector_date_v2->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                DateV2Value<DateV2ValueType> value;
+                value.from_date_int64((int64_t)((2022 << 9) | (6 << 5) | 6));
+                date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
             }
-            break;
-        case TYPE_DATEV2:
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
-                auto& date_v2_data = column_vector_date_v2->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    DateV2Value<DateV2ValueType> value;
-                    value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
-                    date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
-                }
-                vectorized::DataTypePtr date_v2_type(
-                        std::make_shared<vectorized::DataTypeDateV2>());
-                vectorized::ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
-                                                               date_v2_type, col_name);
-                block.insert(test_date_v2);
-            }
-            break;
+            vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());
+            vectorized::ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
+                                                           date_v2_type, col_name);
+            block.insert(test_date_v2);
+        } break;
         case TYPE_DATE: // int64
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
-                auto& date_data = column_vector_date->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    VecDateTimeValue value;
-                    value.from_date_int64(20210501);
-                    date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
-                }
-                vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
-                vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(),
-                                                            date_type, col_name);
-                block.insert(test_date);
+        {
+            auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
+            auto& date_data = column_vector_date->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                VecDateTimeValue value;
+                value.from_date_int64(20210501);
+                date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
             }
-            break;
+            vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
+            vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
+                                                        col_name);
+            block.insert(test_date);
+        } break;
         case TYPE_DATETIME: // int64
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
-                auto& datetime_data = column_vector_datetime->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    VecDateTimeValue value;
-                    value.from_date_int64(20210501080910);
-                    datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
-                }
-                vectorized::DataTypePtr datetime_type(
-                        std::make_shared<vectorized::DataTypeDateTime>());
-                vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
-                                                                datetime_type, col_name);
-                block.insert(test_datetime);
+        {
+            auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
+            auto& datetime_data = column_vector_datetime->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                VecDateTimeValue value;
+                value.from_date_int64(20210501080910);
+                datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
             }
-            break;
+            vectorized::DataTypePtr datetime_type(std::make_shared<vectorized::DataTypeDateTime>());
+            vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
+                                                            datetime_type, col_name);
+            block.insert(test_datetime);
+        } break;
         case TYPE_DATETIMEV2: // uint64
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                // 2022-01-01 11:11:11.111
-                auto column_vector_datetimev2 =
-                        vectorized::ColumnVector<vectorized::UInt64>::create();
-                //                auto& datetimev2_data = column_vector_datetimev2->get_data();
-                DateV2Value<DateTimeV2ValueType> value;
-                string date_literal = "2022-01-01 11:11:11.111";
-                value.from_date_str(date_literal.c_str(), date_literal.size());
-                char to[64] = {};
-                std::cout << "value: " << value.to_string(to) << std::endl;
-                for (int i = 0; i < row_num; ++i) {
-                    column_vector_datetimev2->insert(value.to_date_int_val());
-                }
-                vectorized::DataTypePtr datetimev2_type(
-                        std::make_shared<vectorized::DataTypeDateTimeV2>());
-                vectorized::ColumnWithTypeAndName test_datetimev2(
-                        column_vector_datetimev2->get_ptr(), datetimev2_type, col_name);
-                block.insert(test_datetimev2);
+        {
+            // 2022-01-01 11:11:11.111
+            auto column_vector_datetimev2 = vectorized::ColumnVector<vectorized::UInt64>::create();
+            //                auto& datetimev2_data = column_vector_datetimev2->get_data();
+            DateV2Value<DateTimeV2ValueType> value;
+            string date_literal = "2022-01-01 11:11:11.111";
+            value.from_date_str(date_literal.c_str(), date_literal.size());
+            char to[64] = {};
+            std::cout << "value: " << value.to_string(to) << std::endl;
+            for (int i = 0; i < row_num; ++i) {
+                column_vector_datetimev2->insert(value.to_date_int_val());
             }
-            break;
+            vectorized::DataTypePtr datetimev2_type(
+                    std::make_shared<vectorized::DataTypeDateTimeV2>());
+            vectorized::ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
+                                                              datetimev2_type, col_name);
+            block.insert(test_datetimev2);
+        } break;
         case TYPE_ARRAY: // array
             type_desc.add_sub_type(TYPE_STRING, true);
-            tslot.__set_slotType(type_desc.to_thrift());
             {
                 DataTypePtr s =
                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
                 DataTypePtr au = std::make_shared<DataTypeArray>(s);
                 Array a1, a2;
-                a1.push_back(String("sss"));
+                a1.push_back(Field("sss"));
                 a1.push_back(Null());
-                a1.push_back(String("clever amory"));
-                a2.push_back(String("hello amory"));
+                a1.push_back(Field("clever amory"));
+                a2.push_back(Field("hello amory"));
                 a2.push_back(Null());
-                a2.push_back(String("cute amory"));
-                a2.push_back(String("sf"));
+                a2.push_back(Field("cute amory"));
+                a2.push_back(Field("sf"));
                 MutableColumnPtr array_column = au->create_column();
                 array_column->reserve(2);
                 array_column->insert(a1);
@@ -382,7 +343,6 @@ void serialize_and_deserialize_arrow_test() {
         case TYPE_MAP:
             type_desc.add_sub_type(TYPE_STRING, true);
             type_desc.add_sub_type(TYPE_STRING, true);
-            tslot.__set_slotType(type_desc.to_thrift());
             {
                 DataTypePtr s =
                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -422,7 +382,6 @@ void serialize_and_deserialize_arrow_test() {
             type_desc.add_sub_type(TYPE_STRING, "name", true);
             type_desc.add_sub_type(TYPE_LARGEINT, "age", true);
             type_desc.add_sub_type(TYPE_BOOLEAN, "is", true);
-            tslot.__set_slotType(type_desc.to_thrift());
             {
                 DataTypePtr s =
                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -433,7 +392,7 @@ void serialize_and_deserialize_arrow_test() {
                 DataTypePtr st =
                         std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
                 Tuple t1, t2;
-                t1.push_back(String("amory cute"));
+                t1.push_back(Field("amory cute"));
                 t1.push_back(__int128_t(37));
                 t1.push_back(true);
                 t2.push_back("null");
@@ -448,47 +407,34 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(type_and_name);
             }
             break;
-        case TYPE_IPV4:
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto vec = vectorized::ColumnIPv4::create();
-                auto& data = vec->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    data.push_back(i);
-                }
-                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
-                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
-                block.insert(std::move(type_and_name));
+        case TYPE_IPV4: {
+            auto vec = vectorized::ColumnIPv4::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(i);
             }
-            break;
-        case TYPE_IPV6:
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                auto vec = vectorized::ColumnIPv6::create();
-                auto& data = vec->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    data.push_back(i);
-                }
-                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
-                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
-                block.insert(std::move(type_and_name));
+            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+            vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block.insert(std::move(type_and_name));
+        } break;
+        case TYPE_IPV6: {
+            auto vec = vectorized::ColumnIPv6::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(i);
             }
-            break;
+            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+            vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block.insert(std::move(type_and_name));
+        } break;
         default:
             break;
         }
-
-        tslot.__set_col_unique_id(std::get<2>(t));
-        SlotDescriptor* slot = new SlotDescriptor(tslot);
-        tuple_desc.add_slot(slot);
     }
 
-    RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
+    EXPECT_EQ(get_arrow_schema_from_block(block, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
@@ -571,14 +517,10 @@ TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
-    TupleDescriptor tuple_desc(PTupleDescriptor(), true);
-    TSlotDescriptor tslot;
     std::string col_name = "map_null_key";
-    tslot.__set_colName(col_name);
     TypeDescriptor type_desc(TYPE_MAP);
     type_desc.add_sub_type(TYPE_STRING, true);
     type_desc.add_sub_type(TYPE_INT, true);
-    tslot.__set_slotType(type_desc.to_thrift());
     vectorized::Block block;
     {
         DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -616,13 +558,9 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         block.insert(type_and_name);
     }
 
-    tslot.__set_col_unique_id(1);
-    SlotDescriptor* slot = new SlotDescriptor(tslot);
-    tuple_desc.add_slot(slot);
-    RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
+    EXPECT_EQ(get_arrow_schema_from_block(block, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
