@@ -77,20 +77,35 @@ public class MTMVRefreshPartitionSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) throws Exception {
+    public Optional<String> compatible(MTMV mtmv) {
         // snapshot add partitionId resolve problem of insert overwrite
-        compatiblePartitions(mtmv);
+        Optional<String> errMsg = compatiblePartitions(mtmv);
+        if (errMsg.isPresent()) {
+            return errMsg;
+        }
         // change table id to BaseTableInfo
-        compatibleTables(mtmv);
+        errMsg = compatibleTables(mtmv);
+        if (errMsg.isPresent()) {
+            return errMsg;
+        }
         // snapshot add tableId resolve problem of recreate table
-        compatibleTablesSnapshot();
+        return compatibleTablesSnapshot();
     }
 
-    private void compatiblePartitions(MTMV mtmv) throws AnalysisException {
+    private Optional<String> compatiblePartitions(MTMV mtmv) {
         if (!checkHasDataWithoutPartitionId()) {
-            return;
+            return Optional.empty();
         }
-        OlapTable relatedTable = (OlapTable) mtmv.getMvPartitionInfo().getRelatedTable();
+        OlapTable relatedTable = null;
+        try {
+            relatedTable = (OlapTable) mtmv.getMvPartitionInfo().getRelatedTable();
+        } catch (AnalysisException e) {
+            String msg = String.format(
+                    "Failed to get relatedTable during compatibility process, "
+                            + "mvName: %s, ", mtmv.getName());
+            LOG.warn(msg, e);
+            return Optional.of(msg);
+        }
         for (Entry<String, MTMVSnapshotIf> entry : partitions.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {
@@ -102,6 +117,7 @@ public class MTMVRefreshPartitionSnapshot {
                 }
             }
         }
+        return Optional.empty();
     }
 
     private boolean checkHasDataWithoutPartitionId() {
@@ -113,9 +129,9 @@ public class MTMVRefreshPartitionSnapshot {
         return false;
     }
 
-    private void compatibleTablesSnapshot() throws Exception {
+    private Optional<String> compatibleTablesSnapshot() {
         if (!checkHasDataWithoutTableId()) {
-            return;
+            return Optional.empty();
         }
         for (Entry<BaseTableInfo, MTMVSnapshotIf> entry : tablesInfo.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
@@ -128,10 +144,11 @@ public class MTMVRefreshPartitionSnapshot {
                             "Failed to get table info based on table info during compatibility process, table info: %s",
                             entry.getKey());
                     LOG.warn(msg);
-                    throw new Exception(msg);
+                    return Optional.of(msg);
                 }
             }
         }
+        return Optional.empty();
     }
 
     private boolean checkHasDataWithoutTableId() {
@@ -143,13 +160,13 @@ public class MTMVRefreshPartitionSnapshot {
         return false;
     }
 
-    private void compatibleTables(MTMV mtmv) throws Exception {
+    private Optional<String> compatibleTables(MTMV mtmv) {
         if (tables.size() == tablesInfo.size()) {
-            return;
+            return Optional.empty();
         }
         MTMVRelation relation = mtmv.getRelation();
         if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
-            return;
+            return Optional.empty();
         }
         for (Entry<Long, MTMVSnapshotIf> entry : tables.entrySet()) {
             Optional<BaseTableInfo> tableInfo = getByTableId(entry.getKey(),
@@ -162,9 +179,10 @@ public class MTMVRefreshPartitionSnapshot {
                                 + "tableId: %s, relationTables: %s",
                         entry.getKey(), relation.getBaseTablesOneLevel());
                 LOG.warn(msg);
-                throw new Exception(msg);
+                return Optional.of(msg);
             }
         }
+        return Optional.empty();
     }
 
     private Optional<BaseTableInfo> getByTableId(Long tableId, Set<BaseTableInfo> baseTables) {

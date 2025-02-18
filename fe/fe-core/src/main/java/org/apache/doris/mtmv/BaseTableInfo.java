@@ -33,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 public class BaseTableInfo {
     private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
@@ -159,9 +160,9 @@ public class BaseTableInfo {
                 + '}';
     }
 
-    public void compatible(CatalogMgr catalogMgr) throws Exception {
+    public Optional<String> compatible(CatalogMgr catalogMgr) {
         if (!StringUtils.isEmpty(ctlName)) {
-            return;
+            return Optional.empty();
         }
         try {
             CatalogIf catalog = catalogMgr.getCatalogOrAnalysisException(ctlId);
@@ -170,12 +171,13 @@ public class BaseTableInfo {
             this.ctlName = catalog.getName();
             this.dbName = db.getFullName();
             this.tableName = table.getName();
+            return Optional.empty();
         } catch (AnalysisException e) {
             String msg = String.format(
                     "Failed to get name based on id during compatibility process, ctlId: %s, dbId: %s, tableId: %s",
                     ctlId, dbId, tableId);
             LOG.warn(msg, e);
-            throw new Exception(msg);
+            return Optional.of(msg);
         }
     }
 

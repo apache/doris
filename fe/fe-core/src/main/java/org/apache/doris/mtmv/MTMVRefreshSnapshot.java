@@ -26,6 +26,7 @@ import org.apache.commons.collections.MapUtils;
 
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRefreshSnapshot {
@@ -91,12 +92,16 @@ public class MTMVRefreshSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) throws Exception {
+    public Optional<String> compatible(MTMV mtmv) {
         if (MapUtils.isEmpty(partitionSnapshots)) {
-            return;
+            return Optional.empty();
         }
         for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
-            snapshot.compatible(mtmv);
+            Optional<String> errMsg = snapshot.compatible(mtmv);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
         }
+        return Optional.empty();
     }
 }

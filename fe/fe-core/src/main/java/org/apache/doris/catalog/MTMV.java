@@ -564,22 +564,37 @@ public class MTMV extends OlapTable {
      * The logic here is to be compatible with older versions by converting ID to name
      */
     public void compatible(CatalogMgr catalogMgr) {
-        try {
-            if (mvPartitionInfo != null) {
-                mvPartitionInfo.compatible(catalogMgr);
-            }
-            if (relation != null) {
-                relation.compatible(catalogMgr);
-            }
-            if (refreshSnapshot != null) {
-                refreshSnapshot.compatible(this);
-            }
+        Optional<String> errMsg = compatibleInternal(catalogMgr);
+        if (errMsg.isPresent()) {
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, errMsg.get());
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + errMsg.get());
+        } else {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
-        } catch (Throwable e) {
-            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}", getDBName(), name, e);
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
         }
+    }
+
+    private Optional<String> compatibleInternal(CatalogMgr catalogMgr) {
+        Optional<String> errMsg = Optional.empty();
+        if (mvPartitionInfo != null) {
+            errMsg = mvPartitionInfo.compatible(catalogMgr);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
+        }
+        if (relation != null) {
+            errMsg = relation.compatible(catalogMgr);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
+        }
+        if (refreshSnapshot != null) {
+            errMsg = refreshSnapshot.compatible(this);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
+        }
+        return errMsg;
     }
 }

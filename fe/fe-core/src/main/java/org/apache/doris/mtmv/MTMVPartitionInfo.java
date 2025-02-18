@@ -26,6 +26,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * MTMVPartitionInfo
@@ -154,10 +155,10 @@ public class MTMVPartitionInfo {
         }
     }
 
-    public void compatible(CatalogMgr catalogMgr) throws Exception {
+    public Optional<String> compatible(CatalogMgr catalogMgr) {
         if (relatedTable == null) {
-            return;
+            return Optional.empty();
         }
-        relatedTable.compatible(catalogMgr);
+        return relatedTable.compatible(catalogMgr);
     }
 }
