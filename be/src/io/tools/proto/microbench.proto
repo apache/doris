@@ -17,7 +17,7 @@
 
 syntax="proto2";
 
-package mircobench;
+package microbench;
  
 option cc_generic_services = true;
 
