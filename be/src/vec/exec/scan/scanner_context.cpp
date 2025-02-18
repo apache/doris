@@ -111,14 +111,6 @@ Status ScannerContext::init() {
     _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
                                                     thread_token == nullptr ? "False" : "True");
 
-    // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
-    // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
-    // is larger than 10MB.
-    _max_bytes_in_queue = std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
-
-    // Provide more memory for wide tables, increase proportionally by multiples of 300
-    _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
-
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
 
@@ -144,6 +136,14 @@ Status ScannerContext::init() {
         }
     }
 #endif
+    // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
+    // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
+    // is larger than 10MB.
+    _max_bytes_in_queue = std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
+
+    // Provide more memory for wide tables, increase proportionally by multiples of 300
+    _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
+
     if (_min_scan_concurrency_of_scan_scheduler == 0) {
         // _scanner_scheduler->get_max_threads() is setted by workload group.
         _min_scan_concurrency_of_scan_scheduler = 2 * _scanner_scheduler->get_max_threads();
