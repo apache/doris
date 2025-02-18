@@ -21,14 +21,13 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IndexedPriorityQueue;
 import org.apache.doris.common.ResettableRandomizedIterator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
-import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -36,7 +35,6 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -46,7 +44,6 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.PrimitiveSink;
@@ -154,28 +151,10 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
-        Set<Tag> tags = Sets.newHashSet();
-        if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
-            String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-            // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
-            // just ignore it.
-            if (!Strings.isNullOrEmpty(qualifiedUser)) {
-                tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-                if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                    throw new UserException("No valid resource tag for user: " + qualifiedUser);
-                }
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
-            }
-        }
-
         // scan node is used for query
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .needQueryAvailable()
                 .needLoadAvailable()
-                .addTags(tags)
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations)
@@ -184,11 +163,25 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo()
-                .getBackendsByCurrentCluster().values().asList()));
+        ConnectContext ctx = ConnectContext.get();
+        List<Backend> backendList = null;
+        if (Config.isCloudMode()) {
+            if (ctx == null) {
+                throw new AnalysisException("ConnectContext is null");
+            }
+            backendList = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroup(ctx.getComputeGroup())
+                    .getBackendList();
+        } else {
+            ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            backendList = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroup(ctx.getComputeGroupSet())
+                    .getBackendList();
+        }
+
+        backends.addAll(policy.getCandidateBackends(backendList));
         if (backends.isEmpty()) {
             throw new UserException("No available backends, "
-                + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+                    + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
         }
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);

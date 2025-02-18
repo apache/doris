@@ -52,6 +52,7 @@ import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -196,6 +197,8 @@ public class ConnectContext {
 
     // cloud cluster name
     protected volatile String cloudCluster = null;
+
+    protected volatile Set<String> computeGroupSet = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -1184,6 +1187,10 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
+    public void setComputeGroupSet(Set<String> computeGroupSet) {
+        this.computeGroupSet = this.computeGroupSet;
+    }
+
     public String getCloudCluster() throws ComputeGroupException {
         return getCloudCluster(true);
     }
@@ -1264,6 +1271,54 @@ public class ConnectContext {
         }
         return hasAuthCluster.isEmpty() ? null
             : new CloudClusterResult(hasAuthCluster.get(0), CloudClusterResult.Comment.FOUND_BY_FRIST_CLUSTER_HAS_AUTH);
+    }
+
+    public String getComputeGroup() throws ComputeGroupException {
+        if (Config.isCloudMode()) {
+            return getCurrentCloudCluster();
+        } else {
+            throw new RuntimeException("local mode should not call this");
+        }
+    }
+
+    public Set<String> getComputeGroupSet() {
+        if (Config.isCloudMode()) {
+            throw new RuntimeException("cloud mode should not call this");
+        }
+        // in local-mode(non-cloud mode), to be compatibility with resource tag, we first get resource tag.
+        // if resource tag is not specified, then get compute group tag.
+        Set<Tag> resourceTags = getResourceTags();
+        if (resourceTags.isEmpty()) {
+            resourceTags = Env.getCurrentEnv().getAuth().getResourceTags(getQualifiedUser());
+        }
+
+        if (!resourceTags.isEmpty()) {
+            if (resourceTags == UserProperty.INVALID_RESOURCE_TAGS) {
+                throw new RuntimeException("No valid resource tag for user: " + qualifiedUser);
+            }
+            Set<String> ret = Sets.newHashSet();
+            for (Tag rg : resourceTags) {
+                ret.add(rg.value);
+            }
+            return ret;
+        } else {
+            Set<String> ret = Sets.newHashSet();
+            String currentUser = getQualifiedUser();
+            if (StringUtils.isEmpty(currentUser)) {
+                ret.add(Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME);
+                return ret;
+            }
+            String computeGroup = Env.getCurrentEnv().getAuth().getDefaultCloudCluster((currentUser));
+            if (StringUtils.isEmpty(computeGroup)) {
+                ret.add(Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME);
+                return ret;
+            }
+            String[] cgStrSet = computeGroup.split(",");
+            for (String cgStr : cgStrSet) {
+                ret.add(cgStr);
+            }
+            return ret;
+        }
     }
 
     /**

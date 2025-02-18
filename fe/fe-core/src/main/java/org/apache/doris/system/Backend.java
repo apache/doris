@@ -205,6 +205,15 @@ public class Backend implements Writable {
         return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
     }
 
+    public String getComputeGroupName() {
+        String value = tagMap.get(Tag.COMPUTE_GROUP_NAME);
+        if (StringUtils.isEmpty(value)) {
+            return Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
+        } else {
+            return value;
+        }
+    }
+
     public void setCloudClusterName(final String clusterName) {
         tagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
     }
