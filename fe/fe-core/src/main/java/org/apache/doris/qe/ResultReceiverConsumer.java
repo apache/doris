@@ -53,7 +53,7 @@ public class ResultReceiverConsumer {
                     readyOffsets.offer(offset);
                     return rowBatch;
                 });
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 errMsg = e.getMessage();
                 readyOffsets.offer(offset);
             }
