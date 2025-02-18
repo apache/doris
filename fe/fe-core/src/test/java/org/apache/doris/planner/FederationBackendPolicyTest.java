@@ -24,6 +24,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.NodeSelectionStrategy;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -69,10 +70,16 @@ public class FederationBackendPolicyTest {
         backend3.setAlive(true);
         service.addBackend(backend3);
 
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 
@@ -134,10 +141,16 @@ public class FederationBackendPolicyTest {
         backend3.setAlive(true);
         service.addBackend(backend3);
 
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 
@@ -228,10 +241,16 @@ public class FederationBackendPolicyTest {
         backend3.setAlive(true);
         service.addBackend(backend3);
 
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 
@@ -307,10 +326,16 @@ public class FederationBackendPolicyTest {
     @Test
     public void testGenerateRandomly() throws UserException {
         SystemInfoService service = new SystemInfoService();
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 
@@ -425,10 +450,16 @@ public class FederationBackendPolicyTest {
     @Test
     public void testNonAliveNodes() throws UserException {
         SystemInfoService service = new SystemInfoService();
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 
@@ -599,10 +630,16 @@ public class FederationBackendPolicyTest {
         backend3.setAlive(true);
         service.addBackend(backend3);
 
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 
@@ -771,10 +808,16 @@ public class FederationBackendPolicyTest {
         backend3.setAlive(true);
         service.addBackend(backend3);
 
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         new MockUp<Env>() {
             @Mock
             public SystemInfoService getCurrentSystemInfo() {
                 return service;
+            }
+
+            @Mock
+            public ComputeGroupMgr getComputeGroupMgr() {
+                return cgmgr;
             }
         };
 

@@ -258,6 +258,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -531,6 +532,8 @@ public class Env {
     private AtomicLong stmtIdCounter;
 
     private WorkloadGroupMgr workloadGroupMgr;
+
+    private ComputeGroupMgr computeGroupMgr;
 
     private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
 
@@ -810,6 +813,7 @@ public class Env {
         this.statisticsJobAppender = new StatisticsJobAppender();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
+        this.computeGroupMgr = new ComputeGroupMgr(systemInfo);
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
@@ -917,6 +921,10 @@ public class Env {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public ComputeGroupMgr getComputeGroupMgr() {
+        return computeGroupMgr;
     }
 
     public WorkloadGroupMgr getWorkloadGroupMgr() {
