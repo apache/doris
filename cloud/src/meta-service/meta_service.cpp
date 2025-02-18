@@ -1786,8 +1786,8 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         std::string tablet_compaction_val;
         err = txn->get(tablet_compaction_key, &tablet_compaction_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            ss << "tablet compaction key not found, table_id=" << table_id
-               << " lock_id" << lock_id << " initiator=" << lock_initiator;
+            ss << "tablet compaction key not found, table_id=" << table_id << " lock_id" << lock_id
+               << " initiator=" << lock_initiator;
             msg = ss.str();
             code = MetaServiceCode::LOCK_EXPIRED;
             return false;
@@ -2458,8 +2458,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         if (err == TxnErrorCode::TXN_OK) {
             break;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
-            request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
-            config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
+                   request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
+                   config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
             // if err is TXN_CONFLICT, and the lock id is -1, do a fast retry
             LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, lock_id="
                       << request->lock_id() << ", initiator=" << request->initiator()
