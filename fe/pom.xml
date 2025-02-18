@@ -222,7 +222,7 @@ under the License.
         <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>2.1.3-PAIMON-SNAPSHOT</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>2.1.4</doris.hive.catalog.shade.version>
         <avro.version>1.11.4</avro.version>
         <parquet.version>1.13.1</parquet.version>
         <spark.version>3.4.3</spark.version>
