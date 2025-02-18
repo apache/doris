@@ -80,6 +80,7 @@ public class DictionarySink extends DataSink {
         tDictionarySink.setKeyOutputExprSlots(keySlotIds);
         tDictionarySink.setValueOutputExprSlots(valueSlotIds);
         tDictionarySink.setValueNames(valueNames);
+        tDictionarySink.setSkipNullKey(dictionary.skipNullKey());
 
         tDataSink.setDictionarySink(tDictionarySink);
         return tDataSink;

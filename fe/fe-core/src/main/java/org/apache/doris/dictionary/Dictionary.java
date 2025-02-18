@@ -78,13 +78,15 @@ public class Dictionary extends Table {
         LOADING, // wait load task finishs
         OUT_OF_DATE // wait load task be scheduled
     }
-
     private final AtomicReference<DictionaryStatus> status = new AtomicReference<>();
 
     @SerializedName(value = "layout")
     private final LayoutType layout;
     @SerializedName(value = "version")
     private long version; // every time dictionary is updated, version will increase by 1
+
+    @SerializedName(value = "skipNullKey")
+    private boolean skipNullKey;
 
     private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
     private String lastUpdateResult;
@@ -103,6 +105,7 @@ public class Dictionary extends Table {
         this.status.set(DictionaryStatus.NORMAL); // not replay by gson
         this.layout = null;
         this.version = 0;
+        this.skipNullKey = false;
         this.dataDistributions = null; // not replay by gson
         this.lastUpdateResult = new String();
     }
@@ -120,6 +123,7 @@ public class Dictionary extends Table {
         this.status.set(DictionaryStatus.NORMAL);
         this.layout = info.getLayout();
         this.version = 1;
+        this.skipNullKey = info.skipNullKey();
         this.dataDistributions = null;
         this.lastUpdateResult = new String();
     }
@@ -215,6 +219,10 @@ public class Dictionary extends Table {
 
     public long getVersion() {
         return version;
+    }
+
+    public boolean skipNullKey() {
+        return skipNullKey;
     }
 
     public long getLastUpdateTime() {

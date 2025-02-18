@@ -430,6 +430,7 @@ struct TDictionarySink {
     5: optional list<i64> key_output_expr_slots
     6: optional list<i64> value_output_expr_slots
     7: optional list<string> value_names
+    8: optional bool skip_null_key
 }
 
 struct TDataSink {

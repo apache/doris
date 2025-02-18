@@ -60,6 +60,7 @@ public class CreateDictionaryInfo {
     private final Map<String, String> properties;
     private final LayoutType layout;
     private long dataLifetime;
+    private boolean skipNullKey = false;
 
     /**
      * Constructor.
@@ -221,6 +222,10 @@ public class CreateDictionaryInfo {
         } catch (NumberFormatException e) {
             throw new DdlException("Property 'data_lifetime' must be a number");
         }
+
+        if (properties.containsKey("skip_null_key")) {
+            skipNullKey = Boolean.parseBoolean(properties.get("skip_null_key"));
+        }
     }
 
     // Getters
@@ -254,6 +259,10 @@ public class CreateDictionaryInfo {
 
     public long getDataLifetime() {
         return dataLifetime;
+    }
+
+    public boolean skipNullKey() {
+        return skipNullKey;
     }
 
     public LayoutType getLayout() {
