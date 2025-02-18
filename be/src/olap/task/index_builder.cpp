@@ -736,7 +736,7 @@ Status IndexBuilder::do_build_inverted_index() {
     std::unique_lock schema_change_lock(_tablet->get_schema_change_lock(), std::defer_lock);
     bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
 
-    if (owns_lock) {
+    if (!owns_lock) {
         return Status::ObtainLockFailed(
                 "try schema_change_lock failed. There might be schema change or cooldown running "
                 "on "
