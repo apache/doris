@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.processor.post.materialize.LazyMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -66,6 +67,9 @@ public class PlanPostProcessors {
             builder.add(new ProjectAggregateExpressionsForCse());
         }
         builder.add(new CommonSubExpressionOpt());
+        if (cascadesContext.getConnectContext().getSessionVariable().enableLazyMaterialization) {
+            builder.add(new LazyMaterializeTopN());
+        }
         // DO NOT replace PLAN NODE from here
         if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
             builder.add(new PushTopnToAgg());

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -140,7 +141,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
         }
         String operativeCol = "";
-        if (!operativeSlots.isEmpty()) {
+        if (ConnectContext.get().getSessionVariable().enableLazyMaterialization && !operativeSlots.isEmpty()) {
             operativeCol = " operativeSlots(" + operativeSlots + ")";
         }
         return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + operativeCol + "]"
