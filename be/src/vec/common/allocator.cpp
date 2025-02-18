@@ -31,6 +31,7 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "runtime/memory/global_memory_arbitrator.h"
+#include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/memory_reclamation.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/process_profile.h"
@@ -118,7 +119,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
 
             // only task thread exceeded memory limit for the first time and wait_gc is true.
             // TODO, in the future, try to free memory and waiting for memory to be freed in pipeline scheduling.
-            doris::MemInfo::je_thread_tcache_flush();
+            doris::JemallocControl::je_thread_tcache_flush();
             doris::MemoryReclamation::je_purge_dirty_pages();
 
             if (!doris::config::disable_memory_gc) {

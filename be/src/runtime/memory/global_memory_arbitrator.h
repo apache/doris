@@ -162,6 +162,8 @@ public:
                                                 TUnit::BYTES));
     }
 
+    static void refresh_memory_bvar();
+
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
     static std::atomic<int64_t> refresh_interval_memory_growth;

@@ -18,6 +18,7 @@
 #include "runtime/memory/memory_reclamation.h"
 
 #include "runtime/exec_env.h"
+#include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -282,15 +283,15 @@ void MemoryReclamation::je_purge_dirty_pages() {
     if (config::disable_memory_gc || !config::enable_je_purge_dirty_pages) {
         return;
     }
-    std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+    std::unique_lock<std::mutex> l(doris::JemallocControl::je_purge_dirty_pages_lock);
 
     // Allow `purge_all_arena_dirty_pages` again after the process memory changes by 256M,
     // otherwise execute `decay_all_arena_dirty_pages`, because `purge_all_arena_dirty_pages` is very expensive.
-    if (doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
-        doris::MemInfo::je_purge_all_arena_dirty_pages();
-        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+    if (doris::JemallocControl::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+        doris::JemallocControl::je_purge_all_arena_dirty_pages();
+        doris::JemallocControl::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
     } else {
-        doris::MemInfo::je_decay_all_arena_dirty_pages();
+        doris::JemallocControl::je_decay_all_arena_dirty_pages();
     }
 #endif
 }
