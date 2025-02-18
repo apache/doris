@@ -41,7 +41,8 @@ import (
 )
 
 type client struct {
-	dbURL      string
+	urlPrefix  string
+	db         string
 	httpClient *http.Client
 	headers    map[string]string
 	beat       beat.Info
@@ -61,9 +62,10 @@ type client struct {
 var _ outputs.NetworkClient = (*client)(nil)
 
 type clientSettings struct {
-	DBURL   string
-	Timeout time.Duration
-	Headers map[string]string
+	URLPrefix string
+	DB        string
+	Timeout   time.Duration
+	Headers   map[string]string
 
 	Database      string
 	TableSelector *fmtSelector
@@ -79,7 +81,7 @@ type clientSettings struct {
 }
 
 func (s clientSettings) String() string {
-	str := fmt.Sprintf("clientSettings{%s/{table}/_stream_load, %s, %s, %s}", s.DBURL, s.Timeout, s.LabelPrefix, s.Headers)
+	str := fmt.Sprintf("clientSettings{%s/%s/{table}/_stream_load, %s, %s, %s}", s.URLPrefix, s.DB, s.Timeout, s.LabelPrefix, s.Headers)
 	if _, ok := s.Headers["Authorization"]; ok {
 		return strings.Replace(str, "Authorization:"+s.Headers["Authorization"], "Authorization:Basic ******", 1)
 	}
@@ -159,7 +161,8 @@ func NewDorisClient(s clientSettings) (*client, error) {
 	s.Logger.Infof("Received settings: %s", s)
 
 	client := &client{
-		dbURL: s.DBURL,
+		urlPrefix: s.URLPrefix,
+		db:        s.DB,
 		httpClient: &http.Client{
 			Timeout: s.Timeout,
 		},
@@ -196,7 +199,7 @@ func (client *client) String() string {
 }
 
 func (client *client) url(table string) string {
-	return fmt.Sprintf("%s/%s/_stream_load", client.dbURL, table)
+	return fmt.Sprintf("%s/%s/%s/_stream_load", client.urlPrefix, client.db, table)
 }
 
 func (client *client) label(table string) string {

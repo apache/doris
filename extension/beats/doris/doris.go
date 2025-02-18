@@ -20,8 +20,6 @@
 package doris
 
 import (
-	"fmt"
-
 	"github.com/elastic/beats/v7/libbeat/beat"
 	"github.com/elastic/beats/v7/libbeat/common"
 	"github.com/elastic/beats/v7/libbeat/logp"
@@ -68,13 +66,12 @@ func makeDoris(
 			return outputs.Fail(err)
 		}
 
-		dbPath := fmt.Sprintf("/api/%s", config.Database)
-		dbURL, err := common.MakeURL(url.Scheme, dbPath, host, 8030)
+		urlPrefix, err := common.MakeURL(url.Scheme, "/api", host, 8030)
 		if err != nil {
 			logger.Errorf("Invalid host param set: %s, Error: %+v", host, err)
 			return outputs.Fail(err)
 		}
-		logger.Infof("http connection endpoint: %s/{table}/_stream_load", dbURL)
+		logger.Infof("http connection endpoint: %s/%s/{table}/_stream_load", urlPrefix, config.Database)
 		if len(config.Tables) > 0 {
 			logger.Infof("tables: %+v", config.Tables)
 		}
@@ -89,7 +86,8 @@ func makeDoris(
 
 		var client outputs.NetworkClient
 		client, err = NewDorisClient(clientSettings{
-			DBURL:         dbURL,
+			URLPrefix:     urlPrefix,
+			DB:            config.Database,
 			Timeout:       config.Timeout,
 			Observer:      observer,
 			Headers:       config.createHeaders(),
