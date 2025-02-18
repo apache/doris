@@ -99,6 +99,10 @@ DECLARE_mBool(save_load_error_log_to_s3);
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
+CONF_Int32(delete_bitmap_txn_conflict_retry_times, "4");
+CONF_Int32(delete_bitmap_txn_conflict_retry_base_intervals_ms, "50");
 
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
