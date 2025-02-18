@@ -173,7 +173,6 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.dictionary.Dictionary;
-import org.apache.doris.dictionary.DictionaryJob;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
@@ -450,8 +449,7 @@ public class GsonUtils {
             jobExecutorRuntimeTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
                             .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
-                            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName())
-                            .registerSubtype(DictionaryJob.class, DictionaryJob.class.getSimpleName());
+                            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")

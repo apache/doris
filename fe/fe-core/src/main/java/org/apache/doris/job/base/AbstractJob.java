@@ -192,6 +192,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
     }
 
+    /**
+     * for show command to display all tasks of this job.
+     */
     public List<T> queryAllTasks() {
         List<T> tasks = new ArrayList<>();
         if (CollectionUtils.isEmpty(runningTasks)) {
@@ -415,10 +418,6 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public TRow getTvfInfo() {
         return getCommonTvfInfo();
-    }
-
-    public UserIdentity getCreateUser() {
-        return createUser;
     }
 
     /**

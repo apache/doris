@@ -22,19 +22,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.dictionary.Dictionary.DictionaryStatus;
-import org.apache.doris.job.base.JobExecuteType;
-import org.apache.doris.job.base.JobExecutionConfiguration;
-import org.apache.doris.job.base.TimerDefinition;
-import org.apache.doris.job.common.IntervalUnit;
-import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.manager.TaskDisruptorGroupManager;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoDictionaryCommand;
@@ -74,7 +70,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -85,7 +84,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(DictionaryManager.class);
 
     private static final long DICTIONARY_JOB_ID = -493209151411825L; // "DICTIONARY" to INT
-    private static final String DICTIONARY_JOB_NAME = "__INNER_DICTIONARY_JOB__";
 
     // Lock for protecting dictionaryIds map
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -105,52 +103,31 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     @SerializedName(value = "i")
     private long uniqueId = 0;
 
-    private DictionaryJob job;
+    private static final int DISPATCH_DICTIONARY_THREAD_NUM = Config.job_dictionary_task_consumer_thread_num > 0
+            ? Config.job_dictionary_task_consumer_thread_num
+            : TaskDisruptorGroupManager.DEFAULT_CONSUMER_THREAD_NUM;
+
+    private static final int DISPATCH_DICTIONARY_TASK_QUEUE_SIZE = TaskDisruptorGroupManager
+            .normalizeRingbufferSize(Config.dictionary_task_queue_size);
+
+    // thread pool for dictionary data load and unload
+    private ExecutorService executor;
 
     public DictionaryManager() {
         super("Dictionary Manager", Config.dictionary_auto_refresh_interval_seconds * 1000);
-    }
-
-    private void registerLoadJob() {
-        // get from presist data
-        if (Env.getCurrentEnv().getJobManager().getJob(DICTIONARY_JOB_ID) != null) {
-            job = (DictionaryJob) Env.getCurrentEnv().getJobManager().getJob(DICTIONARY_JOB_ID);
-            LOG.info("replay got dictionary job succeed");
-            return;
-        }
-        // only for new cluster we register it.
-        job = new DictionaryJob();
-        job.setJobId(DICTIONARY_JOB_ID);
-        job.setJobName(DICTIONARY_JOB_NAME);
-        job.setCreateUser(UserIdentity.ADMIN);
-        job.setJobStatus(JobStatus.RUNNING);
-        job.setJobConfig(getJobConfig());
-        try {
-            Env.getCurrentEnv().getJobManager().registerJob(job);
-            LOG.info("register dictionary job succeed");
-        } catch (JobException e) {
-            LOG.warn("Failed to register dictionary job", e);
-            job = null; // wait re-register it
-        }
-    }
-
-    private JobExecutionConfiguration getJobConfig() {
-        JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
-        jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
-        TimerDefinition timerDefinition = new TimerDefinition();
-        timerDefinition.setInterval((long) Config.dictionary_auto_refresh_interval_seconds);
-        timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
-        jobExecutionConfiguration.setTimerDefinition(timerDefinition);
-        jobExecutionConfiguration.setImmediate(true);
-        return jobExecutionConfiguration;
+        this.executor = new ThreadPoolExecutor(
+                DISPATCH_DICTIONARY_THREAD_NUM, // default thread num
+                DISPATCH_DICTIONARY_THREAD_NUM, // max = default
+                0L, // max = default so not useful
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(DISPATCH_DICTIONARY_TASK_QUEUE_SIZE),
+                new CustomThreadFactory("dictionary-task-execute"),
+                new ThreadPoolExecutor.AbortPolicy() // throw when queue is full
+        );
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        // wait Env completed. expacted only run one time.
-        if (job == null) {
-            registerLoadJob();
-        }
         // interval unit is ms
         setInterval(Config.dictionary_auto_refresh_interval_seconds * 1000);
         // Check and update dictionary data in each cycle
@@ -199,7 +176,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // 2. Create dictionary object
             Dictionary dictionary = new Dictionary(info, ++uniqueId);
             // Add to dictionaryIds map. no throw here. so schedule below is safe.
-                    idToDictionary.put(dictionary.getId(), dictionary);
+            idToDictionary.put(dictionary.getId(), dictionary);
             Map<String, Long> dbDictIds = dictionaryIds.computeIfAbsent(info.getDbName(),
                     k -> Maps.newConcurrentMap());
             dbDictIds.put(info.getDictName(), dictionary.getId());
@@ -251,8 +228,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     /**
-     * Drop all dictionaries in a table. Used when dropping a table. So maybe no db
-     * or table records.
+     * Drop all dictionaries in a table. Used when dropping a table. So maybe no db or table records.
      */
     public void dropTableDictionaries(String dbName, String tableName) {
         lockWrite();
@@ -267,15 +243,16 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             if (dictIds == null) { // this table has no dictionaries.
                 return;
             }
-            // all this db's dictionaries. tableToDictIds is not null so nameToDics must not
-            // be null.
+            // all this db's dictionaries. tableToDictIds is not null so nameToDics must not be null.
             Map<String, Long> nameToIds = dictionaryIds.get(dbName);
             for (Long id : dictIds) {
                 Dictionary dict = idToDictionary.remove(id);
-                nameToIds.remove(dict.getName());
-                if (id != null) {
-                    droppedDictionaries.add(dict);
+                if (id == null) {
+                    LOG.warn("Dictionary {} does not exist in dictionaryIds", id);
+                    continue;
                 }
+                nameToIds.remove(dict.getName());
+                droppedDictionaries.add(dict);
                 // Log the drop operation
                 Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, dict.getName());
             }
@@ -379,21 +356,26 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 Dictionary dictionary = idToDictionary.get(id);
                 // when data duration is older than its lifetime AND TODO:, refresh it.
                 if (dictionary.getLastUpdateTime() + dictionary.getDataLifetimeSecs() * 1000 < now) {
-                    // should schedule refresh. only tag when it's NORMAL because if not,
+                    // should schedule refresh. ONLY trigger when it's NORMAL because if not,
                     // it's already going to refresh or drop.
-                    dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE);
-                    submitDataLoad(dictionary);
+                    if (dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE))
+                    {
+                        submitDataLoad(dictionary);
+                    }
                 }
             }
         }
     }
 
     private void submitDataLoad(Dictionary dictionary) {
-        if (job.submitDataLoad(dictionary)) {
-            LOG.info("submit dictionary load of " + dictionary.getName());
-        } else {
-            LOG.warn("Failed to submit dictionary load of " + dictionary.getName());
-        }
+        LOG.info("Submit dictionary {} refresh task", dictionary.getName());
+        executor.execute(() -> {
+            try {
+                dataLoad(null, dictionary);
+            } catch (Exception e) {
+                LOG.warn("Failed to load dictionary " + dictionary.getName(), e);
+            }
+        });
     }
 
     public void dataLoad(ConnectContext ctx, Dictionary dictionary) throws Exception {
@@ -405,7 +387,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         LOG.info("Start loading data into dictionary " + dictionary.getName());
         if (ctx == null) { // for run with scheduler, not by command.
             // priv check is done in relative(caller) command. so use ADMIN here is ok.
-            ctx = InsertTask.makeConnectContext(job.getCreateUser(), dictionary.getDbName());
+            ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
         }
 
         // not use rerfresh command's executor to avoid potential problems.
@@ -416,10 +398,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                         + dictionary.getDbName() + "." + dictionary.getSourceTableName());
         TUniqueId queryId = InsertTask.generateQueryId();
         if (!baseCommand.getLabelName().isPresent()) {
-            baseCommand.setLabelName(Optional.of(job.getJobId() + "_" + queryId.toString()));
+            baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + queryId.toString()));
         }
         if (baseCommand.getJobId() == 0) {
-            baseCommand.setJobId(job.getJobId());
+            baseCommand.setJobId(DICTIONARY_JOB_ID);
         }
 
         InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(baseCommand, dictionary);
@@ -459,14 +441,17 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
     // we dont care whether it's succeed or not. if failed, rely on checkAndUpdateDictionaries() to drop it.
     private void submitDataUnload(Dictionary dictionary) {
-        if (job.submitDataUnload(dictionary)) {
-            LOG.info("submit dictionary unload of " + dictionary.getName());
-        } else {
-            LOG.warn("Failed to submit dictionary unload of " + dictionary.getName());
-        }
+        LOG.info("Submit dictionary {} unload task", dictionary.getName());
+        executor.execute(() -> {
+            try {
+                dataUnload(dictionary);
+            } catch (Exception e) {
+                LOG.warn("Failed to unload dictionary " + dictionary.getName(), e);
+            }
+        });
     }
 
-    public boolean dataUnload(Dictionary dictionary) {
+    private boolean dataUnload(Dictionary dictionary) {
         // use atomic status as a lock.
         if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.REMOVING)) {
             return false;
@@ -486,8 +471,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     /**
-     * Unload dictionary data from all alive backends. Only for drop unknown
-     * dictionary we could directly call this.
+     * Unload dictionary data from all alive backends. Only for drop unknown dictionary we could directly call this.
      *
      * @param dictId   dictionary id
      * @param dictName dictionary name
