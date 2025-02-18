@@ -81,7 +81,7 @@ ScannerContext::ScannerContext(
     if (limit < 0) {
         limit = -1;
     }
-    _resource_ctx = _state->get_query_ctx()->resource_ctx;
+    _resource_ctx = _state->get_query_ctx()->resource_ctx();
     _dependency = dependency;
     if (_min_scan_concurrency_of_scan_scheduler == 0) {
         _min_scan_concurrency_of_scan_scheduler = 2 * config::doris_scanner_thread_pool_thread_num;
@@ -366,7 +366,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 Status ScannerContext::validate_block_schema(Block* block) {
     size_t index = 0;
     for (auto& slot : _output_tuple_desc->slots()) {
-        if (!slot->need_materialize()) {
+        if (!slot->is_materialized()) {
             continue;
         }
         auto& data = block->get_by_position(index++);

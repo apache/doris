@@ -28,6 +28,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         sql """drop catalog if exists test_es_query_es6;"""
         sql """drop catalog if exists test_es_query_es7;"""
         sql """drop catalog if exists test_es_query_es8;"""
+        sql """drop catalog if exists es6_hide;"""
+        sql """drop catalog if exists es7_hide;"""
         sql """drop table if exists test_v1;"""
         sql """drop table if exists test_v2;"""
 
@@ -166,9 +168,35 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             );
         """
 
+        def executeWithRetry = { query, queryName, maxRetries ->
+            def retryCount = 0
+            def success = false
+
+            while (!success && retryCount < maxRetries) {
+                try {
+                    sql query
+                    success = true
+                } catch (Exception e) {
+                    if (e.getMessage().contains("EsTable metadata has not been synced, Try it later")) {
+                        logger.error("Failed to execute ${queryName}: ${e.getMessage()}")
+                        logger.info("Retrying... Attempt ${retryCount + 1}")
+                        retryCount++
+                        sleep(1000) // Sleep for 1 second
+                    } else {
+                        throw e // Rethrow if it's a different exception
+                    }
+                }
+            }
+
+            if (!success) {
+                throw new RuntimeException("Failed to execute ${queryName} after ${maxRetries} attempts")
+            }
+        }
+
         def query_catalogs = { -> 
             sql """switch internal"""
             sql """use regression_test_external_table_p0_es"""
+            executeWithRetry("""select * from test_v1 where test2='text#1'""", "sql01", 30)
             order_qt_sql01 """select * from test_v1 where test2='text#1'"""
             order_qt_sql02 """select * from test_v1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
             order_qt_sql03 """select test4,test5,test6,test7,test8 from test_v1 order by test8"""
@@ -182,7 +210,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql11 """select test6 from test_v1;"""
             order_qt_sql12 """select test9 from test_v1;"""
             
-            order_qt_sql20 """select * from test_v2 where test2='text#1'"""
+            executeWithRetry("""select * from test_v2 where test2='text#1'""", "sql20", 30)
             order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
             order_qt_sql22 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
             order_qt_sql23 """select * from test_v2 where esquery(c_long, '{"term":{"c_long":"-1"}}');"""

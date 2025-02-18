@@ -43,6 +43,7 @@
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/mock_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -435,21 +436,19 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
 
 PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
-        : _parent(parent), _state(state) {
-    _query_statistics = std::make_shared<QueryStatistics>();
-}
+        : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {
-    _query_statistics = std::make_shared<QueryStatistics>();
-}
+        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
-    info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
+    // indent is false so that source operator will have same
+    // indentation_level with its parent operator.
+    info.parent_profile->add_child(_runtime_profile.get(), /*indent=*/false, nullptr);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
@@ -542,15 +541,17 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
-    } else {
-        _dependency = nullptr;
     }
+
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
     _init_timer = ADD_TIMER_WITH_LEVEL(_profile, "InitTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
-    info.parent_profile->add_child(_profile, true, nullptr);
+    // indentation is true
+    // The parent profile of sink operator is usually a RuntimeProfile called PipelineTask.
+    // So we should set the indentation to true.
+    info.parent_profile->add_child(_profile, /*indent=*/true, nullptr);
     _memory_used_counter = _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     return Status::OK();
 }
@@ -726,6 +727,9 @@ DECLARE_OPERATOR(LocalExchangeSourceLocalState)
 DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
 
+#ifdef BE_TEST
+DECLARE_OPERATOR(MockLocalState)
+#endif
 #undef DECLARE_OPERATOR
 
 template class StreamingOperatorX<AssertNumRowsLocalState>;

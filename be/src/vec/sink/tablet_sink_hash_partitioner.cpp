@@ -59,7 +59,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     for (size_t i = 0; i < _tablet_sink_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
     }
-    // if _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // if _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor =
             std::make_unique<vectorized::OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
@@ -82,7 +82,8 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block) const {
+Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block, bool eos,
+                                                  bool* already_sent) const {
     _hash_vals.resize(block->rows());
     if (block->empty()) {
         return Status::OK();
@@ -97,7 +98,8 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
             number_input_rows));
     if (_row_distribution.batching_rows() > 0) {
         SCOPED_TIMER(_local_state->send_new_partition_timer());
-        RETURN_IF_ERROR(_send_new_partition_batch(state, block));
+        RETURN_IF_ERROR(_send_new_partition_batch(state, block, eos));
+        *already_sent = true;
     } else {
         const auto& row_ids = _row_part_tablet_ids[0].row_ids;
         const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
@@ -138,14 +140,15 @@ Status TabletSinkHashPartitioner::close(RuntimeState* state) {
 }
 
 Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state,
-                                                            vectorized::Block* input_block) const {
+                                                            vectorized::Block* input_block,
+                                                            bool eos) const {
     RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
     auto& p = _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>();
     // Recovery back
     _row_distribution.clear_batching_stats();
     _row_distribution._batching_block->clear_column_data();
     _row_distribution._deal_batched = false;
-    RETURN_IF_ERROR(p.sink(state, input_block, false));
+    RETURN_IF_ERROR(p.sink(state, input_block, eos));
     return Status::OK();
 }
 

@@ -217,7 +217,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
     bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
 
     auto columns_with_schema = vectorized::VectorizedUtils::create_columns_with_type_and_name(
-            _parent->cast<AggSourceOperatorX>()._row_descriptor);
+            _parent->cast<AggSourceOperatorX>().row_descriptor());
     size_t key_size = shared_state.probe_expr_ctxs.size();
 
     vectorized::MutableColumns key_columns;
@@ -373,7 +373,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
     block->clear();
 
     auto& p = _parent->cast<AggSourceOperatorX>();
-    *block = vectorized::VectorizedUtils::create_empty_columnswithtypename(p._row_descriptor);
+    *block = vectorized::VectorizedUtils::create_empty_columnswithtypename(p.row_descriptor());
     size_t agg_size = shared_state.aggregate_evaluators.size();
 
     vectorized::MutableColumns columns(agg_size);
@@ -429,9 +429,7 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _without_key(tnode.agg_node.grouping_exprs.empty()) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);

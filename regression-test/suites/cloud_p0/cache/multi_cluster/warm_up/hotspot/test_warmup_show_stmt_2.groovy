@@ -80,7 +80,7 @@ suite("test_warmup_show_stmt_2") {
         return s.getFileName() + ":" + s.getLineNumber()
     }
 
-    def result = sql_return_maparray """ show cache hotspot "/" """
+    def result = show_cache_hotspot()
     log.info(result.toString())
     org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
     def hotTableName = "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer"
@@ -96,21 +96,21 @@ suite("test_warmup_show_stmt_2") {
     }
     org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", found)
 
-    result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0" """
+    result = show_cache_hotspot("regression_cluster_name0")
     log.info(result.toString())
     org.junit.Assert.assertTrue(getLineNumber() + "result.size() " + result.size() + " > 0", result.size() > 0)
     assertEquals(result[0].get("PartitionName"), "p3")
     assertEquals(result[0].get("TableName"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
-    // result = sql_return_maparray """ show cache hotspot "/regression_cluster_name1" """
+    // result = show_cache_hotspot("regression_cluster_name1")
     // assertEquals(result.size(), 0);
     // not queried table should not be the hotspot
-    result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0/regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.supplier" """
+    result = show_cache_hotspot("regression_cluster_name0", "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.supplier" )
     log.info(result.toString())
     assertEquals(result.size(), 0);
 
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     sleep(40000)
-    result = sql_return_maparray """ show cache hotspot "/" """
+    def result = show_cache_hotspot()
     log.info(result.toString())
     org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
     found = false

@@ -53,14 +53,14 @@ public:
                                           const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                int64_t end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
@@ -93,7 +93,7 @@ public:
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 };
 } // namespace vectorized

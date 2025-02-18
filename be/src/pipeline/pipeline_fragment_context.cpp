@@ -818,7 +818,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                     child_op->get_name());
         }
         shared_state->exchanger = LocalMergeSortExchanger::create_unique(
-                sort_source, cur_pipe->num_tasks(), _num_instances,
+                LocalMergeSortExchanger::MergeInfo {
+                        sort_source->_is_asc_order, sort_source->_nulls_first, sort_source->_limit,
+                        sort_source->_offset, sort_source->_vsort_exec_exprs.ordering_expr_ctxs()},
+                cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
@@ -1253,7 +1256,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             return Status::InternalError("Illegal aggregate node " + std::to_string(tnode.node_id) +
                                          ": group by and output is empty");
         }
-
+        bool need_create_cache_op =
+                enable_query_cache && tnode.node_id == request.fragment.query_cache_param.node_id;
         auto create_query_cache_operator = [&](PipelinePtr& new_pipe) {
             auto cache_node_id = request.local_params[0].per_node_scan_ranges.begin()->first;
             auto cache_source_id = next_operator_id();
@@ -1286,7 +1290,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
             !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt) {
-            if (enable_query_cache) {
+            if (need_create_cache_op) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
@@ -1310,7 +1314,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
                    tnode.agg_node.use_streaming_preaggregation &&
                    !tnode.agg_node.grouping_exprs.empty()) {
-            if (enable_query_cache) {
+            if (need_create_cache_op) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
@@ -1327,7 +1331,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         } else {
             // create new pipeline to add query cache operator
             PipelinePtr new_pipe;
-            if (enable_query_cache) {
+            if (need_create_cache_op) {
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
             }
 
@@ -1336,7 +1340,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             } else {
                 op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             }
-            if (enable_query_cache) {
+            if (need_create_cache_op) {
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
                 RETURN_IF_ERROR(new_pipe->add_operator(
                         op, request.__isset.parallel_instances ? request.parallel_instances : 0));

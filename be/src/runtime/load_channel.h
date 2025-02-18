@@ -69,6 +69,8 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
+    std::shared_ptr<ResourceContext> resource_ctx() const { return _resource_ctx; }
+
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 

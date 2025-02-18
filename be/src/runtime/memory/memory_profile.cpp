@@ -23,6 +23,7 @@
 #include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
+#include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
@@ -243,12 +244,12 @@ void MemoryProfile::refresh_memory_overview_profile() {
     memory_reserved_memory_bytes << GlobalMemoryArbitrator::process_reserved_memory() -
                                             memory_reserved_memory_bytes.get_value();
 
-    all_tracked_mem_sum += MemInfo::allocator_cache_mem();
+    all_tracked_mem_sum += JemallocControl::je_cache_bytes();
     COUNTER_SET(_jemalloc_cache_usage_counter,
-                static_cast<int64_t>(MemInfo::allocator_cache_mem()));
-    all_tracked_mem_sum += MemInfo::allocator_metadata_mem();
+                static_cast<int64_t>(JemallocControl::je_cache_bytes()));
+    all_tracked_mem_sum += JemallocControl::je_metadata_mem();
     COUNTER_SET(_jemalloc_metadata_usage_counter,
-                static_cast<int64_t>(MemInfo::allocator_metadata_mem()));
+                static_cast<int64_t>(JemallocControl::je_metadata_mem()));
     COUNTER_SET(_jemalloc_memory_usage_counter,
                 _jemalloc_cache_usage_counter->current_value() +
                         _jemalloc_metadata_usage_counter->current_value());

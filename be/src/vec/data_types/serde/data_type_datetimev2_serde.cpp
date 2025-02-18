@@ -76,7 +76,7 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
 }
 
 Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -138,8 +138,9 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
 }
 
 void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int start,
-                                                     int end, const cctz::time_zone& ctz) const {
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
@@ -167,7 +168,7 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             return;
         }
         }
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             auto utc_epoch = static_cast<UInt64>(concrete_array->Value(value_i));
 
             DateV2Value<DateTimeV2ValueType> v;
@@ -252,7 +253,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
 }
 
 Status DataTypeDateTimeV2SerDe::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -268,7 +269,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_fixed_json(
 }
 
 void DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(IColumn& column,
-                                                                      int times) const {
+                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }
