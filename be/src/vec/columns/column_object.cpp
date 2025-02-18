@@ -60,7 +60,10 @@
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/convert_field_to_type.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nothing.h"
@@ -78,6 +81,9 @@ namespace doris::vectorized {
 namespace {
 
 DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+    if (type == TypeIndex::Nothing) {
+        return std::make_shared<DataTypeNothing>();
+    }
     if (type == ColumnObject::MOST_COMMON_TYPE_ID) {
         // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
         // So we ignored num_dimensions.
@@ -366,6 +372,8 @@ ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, b
     data.push_back(std::move(data_));
     data_types.push_back(type);
     data_serdes.push_back(generate_data_serdes(type, is_root));
+    DCHECK_EQ(data.size(), data_types.size());
+    DCHECK_EQ(data.size(), data_serdes.size());
 }
 
 ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
@@ -409,6 +417,8 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
     least_common_type = LeastCommonType {type, is_root};
     data_types.push_back(type);
     data_serdes.push_back(generate_data_serdes(type, is_root));
+    DCHECK_EQ(data.size(), data_types.size());
+    DCHECK_EQ(data.size(), data_serdes.size());
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
@@ -520,6 +530,7 @@ ColumnObject::Subcolumn ColumnObject::Subcolumn::clone_with_default_values(
                 new_subcolumn.data[i], field_info.scalar_type_id, field_info.num_dimensions);
         new_subcolumn.data_types[i] = create_array_of_type(field_info.scalar_type_id,
                                                            field_info.num_dimensions, is_nullable);
+        new_subcolumn.data_serdes[i] = generate_data_serdes(new_subcolumn.data_types[i], false);
     }
 
     return new_subcolumn;
@@ -701,6 +712,9 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
     data_types = {std::move(to_type)};
     data_serdes = {(generate_data_serdes(data_types[0], is_root))};
 
+    DCHECK_EQ(data.size(), data_types.size());
+    DCHECK_EQ(data.size(), data_serdes.size());
+
     num_of_defaults_in_prefix = 0;
 }
 
@@ -742,6 +756,7 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     size_t sz = data.size() - num_removed;
     data.resize(sz);
     data_types.resize(sz);
+    data_serdes.resize(sz);
     num_of_defaults_in_prefix -= n;
 }
 
@@ -850,7 +865,7 @@ void ColumnObject::check_consistency() const {
                                serialized_sparse_column->size());
     }
 
-#ifdef NDEBUG
+#ifndef NDEBUG
     bool error = false;
     auto [path, value] = get_sparse_data_paths_and_values();
 
@@ -1292,7 +1307,6 @@ void ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
                 "Required size of subcolumn {} ({}) is inconsistent with column size ({})",
                 key.get_path(), new_size, num_rows);
     }
-    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 void ColumnObject::set_num_rows(size_t n) {
@@ -1731,15 +1745,52 @@ struct Prefix {
     bool root_is_first_flag = true;
 };
 
+// skip empty nested json:
+// 1. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
+// 2. type is nothing
+bool ColumnObject::Subcolumn::is_empty_nested(size_t row) const {
+    TypeIndex base_type_id = least_common_type.get_base_type_id();
+    const DataTypePtr& type = least_common_type.get();
+    // check if it is empty nested json array, then skip
+    if (base_type_id == TypeIndex::VARIANT) {
+        DCHECK(type->equals(*ColumnObject::NESTED_TYPE));
+        Field field;
+        get(row, field);
+        if (field.get_type() == Field::Types::Array) {
+            const auto& array = field.get<Array>();
+            bool only_nulls_inside = true;
+            for (const auto& elem : array) {
+                if (elem.get_type() != Field::Types::Null) {
+                    only_nulls_inside = false;
+                    break;
+                }
+            }
+            // if only nulls then skip
+            return only_nulls_inside;
+        }
+    }
+    // skip nothing type
+    if (base_type_id == TypeIndex::Nothing) {
+        return true;
+    }
+    return false;
+}
+
 bool ColumnObject::is_visible_root_value(size_t nrow) const {
     if (is_null_root()) {
         return false;
     }
-    if (subcolumns.get_root()->data.is_null_at(nrow)) {
+    const auto* root = subcolumns.get_root();
+    if (root->data.is_null_at(nrow)) {
         return false;
     }
-    size_t ind = nrow - subcolumns.get_root()->data.num_of_defaults_in_prefix;
-    for (const auto& part : subcolumns.get_root()->data.data) {
+    if (root->data.least_common_type.get_base_type_id() == TypeIndex::VARIANT) {
+        // nested field
+        return !root->data.is_empty_nested(nrow);
+    }
+    size_t ind = nrow - root->data.num_of_defaults_in_prefix;
+    // null value as empty json, todo: think a better way to disinguish empty json and null json.
+    for (const auto& part : root->data.data) {
         if (ind < part->size()) {
             return !part->get_data_at(ind).empty();
         }
@@ -1774,6 +1825,10 @@ Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWri
     for (const auto& subcolumn : get_subcolumns()) {
         // Skip root value, we have already processed it
         if (subcolumn->data.is_root) {
+            continue;
+        }
+        // skip empty nested value
+        if (subcolumn->data.is_empty_nested(row_num)) {
             continue;
         }
         /// We consider null value and absence of the path in a row as equivalent cases, because we cannot actually distinguish them.

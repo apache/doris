@@ -212,7 +212,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Float64>>();
     }
     case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-        return std::make_unique<OlapColumnDataConvertorVariant>();
+        if (column.variant_max_subcolumns_count() > 0) {
+            return std::make_unique<OlapColumnDataConvertorVariant>();
+        }
+        return std::make_unique<OlapColumnDataConvertorVariantRoot>();
     }
     case FieldType::OLAP_FIELD_TYPE_STRUCT: {
         return create_struct_convertor(column);
@@ -1094,6 +1097,58 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _results[5] = _value_convertor->get_nullmap();
 
     return Status::OK();
+}
+
+void OlapBlockDataConvertor::OlapColumnDataConvertorVariantRoot::set_source_column(
+        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
+    // set
+    const ColumnNullable* nullable_column = nullptr;
+    if (typed_column.column->is_nullable()) {
+        nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
+        _nullmap = nullable_column->get_null_map_data().data();
+    }
+    const auto& variant =
+            nullable_column == nullptr
+                    ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
+                    : assert_cast<const vectorized::ColumnObject&>(
+                              nullable_column->get_nested_column());
+    if (variant.is_null_root()) {
+        auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+        auto root_col = root_type->create_column();
+        root_col->insert_many_defaults(variant.rows());
+        const_cast<ColumnObject&>(variant).create_root(root_type, std::move(root_col));
+        variant.check_consistency();
+    }
+    // ensure data finalized
+    _source_column_ptr = &const_cast<ColumnObject&>(variant);
+    static_cast<void>(_source_column_ptr->finalize(ColumnObject::FinalizeMode::WRITE_MODE));
+    _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
+    // Make sure the root node is jsonb storage type
+    auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+    _source_column_ptr->ensure_root_node_type(expected_root_type);
+    _root_data_convertor->set_source_column(
+            {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);
+    OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
+                                                                           num_rows);
+}
+
+// convert root data
+Status OlapBlockDataConvertor::OlapColumnDataConvertorVariantRoot::convert_to_olap() {
+#ifndef NDEBUG
+    _source_column_ptr->check_consistency();
+#endif
+    const auto* nullable = assert_cast<const ColumnNullable*>(_source_column_ptr->get_root().get());
+    const auto* root_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
+    RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, root_column));
+    return Status::OK();
+}
+
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorVariantRoot::get_data() const {
+    return _root_data_convertor->get_data();
+}
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorVariantRoot::get_data_at(
+        size_t offset) const {
+    return _root_data_convertor->get_data_at(offset);
 }
 
 void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
