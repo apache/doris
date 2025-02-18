@@ -175,7 +175,7 @@ suite("test_export_basic", "p0") {
             sql """
                 insert into ${table_load_name}
                 select * from local(
-                    "file_path" = "${local_tvf_prefix}/${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
                     "column_separator" = ","
@@ -233,7 +233,7 @@ suite("test_export_basic", "p0") {
             sql """
                 insert into ${table_load_name}
                 select * from local(
-                    "file_path" = "${local_tvf_prefix}/${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
                     "column_separator" = ","
@@ -291,7 +291,7 @@ suite("test_export_basic", "p0") {
             sql """
                 insert into ${table_load_name}
                 select * from local(
-                    "file_path" = "${local_tvf_prefix}/${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
                     "column_separator" = ","
@@ -349,7 +349,7 @@ suite("test_export_basic", "p0") {
             sql """
                 insert into ${table_load_name}
                 select * from local(
-                    "file_path" = "${local_tvf_prefix}/${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
                     "column_separator" = ","
@@ -450,7 +450,7 @@ suite("test_export_basic", "p0") {
             sql """
                 insert into ${table_load_name} (id, Name)
                 select * from local(
-                    "file_path" = "${local_tvf_prefix}/${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
                     "column_separator" = ","
@@ -507,7 +507,7 @@ suite("test_export_basic", "p0") {
             sql """
                 insert into ${table_load_name}
                 select * from local(
-                    "file_path" = "${local_tvf_prefix}/${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
                     "column_separator" = ","
