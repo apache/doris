@@ -34,6 +34,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <random>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -230,13 +231,15 @@ public:
         records_[job_id].emplace_back(file_info);
     }
 
-    std::vector<FileInfo> get_file_infos(const std::string& job_id) {
+    int64_t get_exist_job_perfile_size(const std::string& job_id) {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = records_.find(job_id);
-        if (it != records_.end()) {
-            return it->second;
+        if (records_.find(job_id) != records_.end()) {
+            if (records_[job_id].empty()) {
+                return -1;
+            }
+            return records_[job_id][0].data_size;
         }
-        return {};
+        return -1;
     }
 
     std::map<std::string, std::vector<FileInfo>> get_all_records() {
@@ -498,9 +501,14 @@ struct JobConfig {
         }
 
         if (config.cache_type == "TTL") {
+            if (!d.HasMember("expiration")) {
+                throw std::runtime_error("expiration is required when cache type eq TTL");
+            }
             config.expiration = d["expiration"].GetInt64();
+            if (config.expiration <= 0) {
+                throw std::runtime_error("expiration <= 0 when cache type eq TTL");
+            }
         }
-
 
         config.write_batch_size = d["write_batch_size"].GetInt64();
         if (config.write_batch_size == 0) {
@@ -545,10 +553,8 @@ struct JobConfig {
            << ", read_iops: " << read_iops << ", num_threads: " << num_threads
            << ", num_files: " << num_files << ", file_prefix: " << HIDDEN_PREFIX + file_prefix
            << ", write_file_cache" << write_file_cache
-           << ", more than write_batch_size: " << write_batch_size
-           << ", read repeat: " << repeat
-           << ", ttl expiration: " << expiration
-           << ", cache_type: " << cache_type
+           << ", more than write_batch_size: " << write_batch_size << ", read repeat: " << repeat
+           << ", ttl expiration: " << expiration << ", cache_type: " << cache_type
            << " will append data to s3 writer, read_offset: [" << read_offset_left << " , "
            << read_offset_right << "), read_length: [" << read_length_left << " , "
            << read_length_right << ")";
@@ -697,7 +703,8 @@ public:
 
     void execute_job(const std::string& job_id) {
         Job& job = _jobs[job_id];
-        const JobConfig& config = job.config;
+        JobConfig config = job.config;
+        LOG(INFO) << "begin to Run " << job_id << " job config: " << config.to_string();
 
         // 生成多个key
         std::vector<std::string> keys;
@@ -710,15 +717,13 @@ public:
             std::string old_job_id =
                     s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
             if (old_job_id == "") {
-                LOG(WARNING) << "Can't find previously job uploaded files, Please make sure read "
-                                "files exist in obj or It is also possible that you have restarted "
-                                "the file_cache_microbench program, job_id = "
-                             << job_id;
-                throw std::runtime_error(
-                        "Can't find previously job uploaded files, please make sure read files "
-                        "exist in obj or It is also possible that you have restarted the "
-                        "file_cache_microbench program: " +
-                        rewrite_job_id);
+                std::string err_msg =
+                        "Can't find previously job uploaded files, Please make sure read "
+                        "files exist in obj or It is also possible that you have restarted "
+                        "the file_cache_microbench program, job_id = " +
+                        job_id;
+                LOG(WARNING) << err_msg;
+                throw std::runtime_error(err_msg);
             }
             rewrite_job_id = old_job_id;
         }
@@ -735,9 +740,12 @@ public:
         }
 
         if (config.read_iops) {
-            // 执行读操作
-            execute_read_tasks(keys, job, config);
+            for (int i = 0; i < config.repeat; i++) {
+                // 执行读操作
+                execute_read_tasks(keys, job, config);
+            }
         }
+        LOG(INFO) << "finish to Run " << job_id;
     }
 
 private:
@@ -786,6 +794,9 @@ private:
                 try {
                     DataGenerator data_generator(config.size_bytes_perfile);
                     doris::io::FileWriterOptions options;
+                    if (config.cache_type == "TTL") {
+                        options.file_cache_expiration = config.expiration;
+                    }
                     options.write_file_cache = config.write_file_cache;
                     auto writer = std::make_unique<IopsControlledS3FileWriter>(
                             client, doris::config::test_s3_bucket, key, &options, write_limiters[i],
@@ -848,12 +859,21 @@ private:
         }
     }
 
-    void execute_read_tasks(const std::vector<std::string>& keys, Job& job,
-                            const JobConfig& config) {
+    void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
+        int64_t exist_job_perfile_size = s3_file_records.get_exist_job_perfile_size(job.job_id);
         std::vector<std::future<void>> read_futures;
         doris::io::IOContext io_ctx;
         doris::io::FileCacheStatistics total_stats;
         io_ctx.file_cache_stats = &total_stats;
+        if (config.cache_type == "DISPOSABLE") {
+            io_ctx.is_disposable = true;
+        } else if (config.cache_type == "TTL") {
+            io_ctx.expiration_time = config.expiration;
+        } else if (config.cache_type == "INDEX") {
+            io_ctx.is_index_data = true;
+        } else { // default NORMAL
+            // do nothing
+        }
         ThreadPool read_pool(config.num_threads);
         std::vector<std::shared_ptr<IopsRateLimiter>> read_limiters;
         read_limiters.reserve(config.num_files);
@@ -914,19 +934,52 @@ private:
                         auto reader = std::make_unique<IopsControlledFileReader>(
                                 status_or_reader.value(), read_limiters[i], read_stats);
 
-                        size_t read_offset = config.read_offset_left;
-                        int64_t read_length = config.read_length_left;
-                        if (read_length == -1 ||
-                            read_offset + read_length > config.size_bytes_perfile) {
-                            read_length = config.size_bytes_perfile - read_offset;
+                        size_t read_offset = 0;
+                        size_t read_length = 0;
+
+                        bool use_random = true;
+                        if (config.read_offset_left + 1 == config.read_offset_right) {
+                            use_random = false;
                         }
-                        LOG(INFO) << "Initial read_length=" << read_length;
-                        if (read_length == -1 ||
-                            read_offset + read_length > config.size_bytes_perfile) {
-                            read_length = config.size_bytes_perfile - read_offset;
+                        if (exist_job_perfile_size != -1) {
+                            // read exist files
+                            if (config.read_offset_right > exist_job_perfile_size) {
+                                config.read_offset_right = exist_job_perfile_size;
+                            }
+                            if (config.read_length_right > exist_job_perfile_size) {
+                                config.read_length_right = exist_job_perfile_size;
+                            }
+
+                            if (use_random) {
+                                std::random_device rd;
+                                std::mt19937 gen(rd());
+                                // 在 read_offset_left 和 read_offset_right 之间生成随机 read_offset
+                                std::uniform_int_distribution<size_t> dis_offset(
+                                        config.read_offset_left, config.read_offset_right - 1);
+                                read_offset = dis_offset(gen); // 生成随机的 read_offset
+                                std::uniform_int_distribution<size_t> dis_length(
+                                        config.read_length_left, config.read_length_right - 1);
+                                read_length = dis_length(gen); // 生成随机的 read_length
+                                if (read_offset + read_length > exist_job_perfile_size) {
+                                    read_length = exist_job_perfile_size - read_offset;
+                                }
+                            } else { // not random
+                                read_offset = config.read_offset_left;
+                                read_length = config.read_length_left;
+                            }
+                        } else {
+                            // new files
+                            size_t read_offset = config.read_offset_left;
+                            int64_t read_length = config.read_length_left;
+                            if (read_length == -1 ||
+                                read_offset + read_length > config.size_bytes_perfile) {
+                                read_length = config.size_bytes_perfile - read_offset;
+                            }
                         }
-                        LOG(INFO) << "Calculated read_length=" << read_length;
-                        CHECK(read_length >= 0)
+
+                        CHECK(read_offset > 0)
+                                << "Calculated read_offset is negative: " << read_length;
+                        CHECK(read_length > 0)
                                 << "Calculated read_length is negative: " << read_length;
 
                         std::string read_buffer;
@@ -1046,11 +1099,11 @@ public:
             LOG(INFO) << "Job submitted successfully with ID: " << job_id;
 
             // 返回job_id
-            cntl->response_attachment().append("{\"job_id\": \"" + job_id + "\"}");
+            cntl->response_attachment().append(R"({"job_id": ")" + job_id + R"("})");
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error submitting job: " << e.what();
             cntl->http_response().set_status_code(400);
-            cntl->response_attachment().append("{\"error\": \"" + std::string(e.what()) + "\"}");
+            cntl->response_attachment().append(R"({"error": ")" + std::string(e.what()) + R"("})");
         }
     }
 
@@ -1132,8 +1185,8 @@ public:
             cntl->response_attachment().append(buffer.GetString());
         } catch (const std::exception& e) {
             cntl->http_response().set_status_code(404);
-            std::string error_message = "{\"error\": \"Job not found\", \"exception\": \"" +
-                                        std::string(e.what()) + "\"}";
+            std::string error_message = R"({"error": "Job not found", "exception": ")" +
+                                        std::string(e.what()) + R"("})";
             cntl->response_attachment().append(error_message);
         }
     }
@@ -1178,7 +1231,7 @@ public:
         // TODO: 实现取消作业的功能
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
         cntl->http_response().set_status_code(501); // Not Implemented
-        cntl->response_attachment().append("{\"error\": \"Not implemented\"}");
+        cntl->response_attachment().append(R"({"error": "Not implemented"})");
     }
 
     void get_help(google::protobuf::RpcController* cntl_base,
