@@ -70,6 +70,7 @@ public class Dictionary extends Table {
     private long lastUpdateTime;
 
     // when longer than lastUpdateTime + dataLifetimeSecs, data is out of date.
+    @SerializedName(value = "dataLifetimeSecs")
     private long dataLifetimeSecs;
 
     public enum DictionaryStatus {
