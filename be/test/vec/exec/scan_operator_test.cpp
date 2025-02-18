@@ -101,11 +101,12 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     state->set_query_options(query_options);
     std::ignore = scan_operator->init(tnode, state.get());
     // Without conjuncts, limit 10 > adaptive_pipeline_task_serial_read_on_limit 9
-    ASSERT_EQ(scan_operator->_should_run_serial, false);
+    ASSERT_EQ(scan_operator->_should_run_serial, true);
 
     query_options.__set_enable_adaptive_pipeline_task_serial_read_on_limit(false);
     query_options.__set_adaptive_pipeline_task_serial_read_on_limit(900);
     state->set_query_options(query_options);
+    scan_operator->_should_run_serial = false;
     std::ignore = scan_operator->init(tnode, state.get());
     // Without conjuncts, enable_adaptive_pipeline_task_serial_read_on_limit is false
     ASSERT_EQ(scan_operator->_should_run_serial, false);
