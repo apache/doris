@@ -715,7 +715,7 @@ public class ExportJob implements Writable {
 
     private void exportExportJob() throws JobException {
         if (getState() == ExportJobState.CANCELLED || getState() == ExportJobState.FINISHED) {
-            throw new JobException("export job has been cancelled or finished.");
+            throw new JobException("export job has been {}, can not be update to `EXPORTING` state", getState());
         }
         // The first exportTaskExecutor will set state to EXPORTING,
         // other exportTaskExecutors do not need to set up state.
