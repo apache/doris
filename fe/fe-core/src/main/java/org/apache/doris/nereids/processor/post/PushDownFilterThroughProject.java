@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * merge consecutive projects
@@ -43,8 +44,8 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
         Map<Slot, Expression> childAlias = project.getAliasToProducer();
-        if (filter.getInputSlots().stream().map(childAlias::get)
-                .anyMatch(expr -> expr != null && expr.containsNonfoldable())) {
+        if (filter.getInputSlots().stream().map(childAlias::get).filter(Objects::nonNull)
+                .anyMatch(Expression::containsNonfoldable)) {
             return filter;
         }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(

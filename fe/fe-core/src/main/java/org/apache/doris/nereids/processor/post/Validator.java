@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -62,11 +64,14 @@ public class Validator extends PlanPostProcessor {
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
         // except that the project contains NoneMovableFunction
-        if (child instanceof PhysicalProject && !((PhysicalProject<?>) child).containsNoneMovableFunction()
-                && filter.getInputSlots().stream().map(((PhysicalProject<?>) child).getAliasToProducer()::get)
-                        .noneMatch(expr -> expr != null && expr.containsNonfoldable())) {
-            throw new AnalysisException(
-                    "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
+        if (child instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) child;
+            if (!project.containsNoneMovableFunction()
+                    && filter.getInputSlots().stream().map(project.getAliasToProducer()::get).filter(Objects::nonNull)
+                            .noneMatch(Expression::containsNonfoldable)) {
+                throw new AnalysisException(
+                        "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
+            }
         }
 
         return visit(filter, context);

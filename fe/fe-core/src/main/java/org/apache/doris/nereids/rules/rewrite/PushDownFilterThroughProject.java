@@ -39,6 +39,7 @@ import com.google.common.collect.Sets;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -123,8 +124,8 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             // `filter(a > 1) -> project(b + random(1, 10) as a)`, if push down filter, it got
             // `project(b + random(1, 10) as a) -> filter(b + random(1, 10) > 1)`, it contains two distinct RANDOM.
             if (childOutputs.containsAll(conjunctSlots)
-                    && conjunctSlots.stream().map(childAlias::get)
-                            .noneMatch(expr -> expr != null && expr.containsNonfoldable())) {
+                    && conjunctSlots.stream().map(childAlias::get).filter(Objects::nonNull)
+                            .noneMatch(Expression::containsNonfoldable)) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);
