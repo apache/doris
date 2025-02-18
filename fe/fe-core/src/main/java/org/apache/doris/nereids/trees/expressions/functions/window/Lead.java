@@ -66,12 +66,12 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
     }
 
     public Expression getOffset() {
-        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3);
+        Preconditions.checkArgument(children.size() == 3);
         return child(1);
     }
 
     public Expression getDefaultValue() {
-        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3);
+        Preconditions.checkArgument(children.size() == 3);
         return child(2);
     }
 
