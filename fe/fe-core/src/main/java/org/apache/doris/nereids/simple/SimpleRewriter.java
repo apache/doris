@@ -27,7 +27,6 @@ public class SimpleRewriter extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildRewriteJobs() {
         return jobs(
-            custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
             bottomUp(
                 new LimitSortToTopN(),
                 new PushDownFilterThroughProject(),
