@@ -39,21 +39,23 @@ public class ResultReceiverConsumer {
         }
 
         public void createFuture() {
+            if (errMsg != null) {
+                return;
+            }
             try {
                 future = executor.submit(() -> {
-                    RowBatch rowBatch;
+                    RowBatch rowBatch = null;
                     try {
                         rowBatch = receiver.getNext(status);
-                        readyOffsets.offer(offset);
                     } catch (TException e) {
                         errMsg = e.getMessage();
-                        throw e;
                     }
+                    readyOffsets.offer(offset);
                     return rowBatch;
                 });
             } catch (Exception e) {
                 errMsg = e.getMessage();
-                throw e;
+                readyOffsets.offer(offset);
             }
         }
 
@@ -81,10 +83,6 @@ public class ResultReceiverConsumer {
     }
 
     public RowBatch getNext(Status status) throws TException, InterruptedException, ExecutionException, UserException {
-        if (errMsg != null) {
-            throw new UserException(errMsg);
-        }
-
         if (!futureInitialized) {
             futureInitialized = true;
             for (ReceiverContext context : contexts) {
@@ -94,6 +92,9 @@ public class ResultReceiverConsumer {
 
         ReceiverContext context = contexts.get(readyOffsets.take());
         RowBatch rowBatch = context.future.get();
+        if (errMsg != null) {
+            throw new UserException(errMsg);
+        }
         if (!context.status.ok()) {
             errMsg = context.status.getErrorMsg();
             status.updateStatus(context.status.getErrorCode(), context.status.getErrorMsg());
