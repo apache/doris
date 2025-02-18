@@ -61,6 +61,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -71,7 +72,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -83,6 +83,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -993,6 +994,24 @@ public abstract class RoutineLoadJob
                 } else {
                     ConnectContext.get().setCloudCluster(clusterName);
                 }
+            } else {
+                if (ConnectContext.get() == null) {
+                    ConnectContext ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                }
+                String currentUser = ConnectContext.get().getQualifiedUser();
+                ComputeGroup computeGroup = null;
+                if (StringUtils.isEmpty(currentUser)) {
+                    LOG.warn("can not find user in routine load");
+                    computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+                } else {
+                    computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+                }
+                if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                    LOG.warn("get an invalid compute group in routine load");
+                    computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+                }
+                ConnectContext.get().setComputeGroup(computeGroup);
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
