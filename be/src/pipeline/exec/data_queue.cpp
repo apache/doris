@@ -149,9 +149,8 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
             _sink_dependencies[child_idx]->block();
         }
         _cur_blocks_total_nums++;
-        if (_source_dependency) {
-            set_source_ready();
-        }
+
+        set_source_ready();
         //this only use to record the queue[0] for profile
         _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
         _max_size_of_queue = std::max(_max_size_of_queue, (int64)_queue_blocks[0].size());
