@@ -50,6 +50,7 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
                     argument_types, result_is_nullable);
         }
     } else if (!distinct) {
+        // void type means support array/map/struct type for collect_list
         return creator_without_type::create<AggregateFunctionCollect<
                 AggregateFunctionCollectListData<void, HasLimit>, HasLimit, std::false_type>>(
                 argument_types, result_is_nullable);

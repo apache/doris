@@ -282,7 +282,16 @@ suite("array_agg") {
     order_qt_sql_group_array_array """ SELECT group_array(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
     order_qt_sql_group_array_map """ SELECT group_array(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
     order_qt_sql_group_array_struct """ SELECT group_array(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
-
+    // add limit test
+    order_qt_sql_array_agg_array_limit """ SELECT id, array_agg(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_array_agg_map_limit """ SELECT id, array_agg(km) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_array_agg_struct_limit """ SELECT id, array_agg(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_collect_list_array_limit """ SELECT id, collect_list(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_collect_list_map_limit """ SELECT id, collect_list(km) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_collect_list_struct_limit """ SELECT id, collect_list(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_group_array_array_limit """ SELECT group_array(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_group_array_map_limit """ SELECT group_array(km) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
+    order_qt_sql_group_array_struct_limit """ SELECT group_array(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id LIMIT 1 """
 
 
  sql """ DROP TABLE IF EXISTS test_array_agg_ip;"""
