@@ -27,11 +27,16 @@ require "uri"
 require "securerandom"
 require "json"
 require "base64"
-require "restclient"
 require 'thread'
 
+require 'java'
+require Dir["#{File.dirname(__FILE__)}/../../*_jars.rb"].first
 
 class LogStash::Outputs::Doris < LogStash::Outputs::Base
+   include_package 'org.apache.hc.client5.http.impl.async'
+   include_package 'org.apache.hc.client5.http.async.methods'
+   include_package 'org.apache.hc.core5.http'
+
    # support multi thread concurrency for performance
    # so multi_receive() and function it calls are all stateless and thread safe
    concurrency :shared
@@ -89,7 +94,17 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       :http_hosts => @http_hosts)
    end
 
+   class DorisRedirectStrategy < Java::org.apache.hc.client5.http.impl.DefaultRedirectStrategy
+      def getLocationURI(request, response, context)
+         uri = super(request, response, context)
+         java.net.URI.new(uri.getScheme, nil, uri.getHost, uri.getPort, uri.getPath, uri.getQuery, uri.getFragment)
+      end
+   end
+
    def register
+      @client = HttpAsyncClients.custom.setRedirectStrategy(DorisRedirectStrategy.new).build
+      @client.start
+
       @http_query = "/api/#{@db}/#{@table}/_stream_load"
 
       @request_headers = make_request_headers
@@ -197,7 +212,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       response = make_request(documents, http_headers, @http_query, @http_hosts.sample)
       response_json = {}
       begin
-         response_json = JSON.parse(response.body)
+         response_json = JSON.parse(response)
       rescue => _
          @logger.warn("doris stream load response is not a valid JSON:\n#{response}")
       end
@@ -254,15 +269,20 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
       response = ""
       begin
-         response = RestClient.put(url, documents, http_headers) { |res, request, result|
-                case res.code
-                when 301, 302, 307
-                    @logger.debug("redirect to: #{res.headers[:location]}")
-                    res.follow_redirection
-                else
-                  res.return!
-                end
-         }
+         request = SimpleRequestBuilder.
+            put(url).
+            setBody(documents, ContentType::TEXT_PLAIN).
+            build
+         http_headers.each do |k, v|
+            request.addHeader(k, v)
+         end
+
+         future = @client.execute(request, nil)
+
+         response = future.get.getBodyText
+         if response == nil
+            response = ""
+         end
       rescue => e
          log_failure("doris stream load request error: #{e}")
       end
