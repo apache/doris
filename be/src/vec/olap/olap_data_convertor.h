@@ -498,6 +498,25 @@ private:
         DataTypeMap _data_type;
     }; //OlapColumnDataConvertorMap
 
+    class OlapColumnDataConvertorVariantRoot : public OlapColumnDataConvertorBase {
+    public:
+        OlapColumnDataConvertorVariantRoot() = default;
+
+        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
+                               size_t num_rows) override;
+        Status convert_to_olap() override;
+
+        const void* get_data() const override;
+        const void* get_data_at(size_t offset) const override;
+
+    private:
+        // // encodes sparsed columns
+        // const ColumnString* _root_data_column;
+        // // _nullmap contains null info for this variant
+        std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+        ColumnObject* _source_column_ptr;
+    };
+
     class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorVariant() = default;

@@ -57,11 +57,13 @@ Status HierarchicalDataReader::create(ColumnIterator** reader, vectorized::PathI
         // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
         // like {"a" : "b" : {"e" : 1.1}} in jsonb format
         if (read_type == ReadType::MERGE_ROOT) {
-            ColumnIterator* it;
-            RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+            // ColumnIterator* it;
+            // RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
             stream_iter->set_root(std::make_unique<SubstreamIterator>(
                     root->data.file_column_type->create_column(),
-                    std::unique_ptr<ColumnIterator>(it), root->data.file_column_type));
+                    std::unique_ptr<ColumnIterator>(
+                            new FileColumnIterator(root->data.reader.get())),
+                    root->data.file_column_type));
         }
     }
 
@@ -187,17 +189,18 @@ Status HierarchicalDataReader::_process_sub_columns(
 Status HierarchicalDataReader::_process_nested_columns(
         vectorized::ColumnObject& container_variant,
         const std::map<vectorized::PathInData, vectorized::PathsWithColumnAndType>&
-                nested_subcolumns) {
+                nested_subcolumns,
+        size_t nrows) {
     using namespace vectorized;
     // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
     // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
     // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
     // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
     for (const auto& entry : nested_subcolumns) {
-        MutableColumnPtr nested_object =
-                ColumnObject::create(container_variant.max_subcolumns_count());
         const auto* base_array =
-                check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
+                check_and_get_column<ColumnArray>(*remove_nullable(entry.second[0].column));
+        MutableColumnPtr nested_object = ColumnObject::create(
+                container_variant.max_subcolumns_count(), base_array->get_data().size());
         MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
         auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
         // flatten nested arrays
@@ -296,7 +299,7 @@ Status HierarchicalDataReader::_init_container(vectorized::MutableColumnPtr& con
 
     RETURN_IF_ERROR(_process_sub_columns(container_variant, non_nested_subcolumns));
 
-    RETURN_IF_ERROR(_process_nested_columns(container_variant, nested_subcolumns));
+    RETURN_IF_ERROR(_process_nested_columns(container_variant, nested_subcolumns, nrows));
 
     RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
     container_variant.set_num_rows(nrows);

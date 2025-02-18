@@ -58,7 +58,7 @@ suite("update_test_load", "p0") {
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 6
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "0");
     """
 
     for (int i = 0; i < 10; i++) {
@@ -109,7 +109,7 @@ suite("update_test_load", "p0") {
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 6
-            properties("replication_num" = "1", "disable_auto_compaction" = "true");
+            properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "0");
         """
 
         for (int i = 0; i < 10; i++) {

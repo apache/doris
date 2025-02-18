@@ -55,9 +55,7 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     if (data.output_as_variant &&
         !WhichDataType(remove_nullable(data.nested_type)).is_variant_type()) {
         // set variant root column/type to from column/type
-        const auto& data_type_object =
-                assert_cast<const DataTypeObject&>(*remove_nullable(data.nested_type));
-        auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
+        auto variant = ColumnObject::create(0);
         variant->create_root(data.nested_type, make_nullable(data.nested_col)->assume_mutable());
         data.nested_col = variant->get_ptr();
     }

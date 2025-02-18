@@ -145,7 +145,8 @@ public:
     ~ColumnReader() override;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator, const TabletColumn& col);
+    virtual Status new_iterator(ColumnIterator** iterator, const TabletColumn& col,
+                                const StorageReadOptions*);
     Status new_iterator(ColumnIterator** iterator);
     Status new_array_iterator(ColumnIterator** iterator);
     Status new_struct_iterator(ColumnIterator** iterator);
@@ -301,7 +302,9 @@ public:
 
     Status init(const ColumnReaderOptions& opts, const SegmentFooterPB& footer, uint32_t column_id,
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn& col) override;
+
+    Status new_iterator(ColumnIterator** iterator, const TabletColumn& col,
+                        const StorageReadOptions* opt) override;
 
     const SubcolumnColumnReaders::Node* get_reader_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -315,6 +318,11 @@ public:
     int64_t get_metadata_size() const override;
 
 private:
+    bool _read_flat_leaves(ReaderType type, const TabletColumn& target_col);
+    // init for compaction read
+    Status _new_default_iter_with_same_nested(ColumnIterator** iterator, const TabletColumn& col);
+    Status _new_iterator_with_flat_leaves(ColumnIterator** iterator, const TabletColumn& col);
+
     Status _create_hierarchical_reader(ColumnIterator** reader, vectorized::PathInData path,
                                        const SubcolumnColumnReaders::Node* node,
                                        const SubcolumnColumnReaders::Node* root);
@@ -666,40 +674,40 @@ private:
     int32_t _segment_id = 0;
 };
 
-// class VariantRootColumnIterator : public ColumnIterator {
-// public:
-//     VariantRootColumnIterator() = delete;
-//
-//     explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
-//
-//     ~VariantRootColumnIterator() override = default;
-//
-//     Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
-//
-//     Status seek_to_first() override { return _inner_iter->seek_to_first(); }
-//
-//     Status seek_to_ordinal(ordinal_t ord_idx) override {
-//         return _inner_iter->seek_to_ordinal(ord_idx);
-//     }
-//
-//     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
-//         bool has_null;
-//         return next_batch(n, dst, &has_null);
-//     }
-//
-//     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
-//
-//     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-//                           vectorized::MutableColumnPtr& dst) override;
-//
-//     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
-//
-// private:
-//     Status _process_root_column(vectorized::MutableColumnPtr& dst,
-//                                 vectorized::MutableColumnPtr& root_column,
-//                                 const vectorized::DataTypePtr& most_common_type);
-//     std::unique_ptr<FileColumnIterator> _inner_iter;
-// };
+class VariantRootColumnIterator : public ColumnIterator {
+public:
+    VariantRootColumnIterator() = delete;
+
+    explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+
+    ~VariantRootColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
+
+    Status seek_to_first() override { return _inner_iter->seek_to_first(); }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        return _inner_iter->seek_to_ordinal(ord_idx);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
+
+private:
+    Status _process_root_column(vectorized::MutableColumnPtr& dst,
+                                vectorized::MutableColumnPtr& root_column,
+                                const vectorized::DataTypePtr& most_common_type);
+    std::unique_ptr<FileColumnIterator> _inner_iter;
+};
 
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {

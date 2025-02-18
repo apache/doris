@@ -21,6 +21,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -361,7 +363,10 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
 // 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
 //    which will be used to contruct the new schema for rowset
 Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& data) {
-    if (_tablet_schema->num_variant_columns() == 0) {
+    if (_tablet_schema->num_variant_columns() == 0 ||
+        // need to handle sparse columns if variant_max_subcolumns_count > 0
+        std::any_of(_tablet_schema->columns().begin(), _tablet_schema->columns().end(),
+                    [](const auto& col) { return col->variant_max_subcolumns_count() > 0; })) {
         return Status::OK();
     }
     size_t column_id = _tablet_schema->num_columns();
@@ -707,7 +712,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
     _olap_data_convertor->clear_source_content();
 
-    // RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
+    RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
     return Status::OK();
 }
 
@@ -819,11 +824,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
     }
 
-    // if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-    //     _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-    //     RETURN_IF_ERROR(
-    //             append_block_with_variant_subcolumns(*const_cast<vectorized::Block*>(block)));
-    // }
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        RETURN_IF_ERROR(
+                append_block_with_variant_subcolumns(*const_cast<vectorized::Block*>(block)));
+    }
 
     _num_rows_written += num_rows;
     _olap_data_convertor->clear_source_content();
