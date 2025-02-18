@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
 import org.apache.thrift.TException;
@@ -38,17 +39,22 @@ public class ResultReceiverConsumer {
         }
 
         public void createFuture() {
-            future = executor.submit(() -> {
-                RowBatch rowBatch;
-                try {
-                    rowBatch = receiver.getNext(status);
-                    readyOffsets.offer(offset);
-                } catch (TException e) {
-                    readyOffsets.offer(offset);
-                    throw e;
-                }
-                return rowBatch;
-            });
+            try {
+                future = executor.submit(() -> {
+                    RowBatch rowBatch;
+                    try {
+                        rowBatch = receiver.getNext(status);
+                        readyOffsets.offer(offset);
+                    } catch (TException e) {
+                        errMsg = e.getMessage();
+                        throw e;
+                    }
+                    return rowBatch;
+                });
+            } catch (Exception e) {
+                errMsg = e.getMessage();
+                throw e;
+            }
         }
 
         ResultReceiver receiver;
@@ -60,6 +66,7 @@ public class ResultReceiverConsumer {
     private final ExecutorService executor;
     private List<ReceiverContext> contexts = Lists.newArrayList();
     boolean futureInitialized = false;
+    String errMsg;
 
     BlockingQueue<Integer> readyOffsets;
     int finishedReceivers = 0;
@@ -70,10 +77,14 @@ public class ResultReceiverConsumer {
             contexts.add(context);
         }
         this.executor = Executors.newFixedThreadPool(resultReceivers.size());
-        readyOffsets = new ArrayBlockingQueue<>(resultReceivers.size());
+        this.readyOffsets = new ArrayBlockingQueue<>(resultReceivers.size());
     }
 
-    public RowBatch getNext(Status status) throws TException, InterruptedException, ExecutionException {
+    public RowBatch getNext(Status status) throws TException, InterruptedException, ExecutionException, UserException {
+        if (errMsg != null) {
+            throw new UserException(errMsg);
+        }
+
         if (!futureInitialized) {
             futureInitialized = true;
             for (ReceiverContext context : contexts) {
@@ -84,6 +95,7 @@ public class ResultReceiverConsumer {
         ReceiverContext context = contexts.get(readyOffsets.take());
         RowBatch rowBatch = context.future.get();
         if (!context.status.ok()) {
+            errMsg = context.status.getErrorMsg();
             status.updateStatus(context.status.getErrorCode(), context.status.getErrorMsg());
             return rowBatch;
         }
