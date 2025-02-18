@@ -446,7 +446,9 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
-    info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
+    // indent is false so that source operator will have same
+    // indentation_level with its parent operator.
+    info.parent_profile->add_child(_runtime_profile.get(), /*indent=*/false, nullptr);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
@@ -547,7 +549,10 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
-    info.parent_profile->add_child(_profile, true, nullptr);
+    // indentation is true
+    // The parent profile of sink operator is usually a RuntimeProfile called PipelineTask.
+    // So we should set the indentation to true.
+    info.parent_profile->add_child(_profile, /*indent=*/true, nullptr);
     _memory_used_counter = _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     return Status::OK();
 }
