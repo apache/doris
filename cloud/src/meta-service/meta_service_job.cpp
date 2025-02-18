@@ -563,31 +563,11 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
 static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
                                              int64_t lock_id, int64_t lock_initiator) {
-    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
-    std::string lock_val;
-    TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
-              << " key=" << hex(lock_key) << " err=" << err;
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
-                     << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
-        return;
-    }
-    DeleteBitmapUpdateLockPB lock_info;
-    if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
-        LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB, instance_id=" << instance_id
-                     << " table_id=" << table_id << " key=" << hex(lock_key);
-        return;
-    }
-    if (lock_info.lock_id() != lock_id) {
-        return;
-    }
-
     if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
         std::string tablet_compaction_val;
-        err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        TxnErrorCode err = txn->get(tablet_compaction_key, &tablet_compaction_val);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get tablet compaction key, instance_id=" << instance_id
                          << " table_id=" << table_id << " initiator=" << lock_initiator
@@ -598,6 +578,26 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
         INSTANCE_LOG(INFO) << "remove tablet compaction key, table_id=" << table_id
                            << ", key=" << hex(tablet_compaction_key) << " initiator=" << lock_initiator;
     } else {
+        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+        std::string lock_val;
+        TxnErrorCode err = txn->get(lock_key, &lock_val);
+        LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
+                  << " key=" << hex(lock_key) << " err=" << err;
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
+                         << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
+            return;
+        }
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+            LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB, instance_id=" << instance_id
+                         << " table_id=" << table_id << " key=" << hex(lock_key);
+            return;
+        }
+        if (lock_info.lock_id() != lock_id) {
+            return;
+        }
+
         bool found = false;
         auto initiators = lock_info.mutable_initiators();
         for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
