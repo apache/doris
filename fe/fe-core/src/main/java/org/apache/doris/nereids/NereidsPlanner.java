@@ -431,9 +431,7 @@ public class NereidsPlanner extends Planner {
         }
         if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
             Plan logicalPlan = cascadesContext.getRewritePlan();
-            new SimpleOptimizer(cascadesContext).execute();
-            Plan physicalPlan = cascadesContext.getRewritePlan();
-            cascadesContext.setRewritePlan(logicalPlan);
+            Plan physicalPlan = logicalPlan.accept(new SimpleOptimizer(), null);
             this.physicalPlan = (PhysicalPlan) physicalPlan;
         } else {
             new Optimizer(cascadesContext).execute();
