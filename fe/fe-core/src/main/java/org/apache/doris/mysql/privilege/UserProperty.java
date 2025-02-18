@@ -259,7 +259,7 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
-            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
