@@ -20,6 +20,8 @@
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
+#include <random>
+
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/delete_bitmap_calculator.h"
@@ -660,6 +662,18 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                         row_id)) {
                 continue;
             }
+
+            DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.inject_err", {
+                auto p = dp->param("percent", 0.01);
+                std::mt19937 gen {std::random_device {}()};
+                std::bernoulli_distribution inject_fault {p};
+                if (inject_fault(gen)) {
+                    return Status::InternalError(
+                            "injection error in calc_segment_delete_bitmap, "
+                            "tablet_id={}, rowset_id={}",
+                            tablet_id(), rowset_id.to_string());
+                }
+            });
 
             RowsetSharedPtr rowset_find;
             auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
