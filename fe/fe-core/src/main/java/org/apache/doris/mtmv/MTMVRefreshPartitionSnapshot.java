@@ -93,12 +93,9 @@ public class MTMVRefreshPartitionSnapshot {
     }
 
     private Optional<String> compatiblePartitions(MTMV mtmv) {
-        if (!checkHasDataWithoutPartitionId()) {
-            return Optional.empty();
-        }
-        OlapTable relatedTable = null;
+        MTMVRelatedTableIf relatedTableIf = null;
         try {
-            relatedTable = (OlapTable) mtmv.getMvPartitionInfo().getRelatedTable();
+            relatedTableIf = mtmv.getMvPartitionInfo().getRelatedTable();
         } catch (AnalysisException e) {
             String msg = String.format(
                     "Failed to get relatedTable during compatibility process, "
@@ -106,6 +103,14 @@ public class MTMVRefreshPartitionSnapshot {
             LOG.warn(msg, e);
             return Optional.of(msg);
         }
+        // Only olapTable has historical data issues that require compatibility
+        if (!(relatedTableIf instanceof OlapTable)) {
+            return Optional.empty();
+        }
+        if (!checkHasDataWithoutPartitionId()) {
+            return Optional.empty();
+        }
+        OlapTable relatedTable = (OlapTable) relatedTableIf;
         for (Entry<String, MTMVSnapshotIf> entry : partitions.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {

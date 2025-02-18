@@ -15,25 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+#undef COMPILE_AVOID_CHECK
 
-#include "common/factory_creator.h"
-#include "runtime/workload_group/workload_group.h"
-
-namespace doris {
-
-class WorkloadGroupContext {
-    ENABLE_FACTORY_CREATOR(WorkloadGroupContext);
-
-public:
-    WorkloadGroupContext() = default;
-    virtual ~WorkloadGroupContext() = default;
-
-    WorkloadGroupPtr workload_group() { return _workload_group; }
-    void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
-
-protected:
-    WorkloadGroupPtr _workload_group = nullptr;
-};
-
-} // namespace doris
+// #include "common/compile_check_avoid_end.h"

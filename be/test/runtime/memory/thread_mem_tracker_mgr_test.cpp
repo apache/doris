@@ -43,7 +43,7 @@ TEST_F(ThreadMemTrackerMgrTest, ConsumeMemory) {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ConsumeMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -104,7 +104,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTracker3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -177,7 +177,7 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -239,7 +239,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ReserveMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -337,7 +337,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size2 = 4 * 1024 * 1024;
     int64_t size3 = size2 * 2;
@@ -396,7 +396,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTrackerReserveMemory3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;

@@ -41,9 +41,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                  int operator_id, const DescriptorTbl& descs)
-        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {}
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
                                           bool* eos) {
