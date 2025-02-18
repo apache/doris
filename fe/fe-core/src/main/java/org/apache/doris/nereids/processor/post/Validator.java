@@ -62,7 +62,9 @@ public class Validator extends PlanPostProcessor {
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
         // except that the project contains NoneMovableFunction
-        if (child instanceof PhysicalProject && !((PhysicalProject<?>) child).containsNoneMovableFunction()) {
+        if (child instanceof PhysicalProject && !((PhysicalProject<?>) child).containsNoneMovableFunction()
+                && filter.getInputSlots().stream().map(((PhysicalProject<?>) child).getAliasToProducer()::get)
+                        .anyMatch(expr -> expr != null && expr.containsNonfoldable())) {
             throw new AnalysisException(
                     "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
         }
