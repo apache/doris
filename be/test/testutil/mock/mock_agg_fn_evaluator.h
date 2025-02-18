@@ -15,23 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "common/object_pool.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
-#include <map>
+namespace doris::vectorized {
 
-#include "runtime/workload_management/workload_condition.h"
+AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge = false,
+                                             bool without_key = false);
 
-namespace doris {
+AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs input_exprs_ctxs,
+                                             bool is_merge = false, bool without_key = false);
 
-class WorkloadQueryInfo {
+class MockAggFnEvaluator : public AggFnEvaluator {
 public:
-    std::map<WorkloadMetricType, std::string> metric_map;
-    TUniqueId tquery_id;
-    std::string query_id;
-    int64_t wg_id;
-    int64_t policy_id;
-    std::string policy_name {""};
-    std::string cond_eval_msg {""};
+    MockAggFnEvaluator(bool is_merge, bool without_key) : AggFnEvaluator(is_merge, without_key) {}
 };
 
-} // namespace doris
+} // namespace doris::vectorized

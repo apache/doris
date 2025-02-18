@@ -86,7 +86,8 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             Map<Long, PartitionItem> idToPartitions;
             Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
             if (manuallySpecifiedPartitions.isEmpty()) {
-                Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt = sortedPartitionsCacheManager.get(table);
+                Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt
+                        = sortedPartitionsCacheManager.get(table, scan);
                 if (sortedPartitionRangesOpt.isPresent()) {
                     sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
                 }

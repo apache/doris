@@ -268,6 +268,14 @@ if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
       work_load_group_for_cgroup_path
 fi
 
+
+# pre check for starting
+if cat /proc/cpuinfo | grep -q "avx2" &>/dev/null; then
+    log_stderr "[info] the host machine support avx2 instruction set."
+else
+    log_stderr "[info] the host machine not support avx2 instruction set."
+fi
+
 update_conf_from_configmap
 add_default_conf
 # resolve password for root to manage nodes in doris.

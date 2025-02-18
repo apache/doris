@@ -682,7 +682,7 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                    const TPlanNode& tnode, const DescriptorTbl& descs,
                                    bool require_bucket_distribution)
-        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id, dest_id),
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode, dest_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
@@ -697,10 +697,7 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_i
                                    : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),
-          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _without_key(tnode.agg_node.grouping_exprs.empty()) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::init(tnode, state));
@@ -720,11 +717,6 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
                 tnode.agg_node.grouping_exprs.empty(), &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
-
-    const auto& agg_functions = tnode.agg_node.aggregate_functions;
-
-    _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
-                            [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });
 
     if (tnode.agg_node.__isset.agg_sort_info_by_group_key) {
         _do_sort_limit = true;
@@ -746,12 +738,30 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::open(state));
+
+    RETURN_IF_ERROR(_init_probe_expr_ctx(state));
+
+    RETURN_IF_ERROR(_init_aggregate_evaluators(state));
+
+    RETURN_IF_ERROR(_calc_aggregate_evaluators());
+
+    RETURN_IF_ERROR(_check_agg_fn_output());
+
+    return Status::OK();
+}
+
+Status AggSinkOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(
             _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc()));
 
+    RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
+    return Status::OK();
+}
+
+Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
     size_t j = _probe_expr_ctxs.size();
     for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
@@ -770,8 +780,15 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
-    _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
+    for (auto& _aggregate_evaluator : _aggregate_evaluators) {
+        RETURN_IF_ERROR(_aggregate_evaluator->open(state));
+    }
+    return Status::OK();
+}
 
+Status AggSinkOperatorX::_calc_aggregate_evaluators() {
+    _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
+    _is_merge = false;
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
@@ -794,19 +811,19 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
                     (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
                     alignment_of_next_state * alignment_of_next_state;
         }
+        if (_aggregate_evaluators[i]->is_merge()) {
+            _is_merge = true;
+        }
     }
-    // check output type
+    return Status::OK();
+}
+
+Status AggSinkOperatorX::_check_agg_fn_output() {
     if (_needs_finalize) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
                 cast_set<uint32_t>(_probe_expr_ctxs.size()), _aggregate_evaluators,
                 _agg_fn_output_row_descriptor));
     }
-    RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
-
-    for (auto& _aggregate_evaluator : _aggregate_evaluators) {
-        RETURN_IF_ERROR(_aggregate_evaluator->open(state));
-    }
-
     return Status::OK();
 }
 

@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
@@ -76,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
@@ -680,6 +682,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createRoleCommand, context);
     }
 
+    default R visitDropTableCommand(DropTableCommand dropTableCommand, C context) {
+        return visitCommand(dropTableCommand, context);
+    }
+
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
         return visitCommand(dropRoleCommand, context);
     }
@@ -822,5 +828,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowQueuedAnalyzeJobsCommand(ShowQueuedAnalyzeJobsCommand showQueuedAnalyzeJobsCommand, C context) {
         return visitCommand(showQueuedAnalyzeJobsCommand, context);
+    }
+
+    default R visitDescribeCommand(DescribeCommand describeCommand, C context) {
+        return visitCommand(describeCommand, context);
     }
 }

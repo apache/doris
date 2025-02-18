@@ -113,17 +113,10 @@ public:
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
-    void set_block_to_read() {
-        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
-        _shared_state->source_deps.front()->block();
-    }
+
     void set_ready_to_write() {
         DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
-    }
-    void set_block_to_write() {
-        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
-        _shared_state->sink_deps.front()->block();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
@@ -177,7 +170,7 @@ class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name, true) {}
+            : Dependency(id, node_id, std::move(name), true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -274,7 +267,7 @@ struct RuntimeFilterTimerQueue {
 class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
+            : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
 private:
@@ -757,23 +750,24 @@ public:
         dep->set_ready();
     }
 
-    void add_mem_usage(int channel_id, size_t delta) { mem_counters[channel_id]->update(delta); }
+    virtual void add_mem_usage(int channel_id, size_t delta) {
+        mem_counters[channel_id]->update(delta);
+    }
 
-    void sub_mem_usage(int channel_id, size_t delta) {
+    virtual void sub_mem_usage(int channel_id, size_t delta) {
         mem_counters[channel_id]->update(-(int64_t)delta);
     }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id) {
+    virtual void add_total_mem_usage(size_t delta) {
         if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) >
             config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
+    virtual void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
-                                         << " channel_id: " << channel_id;
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
         if (cast_set<int64_t>(prev_usage - delta) <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
@@ -784,12 +778,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
     LocalMergeExchangeSharedState(int num_instances)
             : LocalExchangeSharedState(num_instances),
-              _queues_mem_usage(num_instances),
-              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {
-        for (size_t i = 0; i < num_instances; i++) {
-            _queues_mem_usage[i] = 0;
-        }
-    }
+              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {}
 
     void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
@@ -805,22 +794,21 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
         }
     }
 
-    void sub_total_mem_usage(size_t delta, int channel_id) override {
-        auto prev_usage = _queues_mem_usage[channel_id].fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
-                                         << " channel_id: " << channel_id;
-        if (prev_usage - delta <= _each_queue_limit) {
-            sink_deps[channel_id]->set_ready();
-        }
-        if (_queues_mem_usage[channel_id] == 0) {
-            source_deps[channel_id]->block();
-        }
-    }
-    void add_total_mem_usage(size_t delta, int channel_id) override {
-        if (_queues_mem_usage[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
+    void sub_total_mem_usage(size_t delta) override { mem_usage.fetch_sub(delta); }
+    void add_total_mem_usage(size_t delta) override { mem_usage.fetch_add(delta); }
+
+    void add_mem_usage(int channel_id, size_t delta) override {
+        LocalExchangeSharedState::add_mem_usage(channel_id, delta);
+        if (mem_counters[channel_id]->value() > _each_queue_limit) {
             sink_deps[channel_id]->block();
         }
-        source_deps[channel_id]->set_ready();
+    }
+
+    void sub_mem_usage(int channel_id, size_t delta) override {
+        LocalExchangeSharedState::sub_mem_usage(channel_id, delta);
+        if (mem_counters[channel_id]->value() <= _each_queue_limit) {
+            sink_deps[channel_id]->set_ready();
+        }
     }
 
     Dependency* get_sink_dep_by_channel_id(int channel_id) override {
@@ -832,7 +820,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
 private:
-    std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
 #include "common/compile_check_end.h"

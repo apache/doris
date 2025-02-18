@@ -53,6 +53,7 @@ statementBase
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedCleanStatement           #supportedCleanStatementAlias
+    | supportedDescribeStatement        #supportedDescribeStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
@@ -73,7 +74,6 @@ unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
     | unsupportedKillStatement
-    | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -198,6 +198,14 @@ supportedCreateStatement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
+    | CREATE STORAGE POLICY (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createStoragePolicy
+    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                          #buildIndex
+    | CREATE INDEX (IF NOT EXISTS)? name=identifier
+        ON tableName=multipartIdentifier identifierList
+        (USING (BITMAP | NGRAM_BF | INVERTED))?
+        properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                        #createSqlBlockRule
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
@@ -250,6 +258,10 @@ supportedAlterStatement
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+    | ALTER SYSTEM ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
+            properties=propertyClause?                                                      #addBackendClause
+    | ALTER SYSTEM (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
+            (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBackendClause
 
     ;
 
@@ -266,9 +278,11 @@ supportedDropStatement
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     | DROP REPOSITORY name=identifier                                           #dropRepository
+    | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
     | DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     ;
 
@@ -639,11 +653,7 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
-        properties=propertyClause?                                                  #addBackendClause
-    | (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBackendClause
-    | DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+    : DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #decommissionBackendClause
     | ADD OBSERVER hostPort=STRING_LITERAL                                          #addObserverClause
     | DROP OBSERVER hostPort=STRING_LITERAL                                         #dropObserverClause
@@ -724,9 +734,7 @@ fromRollup
     ;
 
 unsupportedDropStatement
-    : DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
-    | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
-    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
@@ -787,10 +795,6 @@ unsupportedCreateStatement
         (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
         passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE INDEX (IF NOT EXISTS)? name=identifier
-        ON tableName=multipartIdentifier identifierList
-        (USING (BITMAP | NGRAM_BF | INVERTED))?
-        properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
@@ -799,10 +803,6 @@ unsupportedCreateStatement
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
         (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
         properties=propertyClause?                                              #createWorkloadPolicy
-    | CREATE STORAGE POLICY (IF NOT EXISTS)?
-        name=identifier properties=propertyClause?                              #createStoragePolicy
-    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
-        partitionSpec?                                                          #buildIndex
     | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
     ;
 
@@ -922,7 +922,7 @@ unsupportedKillStatement
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
     ;
 
-unsupportedDescribeStatement
+supportedDescribeStatement
     : explainCommand FUNCTION tvfName=identifier LEFT_PAREN
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
