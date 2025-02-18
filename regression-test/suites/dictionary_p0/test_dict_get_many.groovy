@@ -43,18 +43,6 @@ suite("test_dict_get_many") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-
-    sql """ refresh dictionary single_key_dict; """
-   
-   qt_sql """ select dict_get("test_dictionary_function.single_key_dict", "k1", 1)  ,  dict_get("test_dictionary_function.single_key_dict", "k1", 2),dict_get("test_dictionary_function.single_key_dict", "k1", 3) """  
-
-
-   qt_sql """ select dict_get("test_dictionary_function.single_key_dict", "k3", 1)  ,  dict_get("test_dictionary_function.single_key_dict", "k3", 2),dict_get("test_dictionary_function.single_key_dict", "k3", 3) """  
-   
-   qt_sql """ select dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(1)) , dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(2)) ,  dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(3))  """  
-
-
-
     sql """
         create dictionary multi_key_dict using multi_key_table
         (
@@ -66,11 +54,11 @@ suite("test_dict_get_many") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
+    
+    sleep(1000)
 
-
-    sql """ refresh dictionary multi_key_dict; """
-
-    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(2,'ABC')); """  
-
-
+    qt_sql1 """ select dict_get("test_dictionary_function.single_key_dict", "k1", 1)  ,  dict_get("test_dictionary_function.single_key_dict", "k1", 2),dict_get("test_dictionary_function.single_key_dict", "k1", 3) """  
+    qt_sql2 """ select dict_get("test_dictionary_function.single_key_dict", "k3", 1)  ,  dict_get("test_dictionary_function.single_key_dict", "k3", 2),dict_get("test_dictionary_function.single_key_dict", "k3", 3) """  
+    qt_sql3 """ select dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(1)) , dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(2)) ,  dict_get_many("test_dictionary_function.single_key_dict", ["k1","k3"], struct(3))  """  
+    qt_sql4 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(2,'ABC')); """  
 }

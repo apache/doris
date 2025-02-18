@@ -49,6 +49,7 @@ suite('test_create_drop_sync') {
         properties('data_lifetime'='600');
     """
 
+    sleep(1000)
     // check dictionary is created
     def dict_res = sql "SHOW DICTIONARIES"
     assertEquals(dict_res.size(), 1)

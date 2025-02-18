@@ -32,7 +32,6 @@ suite("test_dict_get_nullable") {
     """
     sql """insert into multi_key_table values(1, 'abc', null, 'def');""" 
     sql """insert into multi_key_table values(2, 'ABC', 2, 'DEF');"""    
-
     sql """
         create dictionary single_key_dict using multi_key_table
         (
@@ -42,55 +41,6 @@ suite("test_dict_get_nullable") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-
-    sql """ refresh dictionary single_key_dict; """
-   
-    qt_sql """ select dict_get("test_dictionary_function.single_key_dict", "k2", null) """  
-
-    qt_sql """ select dict_get("test_dictionary_function.single_key_dict", "k2", 1) """ 
-
-    qt_sql """ select dict_get("test_dictionary_function.single_key_dict", "k2", 3) """  
-
-    qt_sql """ select dict_get("test_dictionary_function.single_key_dict", "k2", 2) """ 
- 
-
-
-    sql """
-        create table if not exists ip_trie_table(
-            id int not null,    
-            k0 string not null,
-            k1 string null
-        )
-        DISTRIBUTED BY HASH(`id`) BUCKETS auto
-        properties("replication_num" = "1");
-    """
-
-    sql """insert into ip_trie_table values(1,"192.168.1.0/24" , 'A');"""      
-
-    sql """insert into ip_trie_table values(2,"192.168.1.128/25" , null);"""   
-
-    sql """
-        create dictionary ip_trie_dict using ip_trie_table
-        (
-            k0 KEY,
-            k1 VALUE
-        )
-        LAYOUT(IP_TRIE)
-        properties('data_lifetime'='600');
-    """
-
-    sql """ refresh dictionary ip_trie_dict; """
-
-    qt_sql """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("avc" as ipv4)) """  
-
-    qt_sql """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("192.168.1.128" as ipv4)) """ 
-
-    qt_sql """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("192.168.1.0" as ipv4)) """  
-
-    qt_sql """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("125.168.1.0" as ipv4))""" 
-
-
-
     sql """
         create dictionary multi_key_dict using multi_key_table
         (
@@ -103,20 +53,42 @@ suite("test_dict_get_nullable") {
         properties('data_lifetime'='600');
     """
 
+    sql """
+        create table if not exists ip_trie_table(
+            id int not null,    
+            k0 string not null,
+            k1 string null
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    sql """insert into ip_trie_table values(1,"192.168.1.0/24" , 'A');"""      
+    sql """insert into ip_trie_table values(2,"192.168.1.128/25" , null);"""   
+    sql """
+        create dictionary ip_trie_dict using ip_trie_table
+        (
+            k0 KEY,
+            k1 VALUE
+        )
+        LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
+    """
 
-     sql """ refresh dictionary multi_key_dict; """
+    sleep(1500)
 
+    qt_sql1 """ select dict_get("test_dictionary_function.single_key_dict", "k2", null) """  
+    qt_sql2 """ select dict_get("test_dictionary_function.single_key_dict", "k2", 1) """ 
+    qt_sql3 """ select dict_get("test_dictionary_function.single_key_dict", "k2", 3) """  
+    qt_sql4 """ select dict_get("test_dictionary_function.single_key_dict", "k2", 2) """ 
 
+    qt_sql5 """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("avc" as ipv4)) """  
+    qt_sql6 """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("192.168.1.128" as ipv4)) """ 
+    qt_sql7 """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("192.168.1.0" as ipv4)) """  
+    qt_sql8 """ select dict_get("test_dictionary_function.ip_trie_dict", "k1", cast("125.168.1.0" as ipv4))""" 
 
-    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(null,null)) """  
-
-
-    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(null,'abc')) """  
-
-    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(1,'abc')) """  
-
-    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(3,'abc')) """  
-
-    qt_sql """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(2,'ABC')) """  
-
+    qt_sql9 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(null,null)) """  
+    qt_sql10 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(null,'abc')) """  
+    qt_sql11 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(1,'abc')) """  
+    qt_sql12 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(3,'abc')) """  
+    qt_sql13 """ select dict_get_many("test_dictionary_function.multi_key_dict", ["k2","k3"], struct(2,'ABC')) """  
 }
