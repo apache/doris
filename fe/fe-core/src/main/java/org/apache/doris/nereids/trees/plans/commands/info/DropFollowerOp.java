@@ -19,9 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.DropFollowerClause;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.qe.ConnectContext;
 
 /**
  * DropFollowerOp
