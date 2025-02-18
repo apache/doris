@@ -980,8 +980,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             String status = res ? "successfully" : "fail";
             LOG.info("get delete bitmap lock {} . txnId: {}. totalRetryTime: {}. "
-                            + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", status, transactionId, totalRetryTime,
-                    lockContext.getTableToPartitions().size(), costTime,
+                            + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", status,
+                    transactionId, totalRetryTime, lockContext.getTableToPartitions().size(), costTime,
                     mowTableList.stream().map(Table::getId).collect(Collectors.toList()), retryMsg);
 
         }
