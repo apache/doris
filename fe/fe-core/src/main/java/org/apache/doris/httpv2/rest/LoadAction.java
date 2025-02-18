@@ -47,7 +47,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -439,19 +439,16 @@ public class LoadAction extends RestBaseController {
             throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
-        String qualifiedUser = ConnectContext.get().getQualifiedUser();
-        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-        policy = new BeSelectionPolicy.Builder()
-                .addTags(userTags)
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            throw new LoadException("ConnectContext should not be null");
+        }
+        ComputeGroup computeGroup = ctx.getComputeGroupSafely();
+        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
         List<Long> backendIds;
-        if (groupCommit) {
-            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
-        } else {
-            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        }
+        int number = groupCommit ? -1 : 1;
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
