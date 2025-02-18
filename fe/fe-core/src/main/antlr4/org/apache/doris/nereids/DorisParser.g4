@@ -927,10 +927,7 @@ supportedDescribeStatement
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
     | explainCommand multipartIdentifier specifiedPartition?    #describeTable
-    ;
-
-supportedDescribeStatement
-    : explainCommand DICTIONARY multipartIdentifier             #describeDictionary
+    | explainCommand DICTIONARY multipartIdentifier             #describeDictionary
     ;
 
 constraint
