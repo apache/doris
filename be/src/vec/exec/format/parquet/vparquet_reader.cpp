@@ -212,6 +212,10 @@ Status ParquetReader::_open_file() {
         _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        if (_scan_range.__isset.file_size && _scan_range.file_size != _file_reader->size()) {
+            LOG(WARNING) << "file size mismatch, scan range size: " << _scan_range.file_size
+                         << ", file reader size: " << _file_reader->size();
+        }
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
@@ -281,7 +285,8 @@ void ParquetReader::_init_system_properties() {
 
 void ParquetReader::_init_file_description() {
     _file_description.path = _scan_range.path;
-    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
+    // _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
+    _file_description.file_size = 0;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }
