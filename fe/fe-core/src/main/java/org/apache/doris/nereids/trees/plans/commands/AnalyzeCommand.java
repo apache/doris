@@ -17,12 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeDatabaseOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeTableOp;
@@ -75,10 +71,6 @@ public class AnalyzeCommand extends Command implements ForwardWithSync {
      * validate
      */
     private void validate(ConnectContext ctx) throws UserException {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "NODE");
-        }
-
         Preconditions.checkState((analyzeOp instanceof AnalyzeDatabaseOp
                 || analyzeOp instanceof AnalyzeTableOp));
 

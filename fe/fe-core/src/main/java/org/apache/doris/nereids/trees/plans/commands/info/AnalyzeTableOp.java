@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -60,7 +59,6 @@ public class AnalyzeTableOp extends AnalyzeOp {
     private long catalogId;
     private long dbId;
     private TableIf table;
-    private Database database;
 
     /**
      * AnalyzeTableOp
@@ -108,7 +106,6 @@ public class AnalyzeTableOp extends AnalyzeOp {
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
         isAllColumns = columnNames == null;
-        database = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(dbId);
         check();
     }
 
@@ -308,10 +305,6 @@ public class AnalyzeTableOp extends AnalyzeOp {
         }
 
         return sb.toString();
-    }
-
-    public Database getDb() throws AnalysisException {
-        return database;
     }
 
     public boolean isAllColumns() {
