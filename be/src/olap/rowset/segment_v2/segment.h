@@ -275,6 +275,8 @@ private:
     DorisCallOnce<Status> _inverted_index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;
+    std::map<std::pair<int64_t, std::string>, std::unique_ptr<TabletIndex>>
+            _variant_subcolumns_indexes;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
 };
