@@ -22,6 +22,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.rules.BetweenToCompound;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
@@ -85,7 +86,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     @Test
     public void testSimplify() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-            bottomUp(SimplifyRange.INSTANCE)
+            bottomUp(
+                    SimplifyRange.INSTANCE,
+                    BetweenToCompound.INSTANCE
+            )
         ));
         assertRewrite("TA", "TA");
         assertRewrite("TA > 3 or TA > null", "TA > 3 OR NULL");
@@ -99,7 +103,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 3 or TA <=> null", "TA > 3 or TA <=> null");
         assertRewrite("(TA < 1 or TA > 2) or (TA >= 0 and TA <= 3)", "TA IS NOT NULL OR NULL");
         assertRewrite("TA between 10 and 20 or TA between 100 and 120 or TA between 15 and 25 or TA between 115 and 125",
-                "TA between 10 and 25 or TA between 100 and 125");
+                "TA >= 10 and TA <= 25 or TA >= 100 and TA <= 125");
         assertRewriteNotNull("TA > 3 and TA > null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA < null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA = null", "TA > 3 and NULL");

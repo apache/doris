@@ -84,6 +84,14 @@ public class ExpressionEqualsTest {
     }
 
     @Test
+    public void testBetween() {
+        Between between1 = new Between(child1, left1, right1);
+        Between between2 = new Between(child2, left2, right2);
+        Assertions.assertEquals(between1, between2);
+        Assertions.assertEquals(between1.hashCode(), between2.hashCode());
+    }
+
+    @Test
     public void testNot() {
         Not not1 = new Not(child1);
         Not not2 = new Not(child2);
