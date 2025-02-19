@@ -38,7 +38,7 @@ public class PlanPreprocessors {
     public LogicalPlan process(LogicalPlan logicalPlan) {
         LogicalPlan resultPlan = logicalPlan;
         for (PlanPreprocessor processor : getProcessors()) {
-            resultPlan = (LogicalPlan) resultPlan.accept(processor, statementContext);
+            resultPlan = (LogicalPlan) processor.rewriteRoot(resultPlan, statementContext);
         }
         return resultPlan;
     }
@@ -51,7 +51,8 @@ public class PlanPreprocessors {
         // add processor if we need
         return ImmutableList.of(
                 new TurnOffPageCacheForInsertIntoSelect(),
-                new PullUpSubqueryAliasToCTE()
+                new PullUpSubqueryAliasToCTE(),
+                new NormalizeForPlanCache()
         );
     }
 }

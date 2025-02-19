@@ -23,10 +23,12 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.nereids.StatementContext.PlanCachePhase;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionColumnFilterConverter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.HashDistributionPruner;
@@ -49,7 +51,12 @@ import java.util.Set;
 public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalOlapScan()).then(filter -> {
+        return logicalFilter(logicalOlapScan()).thenApply(ctx -> {
+            LogicalFilter<LogicalOlapScan> filter = ctx.root;
+            if (ctx.statementContext.planCachePhase == PlanCachePhase.ONE) {
+                return filter;
+            }
+
             LogicalOlapScan olapScan = filter.child();
             OlapTable table = olapScan.getTable();
             Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();

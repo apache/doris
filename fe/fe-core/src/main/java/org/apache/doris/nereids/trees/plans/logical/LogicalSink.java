@@ -81,7 +81,7 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), outputExprs);
+        return Objects.hash(getClass().hashCode(), outputExprs);
     }
 
     @Override

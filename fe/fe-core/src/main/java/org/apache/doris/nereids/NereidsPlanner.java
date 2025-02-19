@@ -31,6 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.FieldInfo;
+import org.apache.doris.nereids.StatementContext.PlanCachePhase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
+import org.apache.doris.nereids.jobs.executor.PlanCacheRewriter;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -247,7 +249,6 @@ public class NereidsPlanner extends Planner {
             boolean showPlanProcess) {
         // minidump of input must be serialized first, this process ensure minidump string not null
         try {
-
             MinidumpUtils.serializeInputsToDumpFile(plan, statementContext);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -279,7 +280,8 @@ public class NereidsPlanner extends Planner {
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
         PhysicalPlan physicalPlan;
-        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner
+                || statementContext.planCachePhase == PlanCachePhase.TWO) {
             physicalPlan = this.physicalPlan;
         } else {
             physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
@@ -372,7 +374,7 @@ public class NereidsPlanner extends Planner {
         keepOrShowPlanProcess(showPlanProcess, () -> {
             if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
                 new SimpleAnalyzer(cascadesContext).execute();
-            } else {
+            } else if (statementContext.planCachePhase != PlanCachePhase.TWO) {
                 cascadesContext.newAnalyzer().analyze();
             }
         });
@@ -399,7 +401,22 @@ public class NereidsPlanner extends Planner {
             if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
                 new SimpleRewriter(cascadesContext).execute();
             } else {
-                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                switch (statementContext.planCachePhase) {
+                    case NONE:
+                        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                        break;
+                    case ONE:
+                        // phase one: rewrite with placeholder literal
+                        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                        // phase two: replace placeholder literal to normal literal, and rewrite again
+                        new PlanCacheRewriter(cascadesContext).rewrite();
+                        break;
+                    case TWO:
+                        new PlanCacheRewriter(cascadesContext).rewrite();
+                        break;
+                    default:
+                        throw new RuntimeException("Unsupported plan cache phase: " + statementContext.planCachePhase);
+                }
             }
         });
         NereidsTracer.logImportantTime("EndRewritePlan");
@@ -429,7 +446,8 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
-        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner
+                || statementContext.planCachePhase == PlanCachePhase.TWO) {
             Plan logicalPlan = cascadesContext.getRewritePlan();
             Plan physicalPlan = logicalPlan.accept(new SimpleOptimizer(), null);
             this.physicalPlan = (PhysicalPlan) physicalPlan;

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.StatementContext.PlanCachePhase;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -35,6 +36,9 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalOlapScan().thenApply(ctx -> {
             LogicalOlapScan scan = ctx.root;
+            if (ctx.statementContext.planCachePhase == PlanCachePhase.ONE) {
+                return scan;
+            }
             OlapTable table = scan.getTable();
             List<Long> partitionIdsToPrune = scan.getSelectedPartitionIds();
             List<Long> ids = table.selectNonEmptyPartitionIds(partitionIdsToPrune);
