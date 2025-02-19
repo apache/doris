@@ -112,6 +112,8 @@ public class ResultReceiverConsumer {
             finishedReceivers++;
             if (finishedReceivers != contexts.size()) {
                 rowBatch.setEos(false);
+            } else {
+                executor.shutdownNow();
             }
         } else {
             context.createFuture();
