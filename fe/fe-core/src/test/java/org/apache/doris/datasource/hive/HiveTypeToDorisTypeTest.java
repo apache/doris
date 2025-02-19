@@ -45,9 +45,9 @@ public class HiveTypeToDorisTypeTest {
         Assert.assertEquals(Type.BIGINT, hiveTypeToDorisType("bigint(19,0)", 0));
         Assert.assertEquals(ScalarType.createDateV2Type(), hiveTypeToDorisType("date", 0));
         Assert.assertEquals(ScalarType.createDatetimeV2Type(3),
-            hiveTypeToDorisType("timestamp", 3));
+                hiveTypeToDorisType("timestamp", 3));
         Assert.assertEquals(ScalarType.createDatetimeV2Type(3),
-            hiveTypeToDorisType("timestamp(19)", 3));
+                hiveTypeToDorisType("timestamp(19)", 3));
         Assert.assertEquals(Type.FLOAT, hiveTypeToDorisType("float", 0));
         Assert.assertEquals(Type.DOUBLE, hiveTypeToDorisType("double", 0));
         Assert.assertEquals(ScalarType.createStringType(), hiveTypeToDorisType("string", 0));
@@ -78,24 +78,24 @@ public class HiveTypeToDorisTypeTest {
     @Test
     public void testCharType() {
         Assert.assertEquals(ScalarType.createType(PrimitiveType.CHAR, 10, 0, 0),
-            hiveTypeToDorisType("char(10)", 0));
+                hiveTypeToDorisType("char(10)", 0));
         Assert.assertEquals(ScalarType.createType(PrimitiveType.CHAR), hiveTypeToDorisType("char", 0));
     }
 
     @Test
     public void testVarcharType() {
         Assert.assertEquals(ScalarType.createType(PrimitiveType.VARCHAR, 20, 0, 0),
-            hiveTypeToDorisType("varchar(20)", 0));
+                hiveTypeToDorisType("varchar(20)", 0));
         Assert.assertEquals(ScalarType.createType(PrimitiveType.VARCHAR),
-            hiveTypeToDorisType("varchar", 0));
+                hiveTypeToDorisType("varchar", 0));
     }
 
     @Test
     public void testDecimalType() {
         Assert.assertEquals(ScalarType.createDecimalV3Type(10, 2),
-            hiveTypeToDorisType("decimal(10,2)", 0));
+                hiveTypeToDorisType("decimal(10,2)", 0));
         Assert.assertEquals(ScalarType.createDecimalV3Type(ScalarType.DEFAULT_PRECISION,
-            ScalarType.DEFAULT_SCALE), hiveTypeToDorisType("decimal", 0));
+                ScalarType.DEFAULT_SCALE), hiveTypeToDorisType("decimal", 0));
     }
 
     @Test
