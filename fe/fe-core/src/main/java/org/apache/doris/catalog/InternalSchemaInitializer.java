@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
@@ -368,13 +369,26 @@ public class InternalSchemaInitializer extends Thread {
 
         // 5. check if we need to add new columns
         List<AlterClause> alterClauses = Lists.newArrayList();
-        for (ColumnDef def : expectedSchema) {
+        for (int i = 0; i < expectedSchema.size(); i++) {
+            ColumnDef def = expectedSchema.get(i);
             if (auditTable.getColumn(def.getName()) == null) {
                 // add column if it doesn't exist
                 try {
-                    ColumnDef columnDef = new ColumnDef(def.getName(),
-                            def.getTypeDef(), def.isAllowNull());
-                    ModifyColumnClause clause = new ModifyColumnClause(columnDef, null, null,
+                    ColumnDef columnDef = new ColumnDef(def.getName(), def.getTypeDef(), def.isAllowNull());
+                    // find the previous column name to determine the position
+                    String afterColumn = null;
+                    if (i > 0) {
+                        for (int j = i - 1; j >= 0; j--) {
+                            String prevColName = expectedSchema.get(j).getName();
+                            if (auditTable.getColumn(prevColName) != null) {
+                                afterColumn = prevColName;
+                                break;
+                            }
+                        }
+                    }
+                    ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
+                            new ColumnPosition(afterColumn);
+                    ModifyColumnClause clause = new ModifyColumnClause(columnDef, position, null,
                             Maps.newHashMap());
                     clause.setColumn(columnDef.toColumn());
                     alterClauses.add(clause);
@@ -390,8 +404,8 @@ public class InternalSchemaInitializer extends Thread {
             try {
                 TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
                         FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
-                AlterTableStmt alterTableStmt = new AlterTableStmt(tableName, alterClauses);
-                Env.getCurrentEnv().alterTable(alterTableStmt);
+                AlterTableStmt alterStmt = new AlterTableStmt(tableName, alterClauses);
+                Env.getCurrentEnv().alterTable(alterStmt);
             } catch (Exception e) {
                 LOG.warn("Failed to alter audit table schema", e);
                 return false;
