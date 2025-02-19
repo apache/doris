@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -252,6 +253,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
+        // from_base64 will return the encoded Base64 binary string, can't use this
+        // binary string new string literal
+        if (expr instanceof FromBase64) {
+            return true;
+        }
+
         // Do not constant fold cast(null as dataType) because we cannot preserve the
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof Cast && ((Cast) expr).child().isNullLiteral()) {
@@ -279,7 +286,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             TNetworkAddress brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-
+            LOG.info("fold query:{}, IP:{}", DebugUtil.printId(context.queryId()), be.getHost());
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
