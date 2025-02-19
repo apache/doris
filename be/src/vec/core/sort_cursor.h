@@ -206,7 +206,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         }
         block->clear();
         THROW_IF_ERROR(_block_supplier(block.get(), &_is_eof));
-        DCHECK(!block->empty() || _is_eof);
+        DCHECK(!block->empty() xor _is_eof);
         if (!block->empty()) {
             DCHECK_EQ(_ordering_expr.size(), desc.size());
             for (int i = 0; i < desc.size(); ++i) {

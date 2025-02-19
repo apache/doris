@@ -363,59 +363,59 @@ TEST_F(DataTypeArrayTest, CreateColumnTest) {
         auto type = remove_nullable(array_types[i]);
         // any different nested type in arr with same default array ?
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 16);
+        create_column_assert(type, default_field_array, 51); // 17 * 3
     }
     {
         auto type = remove_nullable(array_types[13]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 24);
+        create_column_assert(type, default_field_array, 59); // add addtional sizeof(8)
     }
     // for decimal32/64/128/256 here uncompressed size is 16
     // one scalar type
     for (int i = 14; i < 18; i++) {
         auto type = remove_nullable(array_types[i]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 16);
+        create_column_assert(type, default_field_array, 51);
     }
     // for array-array-scala
     for (int i = 18; i < 31; i++) {
         auto type = remove_nullable(array_types[i]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 28);
+        create_column_assert(type, default_field_array, 85); // 17 * 5
     }
     {
         // string type
         auto type = remove_nullable(array_types[31]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 36);
+        create_column_assert(type, default_field_array, 93); // add addtional sizeof(8)
     }
     for (int i = 32; i < 36; i++) {
         auto type = remove_nullable(array_types[i]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 28);
+        create_column_assert(type, default_field_array, 85); // 17 * 5
     }
     // for array-map
     {
         auto type = remove_nullable(array_types[36]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 44);
+        create_column_assert(type, default_field_array, 127); // 17 * 7 + 8 add addtional sizeof(8)
         type = remove_nullable(array_types[39]);
         default_field_array = Array();
-        create_column_assert(type, default_field_array, 44);
+        create_column_assert(type, default_field_array, 127);
     }
     {
         auto type = remove_nullable(array_types[37]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 36);
+        create_column_assert(type, default_field_array, 119);
         type = remove_nullable(array_types[38]);
         default_field_array = Array();
-        create_column_assert(type, default_field_array, 36);
+        create_column_assert(type, default_field_array, 119); // 17 * 7
     }
     // for array-struct
     {
         auto type = remove_nullable(array_types[40]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 76);
+        create_column_assert(type, default_field_array, 297); // 17 * 17
     }
 }
 
