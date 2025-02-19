@@ -44,7 +44,7 @@ public class BetweenToCompound implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(Between.class)
+                matchesType(Between.class)
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.BETWEEN_TO_COMPOUND)
         );
