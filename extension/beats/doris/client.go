@@ -50,6 +50,7 @@ type client struct {
 
 	database      string
 	tableSelector *fmtSelector
+	defaultTable  string
 	labelPrefix   string
 	lineDelimiter string
 	logRequest    bool
@@ -69,6 +70,7 @@ type clientSettings struct {
 
 	Database      string
 	TableSelector *fmtSelector
+	DefaultTable  string
 	LabelPrefix   string
 	LineDelimiter string
 	LogRequest    bool
@@ -287,7 +289,14 @@ func (client *client) makeTableEventsMap(_ context.Context, events []publisher.E
 				table, err := client.tableSelector.Sel.Select(&e.Content)
 				if err != nil {
 					client.logger.Errorf("Failed to select table: %+v", err)
-					table = nilTable
+				}
+				if table == nilTable {
+					if client.defaultTable == nilTable {
+						client.logger.Warnf("table format error, the default table is not set, the data will be dropped")
+					} else {
+						table = client.defaultTable
+						client.logger.Warnf("table format error, use the default table: %s", client.defaultTable)
+					}
 				}
 				_, ok := tableEventsMap[table]
 				if !ok {

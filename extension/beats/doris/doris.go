@@ -105,6 +105,7 @@ func makeDoris(
 			LabelPrefix:   config.LabelPrefix,
 			Database:      config.Database,
 			TableSelector: tableSelector,
+			DefaultTable:  config.DefaultTable,
 
 			Reporter: reporter,
 			Logger:   logger,

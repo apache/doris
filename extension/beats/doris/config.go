@@ -35,6 +35,7 @@ type config struct {
 	Password            string           `config:"password"`
 	Database            string           `config:"database" validate:"required"`
 	Table               string           `config:"table"`
+	DefaultTable        string           `config:"default_table"`
 	Tables              []map[string]any `config:"tables"`
 	LabelPrefix         string           `config:"label_prefix"`
 	LineDelimiter       string           `config:"line_delimiter"`
