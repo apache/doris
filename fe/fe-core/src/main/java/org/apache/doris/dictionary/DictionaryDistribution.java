@@ -30,6 +30,10 @@ public class DictionaryDistribution {
         this.memoryBytes = memoryBytes;
     }
 
+    public Long getBackendId() {
+        return backend.getId();
+    }
+
     @Override
     public String toString() {
         return backend.getHost() + ":" + backend.getBePort() + " ver=" + version + " memory=" + memoryBytes;

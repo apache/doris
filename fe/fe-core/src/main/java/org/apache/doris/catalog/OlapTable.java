@@ -3404,6 +3404,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public long getNewestUpdateTime() {
+        return getVisibleVersionTime();
+    }
+
+    @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
         return getPartitionType();
     }

@@ -46,7 +46,7 @@ public class RefreshDictionaryCommand extends Command implements ForwardWithSync
         DictionaryManager dictionaryManager = ctx.getEnv().getDictionaryManager();
         String db = dbName == null ? ctx.getDatabase() : dbName;
         Dictionary dictionary = dictionaryManager.getDictionary(db, dictionaryName);
-        dictionaryManager.dataLoad(ctx, dictionary);
+        dictionaryManager.dataLoad(ctx, dictionary, dictionary.hasNewerSourceVersion().second);
     }
 
     @Override

@@ -235,6 +235,12 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
+    public long getNewestUpdateTime() {
+        return getIcebergSnapshotCacheValue().getPartitionInfo().getNameToIcebergPartition().values().stream()
+                .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
+    }
+
+    @Override
     public boolean isPartitionColumnAllowNull() {
         return true;
     }

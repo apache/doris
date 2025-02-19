@@ -24,6 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -128,7 +129,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
     @Override
     protected void runAfterCatalogReady() {
-        // interval unit is ms
+        // interval unit is ms. aware of ADMIN SET CONFIG
         setInterval(Config.dictionary_auto_refresh_interval_seconds * 1000);
         // Check and update dictionary data in each cycle
         try {
@@ -187,7 +188,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // 3. Log the creation operation
             Env.getCurrentEnv().getEditLog().logCreateDictionary(dictionary);
 
-            submitDataLoad(dictionary);
+            Pair<Boolean, Long> updateVersion = dictionary.hasNewerSourceVersion();
+            if (!updateVersion.first) {
+                // shouldn't be. the data version in dictionary should be zero now.
+                LOG.warn("Dictionary {} is too new when creating", dictionary.getName());
+            }
+            submitDataLoad(dictionary, updateVersion.second);
             return dictionary;
         } finally {
             unlockWrite();
@@ -338,33 +344,50 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // check all dictionaries and REFRESH if needed
-        for (Map<String, Long> dbDictIds : dictionaryIds.values()) {
-            for (Long id : dbDictIds.values()) {
-                Dictionary dictionary = idToDictionary.get(id);
-                // when data duration is older than its lifetime AND TODO:, refresh it.
-                if (dictionary.getLastUpdateTime() + dictionary.getDataLifetimeSecs() * 1000 < now) {
-                    // should schedule refresh. ONLY trigger when it's NORMAL because if not,
-                    // it's already going to refresh or drop.
-                    if (dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE)) {
-                        submitDataLoad(dictionary);
+        lockRead(); // lock to protect with DROP and LOAD_BY_CREATE
+        try {
+            for (Map<String, Long> dbDictIds : dictionaryIds.values()) {
+                for (Long id : dbDictIds.values()) {
+                    Dictionary dictionary = idToDictionary.get(id);
+                    Pair<Boolean, Long> updateVersion = dictionary.hasNewerSourceVersion();
+                    /// for all dictionaries:
+                    // 1. if it's OUT_OF_DATE(maybe update failed or something), try to refresh it.
+                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE) {
+                        submitDataLoad(dictionary, updateVersion.second);
+                    }
+                    // 2. if some BE lost datas(new or restart), refresh it all.
+                    // TODO: modify UnassignedAllBEJob and Coordinator to do partially refresh.
+                    else if (!dictionary.dataCompleted() // rely on collectDictionaryStatus() we just did.
+                            // 3. base table has been updated AND when data is older than its lifetime, refresh it.
+                            || updateVersion.first && dictionary.getNextRefreshTime() < now) {
+                        // should schedule refresh. ONLY trigger when it's NORMAL because if not,
+                        // it's already going to refresh or drop.
+                        if (dictionary.trySetStatusIf(DictionaryStatus.NORMAL, DictionaryStatus.OUT_OF_DATE)) {
+                            submitDataLoad(dictionary, updateVersion.second);
+                        }
                     }
                 }
             }
+        } finally {
+            unlockRead();
         }
     }
 
-    private void submitDataLoad(Dictionary dictionary) {
+    /**
+     * @param baseTableVersion the version of the base table used to update. change when succeed.
+     */
+    private void submitDataLoad(Dictionary dictionary, Long baseTableVersion) {
         LOG.info("Submit dictionary {} refresh task", dictionary.getName());
         executor.execute(() -> {
             try {
-                dataLoad(null, dictionary);
+                dataLoad(null, dictionary, baseTableVersion);
             } catch (Exception e) {
                 LOG.warn("Failed to load dictionary " + dictionary.getName(), e);
             }
         });
     }
 
-    public void dataLoad(ConnectContext ctx, Dictionary dictionary) throws Exception {
+    public void dataLoad(ConnectContext ctx, Dictionary dictionary, Long baseTableVersion) throws Exception {
         // use atomic status as a lock.
         if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
@@ -414,6 +437,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 // wont fail cuz status is LOADING owned by me.
                 dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
                 dictionary.updateLastUpdateTime();
+                dictionary.updateSrcVersion(baseTableVersion);
                 dictionary.setLastUpdateResult("succeed");
                 LOG.info("Dictionary {} refresh succeed", dictionary.getName());
             } else {

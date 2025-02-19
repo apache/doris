@@ -21,11 +21,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TDictionaryTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -36,11 +40,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -48,6 +55,8 @@ import java.util.stream.Collectors;
  * Dictionary metadata, including its structure and data source information. saved in
  */
 public class Dictionary extends Table {
+    private static final Logger LOG = LogManager.getLogger(Dictionary.class);
+
     // TODO: maybe dictionary should also be able to be created in external catalog.
     @SerializedName(value = "dbName")
     private final String dbName;
@@ -78,6 +87,7 @@ public class Dictionary extends Table {
         LOADING, // wait load task finishs
         OUT_OF_DATE // wait load task be scheduled
     }
+
     private final AtomicReference<DictionaryStatus> status = new AtomicReference<>();
 
     @SerializedName(value = "layout")
@@ -87,6 +97,9 @@ public class Dictionary extends Table {
 
     @SerializedName(value = "skipNullKey")
     private boolean skipNullKey;
+
+    // not record this. whenever restart FE or switch Master, it will be reset. then lead to reload dictionary.
+    private long srcVersion = 0;
 
     private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
     private String lastUpdateResult;
@@ -106,7 +119,7 @@ public class Dictionary extends Table {
         this.layout = null;
         this.version = 0;
         this.skipNullKey = false;
-        this.dataDistributions = null; // not replay by gson
+        resetDataDistributions(); // not replay by gson
         this.lastUpdateResult = new String();
     }
 
@@ -124,7 +137,7 @@ public class Dictionary extends Table {
         this.layout = info.getLayout();
         this.version = 1;
         this.skipNullKey = info.skipNullKey();
-        this.dataDistributions = null;
+        resetDataDistributions();
         this.lastUpdateResult = new String();
     }
 
@@ -183,6 +196,10 @@ public class Dictionary extends Table {
         return columns.stream().map(DictionaryColumnDefinition::getName).collect(Collectors.toList());
     }
 
+    public long getNextRefreshTime() {
+        return lastUpdateTime + dataLifetimeSecs * 1000;
+    }
+
     public long getDataLifetimeSecs() {
         return dataLifetimeSecs;
     }
@@ -233,6 +250,39 @@ public class Dictionary extends Table {
         this.lastUpdateTime = System.currentTimeMillis();
     }
 
+    /**
+     * @return true if source table's version is newer than this dictionary's version(need update dictionary). if need
+     * record, return the new version as second element when first is true. otherwise, return 0 as second element.
+     */
+    public Pair<Boolean, Long> hasNewerSourceVersion() {
+        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
+        if (tableIf == null) {
+            throw new RuntimeException(getName() + "'s source table not found");
+        }
+        if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
+            long time = ((MTMVRelatedTableIf) tableIf).getNewestUpdateTime();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("src's now version is " + time + ", old is " + srcVersion);
+            }
+            if (time < srcVersion) {
+                // maybe drop and recreate. but if so, this dictionary should be dropped as well.
+                // so should not happen.
+                throw new RuntimeException("source table's version is smaller than dictionary's");
+            } else if (time > srcVersion) {
+                return Pair.of(true, time);
+            } else {
+                return Pair.of(false, 0L);
+            }
+        }
+        // just update for tables without version information.
+        return Pair.of(true, 0L);
+    }
+
+    // when refresh success, update srcVersion.
+    public void updateSrcVersion(long value) {
+        srcVersion = value;
+    }
+
     public DictionaryStatus getStatus() {
         return status.get();
     }
@@ -253,7 +303,7 @@ public class Dictionary extends Table {
                     continue; // status changed, retry
                 }
             } else if (currentStatus == DictionaryStatus.LOADING) {
-                // may success or failed
+                // may success or failed, cannot accept another loading
                 if (newStatus == DictionaryStatus.NORMAL || newStatus == DictionaryStatus.OUT_OF_DATE) {
                     if (status.compareAndSet(currentStatus, newStatus)) {
                         return true;
@@ -294,6 +344,24 @@ public class Dictionary extends Table {
 
     public void resetDataDistributions() {
         this.dataDistributions = Lists.newArrayList();
+    }
+
+    public boolean dataCompleted() {
+        List<Long> aliveBEs = Env.getCurrentSystemInfo().getAllBackendIds();
+        if (dataDistributions.size() < aliveBEs.size()) {
+            // greater is OK. may be BEs down.
+            return false;
+        }
+        // if only there's alive BE not find in dataDistributions, return false
+        Set<Long> dataSet = dataDistributions.stream().mapToLong(DictionaryDistribution::getBackendId).boxed()
+                .collect(Collectors.toSet());
+        for (Long backendId : aliveBEs) {
+            if (!dataSet.contains(backendId)) {
+                // some of BE does not have data
+                return false;
+            }
+        }
+        return true;
     }
 
     public void setLastUpdateResult(String lastUpdateResult) {

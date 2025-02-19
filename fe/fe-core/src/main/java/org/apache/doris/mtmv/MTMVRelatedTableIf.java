@@ -100,6 +100,14 @@ public interface MTMVRelatedTableIf extends TableIf {
             throws AnalysisException;
 
     /**
+     * getNewestUpdateTime Used for dictionary update. for those external tables support MTMV getTableSnapshot, means
+     * could support this also. then we can use it for dictionary update.
+     * 
+     * @return the newest update time of the table. 0 for something wrong.
+     */
+    long getNewestUpdateTime();
+
+    /**
      * Does the current type of table allow timed triggering
      *
      * @return If return false,The method of comparing whether to synchronize will directly return true,
