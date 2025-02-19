@@ -243,7 +243,7 @@ Status RuntimeFilterWrapper::init_bloom_filter(const size_t runtime_size) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "init_bloom_filter meet invalid input type {}",
                         int(_filter_type));
     }
-    return _bloom_filter_func->init_with_cardinality(runtime_size);
+    return _bloom_filter_func->init_with_runtime_size(runtime_size);
 }
 
 void RuntimeFilterWrapper::insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -360,8 +360,8 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
         if (real_filter_type == RuntimeFilterType::IN_FILTER) {
             // when we meet base rf is in-filter, threre only have two case:
-            // case1: all input-filter's build_bf_exactly is true, inited by synced global size
-            // case2: all input-filter's build_bf_exactly is false, inited by default size
+            // case1: all input-filter's build_bf_by_runtime_size is true, inited by synced global size
+            // case2: all input-filter's build_bf_by_runtime_size is false, inited by default size
             if (other_filter_type == RuntimeFilterType::IN_FILTER) {
                 _hybrid_set->insert(other->_hybrid_set.get());
                 if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {

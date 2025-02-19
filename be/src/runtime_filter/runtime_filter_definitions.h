@@ -44,7 +44,7 @@ struct RuntimeFilterParams {
     int64_t runtime_bloom_filter_max_size {};
     int32_t filter_id {};
     bool bitmap_filter_not_in {};
-    bool build_bf_exactly {};
+    bool build_bf_by_runtime_size {};
 
     bool bloom_filter_size_calculated_by_ndv {};
     bool null_aware {};

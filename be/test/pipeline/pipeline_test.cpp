@@ -797,7 +797,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                             .build(),
                                     0, std::map<TPlanNodeId, TExpr> {})
                                     .set_bloom_filter_size_bytes(1048576)
-                                    .set_build_bf_exactly(false)
+                                    .set_build_bf_by_runtime_size(false)
                                     .build())
                     .build();
 

@@ -92,7 +92,8 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
                                                    ? options->runtime_bloom_filter_max_size
                                                    : 0;
 
-    params.build_bf_exactly = desc->__isset.build_bf_exactly && desc->build_bf_exactly;
+    params.build_bf_by_runtime_size =
+            desc->__isset.build_bf_by_runtime_size && desc->build_bf_by_runtime_size;
     params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
 
     if (desc->__isset.bloom_filter_size_bytes) {
