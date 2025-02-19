@@ -886,7 +886,7 @@ public:
     MaterializationSharedState() = default;
 
     Status merge_multi_response(vectorized::Block* block);
-    Status create_muiltget_result(const vectorized::Columns& columns, bool eos);
+    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
 
     Dependency* create_source_dependency(int operator_id, int node_id,
                                          const std::string& name) override;
@@ -894,9 +894,11 @@ public:
     Status rpc_status = Status::OK();
     bool last_block = false;
     vectorized::Block origin_block;
-    std::vector<int> row_id_locs;
-    std::vector<vectorized::MutableBlock> rest_blocks;
+    // The rowid column of the origin block. should be replaced by the column of the result block.
+    std::vector<int> rowid_locs;
+    std::vector<vectorized::MutableBlock> response_blocks;
     std::map<int64_t, FetchRpcStruct> rpc_struct_map;
+    // Register each line in which block to ensure the order of the result.
     std::vector<std::vector<uint64_t>> block_order_results;
 };
 #include "common/compile_check_end.h"

@@ -472,9 +472,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
-    if (request.schemas_size()) {
+    if (request.request_block_descs_size()) {
         OlapReaderStatistics stats;
-        std::vector<vectorized::Block> result_blocks(request.schemas_size());
+        std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
         int64_t acquire_tablet_ms = 0;
         int64_t acquire_rowsets_ms = 0;
         int64_t acquire_segments_ms = 0;
@@ -491,17 +491,15 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                          print_id(request.query_id()));
         }
 
-        for (int i = 0; i < request.schemas_size(); ++i) {
-            const auto& request_schema = request.schemas(i);
+        for (int i = 0; i < request.request_block_descs_size(); ++i) {
+            const auto& request_schema = request.request_block_descs(i);
             auto& result_block = result_blocks[i];
             auto ret_block = response->add_blocks();
 
-            TupleDescriptor desc(request_schema.desc());
             std::vector<SlotDescriptor> slots;
             slots.reserve(request_schema.slots_size());
             for (const auto& pslot : request_schema.slots()) {
                 slots.push_back(SlotDescriptor(pslot));
-                desc.add_slot(&slots.back());
             }
 
             TabletSchema full_read_schema;
@@ -525,7 +523,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
                 if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
                     RETURN_IF_ERROR(read_doris_format_row(
-                            file_mapping, request_schema.row_id(j), desc, full_read_schema,
+                            file_mapping, request_schema.row_id(j), slots, full_read_schema,
                             request_schema.fetch_row_store(), request_schema.row_id_size(), stats,
                             &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
                             &lookup_row_data_ms, iterator_map, result_block, ret_block));
@@ -571,9 +569,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
-        const TupleDescriptor& desc, const TabletSchema& full_read_schema, bool fetch_row_store,
-        size_t total_rows, OlapReaderStatistics& stats, int64_t* acquire_tablet_ms,
-        int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+        std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+        bool fetch_row_store, size_t total_rows, OlapReaderStatistics& stats,
+        int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+        int64_t* lookup_row_data_ms,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
         vectorized::Block& result_block, PMultiGetBlockV2* ret_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
@@ -635,24 +634,23 @@ Status RowIdStorageReader::read_doris_format_row(
                 lookup_row_data_ms));
     } else {
         if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(desc.slots(), total_rows);
+            result_block = vectorized::Block(slots, total_rows);
         }
 
-        for (int x = 0; x < desc.slots().size(); ++x) {
+        for (int x = 0; x < slots.size(); ++x) {
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
-                                      .slot_id = desc.slots()[x]->id()};
+                                      .slot_id = slots[x].id()};
             IteratorItem& iterator_item = iterator_map[iterator_key];
             if (iterator_item.segment == nullptr) {
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                            row_id, column, stats,
-                                                            iterator_item.iterator));
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
+                                                            column, stats, iterator_item.iterator));
         }
     }
 

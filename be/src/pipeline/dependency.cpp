@@ -458,9 +458,9 @@ void AggSharedState::refresh_top_limit(size_t row_id,
 }
 
 Status MaterializationSharedState::merge_multi_response(vectorized::Block* block) {
-    // init the rest_blocks
-    if (rest_blocks.empty()) {
-        rest_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
+    // init the response_blocks
+    if (response_blocks.empty()) {
+        response_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
     }
 
     std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
@@ -470,8 +470,8 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
             RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
 
             if (!partial_block.is_empty_column()) {
-                if (!rest_blocks[i].columns()) {
-                    rest_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
+                if (!response_blocks[i].columns()) {
+                    response_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
                 }
                 _block_maps.emplace(backend_id, std::make_pair(std::move(partial_block), 0));
             }
@@ -480,8 +480,8 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
         for (int j = 0; j < block_order_results[i].size(); ++j) {
             auto& source_block_rows = _block_maps[block_order_results[i][j]];
             DCHECK(source_block_rows.second < source_block_rows.first.rows());
-            for (int k = 0; k < rest_blocks[i].columns(); ++k) {
-                rest_blocks[i].get_column_by_position(k)->insert_from(
+            for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                response_blocks[i].get_column_by_position(k)->insert_from(
                         *source_block_rows.first.get_by_position(k).column,
                         source_block_rows.second);
             }
@@ -491,16 +491,16 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
 
     // clear request/response
     for (auto& [_, rpc_struct] : rpc_struct_map) {
-        for (int i = 0; i < rpc_struct.request.schemas_size(); ++i) {
-            rpc_struct.request.mutable_schemas(i)->clear_row_id();
-            rpc_struct.request.mutable_schemas(i)->clear_file_id();
+        for (int i = 0; i < rpc_struct.request.request_block_descs_size(); ++i) {
+            rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
+            rpc_struct.request.mutable_request_block_descs(i)->clear_file_id();
         }
         rpc_struct.response.clear_blocks();
     }
 
     block->clear();
-    for (int i = 0, j = 0, rest_block_loc = row_id_locs[j]; i < origin_block.columns(); ++i) {
-        if (i < rest_block_loc) {
+    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); ++i) {
+        if (i < rowid_to_block_loc) {
             block->insert(origin_block.get_by_position(i));
         } else {
             bool need_convert_null = origin_block.get_by_position(i).column->is_nullable();
@@ -508,8 +508,8 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
                                                origin_block.get_by_position(i).column.get())
                                                ->get_null_map_data();
 
-            auto rest_block = rest_blocks[rest_block_loc].to_block();
-            for (auto& data : rest_block) {
+            auto response_block = response_blocks[rowid_to_block_loc].to_block();
+            for (auto& data : response_block) {
                 if (need_convert_null) {
                     data.type = make_nullable(data.type);
                     data.column = make_nullable(data.column);
@@ -521,13 +521,13 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
                 }
                 block->insert(data);
             }
-            if (++j < row_id_locs.size()) {
-                rest_block_loc = row_id_locs[j];
+            if (++j < rowid_locs.size()) {
+                rowid_to_block_loc = rowid_locs[j];
             }
         }
     }
     origin_block.clear();
-    rest_blocks.clear();
+    response_blocks.clear();
 
     return Status::OK();
 }
@@ -541,7 +541,7 @@ Dependency* MaterializationSharedState::create_source_dependency(int operator_id
 }
 
 Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
-                                                          bool eos) {
+                                                          bool eos, bool gc_id_map) {
     const auto rows = columns[0]->size();
     block_order_results.resize(columns.size());
 
@@ -568,13 +568,15 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
                         "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
                         row_location.backend_id);
             }
-            rpc_struct->second.request.mutable_schemas(i)->add_row_id(row_location.row_id);
-            rpc_struct->second.request.mutable_schemas(i)->add_file_id(row_location.file_id);
+            rpc_struct->second.request.mutable_request_block_descs(i)->add_row_id(
+                    row_location.row_id);
+            rpc_struct->second.request.mutable_request_block_descs(i)->add_file_id(
+                    row_location.file_id);
             block_order[j++] = row_location.backend_id;
         }
     }
 
-    if (eos) {
+    if (eos && gc_id_map) {
         for (auto& [_, rpc_struct] : rpc_struct_map) {
             rpc_struct.request.set_gc_id_map(true);
         }

@@ -50,7 +50,6 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
         _rowid_exprs = ctxs;
     }
 
-    _fetch_row_stores = tnode.materialization_node.fetch_row_stores;
     PMultiGetRequestV2 multi_get_request;
     // init the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
@@ -63,16 +62,17 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
     const auto& slots =
             state->desc_tbl().get_tuple_descriptor(tnode.materialization_node.tuple_id)->slots();
     for (int i = 0; i < tnode.materialization_node.column_descs_lists.size(); ++i) {
-        auto block_quest = multi_get_request.add_schemas();
+        auto request_block_desc = multi_get_request.add_request_block_descs();
+        request_block_desc->set_fetch_row_store(tnode.materialization_node.fetch_row_stores[i]);
         // init the column_descs and slot_locs
         auto& column_descs = tnode.materialization_node.column_descs_lists[i];
         for (auto& column_desc_item : column_descs) {
-            TabletColumn(column_desc_item).to_schema_pb(block_quest->add_column_descs());
+            TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
         }
 
         auto& slot_locs = tnode.materialization_node.slot_locs_lists[i];
         for (auto& slot_loc_item : slot_locs) {
-            slots[slot_loc_item]->to_protobuf(block_quest->add_slots());
+            slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
         }
     }
 
@@ -154,16 +154,17 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         }
         // execute the rowid exprs
         vectorized::Columns columns;
-        local_state._shared_state->row_id_locs.resize(_rowid_exprs.size());
+        local_state._shared_state->rowid_locs.resize(_rowid_exprs.size());
         for (int i = 0; i < _rowid_exprs.size(); ++i) {
             auto& rowid_expr = _rowid_exprs[i];
             RETURN_IF_ERROR(
-                    rowid_expr->execute(in_block, &local_state._shared_state->row_id_locs[i]));
+                    rowid_expr->execute(in_block, &local_state._shared_state->rowid_locs[i]));
             columns.emplace_back(
-                    in_block->get_by_position(local_state._shared_state->row_id_locs[i]).column);
+                    in_block->get_by_position(local_state._shared_state->rowid_locs[i]).column);
         }
         local_state._shared_state->origin_block.swap(*in_block);
-        RETURN_IF_ERROR(local_state._shared_state->create_muiltget_result(columns, eos));
+        RETURN_IF_ERROR(
+                local_state._shared_state->create_muiltget_result(columns, eos, _gc_id_map));
 
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             auto callback = MaterializationCallback<int>::create_shared(

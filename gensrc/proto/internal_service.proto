@@ -782,23 +782,21 @@ message PMultiGetResponse {
 };
 
 // Eeach block have own schema to read
-message PRequestBlock {
-    optional PTupleDescriptor desc = 1;
-
+message PRequestBlockDesc {
+    optional bool fetch_row_store = 1;
     repeated PSlotDescriptor slots = 2;
     repeated ColumnPB column_descs = 3;
     repeated uint32 file_id = 4;
     repeated uint32 row_id = 5;
-    optional bool fetch_row_store = 6;
 }
 
 message PMultiGetRequestV2 {
-    repeated PRequestBlock schemas = 3;
+    repeated PRequestBlockDesc request_block_descs = 1;
 
     // for compability
-    optional int32 be_exec_version = 4;
-    optional PUniqueId query_id = 6;
-    optional bool gc_id_map = 7;
+    optional int32 be_exec_version = 2;
+    optional PUniqueId query_id = 3;
+    optional bool gc_id_map = 4;
 };
 
 message PMultiGetBlockV2 {

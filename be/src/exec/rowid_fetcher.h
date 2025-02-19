@@ -83,9 +83,10 @@ public:
 private:
     static Status read_doris_format_row(
             const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
-            const TupleDescriptor& desc, const TabletSchema& full_read_schema, bool fetch_row_store,
-            size_t total_rows, OlapReaderStatistics& stats, int64_t* acquire_tablet_ms,
-            int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            bool fetch_row_store, size_t total_rows, OlapReaderStatistics& stats,
+            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+            int64_t* lookup_row_data_ms,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
             vectorized::Block& result_block, PMultiGetBlockV2* ret_block);
 };

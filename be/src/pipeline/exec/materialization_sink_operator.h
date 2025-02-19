@@ -62,7 +62,7 @@ public:
 private:
     /// Materialized slot by this node. The i-th result expr list refers to a slot of RowId
     vectorized::VExprContextSPtrs _rowid_exprs;
-    std::vector<bool> _fetch_row_stores;
+    bool _gc_id_map = false;
 };
 
 } // namespace pipeline
