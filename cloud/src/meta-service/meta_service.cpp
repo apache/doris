@@ -2413,12 +2413,12 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                             }
                             if (mow_tablet_compaction.expiration() > 0 &&
                                 mow_tablet_compaction.expiration() < now) {
-                                LOG(INFO) << "delete bitmap lock expired, continue to process. "
-                                             "lock_id="
+                                LOG(INFO) << "delete bitmap lock expired. lock_id="
                                           << lock_info.lock_id() << " table_id=" << table_id
                                           << " initiator="
                                           << "" // TODO decode from key
-                                          << " now=" << now;
+                                          << " now=" << now
+                                          << " expiration=" << mow_tablet_compaction.expiration();
                                 txn->remove(k);
                             } else {
                                 has_unexpired_compaction = true;
@@ -2575,26 +2575,26 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         msg = "failed to init txn";
         return;
     }
-    std::string lock_key =
-            meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
-    std::string lock_val;
-    DeleteBitmapUpdateLockPB lock_info;
-    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
-                                  request->lock_id(), request->initiator(), lock_key, lock_info)) {
-        LOG(WARNING) << "failed to check delete bitmap tablet lock"
-                     << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
-                     << " request lock_id=" << request->lock_id()
-                     << " request initiator=" << request->initiator() << " msg " << msg;
-        return;
-    }
     if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
-                mow_tablet_compaction_key({instance_id, request->table_id(), request->lock_id()});
+                mow_tablet_compaction_key({instance_id, request->table_id(), request->initiator()});
         txn->remove(tablet_compaction_key);
         LOG(INFO) << "remove tablet compaction lock, table_id=" << request->table_id()
                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
                   << " key=" << hex(tablet_compaction_key);
     } else {
+        std::string lock_key =
+                meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
+        std::string lock_val;
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
+                                      request->lock_id(), request->initiator(), lock_key, lock_info)) {
+            LOG(WARNING) << "failed to check delete bitmap tablet lock"
+                         << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
+                         << " request lock_id=" << request->lock_id()
+                         << " request initiator=" << request->initiator() << " msg " << msg;
+            return;
+        }
         bool modify_initiators = false;
         auto initiators = lock_info.mutable_initiators();
         for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
