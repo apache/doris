@@ -475,6 +475,15 @@ public class BinlogManager {
 
     // get binlog by dbId, return first binlog.version > version
     public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long prevCommitSeq) {
+        Pair<TStatus, List<TBinlog>> result = getBinlog(dbId, tableId, prevCommitSeq, 1);
+        if (result.second != null && result.second.size() > 0) {
+            return Pair.of(result.first, result.second.get(0));
+        }
+        return Pair.of(result.first, null);
+    }
+
+    // get binlogs by dbId, return the first N binlogs, which first binlog.version > prevCommitSeq
+    public Pair<TStatus, List<TBinlog>> getBinlog(long dbId, long tableId, long prevCommitSeq, long numAcquired) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -485,7 +494,7 @@ public class BinlogManager {
                 return Pair.of(status, null);
             }
 
-            return dbBinlog.getBinlog(tableId, prevCommitSeq);
+            return dbBinlog.getBinlog(tableId, prevCommitSeq, numAcquired);
         } finally {
             lock.readLock().unlock();
         }
