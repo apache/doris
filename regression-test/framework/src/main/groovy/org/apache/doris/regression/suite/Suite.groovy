@@ -1543,6 +1543,74 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def get_be_param = { paramName ->
+        def ipList = [:]
+        def portList = [:]
+        def backendId_to_params = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            // get the config value from be
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/show_config?conf_item=%s", beIp, bePort, paramName))
+            assert code == 0
+            assert out.contains(paramName)
+            // parsing
+            def resultList = parseJson(out)[0]
+            assert resultList.size() == 4
+            // get original value
+            def paramValue = resultList[2]
+            backendId_to_params.put(id, paramValue)
+        }
+        logger.info("backendId_to_params: ${backendId_to_params}".toString())
+        return backendId_to_params
+    }
+
+    def set_be_param = { paramName, paramValue ->
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assert out.contains("OK")
+        }
+    }
+
+    def set_original_be_param = { paramName, backendId_to_params ->
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHttpPort(ipList, portList)
+        for (String id in ipList.keySet()) {
+            def beIp = ipList.get(id)
+            def bePort = portList.get(id)
+            def paramValue = backendId_to_params.get(id)
+            logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assert out.contains("OK")
+        }
+    }
+
+    void setBeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
+        Map<String, Map<String, String>> originConf = Maps.newHashMap()
+        tempConfig.each{ k, v ->
+            originConf.put(k, get_be_param(k))
+        }
+        try {
+            tempConfig.each{ k, v -> set_be_param(k, v)}
+            actionSupplier()
+        } catch (Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            originConf.each { k, confs ->
+                set_original_be_param(k, confs)
+            }
+        }
+    }
+
     void waiteCreateTableFinished(String tableName) {
         Thread.sleep(2000);
         String showCreateTable = "SHOW CREATE TABLE ${tableName}"

@@ -37,41 +37,21 @@ suite("test_skip_calc_between_segments", "nonConcurrent") {
     qt_sql "select * from ${table1} order by k1;"
 
     def block_sc = {
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
-        }
+        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
     }
     
     def unblock_sc = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
-        }
+        GetDebugPoint().disableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
     }
 
     def block_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-            
-        }
+        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
     }
 
     def unblock_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-            
-        }
+        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
     }
 
     def checkSegmentNum = { rowsetNum, lastRowsetSegmentNum ->
