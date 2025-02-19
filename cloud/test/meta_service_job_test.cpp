@@ -167,7 +167,7 @@ MetaServiceCode get_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t t
 }
 
 MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id,
-                                       int64_t lock_id, int64_t initiator) {
+                                          int64_t lock_id, int64_t initiator) {
     brpc::Controller cntl;
     RemoveDeleteBitmapUpdateLockRequest req;
     RemoveDeleteBitmapUpdateLockResponse res;
@@ -185,8 +185,7 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->remove(lock_key);
-    std::string tablet_compaction_key_begin =
-            mow_tablet_compaction_key({instance_id, table_id, 0});
+    std::string tablet_compaction_key_begin = mow_tablet_compaction_key({instance_id, table_id, 0});
     std::string tablet_compaction_key_end =
             mow_tablet_compaction_key({instance_id, table_id, INT64_MAX});
     txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
