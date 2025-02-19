@@ -15,26 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.DecommissionBackendClause;
 
-public class AddFollowerClause extends FrontendClause {
-    public AddFollowerClause(String hostPort) {
-        super(hostPort, FrontendNodeType.FOLLOWER);
-    }
+import java.util.List;
 
-    public AddFollowerClause(String hostPort, String host, int port, FrontendNodeType role) {
-        super(hostPort, role);
-        this.host = host;
-        this.port = port;
+/**
+ * DecommissionBackendOp
+ */
+public class DecommissionBackendOp extends BackendOp {
+
+    public DecommissionBackendOp(List<String> hostPorts) {
+        super(hostPorts);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER CLUSTER ADD FOLLOWER \"");
-        sb.append(hostPort).append("\"");
+        sb.append("DECOMMISSION BACKEND ");
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
+                sb.append(", ");
+            }
+        }
         return sb.toString();
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new DecommissionBackendClause(ids, hostInfos);
     }
 }
