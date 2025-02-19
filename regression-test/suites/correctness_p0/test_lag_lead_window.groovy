@@ -51,5 +51,14 @@ suite("test_lag_lead_window") {
     qt_select_default """ select id, create_time, lead(create_time, 1, '2022-09-06 00:00:00') over
                           (order by create_time desc) as "prev_time" from test1; """
     qt_select_default """ select id, create_time, lead(create_time, 1, date_sub('2022-09-06 00:00:00', interval 7 day)) over (order by create_time desc) as "prev_time" from test1; """
+
+    qt_select_lag_1 """ select id, create_time, lag(create_time) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_2 """ select id, create_time, lag(create_time,1) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_3 """ select id, create_time, lag(create_time,1,NULL) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_4 """ select id, create_time, lead(create_time) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_5 """ select id, create_time, lead(create_time,1) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+    qt_select_lag_6 """ select id, create_time, lead(create_time,1,NULL) over(partition by id) as "prev_time" from test1 order by 1 ,2 ; """
+
     sql """ DROP TABLE IF EXISTS test1 """
+
 }

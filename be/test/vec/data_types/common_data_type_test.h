@@ -22,6 +22,8 @@
 #include <fstream>
 #include <iostream>
 
+#include "agent/be_exec_version_manager.h"
+#include "olap/schema.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -52,6 +54,10 @@ namespace doris::vectorized {
 static bool gen_check_data_in_assert = true;
 
 class CommonDataTypeTest : public ::testing::Test {
+public:
+    CommonDataTypeTest() = default;
+    void TestBody() override {}
+
 protected:
     // Helper function to load data from CSV, with index which splited by spliter and load to columns
     void load_data_from_csv(const DataTypeSerDeSPtrs serders, MutableColumns& columns,
@@ -164,7 +170,8 @@ public:
             ASSERT_EQ(const_col->operator[](i), default_const_col->operator[](i));
         }
         // get_uncompressed_serialized_bytes
-        ASSERT_EQ(data_type->get_uncompressed_serialized_bytes(*column, 0),
+        ASSERT_EQ(data_type->get_uncompressed_serialized_bytes(
+                          *column, BeExecVersionManager::get_newest_version()),
                   uncompressed_serialized_bytes);
     }
 
@@ -249,7 +256,7 @@ public:
         }
         // nt be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
         //                     size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
-        size_t be_exec_version = 2;
+        size_t be_exec_version = BeExecVersionManager::get_newest_version();
         auto pblock = std::make_unique<PBlock>();
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
@@ -262,9 +269,9 @@ public:
         st = block_1->deserialize(*pblock);
         ASSERT_EQ(st.ok(), true);
         // check block_1 and block is same
-        for (int i = 0; i < block->rows(); ++i) {
-            auto& col = block->get_by_position(i);
-            auto& col_1 = block_1->get_by_position(i);
+        for (auto col_idx = 0; col_idx < block->columns(); ++col_idx) {
+            auto& col = block->get_by_position(col_idx);
+            auto& col_1 = block_1->get_by_position(col_idx);
             ASSERT_EQ(col.column->size(), col_1.column->size());
             for (int j = 0; j < col.column->size(); ++j) {
                 ASSERT_EQ(col.column->operator[](j), col_1.column->operator[](j));

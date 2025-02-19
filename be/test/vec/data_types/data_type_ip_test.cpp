@@ -127,8 +127,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
 TEST_F(DataTypeIPTest, CreateColumnTest) {
     Field default_field_ipv4 = IPv4(0);
     Field default_field_ipv6 = IPv6(0);
-    create_column_assert(dt_ipv4, default_field_ipv4, 4);
-    create_column_assert(dt_ipv6, default_field_ipv6, 4);
+    create_column_assert(dt_ipv4, default_field_ipv4, 17);
+    create_column_assert(dt_ipv6, default_field_ipv6, 17);
 }
 
 TEST_F(DataTypeIPTest, GetFieldTest) {
