@@ -54,15 +54,7 @@ public class AnalyzeDatabaseOp extends AnalyzeOp {
         db = ctlIf.getDbOrAnalysisException(dbName);
     }
 
-    public CatalogIf getCtlIf() {
-        return ctlIf;
-    }
-
     public DatabaseIf<TableIf> getDb() {
         return db;
-    }
-
-    public PlanType getType() {
-        return PlanType.ANALYZE_DATABASE;
     }
 }

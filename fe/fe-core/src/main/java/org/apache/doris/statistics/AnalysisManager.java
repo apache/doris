@@ -58,6 +58,8 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeDatabaseOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -198,31 +200,34 @@ public class AnalysisManager implements Writable {
         if (ConnectContext.get().getSessionVariable().forceSampleAnalyze) {
             command.checkAndSetSample();
         }
-        if (command.getAnalyzeOp() instanceof AnalyzeDatabaseOp) {
-            createAnalysisJobs((AnalyzeDatabaseOp) command.getAnalyzeOp(), proxy);
-        } else if (command.getAnalyzeOp() instanceof AnalyzeTableOp) {
-            createAnalysisJob((AnalyzeTableOp) command.getAnalyzeOp(), proxy);
+        if (command instanceof AnalyzeDatabaseCommand) {
+            createAnalysisJobs((AnalyzeDatabaseCommand) command, proxy);
+        } else if (command instanceof AnalyzeTableCommand) {
+            createAnalysisJob((AnalyzeTableCommand) command, proxy);
         }
     }
 
     // for nereids analyze database/table
-    public void createAnalysisJobs(AnalyzeDatabaseOp op, boolean proxy) throws AnalysisException {
+    public void createAnalysisJobs(AnalyzeDatabaseCommand command, boolean proxy) throws AnalysisException {
+        AnalyzeDatabaseOp op = command.getAnalyzeDatabaseOp();
         DatabaseIf<TableIf> db = op.getDb();
-        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDBV2(db, op.getAnalyzeProperties());
+        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForNereidsDB(db, op.getAnalyzeProperties());
         if (!op.isSync()) {
             sendJobId(analysisInfos, proxy);
         }
     }
 
     // for nereids analyze database/table
-    public void createAnalysisJob(AnalyzeTableOp op, boolean proxy) throws DdlException {
+    public void createAnalysisJob(AnalyzeTableCommand command, boolean proxy) throws DdlException {
         // Using auto analyzer if user specifies.
-        if ("true".equalsIgnoreCase(op.getAnalyzeProperties().getProperties().get("use.auto.analyzer"))) {
-            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(op.getTable(),
-                    op.getTable().getColumnIndexPairs(op.getColumnNames()), JobPriority.HIGH);
+        if ("true".equalsIgnoreCase(command.getAnalyzeTableOp().getAnalyzeProperties()
+                    .getProperties().get("use.auto.analyzer"))) {
+            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(command.getAnalyzeTableOp().getTable(),
+                    command.getAnalyzeTableOp().getTable()
+                            .getColumnIndexPairs(command.getAnalyzeTableOp().getColumnNames()), JobPriority.HIGH);
             return;
         }
-        AnalysisInfo jobInfo = buildAndAssignJob(op);
+        AnalysisInfo jobInfo = buildAndAssignJob(command);
         if (jobInfo == null) {
             return;
         }
@@ -232,8 +237,9 @@ public class AnalysisManager implements Writable {
     // for nereids analyze database/table
     @Nullable
     @VisibleForTesting
-    protected AnalysisInfo buildAndAssignJob(AnalyzeTableOp op) throws DdlException {
-        AnalysisInfo jobInfo = buildAnalysisJobInfo(op);
+    protected AnalysisInfo buildAndAssignJob(AnalyzeTableCommand command) throws DdlException {
+        AnalysisInfo jobInfo = buildAnalysisJobInfo(command);
+        AnalyzeTableOp op = command.getAnalyzeTableOp();
         if (jobInfo.jobColumns == null || jobInfo.jobColumns.isEmpty()) {
             // No statistics need to be collected or updated
             LOG.info("Job columns are empty, skip analyze table {}", op.getTblName().toString());
@@ -265,13 +271,13 @@ public class AnalysisManager implements Writable {
     }
 
     // for nereids analyze database/table
-    public List<AnalysisInfo> buildAnalysisInfosForDBV2(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
-            throws AnalysisException {
+    public List<AnalysisInfo> buildAnalysisInfosForNereidsDB(DatabaseIf<TableIf> db,
+            AnalyzeProperties analyzeProperties) throws AnalysisException {
         db.readLock();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         try {
-            List<AnalyzeTableOp> analyzeTableOps = new ArrayList<>();
+            List<AnalyzeTableCommand> commands = new ArrayList<>();
             for (TableIf table : tbls) {
                 if (table instanceof View) {
                     continue;
@@ -280,19 +286,20 @@ public class AnalysisManager implements Writable {
                         db.getFullName(), table.getName());
                 // columnNames null means to add all visible columns.
                 // Will get all the visible columns in analyzeTableOp.check()
-                AnalyzeTableOp analyzeTableOp = new AnalyzeTableOp(analyzeProperties, tableNameInfo,
+                AnalyzeTableOp op = new AnalyzeTableOp(analyzeProperties, tableNameInfo,
                         null, db.getId(), table);
+                AnalyzeTableCommand command = new AnalyzeTableCommand(op);
                 try {
-                    analyzeTableOp.check();
+                    command.check();
                 } catch (AnalysisException analysisException) {
                     LOG.warn("Failed to build analyze job: {}",
                             analysisException.getMessage(), analysisException);
                 }
-                analyzeTableOps.add(analyzeTableOp);
+                commands.add(command);
             }
-            for (AnalyzeTableOp op : analyzeTableOps) {
+            for (AnalyzeTableCommand command : commands) {
                 try {
-                    analysisInfos.add(buildAndAssignJob(op));
+                    analysisInfos.add(buildAndAssignJob(command));
                 } catch (DdlException e) {
                     LOG.warn("Failed to build analyze job: {}",
                             e.getMessage(), e);
@@ -516,9 +523,10 @@ public class AnalysisManager implements Writable {
 
     // for nereids analyze database/table
     @VisibleForTesting
-    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTableOp op) {
+    public AnalysisInfo buildAnalysisJobInfo(AnalyzeTableCommand command) {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
+        AnalyzeTableOp op = command.getAnalyzeTableOp();
         TableIf table = op.getTable();
         Set<String> columnNames = op.getColumnNames();
         boolean partitionOnly = op.isPartitionOnly();
