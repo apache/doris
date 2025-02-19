@@ -385,8 +385,8 @@ TEST(SortMergerTest, TEST_BIG_OFFSET_SINGLE_STREAM) {
 TEST(SortMergerTest, TEST_SMALL_OFFSET_SINGLE_STREAM) {
     /**
      * in: [([NULL, 0, 1, 2, 3], eos = true)]
-     *     offset = 3, limit = 1, NULL_FIRST, ASC
-     * out: [2]
+     *     offset = 4, limit = 1, NULL_FIRST, ASC
+     * out: [3]
      */
     const int num_children = 1;
     const int batch_size = 5;
@@ -402,7 +402,7 @@ TEST(SortMergerTest, TEST_SMALL_OFFSET_SINGLE_STREAM) {
         std::vector<bool> is_asc_order = {true};
         std::vector<bool> nulls_first = {true};
         const int limit = 1;
-        const int offset = 3;
+        const int offset = 4;
         merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size,
                                           limit, offset, profile.get()));
     }
@@ -427,7 +427,7 @@ TEST(SortMergerTest, TEST_SMALL_OFFSET_SINGLE_STREAM) {
         vectorized::Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
-        auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({2}, {0});
+        auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({3}, {0});
         EXPECT_TRUE(ColumnHelper::column_equal(block.get_by_position(0).column, expect_block));
         EXPECT_TRUE(eos);
     }

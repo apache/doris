@@ -122,7 +122,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             auto process_rows = std::min(current->rows - current->pos, _offset);
             current->next(process_rows);
             _offset -= process_rows;
-            if (current->is_last()) {
+            if (current->is_last(0)) {
                 _priority_queue.pop();
                 if (current->eof()) {
                     *eos = true;
