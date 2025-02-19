@@ -406,4 +406,65 @@ public class CreateTableLikeTest {
         Assert.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
         Assert.assertTrue(existedTableStmt.toString().contains("r2 (siteid, pv)"));
     }
+
+    @Test
+    public void checkSyncedTableWithOutRollup() throws Exception {
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_without_rollup_synced\n" + "(\n"
+                        + "    event_day DATE,\n"
+                        + "    siteid INT DEFAULT '10',\n" + "    citycode SMALLINT,\n"
+                        + "    username VARCHAR(32) DEFAULT '',\n" + "    pv BIGINT SUM DEFAULT '0'\n" + ")\n"
+                        + "AGGREGATE KEY(event_day, siteid, citycode, username)\n"
+                        + "PARTITION BY RANGE(event_day)\n"
+                        + "(\n" + "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n"
+                        + "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n"
+                        + "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" + ")\n"
+                        + "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n"
+                        + "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String existedDbName = "test";
+        String existedTblName = "table_without_rollup_synced";
+
+        createTable(createTableWithRollup);
+
+        Database existedDb = Env.getCurrentInternalCatalog()
+                        .getDbOrDdlException(existedDbName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
+        List<String> existedTableStmt = Lists.newArrayList();
+        List<String> existedAddRollupStmt = Lists.newArrayList();
+        Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
+                        -1L);
+
+        Assert.assertTrue(!existedTableStmt.toString().contains("ROLLUP"));
+    }
+
+    @Test
+    public void checkSyncedTableWithPartialRollup() throws Exception {
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_with_partial_rollup_synced\n" + "(\n"
+                        + "    event_day DATE,\n"
+                        + "    siteid INT DEFAULT '10',\n" + "    citycode SMALLINT,\n"
+                        + "    username VARCHAR(32) DEFAULT '',\n" + "    pv BIGINT SUM DEFAULT '0'\n" + ")\n"
+                        + "AGGREGATE KEY(event_day, siteid, citycode, username)\n"
+                        + "PARTITION BY RANGE(event_day)\n"
+                        + "(\n" + "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n"
+                        + "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n"
+                        + "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" + ")\n"
+                        + "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n" + "ROLLUP\n" + "(\n" + "r(event_day,pv)\n"
+                        + ")\n" + "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String existedDbName = "test";
+        String existedTblName = "table_with_partial_rollup_synced";
+
+        createTable(createTableWithRollup);
+
+        Database existedDb = Env.getCurrentInternalCatalog()
+                        .getDbOrDdlException(existedDbName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
+        List<String> existedTableStmt = Lists.newArrayList();
+        List<String> existedAddRollupStmt = Lists.newArrayList();
+        Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
+                        -1L);
+
+        Assert.assertTrue(!existedTableStmt.toString().contains("r (event_day, pv),"));
+        Assert.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
+    }
 }
