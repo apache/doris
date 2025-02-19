@@ -91,6 +91,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
     @Override
     public boolean isForceDropPartition() {
+        // After refreshing the data in MTMV, it will be synchronized with the base table
+        // and there is no need to put it in the recycle bin
         return true;
     }
 
