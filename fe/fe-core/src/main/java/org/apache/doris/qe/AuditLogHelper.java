@@ -266,7 +266,7 @@ public class AuditLogHelper {
         auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
         boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
-            && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
+                && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
         String encryptSql = isAnalysisErr ? ctx.getState().getErrorMessage() : origStmt;
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (parsedStmt instanceof LogicalPlanAdapter) {
