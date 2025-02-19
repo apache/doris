@@ -68,16 +68,44 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         DISTRIBUTED BY HASH(k) BUCKETS 4 
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
+
+    sql """DROP TABLE IF EXISTS github_events_arr"""
+    sql """
+        CREATE TABLE IF NOT EXISTS github_events_arr (
+            k bigint,
+            v array<text>,
+            INDEX idx_var(v) USING INVERTED COMMENT ''
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+    """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     // 2022
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-10.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
+
+    // test array index
+    sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
+    sql "set enable_common_expr_pushdown = true; "
+    qt_sql """select count() from github_events_arr where array_contains(v, 'css');"""
+    sql "set enable_common_expr_pushdown = false; "
+    qt_sql """select count() from github_events_arr where array_contains(v, 'css');"""
+    sql "set enable_common_expr_pushdown = true; "
+
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
@@ -140,14 +168,23 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         sql """ set profile_level = 2;"""
         run {
             qt_sql_inv """/* test_profile_1 */
-                select k, v['payload']['pull_request']['head']['repo']['topics'] from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] ) order by k
+                select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )
             """
         }
 
         check { profileString, exception ->
             log.info(profileString)
-            assertTrue(profileString.contains("RowsInvertedIndexFiltered:  67.682K"))
-        }
+            // Use a regular expression to match the numeric value inside parentheses after "RowsInvertedIndexFiltered:"
+            def matcher = (profileString =~ /RowsInvertedIndexFiltered:\s+[^\(]+\((\d+)\)/)
+            def total = 0
+            while (matcher.find()) {
+                total += matcher.group(1).toInteger()
+            }
+            // Assert that the sum of all matched numbers equals 67677
+            assertEquals(67677, total)
+        } 
     }
-    qt_sql_inv """select k, v['payload']['pull_request']['head']['repo']['topics'] from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] ) order by k limit 10;"""
+    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    qt_sql_inv """select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )"""
 }
