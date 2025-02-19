@@ -35,9 +35,9 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
-import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -206,7 +206,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         PaimonSnapshotCacheValue paimonSnapshot = getOrFetchSnapshotCacheValue(snapshot);
-        return new MTMVVersionSnapshot(paimonSnapshot.getSnapshot().getSnapshotId());
+        return new MTMVSnapshotIdSnapshot(paimonSnapshot.getSnapshot().getSnapshotId());
     }
 
     @Override

@@ -66,6 +66,7 @@ suite("test_javaudf_static_load_test") {
             "type"="JAVA_UDF"
         ); """
 
+        // the result of the following queries should be the accumulation
         sql """set parallel_pipeline_task_num = 1; """
         qt_select1 """ SELECT static_load_test(); """
         qt_select2 """ SELECT static_load_test(); """
@@ -73,8 +74,47 @@ suite("test_javaudf_static_load_test") {
         qt_select4 """ SELECT static_load_test(); """
         qt_select5 """ SELECT static_load_test(); """
 
+
+        sql """ CREATE AGGREGATE FUNCTION static_load_test_udaf(int) RETURNS BigInt PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.StaticIntTestUDAF",
+            "always_nullable"="true",
+            "static_load"="true",
+            "expiration_time"="10",
+            "type"="JAVA_UDF"
+        ); """
+
+        // the result of the following queries should be the accumulation
+        // maybe we need drop funtion and test again, the result should be the same
+        // but the regression test will copy the jar to be custom_lib, and loaded by BE when it's started
+        // so it's can't be unloaded
+        sql """set parallel_pipeline_task_num = 1; """
+        qt_select6 """ SELECT static_load_test_udaf(0); """
+        qt_select7 """ SELECT static_load_test_udaf(0); """
+        qt_select8 """ SELECT static_load_test_udaf(0); """
+        qt_select9 """ SELECT static_load_test_udaf(0); """
+        qt_select10 """ SELECT static_load_test_udaf(0); """
+
+        sql """ CREATE TABLES FUNCTION static_load_test_udtf() RETURNS array<int> PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.StaticIntTestUDTF",
+            "always_nullable"="true",
+            "static_load"="true",
+            "expiration_time"="10",
+            "type"="JAVA_UDF"
+        ); """
+
+        sql """set parallel_pipeline_task_num = 1; """
+        qt_select11 """ select k1, e1 from (select 1 k1) as t lateral view static_load_test_udtf() tmp1 as e1; """
+        qt_select12 """ select k1, e1 from (select 1 k1) as t lateral view static_load_test_udtf() tmp1 as e1; """
+        qt_select13 """ select k1, e1 from (select 1 k1) as t lateral view static_load_test_udtf() tmp1 as e1; """
+        qt_select14 """ select k1, e1 from (select 1 k1) as t lateral view static_load_test_udtf() tmp1 as e1; """
+        qt_select15 """ select k1, e1 from (select 1 k1) as t lateral view static_load_test_udtf() tmp1 as e1; """
+
     } finally {
         try_sql("DROP FUNCTION IF EXISTS static_load_test();")
+        try_sql("DROP FUNCTION IF EXISTS static_load_test_udaf(int);")
+        try_sql("DROP FUNCTION IF EXISTS static_load_test_udtf();")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

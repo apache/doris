@@ -673,7 +673,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     auto remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request->eos()) {
-            cancel(fmt::format("{}, err: timeout", channel_info()));
+            cancel(fmt::format("{}, err: load timeout after {} ms", channel_info(),
+                               _rpc_timeout_ms));
             _send_block_callback->clear_in_flight();
             return;
         } else {
@@ -1254,7 +1255,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // if partition_type is OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),

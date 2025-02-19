@@ -180,10 +180,10 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         dest_block.swap(new_block);
     }
 
-    _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    _sort_description.resize(_vsort_exec_exprs.ordering_expr_ctxs().size());
     Block* result_block = _materialize_sort_exprs ? &dest_block : &src_block;
     for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
+        const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
         RETURN_IF_ERROR(ordering_expr->execute(result_block, &_sort_description[i].column_number));
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
@@ -204,7 +204,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
     return Status::OK();
 }
 
-FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
