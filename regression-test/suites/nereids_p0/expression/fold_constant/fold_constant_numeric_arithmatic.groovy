@@ -44,12 +44,12 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ACOS(0.5)") // Common value
     testFoldConst("SELECT ACOS(-0.5)") // Negative common value
     testFoldConst("SELECT ACOS(NULL)") // NULL handling
-    expectException({sql "SELECT ACOS(2)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 2 is out of boundary")
-    expectException({sql "SELECT ACOS(-2)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -2 is out of boundary")
-    expectException({sql "SELECT ACOS(1.5)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 1.5 is out of boundary")
-    expectException({sql "SELECT ACOS(-1.5)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1.5 is out of boundary")
-    expectException({sql "SELECT ACOS(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 1.5 is out of boundary")
-    expectException({sql "SELECT ACOS(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 1.5 is out of boundary")
+    testFoldConst("SELECT ACOS(2)")
+    testFoldConst("SELECT ACOS(-2)")
+    testFoldConst("SELECT ACOS(1.5)")
+    testFoldConst("SELECT ACOS(-1.5)")
+    testFoldConst("SELECT ACOS(1E308)")
+    testFoldConst("SELECT ACOS(-1E308)")
 
 //Asin function cases
     testFoldConst("SELECT ASIN(1) AS asin_case_1") //asin(1) = π/2
@@ -58,12 +58,12 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ASIN(0.5)") // Common value
     testFoldConst("SELECT ASIN(-0.5)") // Negative common value
     testFoldConst("SELECT ASIN(NULL)") // NULL handling
-    expectException({sql "SELECT ASIN(2)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 2 is out of boundary")
-    expectException({sql "SELECT ASIN(-2)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -2 is out of boundary")
-    expectException({sql "SELECT ASIN(1.5)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 1.5 is out of boundary")
-    expectException({sql "SELECT ASIN(-1.5)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1.5 is out of boundary")
-    expectException({sql "SELECT ASIN(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 1.5 is out of boundary")
-    expectException({sql "SELECT ASIN(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 1.5 is out of boundary")
+    testFoldConst("SELECT ASIN(2)")
+    testFoldConst("SELECT ASIN(-2)")
+    testFoldConst("SELECT ASIN(1.5)")
+    testFoldConst("SELECT ASIN(-1.5)")
+    testFoldConst("SELECT ASIN(1E308)")
+    testFoldConst("SELECT ASIN(-1E308)")
 
 //Atan function cases
     testFoldConst("SELECT ATAN(1) AS atan_case_1") //atan(1) = π/4
@@ -196,8 +196,9 @@ suite("fold_constant_numeric_arithmatic") {
 
 //Cosh function cases
     testFoldConst("SELECT COSH(0) AS cosh_case_1") //cosh(0) = 1
-//    expectException({sql "SELECT COSH(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
-//    expectException({sql "SELECT COSH(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
+//    testFoldConst("SELECT COSH(1E308)")
+//    testFoldConst("SELECT COSH(-1E308)")
     testFoldConst("SELECT COSH(NULL)") // NULL handling
     testFoldConst("SELECT COSH(1)") // Common value
     testFoldConst("SELECT COSH(-1)") // Negative common value
@@ -231,8 +232,9 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT DEGREES(PI()/6)") // 30 degrees
     testFoldConst("SELECT DEGREES(PI()/3)") // 60 degrees
     testFoldConst("SELECT DEGREES(3*PI()/2)") // 270 degrees
-//    expectException({sql "SELECT DEGREES(1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
-//    expectException({sql "SELECT DEGREES(-1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
+//    testFoldConst("SELECT DEGREES(1E308)")
+//    testFoldConst("SELECT DEGREES(-1E308)")
 
 //Exp function cases
     testFoldConst("SELECT EXP(1) AS exp_case_1") //e^1
@@ -292,9 +294,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT POWER(NULL, 2)") // NULL base
     testFoldConst("SELECT POWER(2, NULL)") // NULL exponent
     testFoldConst("SELECT POWER(0, 0)") // Zero base, zero exponent
-//    expectException({sql "SELECT POWER(0, -1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
+//    testFoldConst("SELECT POWER(0, -1)")
     testFoldConst("SELECT POWER(1E308, 0.5)") // Very large base
-//    expectException({sql "SELECT POWER(2, 1E308)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: Infinity result is invalid")
+//    COSH/POWER/DEGREES functions would meet inf problem when input is to large, be execute need to fix it
+//    testFoldConst("SELECT POWER(2, 1E308)")
     testFoldConst("SELECT POWER(1E-308, 2)") // Very small base
     testFoldConst("SELECT POWER(2, -1E308)") // Very small negative exponent
 
@@ -304,8 +308,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LN(0.5) AS ln_case_3") //ln(0.5)
     testFoldConst("SELECT ln(1), ln(2.718281828459045), ln(10)")
     testFoldConst("SELECT LN(NULL)") // NULL handling
-    expectException({sql "SELECT LN(0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 0.0 is out of boundary")
-    expectException({sql "SELECT LN(-1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1 is out of boundary")
+    testFoldConst("SELECT LN(0)")
+    testFoldConst("SELECT LN(-1)")
     testFoldConst("SELECT LN(1E308)") // Very large number
     testFoldConst("SELECT LN(1E-308)") // Very small positive number
     testFoldConst("SELECT LN(2)") // ln(2)
@@ -316,11 +320,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT log(100, 10), log(8, 2), log(1000, 10)")
     testFoldConst("SELECT LOG(NULL, 10)") // NULL number
     testFoldConst("SELECT LOG(100, NULL)") // NULL base
-    expectException({sql "SELECT LOG(0, 10)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1 is out of boundary")
-//    expectException({sql "SELECT LOG(100, 0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: -Infinity result is invalid")
+    testFoldConst("SELECT LOG(0, 10)")
+    testFoldConst("SELECT LOG(100, 0)")
     testFoldConst("SELECT LOG(100, 1)") // Base 1
-    expectException({sql "SELECT LOG(-1, 10)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1.0 is out of boundary")
-    expectException({sql "SELECT LOG(100, -1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: NaN result is invalid")
+    testFoldConst("SELECT LOG(-1, 10)")
+    testFoldConst("SELECT LOG(100, -1)")
     testFoldConst("SELECT LOG(1E308, 10)") // Very large number
     testFoldConst("SELECT LOG(100, 1E308)") // Very large base
     testFoldConst("SELECT LOG(1E-308, 10)") // Very small number
@@ -335,8 +339,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG10(1000.0) AS dlog10_case_3") //dlog10(1000.0)
     testFoldConst("SELECT log10(1), log10(10), log10(100), log10(1000)")
     testFoldConst("SELECT LOG10(NULL)") // NULL handling
-    expectException({sql "SELECT LOG10(0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 0.0 is out of boundary")
-    expectException({sql "SELECT LOG10(-1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1 is out of boundary")
+    testFoldConst("SELECT LOG10(0)")
+    testFoldConst("SELECT LOG10(-1)")
     testFoldConst("SELECT LOG10(1E308)") // Very large number
     testFoldConst("SELECT LOG10(1E-308)") // Very small positive number
     testFoldConst("SELECT LOG10(0.1)") // Decimal less than 1
@@ -348,8 +352,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LOG2(1) AS log2_case_3") //log2(1) = 0
     testFoldConst("SELECT log2(1), log2(2), log2(4), log2(8), log2(16)")
     testFoldConst("SELECT LOG2(NULL)") // NULL handling
-    expectException({sql "SELECT LOG2(0)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input 0.0 is out of boundary")
-    expectException({sql "SELECT LOG2(-1)"}, "errCode = 2, detailMessage = Not Supported: Not Supported: input -1 is out of boundary")
+    testFoldConst("SELECT LOG2(0)")
+    testFoldConst("SELECT LOG2(-1)")
     testFoldConst("SELECT LOG2(1E308)") // Very large number
     testFoldConst("SELECT LOG2(1E-308)") // Very small positive number
     testFoldConst("SELECT LOG2(0.5)") // Fraction
