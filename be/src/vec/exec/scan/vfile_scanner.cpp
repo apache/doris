@@ -217,7 +217,7 @@ void VFileScanner::_init_runtime_filter_partition_prune_ctxs() {
 void VFileScanner::_init_runtime_filter_partition_prune_block() {
     // init block with empty column
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
+        if (!slot_desc->need_materialize()) {
             // should be ignored from reading
             continue;
         }
@@ -253,7 +253,7 @@ Status VFileScanner::_process_runtime_filters_partition_prune(bool& can_filter_a
     size_t index = 0;
     bool first_column_filled = false;
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
+        if (!slot_desc->need_materialize()) {
             // should be ignored from reading
             continue;
         }

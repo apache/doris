@@ -422,6 +422,9 @@ Status NewOlapScanner::_init_variant_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
+        if (!slot->need_materialize()) {
+            continue;
+        }
         if (slot->type().is_variant_type()) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
@@ -440,6 +443,9 @@ Status NewOlapScanner::_init_variant_columns() {
 Status NewOlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
+            continue;
+        }
+        if (!slot->need_materialize()) {
             continue;
         }
 

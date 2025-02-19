@@ -72,7 +72,7 @@ Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {
 Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
              bool ignore_trivial_slot) {
     for (auto* const slot_desc : slots) {
-        if (ignore_trivial_slot && !slot_desc->is_materialized()) {
+        if (ignore_trivial_slot && !slot_desc->need_materialize()) {
             continue;
         }
         auto column_ptr = slot_desc->get_empty_mutable_column();
@@ -1006,7 +1006,7 @@ MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int
                            bool ignore_trivial_slot) {
     for (auto* const tuple_desc : tuple_descs) {
         for (auto* const slot_desc : tuple_desc->slots()) {
-            if (ignore_trivial_slot && !slot_desc->is_materialized()) {
+            if (ignore_trivial_slot && !slot_desc->need_materialize()) {
                 continue;
             }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());

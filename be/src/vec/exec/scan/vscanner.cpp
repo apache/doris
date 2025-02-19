@@ -93,7 +93,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (auto* const slot_desc : _output_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
+            if (!slot_desc->need_materialize()) {
                 // should be ignore from reading
                 continue;
             }
