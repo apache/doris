@@ -15,26 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.ha.FrontendNodeType;
 
-public class AddFollowerClause extends FrontendClause {
-    public AddFollowerClause(String hostPort) {
+/**
+ * DropObserverOp
+ */
+public class DropObserverOp extends FrontendOp {
+    public DropObserverOp(String hostPort) {
         super(hostPort, FrontendNodeType.FOLLOWER);
-    }
-
-    public AddFollowerClause(String hostPort, String host, int port, FrontendNodeType role) {
-        super(hostPort, role);
-        this.host = host;
-        this.port = port;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER CLUSTER ADD FOLLOWER \"");
+        sb.append("ALTER CLUSTER DROP OBSERVER \"");
         sb.append(hostPort).append("\"");
         return sb.toString();
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new DropObserverClause(hostPort, host, port, role);
     }
 }

@@ -658,6 +658,8 @@ import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
@@ -682,13 +684,16 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
@@ -5747,6 +5752,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             force = true;
         }
         AlterSystemOp alterSystemOp = new DropBackendOp(hostPorts, force);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitDecommissionBackendClause(DorisParser.DecommissionBackendClauseContext ctx) {
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> stripQuotes(e.getText()))
+                .collect(Collectors.toList());
+        AlterSystemOp alterSystemOp = new DecommissionBackendOp(hostPorts);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitAddFollowerClause(DorisParser.AddFollowerClauseContext ctx) {
+        String hostPort = stripQuotes(ctx.hostPort.getText());
+        AlterSystemOp alterSystemOp = new AddFollowerOp(hostPort);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitDropFollowerClause(DorisParser.DropFollowerClauseContext ctx) {
+        String hostPort = stripQuotes(ctx.hostPort.getText());
+        AlterSystemOp alterSystemOp = new DropFollowerOp(hostPort);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitAddObserverClause(DorisParser.AddObserverClauseContext ctx) {
+        String hostPort = stripQuotes(ctx.hostPort.getText());
+        AlterSystemOp alterSystemOp = new AddObserverOp(hostPort);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitDropObserverClause(DorisParser.DropObserverClauseContext ctx) {
+        String hostPort = stripQuotes(ctx.hostPort.getText());
+        AlterSystemOp alterSystemOp = new DropObserverOp(hostPort);
         return new AlterSystemCommand(alterSystemOp);
     }
 
