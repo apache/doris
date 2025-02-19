@@ -52,6 +52,15 @@ private:
     void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
     Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
 
+    void _httpstream_handle(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
+    int _httpstream_on_header(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
+    void _httpstream_on_chunk_data(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
+    Status httpstream_process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    Status _http_stream_on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    Status _http_stream_handle(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
+
+    Status _parse_header(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
+
 private:
     ExecEnv* _exec_env;
 
