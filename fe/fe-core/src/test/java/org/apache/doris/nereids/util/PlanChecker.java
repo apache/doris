@@ -120,8 +120,8 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze() {
-        cascadesContext.newTableCollector().collect();
-        cascadesContext.setCteContext(new CTEContext());
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
@@ -129,9 +129,9 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze(Plan plan) {
-        cascadesContext.newTableCollector().collect();
-        cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
@@ -144,9 +144,9 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze(String sql) {
-        cascadesContext.newTableCollector().collect();
-        cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         return this;
