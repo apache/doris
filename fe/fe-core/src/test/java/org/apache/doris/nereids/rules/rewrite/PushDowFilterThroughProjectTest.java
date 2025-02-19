@@ -118,7 +118,7 @@ class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
                         logicalFilter(
                                 logicalProject(
                                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
-                                                "AND[id IS NULL,(id + random(1, 2)) IS NULL]"))))
+                                                "(id IS NULL AND (id + random(1, 2)) IS NULL)"))))
                                 .when(f -> f.getPredicate().toSql().equals("b IS NULL")));
 
         plan = new LogicalPlanBuilder(scan)
@@ -134,7 +134,7 @@ class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
                                 logicalProject(
                                         logicalFilter(logicalLimit())
                                                 .when(f -> f.getPredicate().toSql().equals(
-                                                        "AND[id IS NULL,(id + random(1, 2)) IS NULL]"))))
+                                                        "(id IS NULL AND (id + random(1, 2)) IS NULL)"))))
                                 .when(f -> f.getPredicate().toSql().equals("b IS NULL")));
     }
 
