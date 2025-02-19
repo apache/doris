@@ -642,21 +642,22 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
-        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
-            return Optional.empty();
-        }
-
-        setFormatOptions();
-        if (physicalPlan instanceof ComputeResultSet) {
-            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
-            if (resultSet.isPresent()) {
-                return resultSet;
-            }
-        }
-
         return Optional.empty();
+        // if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+        //     return Optional.empty();
+        // }
+        //
+        // setFormatOptions();
+        // if (physicalPlan instanceof ComputeResultSet) {
+        //     Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        //     Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
+        //             .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
+        //     if (resultSet.isPresent()) {
+        //         return resultSet;
+        //     }
+        // }
+        //
+        // return Optional.empty();
     }
 
     private void setFormatOptions() {
