@@ -125,7 +125,7 @@ public:
     void init_params(const RuntimeFilterParams* params) {
         _bloom_filter_length = params->bloom_filter_size;
 
-        _build_bf_by_runtime_size = params->build_bf_exactly;
+        _build_bf_by_runtime_size = params->build_bf_by_runtime_size;
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _null_aware = params->null_aware;
@@ -138,7 +138,7 @@ public:
 
     bool build_bf_by_runtime_size() const { return _build_bf_by_runtime_size; }
 
-    Status init_with_cardinality(const size_t runtime_size) {
+    Status init_with_runtime_size(const size_t runtime_size) {
         if (_build_bf_by_runtime_size) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
             constexpr double fpp = 0.05;
