@@ -139,6 +139,23 @@ func TestSelectorWithDefaultTable(t *testing.T) {
 	}
 }
 
+func TestWorkers(t *testing.T) {
+	dorisConfig := map[string]interface{}{
+		"fenodes":  []string{"http://localhost:8030", "http://localhost:8031"},
+		"user":     "admin",
+		"password": "",
+		"database": "db",
+		"table":    "table",
+		"worker":   3,
+	}
+
+	cfg, err := common.NewConfigFrom(dorisConfig)
+	require.NoError(t, err)
+	group, err := makeDoris(nil, beat.Info{Beat: "libbeat"}, outputs.NewNilObserver(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, 2*3, len(group.Clients))
+}
+
 func TestMultiTable(t *testing.T) {
 	database := "log_db"
 	table := "%{[message]}"

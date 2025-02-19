@@ -58,8 +58,15 @@ func makeDoris(
 
 	reporter := NewProgressReporter(config.LogProgressInterval, logger)
 
-	clients := make([]outputs.NetworkClient, len(config.Hosts))
-	for i, host := range config.Hosts {
+	// duplicate entries config.Worker times
+	hosts := make([]string, 0, len(config.Hosts)*config.Worker)
+	for _, entry := range config.Hosts {
+		for i := 0; i < config.Worker; i++ {
+			hosts = append(hosts, entry)
+		}
+	}
+	clients := make([]outputs.NetworkClient, len(hosts))
+	for i, host := range hosts {
 		logger.Info("Making client for host: " + host)
 		url, err := parseURL(host)
 		if err != nil {

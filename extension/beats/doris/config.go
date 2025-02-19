@@ -49,6 +49,7 @@ type config struct {
 	BulkMaxSize       int           `config:"bulk_max_size" validate:"min=1,nonzero"`
 	MaxRetries        int           `config:"max_retries" validate:"min=-1,nonzero"`
 	Backoff           backoff       `config:"backoff"`
+	Worker            int           `config:"worker"`
 }
 
 type backoff struct {
@@ -70,6 +71,7 @@ func defaultConfig() config {
 			Init: 1 * time.Second,
 			Max:  60 * time.Second,
 		},
+		Worker: 1,
 	}
 }
 
