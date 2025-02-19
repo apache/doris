@@ -330,6 +330,9 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     } else {
         LOG(WARNING) << "_exec_env->master_info not set backend_id";
     }
+    if (ctx->wal_id > 0) {
+        request.__set_partial_update(false);
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
