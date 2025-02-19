@@ -492,12 +492,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean containClusterName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.containsKey(clusterName);
-        } finally {
-            rlock.unlock();
-        }
+        return clusterNameToId.containsKey(clusterName);
     }
 
     @Override
@@ -550,27 +545,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<Backend> getBackendsByClusterName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (clusterId.isEmpty()) {
-                return new ArrayList<>();
-            }
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (clusterId.isEmpty()) {
+            return new ArrayList<>();
         }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
-        rlock.lock();
-        try {
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
-        }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
@@ -588,27 +573,18 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<String> getCloudClusterIds() {
-        rlock.lock();
-        try {
-            return new ArrayList<>(clusterIdToBackend.keySet());
-        } finally {
-            rlock.unlock();
-        }
+        return new ArrayList<>(clusterIdToBackend.keySet());
     }
 
     public String getCloudStatusByName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (Strings.isNullOrEmpty(clusterId)) {
-                // for rename cluster or dropped cluster
-                LOG.warn("cant find clusterId by clusteName {}", clusterName);
-                return "";
-            }
-            return getCloudStatusByIdNoLock(clusterId);
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (Strings.isNullOrEmpty(clusterId)) {
+            // for rename cluster or dropped cluster
+            LOG.warn("cant find clusterId by clusteName {}", clusterName);
+            return "";
         }
+        // It is safe to return a null/empty status string, the caller handles it properly
+        return getCloudStatusByIdNoLock(clusterId);
     }
 
     public String getCloudStatusById(final String clusterId) {

@@ -1052,13 +1052,13 @@ build_arrow() {
         -DBoost_USE_STATIC_RUNTIME=ON \
         -DARROW_GFLAGS_USE_SHARED=OFF \
         -Dgflags_ROOT="${TP_INSTALL_DIR}" \
-        -DGLOG_ROOT="${TP_INSTALL_DIR}" \
-        -DRE2_ROOT="${TP_INSTALL_DIR}" \
+        -Dglog_ROOT="${TP_INSTALL_DIR}" \
+        -Dre2_ROOT="${TP_INSTALL_DIR}" \
         -DZLIB_SOURCE=SYSTEM \
         -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DZLIB_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DRapidJSON_SOURCE=SYSTEM \
         -DRapidJSON_ROOT="${TP_INSTALL_DIR}" \
-        -DORC_ROOT="${TP_INSTALL_DIR}" \
+        -Dorc_ROOT="${TP_INSTALL_DIR}" \
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
@@ -1069,7 +1069,7 @@ build_arrow() {
         -Dzstd_SOURCE=SYSTEM \
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
-        -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
+        -DBoost_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
         -DARROW_JEMALLOC=OFF -DARROW_MIMALLOC=OFF \
         -DJEMALLOC_HOME="${TP_INSTALL_DIR}" \
         -DARROW_THRIFT_USE_SHARED=OFF \
@@ -1836,6 +1836,27 @@ build_dragonbox() {
     "${BUILD_SYSTEM}" install
 }
 
+# icu
+build_icu() {
+    check_if_source_exist "${ICU_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ICU_SOURCE}/icu4c/source"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" \
+        --enable-static \
+        --disable-shared \
+        --enable-release \
+        --disable-tests \
+        --disable-samples \
+        --disable-fuzzer
+
+    make -j "${PARALLEL}"
+    make install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         odbc
@@ -1905,6 +1926,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         azure
         dragonbox
         brotli
+        icu
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

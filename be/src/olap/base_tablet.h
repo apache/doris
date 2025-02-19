@@ -143,8 +143,7 @@ public:
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           OlapReaderStatistics& stats, std::string& values,
+                           RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
@@ -303,6 +302,10 @@ public:
 
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
     TabletInfo get_tablet_info() const { return TabletInfo(tablet_id(), tablet_uid()); }
+
+    void get_base_rowset_delete_bitmap_count(
+            uint64_t* max_base_rowset_delete_bitmap_score,
+            int64_t* max_base_rowset_delete_bitmap_score_tablet_id);
 
 protected:
     // Find the missed versions until the spec_version.

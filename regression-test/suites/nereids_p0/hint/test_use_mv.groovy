@@ -55,9 +55,9 @@ suite("test_use_mv") {
     """
     sql """ insert into t1 values (101, 101, 101, 102);"""
     sql """ alter table t1 add rollup r1(k2, k1); """
-    waitForRollUpJob("t1", 150000)
+    waitingMVTaskFinishedByMvName("test_use_mv", "t1","r1")
     sql """ alter table t1 add rollup r2(k2); """
-    waitForRollUpJob("t1", 150000)
+    waitingMVTaskFinishedByMvName("test_use_mv", "t1","r2")
     createMV("create materialized view k1_k2_sumk3 as select k1, k2, sum(v1) from t1 group by k1, k2;")
 
     sql """set ENABLE_SYNC_MV_COST_BASED_REWRITE=false;"""

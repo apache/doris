@@ -63,7 +63,7 @@ using HeapSortCursorBlockSPtr = std::shared_ptr<HeapSortCursorBlockView>;
 
 struct HeapSortCursorImpl {
 public:
-    HeapSortCursorImpl(int row_id, HeapSortCursorBlockSPtr block_view)
+    HeapSortCursorImpl(size_t row_id, HeapSortCursorBlockSPtr block_view)
             : _row_id(row_id), _block_view(std::move(block_view)) {}
 
     HeapSortCursorImpl(const HeapSortCursorImpl& other) {
@@ -192,12 +192,12 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             desc[i].direction = is_asc_order[i] ? 1 : -1;
             desc[i].nulls_direction = nulls_first[i] ? -desc[i].direction : desc[i].direction;
         }
-        _is_eof = !has_next_block();
+        has_next_block();
     }
 
     BlockSupplierSortCursorImpl(BlockSupplier block_supplier, const SortDescription& desc_)
             : MergeSortCursorImpl(desc_), _block_supplier(std::move(block_supplier)) {
-        _is_eof = !has_next_block();
+        has_next_block();
     }
 
     bool has_next_block() override {
@@ -205,23 +205,15 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             return false;
         }
         block->clear();
-        Status status;
-        do {
-            status = _block_supplier(block.get(), &_is_eof);
-        } while (block->empty() && !_is_eof && status.ok());
-        // If status not ok, upper callers could not detect whether it is eof or error.
-        // So that fatal here, and should throw exception in the future.
-        if (status.ok() && !block->empty()) {
-            if (!_ordering_expr.empty()) {
-                for (int i = 0; status.ok() && i < desc.size(); ++i) {
-                    // TODO yiguolei: throw exception if status not ok in the future
-                    status = _ordering_expr[i]->execute(block.get(), &desc[i].column_number);
-                }
+        THROW_IF_ERROR(_block_supplier(block.get(), &_is_eof));
+        DCHECK(!block->empty() xor _is_eof);
+        if (!block->empty()) {
+            DCHECK_EQ(_ordering_expr.size(), desc.size());
+            for (int i = 0; i < desc.size(); ++i) {
+                THROW_IF_ERROR(_ordering_expr[i]->execute(block.get(), &desc[i].column_number));
             }
             MergeSortCursorImpl::reset();
-            return status.ok();
-        } else if (!status.ok()) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
+            return true;
         }
         return false;
     }

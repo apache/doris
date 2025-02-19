@@ -165,6 +165,7 @@ import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
@@ -200,7 +201,9 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
@@ -211,6 +214,9 @@ import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanQueryStatsInfo;
+import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -252,7 +258,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.resource.workloadgroup.CreateInternalWorkloadGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -1880,7 +1885,6 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
-        new CreateInternalWorkloadGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -2547,6 +2551,16 @@ public class Env {
         long curTime = System.currentTimeMillis();
         List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime))
                 .collect(Collectors.toList());
+        if (jobs.size() > Config.max_export_history_job_num) {
+            jobs.sort(Comparator.comparingLong(ExportJob::getCreateTimeMs));
+            Iterator<ExportJob> iterator = jobs.iterator();
+            while (jobs.size() > Config.max_export_history_job_num && iterator.hasNext()) {
+                ExportJob job = iterator.next();
+                if (job.getState() == ExportJobState.FINISHED || job.getState() == ExportJobState.CANCELLED) {
+                    iterator.remove();
+                }
+            }
+        }
         int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
@@ -3259,8 +3273,15 @@ public class Env {
         getInternalCatalog().unprotectCreateDb(db);
     }
 
-    public void replayCreateDb(Database db) {
-        getInternalCatalog().replayCreateDb(db, "");
+    public void replayCreateDb(CreateDbInfo dbInfo) {
+        if (dbInfo.getInternalDb() != null) {
+            getInternalCatalog().replayCreateDb(dbInfo.getInternalDb(), "");
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(dbInfo.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayCreateDb(dbInfo.getDbName());
+            }
+        }
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
@@ -3277,8 +3298,16 @@ public class Env {
         catalogIf.dropDb(dbName, ifExists, force);
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
-        getInternalCatalog().replayDropDb(dbName, isForceDrop, recycleTime);
+    public void replayDropDb(DropDbInfo info) throws DdlException {
+        if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
+                .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            getInternalCatalog().replayDropDb(info.getDbName(), info.isForceDrop(), info.getRecycleTime());
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayDropDb(info.getDbName());
+            }
+        }
     }
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
@@ -3961,6 +3990,41 @@ public class Env {
                 }
             }
 
+            // with all rollup
+            do {
+                if (!getDdlForSync) {
+                    break;
+                }
+                List<Long> indexIds = new ArrayList<>(olapTable.getIndexIdToMeta().keySet());
+                if (indexIds.size() == 1 && indexIds.get(0) == olapTable.getBaseIndexId()) {
+                    break;
+                }
+                indexIds = indexIds.stream().filter(item -> item != olapTable.getBaseIndexId())
+                        .collect(Collectors.toList());
+                sb.append("\nROLLUP (\n");
+                for (int i = 0; i < indexIds.size(); i++) {
+                    Long indexId = indexIds.get(i);
+
+                    MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(indexId);
+                    String indexName = olapTable.getIndexNameById(indexId);
+                    sb.append(indexName).append(" (");
+
+                    List<Column> indexSchema = materializedIndexMeta.getSchema();
+                    for (int j = 0; j < indexSchema.size(); j++) {
+                        Column column = indexSchema.get(j);
+                        sb.append(column.getName());
+                        if (j != indexSchema.size() - 1) {
+                            sb.append(", ");
+                        }
+                    }
+                    sb.append(")");
+                    if (i != indexIds.size() - 1) {
+                        sb.append(",\n");
+                    }
+                }
+                sb.append("\n)");
+            } while (false);
+
             // properties
             sb.append("\nPROPERTIES (\n");
             addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
@@ -4157,8 +4221,16 @@ public class Env {
         }
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        getInternalCatalog().replayCreateTable(dbName, table);
+    public void replayCreateTable(CreateTableInfo info) throws MetaNotFoundException {
+        if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
+                .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            getInternalCatalog().replayCreateTable(info.getDbName(), info.getTable());
+        } else {
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
+            if (externalCatalog != null) {
+                externalCatalog.replayCreateTable(info.getDbName(), info.getTblName());
+            }
+        }
     }
 
     public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema)
@@ -4168,9 +4240,18 @@ public class Env {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getCatalogName(), stmt.getDbName(), stmt.getTableName(), stmt.isView(),
+                stmt.isMaterializedView(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
+                          boolean ifExists, boolean force) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(stmt);
+        catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -4764,6 +4845,11 @@ public class Env {
         this.alter.processCreateMaterializedView(stmt);
     }
 
+    public void createMaterializedView(CreateMaterializedViewCommand command)
+            throws AnalysisException, DdlException, MetaNotFoundException {
+        this.alter.processCreateMaterializedView(command);
+    }
+
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
     }
@@ -5124,10 +5210,17 @@ public class Env {
             throw new DdlException("Same column name");
         }
 
+        // @NOTE: Rename partition columns should also rename column names in partition expressions
+        // but this is not implemented currently. Therefore, forbid renaming partition columns temporarily.
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
+            throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
+        }
+
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            // rename column is not implemented for table without column unique id.
-            if (entry.getValue().getMaxColUniqueId() <= 0) {
+            // rename column is not implemented for non-light-schema-change table.
+            if (!table.getEnableLightSchemaChange()) {
                 throw new DdlException("not implemented for table without column unique id,"
                         + " which are created with property 'light_schema_change'.");
             }
@@ -5183,14 +5276,17 @@ public class Env {
             throw new DdlException("Column[" + colName + "] does not exists");
         }
 
+        // @NOTE: Rename partition columns should also rename column names in partition expressions
+        // but this is not implemented currently. Therefore, forbid renaming partition columns temporarily.
+        //
         // 2. modify partition key
-        PartitionInfo partitionInfo = table.getPartitionInfo();
-        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-        for (Column column : partitionColumns) {
-            if (column.getName().equalsIgnoreCase(colName)) {
-                column.setName(newColName);
-            }
-        }
+        // PartitionInfo partitionInfo = table.getPartitionInfo();
+        // List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        // for (Column column : partitionColumns) {
+        //    if (column.getName().equalsIgnoreCase(colName)) {
+        //        column.setName(newColName);
+        //    }
+        //}
 
         // 3. modify index
         List<Index> indexes = table.getIndexes();
@@ -5610,6 +5706,10 @@ public class Env {
         this.alter.processAlterSystem(stmt);
     }
 
+    public void alterSystem(AlterSystemCommand command) throws UserException {
+        this.alter.processAlterSystem(command);
+    }
+
     public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
         this.alter.getSystemHandler().cancel(stmt);
     }
@@ -5681,8 +5781,10 @@ public class Env {
         }
 
         if (replace) {
+            String comment = stmt.getComment();
+            comment = comment == null || comment.isEmpty() ? null : comment;
             AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
-                    stmt.getViewDefStmt());
+                    stmt.getViewDefStmt(), comment);
             alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
             try {
                 alterView(alterViewStmt);
@@ -5863,7 +5965,16 @@ public class Env {
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
-        getInternalCatalog().replayTruncateTable(info);
+        if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            // In previous versions(before 2.1.8), there is no catalog info in TruncateTableInfo,
+            // So if the catalog info is empty, we assume it's internal table.
+            getInternalCatalog().replayTruncateTable(info);
+        } else {
+            ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
+            if (ctl != null) {
+                ctl.replayTruncateTable(info);
+            }
+        }
     }
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {

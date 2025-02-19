@@ -36,9 +36,7 @@ DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode
         : OperatorX<DataGenLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.data_gen_scan_node.tuple_id),
           _tuple_desc(nullptr),
-          _runtime_filter_descs(tnode.runtime_filters) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _runtime_filter_descs(tnode.runtime_filters) {}
 
 Status DataGenSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<DataGenLocalState>::init(tnode, state));

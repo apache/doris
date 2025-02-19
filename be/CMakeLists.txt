@@ -92,6 +92,7 @@ message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -204,6 +205,30 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
+set(ICU_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+find_library(ICU_UC_LIBRARY NAMES libicuuc.a PATHS ${ICU_ROOT}/lib)
+find_library(ICU_I18N_LIBRARY NAMES libicui18n.a PATHS ${ICU_ROOT}/lib)
+find_library(ICU_DATA_LIBRARY NAMES libicudata.a PATHS ${ICU_ROOT}/lib)
+message("ICU_UC_LIBRARY: " ${ICU_UC_LIBRARY})
+message("ICU_I18N_LIBRARY: " ${ICU_I18N_LIBRARY})
+message("ICU_DATA_LIBRARY: " ${ICU_DATA_LIBRARY})
+if (ICU_UC_LIBRARY AND ICU_I18N_LIBRARY AND ICU_DATA_LIBRARY)
+    add_library(icu INTERFACE IMPORTED)
+    target_link_libraries(icu INTERFACE
+        ${ICU_UC_LIBRARY}
+        ${ICU_I18N_LIBRARY}
+        ${ICU_DATA_LIBRARY}
+    )
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        icu
+    )
+    add_definitions(-DUSE_ICU)
+    message(STATUS "ICU found and linked successfully!")
+else()
+    message(WARNING "ICU not found! Please install ICU first.")
+endif()
+
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
@@ -224,6 +249,10 @@ target_compile_options(ic PRIVATE ${clucene_options})
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
+
+install(DIRECTORY
+    ${SRC_DIR}/clucene/src/core/CLucene/analysis/icu/data/uax29
+    DESTINATION ${OUTPUT_DIR}/dict/icu)
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -267,6 +296,8 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
+                    $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
+                    -Wno-deprecated-declarations
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -326,13 +357,17 @@ endif()
 # simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
+    add_definitions(-DLIBDIVIDE_SSE2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
+        add_definitions(-DUSE_AVX2)
+        add_definitions(-DLIBDIVIDE_AVX2)
     endif()
 endif()
 
 if (ARCH_ARM)
     add_compile_options(-march=armv8-a+crc)
+    add_definitions(-DLIBDIVIDE_NEON)
 endif()
 #
 
@@ -534,6 +569,9 @@ if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
+    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
@@ -713,6 +751,9 @@ endif ()
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
 if (BUILD_BENCHMARK)
     add_definitions(-DBE_TEST)
+# The separate BENCHMARK marker is introduced here because 
+# some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
+    add_definitions(-DBE_BENCHMARK)
 endif()
 
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)

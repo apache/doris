@@ -360,9 +360,16 @@ struct TQueryOptions {
   142: optional bool enable_fixed_len_to_uint32_v2 = false;
   143: optional bool enable_shared_exchange_sink_buffer = true;
 
+
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
   146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+
+  147: optional i32 profile_level = 1;
+
+  148: optional i32 min_scanner_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0;
+  150: optional bool enable_runtime_filter_partition_prune = true;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

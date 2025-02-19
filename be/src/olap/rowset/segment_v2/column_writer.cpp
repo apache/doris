@@ -29,7 +29,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -469,7 +468,9 @@ Status ScalarColumnWriter::init() {
                         return Status::OK();
                     }
                     Status add_nulls(uint32_t count) override { return Status::OK(); }
-                    Status add_array_nulls(uint32_t row_id) override { return Status::OK(); }
+                    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+                        return Status::OK();
+                    }
                     Status finish() override { return Status::OK(); }
                     int64_t size() const override { return 0; }
                     void close_on_error() override {}
@@ -492,7 +493,7 @@ Status ScalarColumnWriter::init() {
                     _opts.gram_bf_size, &_bloom_filter_index_builder));
         } else {
             RETURN_IF_ERROR(BloomFilterIndexWriter::create(
-                    BloomFilterOptions(), get_field()->type_info(), &_bloom_filter_index_builder));
+                    _opts.bf_options, get_field()->type_info(), &_bloom_filter_index_builder));
         }
     }
     return Status::OK();
@@ -951,11 +952,7 @@ Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     if (is_nullable()) {
         if (_opts.need_inverted_index) {
-            for (int row_id = 0; row_id < num_rows; row_id++) {
-                if (null_map[row_id] == 1) {
-                    RETURN_IF_ERROR(_inverted_index_builder->add_array_nulls(row_id));
-                }
-            }
+            RETURN_IF_ERROR(_inverted_index_builder->add_array_nulls(null_map, num_rows));
         }
         RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
     }

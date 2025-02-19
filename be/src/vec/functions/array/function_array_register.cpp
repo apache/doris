@@ -21,7 +21,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+void register_function_array_flatten(SimpleFunctionFactory&);
 void register_function_array_shuffle(SimpleFunctionFactory&);
 void register_function_array_exists(SimpleFunctionFactory&);
 void register_function_array_element(SimpleFunctionFactory&);
@@ -59,6 +59,7 @@ void register_function_array_contains_all(SimpleFunctionFactory&);
 void register_function_array_match(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
+    register_function_array_flatten(factory);
     register_function_array_shuffle(factory);
     register_function_array_exists(factory);
     register_function_array_element(factory);

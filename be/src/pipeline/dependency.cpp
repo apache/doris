@@ -369,10 +369,9 @@ void SpillSortSharedState::close() {
     sorted_streams.clear();
 }
 
-MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
-                                           int cast_sender_count)
-        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
-                  row_desc, pool, cast_sender_count, true)) {}
+MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count)
+        : multi_cast_data_streamer(
+                  std::make_unique<pipeline::MultiCastDataStreamer>(pool, cast_sender_count)) {}
 
 int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();
@@ -414,6 +413,18 @@ Status SetSharedState::hash_table_init() {
         data_types.emplace_back(std::move(data_type));
     }
     return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
+}
+
+void AggSharedState::refresh_top_limit(size_t row_id,
+                                       const vectorized::ColumnRawPtrs& key_columns) {
+    for (int j = 0; j < key_columns.size(); ++j) {
+        limit_columns[j]->insert_from(*key_columns[j], row_id);
+    }
+    limit_heap.emplace(limit_columns[0]->size() - 1, limit_columns, order_directions,
+                       null_directions);
+
+    limit_heap.pop();
+    limit_columns_min = limit_heap.top()._row_id;
 }
 
 } // namespace doris::pipeline

@@ -346,10 +346,10 @@ public class Profile {
 
     private RuntimeProfile composeRootProfile() {
         RuntimeProfile rootProfile = new RuntimeProfile(getId());
-        rootProfile.addChild(summaryProfile.getSummary());
-        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        rootProfile.addChild(summaryProfile.getSummary(), true);
+        rootProfile.addChild(summaryProfile.getExecutionSummary(), true);
         for (ExecutionProfile executionProfile : executionProfiles) {
-            rootProfile.addChild(executionProfile.getRoot());
+            rootProfile.addChild(executionProfile.getRoot(), true);
         }
         rootProfile.computeTimeInProfile();
         return rootProfile;
@@ -373,7 +373,7 @@ public class Profile {
 
         // For broker load, if it has more than one execution profile, we will not generate merged profile.
         RuntimeProfile mergedProfile = null;
-        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+        if (this.executionProfiles.size() == 1) {
             try {
                 mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
                 this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
@@ -400,7 +400,7 @@ public class Profile {
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
         }
 
-        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+        if (this.executionProfiles.size() == 1) {
             builder.append("\nMergedProfile \n");
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
@@ -737,5 +737,11 @@ public class Profile {
 
     public String getId() {
         return summaryProfile.getProfileId();
+    }
+
+    public String toString() {
+        StringBuilder stringBuilder = new StringBuilder();
+        getExecutionProfileContent(stringBuilder);
+        return stringBuilder.toString();
     }
 }

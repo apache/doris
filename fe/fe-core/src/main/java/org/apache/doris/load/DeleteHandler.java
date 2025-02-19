@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Predicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -103,8 +104,8 @@ public class DeleteHandler implements Writable {
     /**
      * used for Nereids planner
      */
-    public void process(Database targetDb, OlapTable targetTbl, List<String> partitionNames,
-            List<Predicate> deleteConditions, QueryState execState) {
+    public void process(Database targetDb, OlapTable targetTbl, List<Partition> selectedPartitions,
+            List<Predicate> deleteConditions, QueryState execState, List<String> partitionNames) {
         DeleteJob deleteJob = null;
         try {
             targetTbl.readLock();
@@ -114,10 +115,11 @@ public class DeleteHandler implements Writable {
                     // just add a comment here to notice.
                 }
                 deleteJob = DeleteJob.newBuilder()
-                        .buildWith(new DeleteJob.BuildParams(
+                        .buildWithNereids(new DeleteJob.BuildParams(
                                 targetDb,
                                 targetTbl,
                                 partitionNames,
+                                selectedPartitions,
                                 deleteConditions));
 
                 long txnId = deleteJob.beginTxn();
