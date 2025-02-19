@@ -602,9 +602,14 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     RowsetMetaCloudPB copied_cloud_rs_meta_pb = cloud_rs_meta_pb;
                     CloudStorageEngine& engine =
                             ExecEnv::GetInstance()->storage_engine().to_cloud();
-                    RETURN_IF_ERROR(
-                            engine.get_schema_cloud_dictionary_cache().replace_dict_keys_to_schema(
-                                    cloud_rs_meta_pb.index_id(), &copied_cloud_rs_meta_pb));
+                    {
+                        wlock.unlock();
+                        RETURN_IF_ERROR(
+                                engine.get_schema_cloud_dictionary_cache()
+                                        .replace_dict_keys_to_schema(cloud_rs_meta_pb.index_id(),
+                                                                     &copied_cloud_rs_meta_pb));
+                        wlock.lock();
+                    }
                     meta_pb = cloud_rowset_meta_to_doris(copied_cloud_rs_meta_pb);
                 } else {
                     // Otherwise, use the schema dictionary from the response (if available).
