@@ -427,9 +427,9 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
                 // If this block is the last block, we should block this pipeline task to wait for
                 // the next block.
                 // TODO: LocalMergeSortExchanger should be refactored.
-                if (_data_queue[id].data_queue.size_approx() == 0) {
+                if (_data_queue[id].data_queue.size_approx() == 0 && !*eos) {
                     std::unique_lock l(*_m[id]);
-                    if (_data_queue[id].data_queue.size_approx() == 0) {
+                    if (_data_queue[id].data_queue.size_approx() == 0 && !*eos) {
                         local_state->get_dependency(id)->block();
                     }
                 }
