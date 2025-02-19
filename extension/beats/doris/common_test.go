@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"testing"
 	"time"
 
@@ -170,7 +171,7 @@ func TestMultiTable(t *testing.T) {
 			},
 		})
 	}
-	// will be dropped, beacuse of nil table
+	// retry with default table
 	events = append(events, beat.Event{Fields: common.MapStr{"message": ""}})
 	events = append(events, beat.Event{Fields: common.MapStr{"message": ""}})
 	// will be dropped, because of serialization error
@@ -183,6 +184,7 @@ func TestMultiTable(t *testing.T) {
 		{database: database, table: "t_3", status: "Label Already Exists"},
 		{database: database, table: "t_4", status: "Fail"},
 		{database: database, table: "t_5", status: "Fail"},
+		{database: database, table: "DEFAULT", status: "Fail"},
 	}
 
 	port, err := findRandomPort()
@@ -192,17 +194,12 @@ func TestMultiTable(t *testing.T) {
 	defer server.Close()
 
 	dorisConfig := map[string]interface{}{
-		"fenodes":  []string{fmt.Sprintf("http://localhost:%d", port)},
-		"user":     "root",
-		"password": "",
-		"database": database,
-		// "table":    table,
-		"tables": []map[string]interface{}{
-			{
-				"table": table,
-				// "default": "DEFAULT",
-			},
-		},
+		"fenodes":             []string{fmt.Sprintf("http://localhost:%d", port)},
+		"user":                "root",
+		"password":            "",
+		"database":            database,
+		"table":               table,
+		"default_table":       "DEFAULT",
 		"codec_format_string": "%{[message]}",
 		"headers": map[string]interface{}{
 			"format":            "json",
@@ -240,30 +237,42 @@ func TestMultiTable(t *testing.T) {
 	require.NoError(t, err0)
 	require.Equal(t, outest.BatchACK, batch.Signals[len(batch.Signals)-1].Tag)
 
-	batch = outest.NewBatch(events[:10]...) // Success + Publish Timeout + Label Already Exists + Fail
+	batch = outest.NewBatch(events[:12]...) // Success + Publish Timeout + Label Already Exists + Fail
 	err0 = output.Publish(context.Background(), batch)
 	require.Error(t, err0)
 	require.Equal(t, outest.BatchRetryEvents, batch.Signals[len(batch.Signals)-1].Tag)
-	require.Equal(t, 4, len(batch.Signals[len(batch.Signals)-1].Events)) // 4 retry events
+	require.Equal(t, 6, len(batch.Signals[len(batch.Signals)-1].Events)) // 6 retry events
 
 	retryEvents := make([]beat.Event, 0)
 	for _, e := range batch.Signals[len(batch.Signals)-1].Events {
 		retryEvents = append(retryEvents, e.Content)
 	}
-	_, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[0]}) // has barrier
+
+	tables := make([]string, 0)
+	barrier, err0 := getBarrierFromEvent(&publisher.Event{Content: retryEvents[0]}) // has barrier
 	require.NoError(t, err0)
-	_, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[2]}) // has barrier
+	tables = append(tables, barrier.Table)
+	barrier, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[2]}) // has barrier
 	require.NoError(t, err0)
+	tables = append(tables, barrier.Table)
+	barrier, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[4]}) // has barrier
+	require.NoError(t, err0)
+	tables = append(tables, barrier.Table)
+
+	sort.Slice(tables, func(i, j int) bool {
+		return tables[i] < tables[j]
+	})
+	require.Equal(t, fmt.Sprintf("%v", []string{"DEFAULT", "t_4", "t_5"}), fmt.Sprintf("%v", tables))
 
 	batch = outest.NewBatch(retryEvents...) // Fail (retry)
 	err0 = output.Publish(context.Background(), batch)
 	require.Error(t, err0)
 	require.Equal(t, outest.BatchRetryEvents, batch.Signals[len(batch.Signals)-1].Tag)
-	require.Equal(t, 4, len(batch.Signals[len(batch.Signals)-1].Events)) // 4 retry events
+	require.Equal(t, 6, len(batch.Signals[len(batch.Signals)-1].Events)) // 6 retry events
 
-	batch = outest.NewBatch(events[10:14]...) // Dropped before sending
+	batch = outest.NewBatch(events[12:14]...) // Dropped before sending
 	err0 = output.Publish(context.Background(), batch)
-	require.Error(t, err0)
+	require.NoError(t, err0)
 	require.Equal(t, outest.BatchACK, batch.Signals[len(batch.Signals)-1].Tag)
 }
 

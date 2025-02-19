@@ -172,6 +172,7 @@ func NewDorisClient(s clientSettings) (*client, error) {
 
 		database:      s.Database,
 		tableSelector: s.TableSelector,
+		defaultTable:  s.DefaultTable,
 		labelPrefix:   s.LabelPrefix,
 		lineDelimiter: s.LineDelimiter,
 		logRequest:    s.LogRequest,
@@ -351,6 +352,10 @@ func (client *client) publishEvents(tableEventsMap map[string]*Events) ([]publis
 
 		tableEvents.serialization = stringBuilder.String()
 
+		if tableEvents.serialization == "" {
+			continue
+		}
+
 		var requestErr error
 		tableEvents.request, requestErr = http.NewRequest(http.MethodPut, client.url(table), strings.NewReader(tableEvents.serialization))
 		if requestErr != nil {
@@ -389,6 +394,9 @@ func (client *client) publishEvents(tableEventsMap map[string]*Events) ([]publis
 		}
 
 		response := tableEvents.response
+		if response == nil {
+			continue
+		}
 
 		if tableEvents.err != nil {
 			client.logger.Errorf("Failed to stream-load request: %v", tableEvents.err)
