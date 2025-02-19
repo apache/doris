@@ -39,6 +39,7 @@ suite("hive_config_test", "p0,external,hive,external_docker,external_docker_hive
     }
 
     for (String hivePrefix : ["hive2"]) {
+        sql "set enable_fallback_to_original_planner=false"
         String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
