@@ -46,6 +46,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
@@ -68,18 +69,21 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
+import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
-import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecTableSinkRandomPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecTabletIdShuffle;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
@@ -243,6 +247,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
+
+    private DirectoryLister directoryLister;
 
     public PhysicalPlanTranslator() {
         this(null, null);
@@ -559,12 +565,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO(cmy): determine the needCheckColumnPriv param
         ScanNode scanNode;
         if (table instanceof HMSExternalTable) {
+            if (directoryLister == null) {
+                this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
+                        Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+            }
             switch (((HMSExternalTable) table).getDlaType()) {
                 case ICEBERG:
                     scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
                     break;
                 case HIVE:
-                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister);
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
                     hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
                     if (fileScan.getTableSample().isPresent()) {
@@ -640,6 +650,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalHudiScan(PhysicalHudiScan fileScan, PlanTranslatorContext context) {
+        if (directoryLister == null) {
+            this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
+                    Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+        }
         List<Slot> slots = fileScan.getOutput();
         ExternalTable table = fileScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
@@ -652,7 +666,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         + " for Hudi table");
         PhysicalHudiScan hudiScan = (PhysicalHudiScan) fileScan;
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
-                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable());
+                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
+                directoryLister);
         if (fileScan.getTableSnapshot().isPresent()) {
             ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
         }
@@ -1916,7 +1931,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> allProjectionExprs = Lists.newArrayList();
         List<Slot> slots = null;
         // TODO FE/BE do not support multi-layer-project on MultiDataSink now.
-        if (project.hasMultiLayerProjection() && !(inputFragment instanceof MultiCastPlanFragment)) {
+        if (project.hasMultiLayerProjection()
+                && !(inputFragment instanceof MultiCastPlanFragment)
+                // TODO support for two phase read with project, remove it after refactor
+                && !(project.child() instanceof PhysicalDeferMaterializeTopN)
+                && !(project.child() instanceof PhysicalDeferMaterializeOlapScan
+                || (project.child() instanceof PhysicalFilter
+                && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
             int layerCount = project.getMultiLayerProjects().size();
             for (int i = 0; i < layerCount; i++) {
                 List<NamedExpression> layer = project.getMultiLayerProjects().get(i);
@@ -2024,37 +2045,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         if (inputPlanNode instanceof ScanNode) {
-            TupleDescriptor projectionTuple = null;
-            // slotIdsByOrder is used to ensure the ScanNode's output order is same with current Project
-            // if we change the output order in translate project, the upper node will receive wrong order
-            // tuple, since they get the order from project.getOutput() not scan.getOutput()./
-            projectionTuple = generateTupleDesc(slots,
-                    ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
-            inputPlanNode.setProjectList(projectionExprs);
-            inputPlanNode.setOutputTupleDesc(projectionTuple);
-
-            // TODO: this is a temporary scheme to support two phase read when has project.
-            //  we need to refactor all topn opt into rbo stage.
+            // TODO support for two phase read with project, remove this if after refactor
+            if (!(project.child() instanceof PhysicalDeferMaterializeOlapScan
+                    || (project.child() instanceof PhysicalFilter
+                    && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
+                TupleDescriptor projectionTuple = generateTupleDesc(slots,
+                        ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+                inputPlanNode.setProjectList(projectionExprs);
+                inputPlanNode.setOutputTupleDesc(projectionTuple);
+            }
             if (inputPlanNode instanceof OlapScanNode) {
-                ArrayList<SlotDescriptor> olapScanSlots =
-                        context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
-                SlotDescriptor lastSlot = olapScanSlots.get(olapScanSlots.size() - 1);
-                if (lastSlot.getColumn() != null
-                        && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
-                    injectRowIdColumnSlot(projectionTuple);
-                    SlotRef slotRef = new SlotRef(lastSlot);
-                    inputPlanNode.getProjectList().add(slotRef);
-                    requiredByProjectSlotIdSet.add(lastSlot.getId());
-                    requiredSlotIdSet.add(lastSlot.getId());
-                }
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
         } else {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-            inputPlanNode.setProjectList(projectionExprs);
-            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            if (project.child() instanceof PhysicalDeferMaterializeTopN) {
+                inputFragment.setOutputExprs(projectionExprs);
+            } else {
+                TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+                inputPlanNode.setProjectList(projectionExprs);
+                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            }
         }
         return inputFragment;
     }
@@ -2680,11 +2692,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             + distributionSpecHash.getShuffleType());
             }
             return new DataPartition(partitionType, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecTabletIdShuffle) {
+        } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
-        } else if (distributionSpec instanceof DistributionSpecTableSinkHashPartitioned) {
-            DistributionSpecTableSinkHashPartitioned partitionSpecHash =
-                    (DistributionSpecTableSinkHashPartitioned) distributionSpec;
+        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
+            DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
+                    (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;
             List<Expr> partitionExprs = Lists.newArrayList();
             List<ExprId> partitionExprIds = partitionSpecHash.getOutputColExprIds();
             for (ExprId partitionExprId : partitionExprIds) {
@@ -2692,9 +2704,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return new DataPartition(TPartitionType.TABLE_SINK_HASH_PARTITIONED, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecTableSinkRandomPartitioned) {
-            return new DataPartition(TPartitionType.TABLE_SINK_RANDOM_PARTITIONED);
+            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
+        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
+            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
         } else {
             throw new RuntimeException("Unknown DistributionSpec: " + distributionSpec);
         }

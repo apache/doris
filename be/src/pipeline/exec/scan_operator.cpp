@@ -502,9 +502,11 @@ bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VEx
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
-    // Variant slot cast could be eliminated
+    // only one level cast expr could push down for variant type
+    // check if expr is cast and it's children is slot
     if (slot->type().is_variant_type()) {
-        return true;
+        return expr->node_type() == TExprNodeType::CAST_EXPR &&
+               expr->children().at(0)->is_slot_ref();
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {
@@ -981,9 +983,6 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
         _eos = true;
         _scan_dependency->set_always_ready();
     } else {
-        for (auto& scanner : scanners) {
-            scanner->set_query_statistics(_query_statistics.get());
-        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(_scanners));
     }
@@ -1151,8 +1150,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
-    OperatorX<LocalStateType>::_is_serial_operator =
-            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }

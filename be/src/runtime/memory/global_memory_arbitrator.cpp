@@ -19,17 +19,33 @@
 
 #include <bvar/bvar.h>
 
+#include "runtime/memory/jemalloc_control.h"
 #include "runtime/process_profile.h"
 #include "runtime/thread_context.h"
+#include "util/mem_info.h"
 
 namespace doris {
 
-bvar::PassiveStatus<int64_t> g_process_memory_usage(
+static bvar::PassiveStatus<int64_t> memory_process_memory_usage(
         "meminfo_process_memory_usage",
         [](void*) { return GlobalMemoryArbitrator::process_memory_usage(); }, nullptr);
-bvar::PassiveStatus<int64_t> g_sys_mem_avail(
+static bvar::PassiveStatus<int64_t> memory_sys_mem_avail(
         "meminfo_sys_mem_avail", [](void*) { return GlobalMemoryArbitrator::sys_mem_available(); },
         nullptr);
+static bvar::Adder<int64_t> memory_jemalloc_cache_bytes("memory_jemalloc_cache_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_dirty_pages_bytes("memory_jemalloc_dirty_pages_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_metadata_bytes("memory_jemalloc_metadata_bytes");
+static bvar::Adder<int64_t> memory_jemalloc_virtual_bytes("memory_jemalloc_virtual_bytes");
+static bvar::Adder<int64_t> memory_cgroup_usage_bytes("memory_cgroup_usage_bytes");
+static bvar::Adder<int64_t> memory_sys_available_bytes("memory_sys_available_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_sys_available_bytes(
+        "memory_arbitrator_sys_available_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_process_usage_bytes(
+        "memory_arbitrator_process_usage_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_reserve_memory_bytes(
+        "memory_arbitrator_reserve_memory_bytes");
+static bvar::Adder<int64_t> memory_arbitrator_refresh_interval_growth_bytes(
+        "memory_arbitrator_refresh_interval_growth_bytes");
 
 std::atomic<int64_t> GlobalMemoryArbitrator::_process_reserved_memory = 0;
 std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
@@ -40,6 +56,35 @@ std::atomic<double> GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted 
 std::mutex GlobalMemoryArbitrator::memtable_memory_refresh_lock;
 std::condition_variable GlobalMemoryArbitrator::memtable_memory_refresh_cv;
 std::atomic<bool> GlobalMemoryArbitrator::memtable_memory_refresh_notify {false};
+
+void GlobalMemoryArbitrator::refresh_memory_bvar() {
+    memory_jemalloc_cache_bytes << JemallocControl::je_cache_bytes() -
+                                           memory_jemalloc_cache_bytes.get_value();
+    memory_jemalloc_dirty_pages_bytes << JemallocControl::je_dirty_pages_mem() -
+                                                 memory_jemalloc_dirty_pages_bytes.get_value();
+    memory_jemalloc_metadata_bytes
+            << JemallocControl::je_metadata_mem() - memory_jemalloc_metadata_bytes.get_value();
+    memory_jemalloc_virtual_bytes << JemallocControl::je_virtual_memory_used() -
+                                             memory_jemalloc_virtual_bytes.get_value();
+
+    memory_cgroup_usage_bytes << MemInfo::cgroup_mem_usage() -
+                                         memory_cgroup_usage_bytes.get_value();
+    memory_sys_available_bytes << MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed) -
+                                          memory_sys_available_bytes.get_value();
+
+    memory_arbitrator_sys_available_bytes
+            << GlobalMemoryArbitrator::sys_mem_available() -
+                       memory_arbitrator_sys_available_bytes.get_value();
+    memory_arbitrator_process_usage_bytes
+            << GlobalMemoryArbitrator::process_memory_usage() -
+                       memory_arbitrator_process_usage_bytes.get_value();
+    memory_arbitrator_reserve_memory_bytes
+            << GlobalMemoryArbitrator::process_reserved_memory() -
+                       memory_arbitrator_reserve_memory_bytes.get_value();
+    memory_arbitrator_refresh_interval_growth_bytes
+            << GlobalMemoryArbitrator::refresh_interval_memory_growth -
+                       memory_arbitrator_refresh_interval_growth_bytes.get_value();
+}
 
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
