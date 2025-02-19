@@ -302,7 +302,6 @@ Status IcebergTableReader::_position_delete_base(
         const std::string data_file_path, const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     std::vector<DeleteRows*> delete_rows_array;
     int64_t num_delete_rows = 0;
-    std::vector<DeleteFile*> erase_data;
     for (const auto& delete_file : delete_files) {
         SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
         Status create_status = Status::OK();
@@ -337,7 +336,6 @@ Status IcebergTableReader::_position_delete_base(
             if (!row_ids->empty()) {
                 delete_rows_array.emplace_back(row_ids);
                 num_delete_rows += row_ids->size();
-                erase_data.emplace_back(delete_file_cache);
             }
         };
         delete_file_map.if_contains(data_file_path, get_value);
@@ -347,10 +345,6 @@ Status IcebergTableReader::_position_delete_base(
         _sort_delete_rows(delete_rows_array, num_delete_rows);
         this->set_delete_rows();
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
-    }
-    // the deleted rows are copy out, we can erase them.
-    for (auto& erase_item : erase_data) {
-        erase_item->erase(data_file_path);
     }
     return Status::OK();
 }
