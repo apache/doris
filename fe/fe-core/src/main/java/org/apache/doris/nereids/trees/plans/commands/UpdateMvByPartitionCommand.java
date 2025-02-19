@@ -89,6 +89,11 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         super(logicalQuery, Optional.empty(), Optional.empty());
     }
 
+    @Override
+    public boolean isForceDropPartition() {
+        return true;
+    }
+
     /**
      * Construct command
      *
