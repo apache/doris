@@ -82,6 +82,7 @@ public class CreateCatalogStmt extends DdlStmt implements NotFallbackInParser {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        Thread.currentThread().interrupt();
         super.analyze(analyzer);
         Util.checkCatalogAllRules(catalogName);
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {

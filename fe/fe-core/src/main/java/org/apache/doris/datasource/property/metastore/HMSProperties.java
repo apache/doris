@@ -17,11 +17,12 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.options.Options;
 
@@ -29,7 +30,9 @@ import java.util.Map;
 
 @Slf4j
 public class HMSProperties extends MetastoreProperties {
-    @ConnectorProperty(names = {"hive.metastore.uri"},
+
+    private static final String HIVE_METASTORE_URLS_KEY = "hive.metastore.uris";
+    @ConnectorProperty(names = {"hive.metastore.uris"},
             required = false,
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
@@ -64,14 +67,15 @@ public class HMSProperties extends MetastoreProperties {
 
     @Override
     protected String getResourceConfigPropName() {
-        return "hive.resource_config";
+        return "hive.conf.resources";
     }
 
     @Override
     protected void checkRequiredProperties() {
         //fixme need consider load from default config
         super.checkRequiredProperties();
-        if(!Strings.isNullOrEmpty(hiveConfResourcesConfig)){
+        if (!Strings.isNullOrEmpty(hiveConfResourcesConfig)) {
+            checkHiveConfResourcesConfig();
             return;
         }
         if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
@@ -82,20 +86,50 @@ public class HMSProperties extends MetastoreProperties {
                         + "but service principal, client principal or client keytab is not set.");
             }
         }
-        if(Strings.isNullOrEmpty(hiveMetastoreUri)){
+        if (Strings.isNullOrEmpty(hiveMetastoreUri)) {
             throw new IllegalArgumentException("Hive metastore uri is required.");
         }
     }
 
-    public void toPaimonOptionsAndConf(Options options, Configuration conf) {
+    private void checkHiveConfResourcesConfig() {
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        if (allProps.isEmpty()) {
+            throw new IllegalArgumentException("Hive conf resources config is not empty"
+                    + ", but load config from file is empty.");
+        }
+        if (Strings.isNullOrEmpty(hiveMetastoreUri) && Strings.isNullOrEmpty(allProps.get(HIVE_METASTORE_URLS_KEY))) {
+            throw new IllegalArgumentException("Hive metastore uris(hive.metastore.urls) is required.");
+        }
+    }
+
+    public void toPaimonOptionsAndConf(Options options) {
         options.set("uri", hiveMetastoreUri);
-        Map<String, String> allProps = loadHiveConfigFromFile(getResourceConfigPropName());
-        allProps.forEach(conf::set);
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        allProps.forEach(options::set);
     }
 
     public void toIcebergHiveCatalogProperties(Map<String, String> catalogProps) {
         catalogProps.put("uri", hiveMetastoreUri);
-        Map<String, String> allProps = loadHiveConfigFromFile(getResourceConfigPropName());
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(catalogProps::put);
+    }
+
+    protected Map<String, String> loadConfigFromFile(String resourceConfig) {
+        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
+            return Maps.newHashMap();
+        }
+        HiveConf conf = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(origProps.get(resourceConfig));
+        Map<String, String> confMap = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : conf) {
+            confMap.put(entry.getKey(), entry.getValue());
+        }
+        return confMap;
+    }
+
+    private String getHiveMetastoreUri(Map<String, String> configs) {
+        if (Strings.isNullOrEmpty(hiveMetastoreUri)) {
+            return configs.get(HIVE_METASTORE_URLS_KEY);
+        }
+        return hiveMetastoreUri;
     }
 }
