@@ -292,13 +292,14 @@ public class GrantStmt extends DdlStmt implements NotFallbackInParser {
 
         switch (resourcePattern.getResourceType()) {
             case GENERAL:
+            case STORAGE_VAULT:
                 return Env.getCurrentEnv().getAccessManager()
                         .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
-            case STORAGE_VAULT:
             case CLUSTER:
             case STAGE:
-                // only admin_priv can grant resource to other user on cloud mode
-                return false;
+                return Env.getCurrentEnv().getAccessManager()
+                        .checkCloudPriv(ctx, resourcePattern.getResourceName(), privPredicate,
+                                resourcePattern.getResourceType());
             default:
                 return true;
         }
