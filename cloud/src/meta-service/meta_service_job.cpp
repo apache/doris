@@ -479,92 +479,157 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    bool found = false;
-    auto initiators = lock_info.mutable_initiators();
-    for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
-        if (*iter == lock_initiator) {
-            initiators->erase(iter);
-            found = true;
-            break;
+    if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+        std::string tablet_compaction_key =
+                mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
+        std::string tablet_compaction_val;
+        err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "lock initiator " << lock_initiator << " not exist";
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return false;
+        } else if (err != TxnErrorCode::TXN_OK) {
+            ss << "failed to get tablet compaction key, instance_id=" << instance_id
+               << " table_id=" << table_id << " initiator=" << lock_initiator
+               << " key=" << hex(tablet_compaction_key) << " err=" << err;
+            msg = ss.str();
+            code = cast_as<ErrCategory::READ>(err);
+            return false;
         }
-    }
-    if (!found) {
-        ss << "lock initiator " << lock_initiator << " not exist";
-        msg = ss.str();
-        code = MetaServiceCode::LOCK_EXPIRED;
-        return false;
-    }
-    if (initiators->empty()) {
-        INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                           << " lock_id=" << lock_id << " key=" << hex(lock_key);
-        txn->remove(lock_key);
+        MowTabletCompactionPB mow_tablet_compaction;
+        mow_tablet_compaction.SerializeToString(&tablet_compaction_val);
+        if (!mow_tablet_compaction.ParseFromString(tablet_compaction_val)) [[unlikely]] {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse MowTabletCompactionPB";
+            return false;
+        }
+        using namespace std::chrono;
+        int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        if (mow_tablet_compaction.expiration() > 0 && mow_tablet_compaction.expiration() < now) {
+            ss << "tablet compaction expired, table_id=" << table_id
+               << " initiator=" << lock_initiator
+               << " expiration=" << mow_tablet_compaction.expiration()
+               << " key=" << hex(tablet_compaction_key);
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            txn->remove(tablet_compaction_key);
+            return false;
+        }
+        txn->remove(tablet_compaction_key);
+        INSTANCE_LOG(INFO) << "remove tablet compaction lock, table_id=" << table_id
+                           << " lock_id=" << lock_id << " initiator=" << lock_initiator
+                           << " key=" << hex(tablet_compaction_key);
+        // may left a lock key for -1
         return true;
+    } else {
+        // TODO does not check expired time
+        bool found = false;
+        auto initiators = lock_info.mutable_initiators();
+        for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
+            if (*iter == lock_initiator) {
+                initiators->erase(iter);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            ss << "lock initiator " << lock_initiator << " not exist";
+            msg = ss.str();
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return false;
+        }
+        if (initiators->empty()) {
+            INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
+                               << " lock_id=" << lock_id << " key=" << hex(lock_key);
+            txn->remove(lock_key);
+            return true;
+        }
+        lock_info.SerializeToString(&lock_val);
+        if (lock_val.empty()) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "pb serialization error";
+            return false;
+        }
+        INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
+                           << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                           << " initiator=" << lock_initiator
+                           << " initiators_size=" << lock_info.initiators_size();
+        txn->put(lock_key, lock_val);
     }
-    lock_info.SerializeToString(&lock_val);
-    if (lock_val.empty()) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "pb serialization error";
-        return false;
-    }
-    INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                       << ", key=" << hex(lock_key) << " lock_id=" << lock_id
-                       << " initiator=" << lock_initiator
-                       << " initiators_size=" << lock_info.initiators_size();
-    txn->put(lock_key, lock_val);
     return true;
 }
 
 static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
                                              int64_t lock_id, int64_t lock_initiator) {
-    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
-    std::string lock_val;
-    TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
-              << " key=" << hex(lock_key) << " err=" << err;
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
-                     << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
-        return;
-    }
-    DeleteBitmapUpdateLockPB lock_info;
-    if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
-        LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB, instance_id=" << instance_id
-                     << " table_id=" << table_id << " key=" << hex(lock_key);
-        return;
-    }
-    if (lock_info.lock_id() != lock_id) {
-        return;
-    }
-    bool found = false;
-    auto initiators = lock_info.mutable_initiators();
-    for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
-        if (*iter == lock_initiator) {
-            initiators->erase(iter);
-            found = true;
-            break;
+    if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+        std::string tablet_compaction_key =
+                mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
+        std::string tablet_compaction_val;
+        TxnErrorCode err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get tablet compaction key, instance_id=" << instance_id
+                         << " table_id=" << table_id << " initiator=" << lock_initiator
+                         << " key=" << hex(tablet_compaction_key) << " err=" << err;
+            return;
         }
+        txn->remove(tablet_compaction_key);
+        INSTANCE_LOG(INFO) << "remove tablet compaction key, table_id=" << table_id
+                           << ", key=" << hex(tablet_compaction_key)
+                           << " initiator=" << lock_initiator;
+    } else {
+        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+        std::string lock_val;
+        TxnErrorCode err = txn->get(lock_key, &lock_val);
+        LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
+                  << " key=" << hex(lock_key) << " err=" << err;
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id="
+                         << instance_id << " table_id=" << table_id << " key=" << hex(lock_key)
+                         << " err=" << err;
+            return;
+        }
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+            LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB, instance_id=" << instance_id
+                         << " table_id=" << table_id << " key=" << hex(lock_key);
+            return;
+        }
+        if (lock_info.lock_id() != lock_id) {
+            return;
+        }
+
+        bool found = false;
+        auto initiators = lock_info.mutable_initiators();
+        for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {
+            if (*iter == lock_initiator) {
+                initiators->erase(iter);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return;
+        }
+        if (initiators->empty()) {
+            INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
+                               << " lock_id=" << lock_id << " key=" << hex(lock_key);
+            txn->remove(lock_key);
+            return;
+        }
+        lock_info.SerializeToString(&lock_val);
+        if (lock_val.empty()) {
+            INSTANCE_LOG(WARNING) << "failed to seiralize lock_info, table_id=" << table_id
+                                  << " key=" << hex(lock_key);
+            return;
+        }
+        INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
+                           << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                           << " initiator=" << lock_initiator
+                           << " initiators_size=" << lock_info.initiators_size();
+        txn->put(lock_key, lock_val);
     }
-    if (!found) {
-        return;
-    }
-    if (initiators->empty()) {
-        INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                           << " lock_id=" << lock_id << " key=" << hex(lock_key);
-        txn->remove(lock_key);
-        return;
-    }
-    lock_info.SerializeToString(&lock_val);
-    if (lock_val.empty()) {
-        INSTANCE_LOG(WARNING) << "failed to seiralize lock_info, table_id=" << table_id
-                              << " key=" << hex(lock_key);
-        return;
-    }
-    INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                       << ", key=" << hex(lock_key) << " lock_id=" << lock_id
-                       << " initiator=" << lock_initiator
-                       << " initiators_size=" << lock_info.initiators_size();
-    txn->put(lock_key, lock_val);
 }
 
 void process_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
