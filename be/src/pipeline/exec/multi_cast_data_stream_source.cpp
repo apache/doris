@@ -28,9 +28,9 @@ namespace doris::pipeline {
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                parent->runtime_filter_descs(),
-                                static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
+          RuntimeFilterConsumer(
+                  static_cast<Parent*>(parent)->dest_id_from_sink(), parent->runtime_filter_descs(),
+                  static_cast<Parent*>(parent)->_multi_cast_output_row_descriptor, _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));

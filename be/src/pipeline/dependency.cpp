@@ -369,10 +369,9 @@ void SpillSortSharedState::close() {
     sorted_streams.clear();
 }
 
-MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
-                                           int cast_sender_count)
-        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
-                  row_desc, pool, cast_sender_count, true)) {}
+MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count)
+        : multi_cast_data_streamer(
+                  std::make_unique<pipeline::MultiCastDataStreamer>(pool, cast_sender_count)) {}
 
 int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();

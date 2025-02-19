@@ -1126,11 +1126,12 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             sources.push_back(source_id);
         }
 
-        _sink.reset(new MultiCastDataStreamSinkOperatorX(
-                sink_id, sources, pool, thrift_sink.multi_cast_stream_sink, row_desc));
+        _sink.reset(new MultiCastDataStreamSinkOperatorX(sink_id, sources, pool,
+                                                         thrift_sink.multi_cast_stream_sink));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
-            RowDescriptor* _row_desc = nullptr;
+            // use to exchange sink
+            RowDescriptor* exchange_row_desc = nullptr;
             {
                 const auto& tmp_row_desc =
                         !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
@@ -1138,8 +1139,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                                 {thrift_sink.multi_cast_stream_sink.sinks[i]
                                                          .output_tuple_id},
                                                 {false})
-                                : _sink->row_desc();
-                _row_desc = pool->add(new RowDescriptor(tmp_row_desc));
+                                : row_desc;
+                exchange_row_desc = pool->add(new RowDescriptor(tmp_row_desc));
             }
             auto source_id = sources[i];
             OperatorPtr source_op;
@@ -1152,7 +1153,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
 
             DataSinkOperatorPtr sink_op;
             sink_op.reset(new ExchangeSinkOperatorX(
-                    state, *_row_desc, next_sink_operator_id(),
+                    state, *exchange_row_desc, next_sink_operator_id(),
                     thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], _fragment_instance_ids));
 

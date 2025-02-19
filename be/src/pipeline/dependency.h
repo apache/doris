@@ -541,7 +541,7 @@ class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
 public:
-    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count);
+    MultiCastSharedState(ObjectPool* pool, int cast_sender_count);
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 

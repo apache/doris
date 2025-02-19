@@ -33,9 +33,6 @@ class MultiCastDataStreamSinkLocalState final
     using Base = PipelineXSinkLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamSinkOperatorX;
     std::string name_suffix() override;
-
-private:
-    std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
 };
 
 class MultiCastDataStreamSinkOperatorX final
@@ -44,19 +41,15 @@ class MultiCastDataStreamSinkOperatorX final
 
 public:
     MultiCastDataStreamSinkOperatorX(int sink_id, std::vector<int>& sources, ObjectPool* pool,
-                                     const TMultiCastDataStreamSink& sink,
-                                     const RowDescriptor& row_desc)
+                                     const TMultiCastDataStreamSink& sink)
             : Base(sink_id, -1, sources),
               _pool(pool),
-              _row_desc(row_desc),
               _cast_sender_count(sources.size()),
               _sink(sink),
               _num_dests(sources.size()) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-
-    const RowDescriptor& row_desc() const override { return _row_desc; }
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override;
 
@@ -69,7 +62,6 @@ public:
 private:
     friend class MultiCastDataStreamSinkLocalState;
     ObjectPool* _pool;
-    RowDescriptor _row_desc;
     const size_t _cast_sender_count;
     const TMultiCastDataStreamSink& _sink;
     friend class MultiCastDataStreamSinkLocalState;
