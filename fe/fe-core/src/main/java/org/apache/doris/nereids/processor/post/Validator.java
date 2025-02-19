@@ -59,13 +59,6 @@ public class Validator extends PlanPostProcessor {
         Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
                 && filter.getPredicate() != BooleanLiteral.TRUE, "Filter predicate can't be empty or true");
 
-        Plan child = filter.child();
-        // Forbidden filter-project, we must make filter-project -> project-filter.
-        if (child instanceof PhysicalProject) {
-            throw new AnalysisException(
-                    "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
-        }
-
         return visit(filter, context);
     }
 
