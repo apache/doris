@@ -65,11 +65,11 @@ suite("test_multi_range_partition") {
     // ===============function(part_key)===================
     explain{
         sql "select * from pt where 2*k1=20; --漏裁 p1"
-        contains "partitions=2/3 (p1,p3)"
+        contains "partitions=1/3 (p3)"
     }
     explain{
         sql "select * from pt where 2*(k1+1)=22; --漏裁 p1"
-        contains "partitions=2/3 (p1,p3)"
+        contains "partitions=1/3 (p3)"
     }
     explain{
         sql "select * from pt where sin(k1)=0"

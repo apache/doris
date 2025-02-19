@@ -388,7 +388,6 @@ apple
 -- !union_join_order_by --
 1	100
 
-<<<<<<< HEAD
 -- !composite_key --
 1	2	3	4
 2	3	3	5
