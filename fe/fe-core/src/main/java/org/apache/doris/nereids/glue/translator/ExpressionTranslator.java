@@ -386,7 +386,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBetween(Between between, PlanTranslatorContext context) {
-        throw new RuntimeException("Unexpected invocation");
+        And and = new And(new GreaterThanEqual(between.getCompareExpr(), between.getLowerBound()),
+                new LessThanEqual(between.getCompareExpr(), between.getUpperBound()));
+        return and.accept(this, context);
     }
 
     @Override
