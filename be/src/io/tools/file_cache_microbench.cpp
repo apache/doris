@@ -231,13 +231,15 @@ public:
         records_[job_id].emplace_back(file_info);
     }
 
-    int64_t get_exist_job_perfile_size(const std::string& job_id) {
+    int64_t get_exist_job_perfile_size_by_prefix(const std::string& file_prefix) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (records_.find(job_id) != records_.end()) {
-            if (records_[job_id].empty()) {
-                return -1;
+        for (const auto& pair : records_) {
+            const std::vector<FileInfo>& file_infos = pair.second;
+            for (const auto& file_info : file_infos) {
+                if (file_info.filename.compare(0, file_prefix.length(), file_prefix) == 0) {
+                    return file_info.data_size;
+                }
             }
-            return records_[job_id][0].data_size;
         }
         return -1;
     }
@@ -552,7 +554,7 @@ struct JobConfig {
         ss << "size_bytes_perfile: " << size_bytes_perfile << ", write_iops: " << write_iops
            << ", read_iops: " << read_iops << ", num_threads: " << num_threads
            << ", num_files: " << num_files << ", file_prefix: " << HIDDEN_PREFIX + file_prefix
-           << ", write_file_cache" << write_file_cache
+           << ", write_file_cache: " << write_file_cache
            << ", more than write_batch_size: " << write_batch_size << ", read repeat: " << repeat
            << ", ttl expiration: " << expiration << ", cache_type: " << cache_type
            << " will append data to s3 writer, read_offset: [" << read_offset_left << " , "
@@ -860,7 +862,8 @@ private:
     }
 
     void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
-        int64_t exist_job_perfile_size = s3_file_records.get_exist_job_perfile_size(job.job_id);
+        int64_t exist_job_perfile_size = s3_file_records.get_exist_job_perfile_size_by_prefix(
+                HIDDEN_PREFIX + config.file_prefix);
         std::vector<std::future<void>> read_futures;
         doris::io::IOContext io_ctx;
         doris::io::FileCacheStatistics total_stats;
@@ -963,23 +966,25 @@ private:
                                 if (read_offset + read_length > exist_job_perfile_size) {
                                     read_length = exist_job_perfile_size - read_offset;
                                 }
+                                LOG(INFO) << "fuck ... read_offset=" << read_offset;
                             } else { // not random
                                 read_offset = config.read_offset_left;
                                 read_length = config.read_length_left;
                             }
                         } else {
                             // new files
-                            size_t read_offset = config.read_offset_left;
-                            int64_t read_length = config.read_length_left;
+                            read_offset = config.read_offset_left;
+                            read_length = config.read_length_left;
                             if (read_length == -1 ||
                                 read_offset + read_length > config.size_bytes_perfile) {
                                 read_length = config.size_bytes_perfile - read_offset;
                             }
                         }
-
-                        CHECK(read_offset > 0)
-                                << "Calculated read_offset is negative: " << read_length;
-                        CHECK(read_length > 0)
+                        LOG(INFO) << "read_offset=" << read_offset
+                                  << " read_length=" << read_length;
+                        CHECK(read_offset >= 0)
+                                << "Calculated read_offset is negative: " << read_offset;
+                        CHECK(read_length >= 0)
                                 << "Calculated read_length is negative: " << read_length;
 
                         std::string read_buffer;
