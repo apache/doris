@@ -72,11 +72,7 @@ public class ResultReceiverConsumer {
 
     void setErrMsg(String errMsg) {
         this.errMsg = errMsg;
-        for (ReceiverContext context : contexts) {
-            if (context.future != null) {
-                context.future.cancel(true);
-            }
-        }
+        executor.shutdownNow();
     }
 
     BlockingQueue<Integer> readyOffsets;
