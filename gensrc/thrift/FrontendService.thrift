@@ -1392,6 +1392,7 @@ struct TRestoreSnapshotRequest {
     14: optional bool clean_partitions
     15: optional bool atomic_restore
     16: optional bool compressed;
+    17: optional bool force_replace
 }
 
 struct TRestoreSnapshotResult {
