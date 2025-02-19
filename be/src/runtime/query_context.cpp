@@ -181,10 +181,6 @@ void QueryContext::_init_resource_context() {
     _resource_ctx = ResourceContext::create_shared();
     _resource_ctx->set_memory_context(QueryContext::QueryMemoryContext::create());
     _init_query_mem_tracker();
-#ifndef BE_TEST
-    _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
-                                                                         _resource_ctx);
-#endif
 }
 
 void QueryContext::init_query_task_controller() {
@@ -192,6 +188,10 @@ void QueryContext::init_query_task_controller() {
     _resource_ctx->task_controller()->set_task_id(_query_id);
     _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
     _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
+#ifndef BE_TEST
+    _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
+                                                                         _resource_ctx);
+#endif
 }
 
 QueryContext::~QueryContext() {
