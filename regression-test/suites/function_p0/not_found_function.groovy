@@ -18,7 +18,7 @@
 suite("not_found_function") {
     test {
         sql "select group_concat()"
-        exception "Can not found function 'group_concat' which has 0 arity. Candidate functions are: [group_concat(Expression, Expression...)]"
+        exception "group_concat requires one or two parameters: group_concat()"
     }
 
     test {
