@@ -48,13 +48,13 @@ public class ResultReceiverConsumer {
                     try {
                         rowBatch = receiver.getNext(status);
                     } catch (TException e) {
-                        errMsg = e.getMessage();
+                        setErrMsg(e.getMessage());
                     }
                     readyOffsets.offer(offset);
                     return rowBatch;
                 });
             } catch (Throwable e) {
-                errMsg = e.getMessage();
+                setErrMsg(e.getMessage());
                 readyOffsets.offer(offset);
             }
         }
@@ -67,8 +67,17 @@ public class ResultReceiverConsumer {
 
     private final ExecutorService executor;
     private List<ReceiverContext> contexts = Lists.newArrayList();
-    boolean futureInitialized = false;
-    String errMsg;
+    private boolean futureInitialized = false;
+    private String errMsg;
+
+    void setErrMsg(String errMsg) {
+        this.errMsg = errMsg;
+        for (ReceiverContext context : contexts) {
+            if (context.future != null) {
+                context.future.cancel(true);
+            }
+        }
+    }
 
     BlockingQueue<Integer> readyOffsets;
     int finishedReceivers = 0;
@@ -99,7 +108,7 @@ public class ResultReceiverConsumer {
             throw new UserException(errMsg);
         }
         if (!context.status.ok()) {
-            errMsg = context.status.getErrorMsg();
+            setErrMsg(context.status.getErrorMsg());
             status.updateStatus(context.status.getErrorCode(), context.status.getErrorMsg());
             return rowBatch;
         }
