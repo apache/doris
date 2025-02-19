@@ -22,6 +22,7 @@
 #include "testutil/column_helper.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_number.h"
 namespace doris::vectorized {
 
 ColumnPtr make_nullable(const std::vector<int32_t>& data, const std::vector<uint8_t>& null_data) {
