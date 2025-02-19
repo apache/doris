@@ -202,9 +202,9 @@ public class CreateTableInfo {
     }
 
     /**
-     * updateTableNameAndIfNotExists
+     * withTableNameAndIfNotExists
      */
-    public CreateTableInfo updateTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
+    public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
         if (ctasColumns != null) {
             return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, ctasColumns, engineName,
                     keysType, keys, comment, partitionTableInfo, distribution, rollups, properties, extProperties,

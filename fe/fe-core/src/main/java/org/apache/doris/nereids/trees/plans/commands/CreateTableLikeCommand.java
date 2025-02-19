@@ -112,7 +112,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                         .parseSingle(createTableStmt.get(0));
                 CreateTableInfo createTableInfo = createTableCommand.getCreateTableInfo();
                 createTableCommand = new CreateTableCommand(createTableCommand.getCtasQuery(),
-                        createTableInfo.updateTableNameAndIfNotExists(stmt.getTableName(), stmt.isIfNotExists()));
+                        createTableInfo.withTableNameAndIfNotExists(stmt.getTableName(), stmt.isIfNotExists()));
                 createTableCommand.run(ctx, executor);
             } finally {
                 ctx.setSkipAuth(false);
