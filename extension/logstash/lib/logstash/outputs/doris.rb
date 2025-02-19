@@ -30,7 +30,7 @@ require "base64"
 require 'thread'
 
 require 'java'
-require Dir["#{File.dirname(__FILE__)}/../../*_jars.rb"].first
+require "#{File.dirname(__FILE__)}/../../logstash-output-doris_jars.rb"
 
 class LogStash::Outputs::Doris < LogStash::Outputs::Base
    include_package 'org.apache.hc.client5.http.impl.async'
@@ -99,6 +99,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    class DorisRedirectStrategy < Java::org.apache.hc.client5.http.impl.DefaultRedirectStrategy
       def getLocationURI(request, response, context)
          uri = super(request, response, context)
+         # remove user info in redirect uri
          java.net.URI.new(uri.getScheme, nil, uri.getHost, uri.getPort, uri.getPath, uri.getQuery, uri.getFragment)
       end
    end
@@ -176,8 +177,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    private
    def add_event_to_retry_queue(delay_event)
       event_size = 0
-      delay_event.event.each do |_, es|
-         event_size += es.documents.size
+      delay_event.event.each do |_, table_events|
+         event_size += table_events.documents.size
       end
 
       if delay_event.first_retry
@@ -196,7 +197,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
    def create_http_headers(table)
       http_headers = @request_headers.dup
-      unless @group_commit
+      if !@group_commit
          # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
          http_headers["label"] = @label_prefix + "_" + @db + "_" + table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
       end
@@ -230,8 +231,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
       end
 
-      table_events_map.each do |_, es|
-         serialize(es)
+      table_events_map.each do |_, table_events|
+         serialize(table_events)
       end
 
       handle_request(table_events_map)
