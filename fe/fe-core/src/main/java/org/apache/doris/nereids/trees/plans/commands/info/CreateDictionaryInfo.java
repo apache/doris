@@ -203,9 +203,6 @@ public class CreateDictionaryInfo {
         if (source.getType().isComplexType()) {
             throw new DdlException("Key column " + source.getName() + " cannot be complex type");
         }
-        if (source.isAllowNull()) {
-            throw new DdlException("Key column " + source.getName() + " cannot be nullable");
-        }
         if (getLayout() == LayoutType.IP_TRIE) {
             if (!source.getType().isVarcharOrStringType()) {
                 throw new DdlException("Key column " + source.getName() + " must be String type for IP_TRIE layout");

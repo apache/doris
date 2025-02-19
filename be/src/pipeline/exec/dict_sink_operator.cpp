@@ -21,6 +21,7 @@
 #include "vec/core/block.h"
 #include "vec/functions/complex_hash_map_dictionary.h"
 #include "vec/functions/dictionary_factory.h"
+#include "vec/functions/dictionary_util.h"
 #include "vec/functions/ip_address_dictionary.h"
 
 namespace doris::pipeline {
@@ -46,7 +47,7 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
 
     vectorized::ColumnsWithTypeAndName key_data;
 
-    vectorized::ColumnsWithTypeAndName attribute_data;
+    vectorized::ColumnsWithTypeAndName value_data;
 
     for (size_t i = 0; i < p._key_output_expr_slots.size(); i++) {
         auto key_expr_id = p._key_output_expr_slots[i];
@@ -64,8 +65,10 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         RETURN_IF_ERROR(value_expr_ctx->execute(&input_block, &value_column_id));
         auto att_data = input_block.get_by_position(value_column_id);
         att_data.name = value_name;
-        attribute_data.push_back(att_data);
+        value_data.push_back(att_data);
     }
+
+    RETURN_IF_ERROR(check_dict_input_data(key_data, value_data, p._skip_null_key));
     const auto& dict_name = p._dictionary_name;
 
     vectorized::DictionaryPtr dict = nullptr;
@@ -75,11 +78,11 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         if (key_data.size() != 1) {
             return Status::InternalError("IP_TRIE dict key size must be 1");
         }
-        dict = create_ip_trie_dict_from_column(dict_name, key_data[0], attribute_data);
+        dict = create_ip_trie_dict_from_column(dict_name, key_data[0], value_data);
         break;
     }
     case TDictLayoutType::type::HASH_MAP: {
-        dict = create_complex_hash_map_dict_from_column(dict_name, key_data, attribute_data);
+        dict = create_complex_hash_map_dict_from_column(dict_name, key_data, value_data);
         break;
     }
     default:
@@ -107,7 +110,8 @@ DictSinkOperatorX::DictSinkOperatorX(int operator_id, const RowDescriptor& row_d
           _value_output_expr_slots(dict_sink.value_output_expr_slots),
           _value_names(dict_sink.value_names),
           _row_desc(row_desc),
-          _t_output_expr(dict_input_expr) {}
+          _t_output_expr(dict_input_expr),
+          _skip_null_key(dict_sink.skip_null_key) {}
 
 Status DictSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
