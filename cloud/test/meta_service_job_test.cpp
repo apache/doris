@@ -1332,8 +1332,6 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(1, 2, 3, 4, TabletCompactionJobPB::CUMULATIVE);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    res_code = remove_delete_bitmap_lock(meta_service.get(), 1, -1, 12345);
-    ASSERT_EQ(res_code, MetaServiceCode::OK);
     clear_rowsets(4);
 
     test_start_compaction_job(2, 2, 3, 5, TabletCompactionJobPB::BASE);
@@ -1354,8 +1352,6 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
     ASSERT_EQ(res_code, MetaServiceCode::LOCK_CONFLICT);
     test_abort_compaction_job(2, 2, 3, 6);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    res_code = remove_delete_bitmap_lock(meta_service.get(), 2, -1, 12345);
-    ASSERT_EQ(res_code, MetaServiceCode::OK);
     res_code = get_delete_bitmap_lock(meta_service.get(), 2, 123, -1);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     res_code = remove_delete_bitmap_lock(meta_service.get(), 2, 123, -1);
@@ -1849,7 +1845,10 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job2", "be1",
                                  output_rowsets, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        remove_delete_bitmap_lock(meta_service.get(), table_id);
+        res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+        res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, -2, 12346);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
         res.Clear();
     }
 }
