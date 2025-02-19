@@ -244,6 +244,19 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
             v.cast_to_date();
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
+    } else if (arrow_array->type()->id() == arrow::Type::STRING) {
+        // to be compatible with old version, we use string type for date.
+        auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        for (size_t value_i = start; value_i < end; ++value_i) {
+            Int64 val = 0;
+            auto val_str = concrete_array->GetString(value_i);
+            ReadBuffer rb(val_str.data(), val_str.size());
+            read_datetime_text_impl(val, rb, ctz);
+            col_data.emplace_back(val);
+        }
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Unsupported Arrow Type: " + arrow_array->type()->name());
     }
 }
 
