@@ -113,12 +113,13 @@ public class Random extends ScalarFunction
      */
     @Override
     public Random withChildren(List<Expression> children) {
+        ExprId newExprId = children().equals(children) ? exprId : StatementScopeIdGenerator.newExprId();
         if (children.isEmpty()) {
-            return new Random(exprId);
+            return new Random(newExprId);
         } else if (children.size() == 1) {
-            return new Random(exprId, children.get(0));
+            return new Random(newExprId, children.get(0));
         } else if (children.size() == 2) {
-            return new Random(exprId, children.get(0), children.get(1));
+            return new Random(newExprId, children.get(0), children.get(1));
         }
         throw new AnalysisException("random function only accept 0-2 arguments");
     }
