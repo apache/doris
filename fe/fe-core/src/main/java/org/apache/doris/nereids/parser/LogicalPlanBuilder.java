@@ -416,6 +416,7 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
@@ -3846,9 +3847,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (lower.equals(upper)) {
                         outExpression = new EqualTo(valueExpression, lower);
                     } else {
-                        outExpression = new And(
-                                new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
-                                new LessThanEqual(valueExpression, getExpression(ctx.upper))
+                        outExpression = new Between(
+                                valueExpression,
+                                getExpression(ctx.lower),
+                                getExpression(ctx.upper)
                         );
                     }
                     break;

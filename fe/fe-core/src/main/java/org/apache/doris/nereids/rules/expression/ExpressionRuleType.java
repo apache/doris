@@ -23,6 +23,7 @@ package org.apache.doris.nereids.rules.expression;
 public enum ExpressionRuleType {
     ADD_MIN_MAX,
     ARRAY_CONTAIN_TO_ARRAY_OVERLAP,
+    BETWEEN_TO_COMPOUND,
     BETWEEN_TO_EQUAL,
     CASE_WHEN_TO_IF,
     CHECK_CAST,
