@@ -250,6 +250,12 @@ supportedAlterStatement
             properties=propertyClause?                                                      #addBackendClause
     | ALTER SYSTEM (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
             (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBackendClause
+    | ALTER SYSTEM DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+              (COMMA hostPorts+=STRING_LITERAL)*                                            #decommissionBackendClause
+    | ALTER SYSTEM ADD OBSERVER hostPort=STRING_LITERAL                                     #addObserverClause
+    | ALTER SYSTEM DROP OBSERVER hostPort=STRING_LITERAL                                    #dropObserverClause
+    | ALTER SYSTEM ADD FOLLOWER hostPort=STRING_LITERAL                                     #addFollowerClause
+    | ALTER SYSTEM DROP FOLLOWER hostPort=STRING_LITERAL                                    #dropFollowerClause
 
     ;
 
@@ -638,13 +644,7 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #decommissionBackendClause
-    | ADD OBSERVER hostPort=STRING_LITERAL                                          #addObserverClause
-    | DROP OBSERVER hostPort=STRING_LITERAL                                         #dropObserverClause
-    | ADD FOLLOWER hostPort=STRING_LITERAL                                          #addFollowerClause
-    | DROP FOLLOWER hostPort=STRING_LITERAL                                         #dropFollowerClause
-    | ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+    : ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #addBrokerClause
     | DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBrokerClause

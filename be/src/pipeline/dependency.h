@@ -113,17 +113,10 @@ public:
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
-    void set_block_to_read() {
-        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
-        _shared_state->source_deps.front()->block();
-    }
+
     void set_ready_to_write() {
         DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
-    }
-    void set_block_to_write() {
-        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
-        _shared_state->sink_deps.front()->block();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
@@ -177,7 +170,7 @@ class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name, true) {}
+            : Dependency(id, node_id, std::move(name), true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -274,7 +267,7 @@ struct RuntimeFilterTimerQueue {
 class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
+            : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
 private:
@@ -548,7 +541,7 @@ class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
 public:
-    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count);
+    MultiCastSharedState(ObjectPool* pool, int cast_sender_count);
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
 };
 

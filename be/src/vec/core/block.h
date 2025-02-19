@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/exception.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -91,7 +92,7 @@ public:
     Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
-    ~Block() = default;
+    MOCK_FUNCTION ~Block() = default;
     Block(const Block& block) = default;
     Block& operator=(const Block& p) = default;
     Block(Block&& block) = default;
@@ -209,7 +210,7 @@ public:
     std::string columns_bytes() const;
 
     /// Approximate number of allocated bytes in memory - for profiling and limits.
-    size_t allocated_bytes() const;
+    MOCK_FUNCTION size_t allocated_bytes() const;
 
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
@@ -253,7 +254,7 @@ public:
     // Else clear column [0, column_size) delete column [column_size, data.size)
     void clear_column_data(int64_t column_size = -1) noexcept;
 
-    bool mem_reuse() { return !data.empty(); }
+    MOCK_FUNCTION bool mem_reuse() { return !data.empty(); }
 
     bool is_empty_column() { return data.empty(); }
 
