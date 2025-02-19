@@ -17,8 +17,6 @@
 
 package org.apache.doris.alter;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -40,7 +38,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -49,12 +46,13 @@ import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Collections;
 import java.util.Map;
 
 public class InternalSchemaAlterTest extends TestWithFeService {
@@ -221,6 +219,8 @@ public class InternalSchemaAlterTest extends TestWithFeService {
                     break;
                 case "stmt_id":
                     stmtIdPos = i;
+                    break;
+                default:
                     break;
             }
         }
