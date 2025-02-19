@@ -15,19 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AddFollowerClause;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
-public class AddFollowerClause extends FrontendClause {
-    public AddFollowerClause(String hostPort) {
+/**
+ * AddFrontendOp
+ */
+public class AddFollowerOp extends FrontendOp {
+    public AddFollowerOp(String hostPort) {
         super(hostPort, FrontendNodeType.FOLLOWER);
     }
 
-    public AddFollowerClause(String hostPort, String host, int port, FrontendNodeType role) {
-        super(hostPort, role);
-        this.host = host;
-        this.port = port;
+    @Override
+    public void validate(ConnectContext ctx) throws AnalysisException {
+        super.validate(ctx);
+        SystemInfoService.HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
+        this.host = hostInfo.getHost();
+        this.port = hostInfo.getPort();
     }
 
     @Override
@@ -36,5 +46,10 @@ public class AddFollowerClause extends FrontendClause {
         sb.append("ALTER CLUSTER ADD FOLLOWER \"");
         sb.append(hostPort).append("\"");
         return sb.toString();
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new AddFollowerClause(hostPort, host, port, role);
     }
 }
