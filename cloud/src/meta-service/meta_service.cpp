@@ -2588,9 +2588,11 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         std::string lock_val;
         DeleteBitmapUpdateLockPB lock_info;
         if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
-                                      request->lock_id(), request->initiator(), lock_key, lock_info)) {
+                                      request->lock_id(), request->initiator(), lock_key,
+                                      lock_info)) {
             LOG(WARNING) << "failed to check delete bitmap tablet lock"
-                         << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
+                         << " table_id=" << request->table_id()
+                         << " tablet_id=" << request->tablet_id()
                          << " request lock_id=" << request->lock_id()
                          << " request initiator=" << request->initiator() << " msg " << msg;
             return;
