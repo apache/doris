@@ -123,7 +123,7 @@ public class TableBinlog {
         }
     }
 
-    public Pair<TStatus, Long> getBinlogLag(long prevCommitSeq) {
+    public Pair<TStatus, BinlogLagInfo> getBinlogLag(long prevCommitSeq) {
         lock.readLock().lock();
         try {
             return BinlogUtils.getBinlogLag(binlogs, prevCommitSeq);
@@ -400,4 +400,5 @@ public class TableBinlog {
             lock.readLock().unlock();
         }
     }
+
 }
