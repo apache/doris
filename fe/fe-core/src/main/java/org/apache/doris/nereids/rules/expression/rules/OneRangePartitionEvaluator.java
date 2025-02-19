@@ -413,7 +413,7 @@ public class OneRangePartitionEvaluator<K>
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
 
         EvaluateRangeResult andResult = result.childrenResult.get(0);
-        for (int i = 1; i < andResult.childrenResult.size(); i++) {
+        for (int i = 1; i < result.childrenResult.size(); i++) {
             andResult = mergeRanges(result.result, andResult, result.childrenResult.get(i),
                     context.rangeMap,
                     (leftRange, rightRange) -> leftRange.intersect(rightRange));
