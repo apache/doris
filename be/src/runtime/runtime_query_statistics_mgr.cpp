@@ -393,37 +393,36 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
 
         TReportExecStatusResult res;
         Status rpc_status;
+
         try {
-            coord->reportExecStatus(res, params);
-            rpc_result[addr] = true;
-        } catch (apache::thrift::TApplicationException& e) {
-            LOG(WARNING) << "[report_query_statistics]fe " << add_str
-                         << " throw exception when report statistics, reason:" << e.what()
-                         << " , you can see fe log for details.";
-        } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "[report_query_statistics]report workload runtime statistics to "
-                         << add_str << " failed,  reason: " << e.what();
-            rpc_status = coord.reopen();
-            if (!rpc_status.ok()) {
-                LOG(WARNING) << "[report_query_statistics]reopen thrift client failed when report "
-                                "workload runtime statistics to"
-                             << add_str;
-            } else {
-                try {
+            try {
+                coord->reportExecStatus(res, params);
+                rpc_result[addr] = true;
+            } catch (apache::thrift::transport::TTransportException& e) {
+                LOG_WARNING(
+                        "[report_query_statistics] report to fe {} failed, reason:{}, try reopen.",
+                        add_str, e.what());
+                rpc_status = coord.reopen();
+                if (!rpc_status.ok()) {
+                    LOG_WARNING(
+                            "[report_query_statistics]reopen thrift client failed when report "
+                            "workload runtime statistics to {}, reason: {}",
+                            add_str, rpc_status.to_string());
+                } else {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
-                } catch (apache::thrift::transport::TTransportException& e2) {
-                    LOG(WARNING)
-                            << "[report_query_statistics]retry report workload runtime stats to "
-                            << add_str << " failed,  reason: " << e2.what();
-                } catch (std::exception& e) {
-                    LOG_WARNING(
-                            "[report_query_statistics]unknow exception when report workload "
-                            "runtime statistics to {}, "
-                            "reason:{}. ",
-                            add_str, e.what());
                 }
             }
+        } catch (apache::thrift::TApplicationException& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]fe {} throw exception when report statistics, "
+                    "reason:{}, you can see fe log for details.",
+                    add_str, e.what());
+        } catch (apache::thrift::transport::TTransportException& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]report workload runtime statistics to {} failed,  "
+                    "reason: {}",
+                    add_str, e.what());
         } catch (std::exception& e) {
             LOG_WARNING(
                     "[report_query_statistics]unknown exception when report workload runtime "
