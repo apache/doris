@@ -48,6 +48,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -641,22 +642,21 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return Optional.empty();
+        }
+
+        setFormatOptions();
+        if (physicalPlan instanceof ComputeResultSet) {
+            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
+                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
+            if (resultSet.isPresent()) {
+                return resultSet;
+            }
+        }
+
         return Optional.empty();
-        // if (!(parsedStmt instanceof LogicalPlanAdapter)) {
-        //     return Optional.empty();
-        // }
-        //
-        // setFormatOptions();
-        // if (physicalPlan instanceof ComputeResultSet) {
-        //     Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        //     Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-        //             .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
-        //     if (resultSet.isPresent()) {
-        //         return resultSet;
-        //     }
-        // }
-        //
-        // return Optional.empty();
     }
 
     private void setFormatOptions() {
