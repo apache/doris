@@ -76,9 +76,9 @@ Status VSortedRunMerger::prepare(const std::vector<BlockSupplier>& input_runs) {
         return Status::Cancelled(e.what());
     }
 
-    for (auto& _cursor : _cursors) {
-        if (!_cursor->eof()) {
-            _priority_queue.push(MergeSortCursor(_cursor));
+    for (auto& cursor : _cursors) {
+        if (!cursor->eof()) {
+            _priority_queue.push(MergeSortCursor(cursor));
         }
     }
 
@@ -136,8 +136,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         if (!current->is_first()) {
             for (int i = 0; i < current->block->columns(); i++) {
                 auto& column_with_type = current->block_ptr()->get_by_position(i);
-                column_with_type.column = column_with_type.column->cut(
-                        current->pos, current->rows - current->pos);
+                column_with_type.column =
+                        column_with_type.column->cut(current->pos, current->rows - current->pos);
             }
         }
         current->block_ptr()->swap(*output_block);
