@@ -27,7 +27,17 @@ suite ("test_insert_multi") {
 
     createMV ("create materialized view store_amt as select store_id, sum(sale_amt) from sales_records group by store_id;")
 
-    sql """insert into sales_records values(1,1,1,"2020-02-02",1),(1,2,2,"2020-02-02",1);"""
+    sql """insert into sales_records
+    values
+    (1,1,1,"2020-02-02",1),
+    (1,1,1,"2020-02-02",1),
+    (1,1,1,"2020-02-02",1),
+    (1,2,2,"2020-02-02",1),
+    (1,2,2,"2020-02-02",1),
+    (1,2,2,"2020-02-02",1);
+    """
+
+    sql """alter table sales_records modify column record_id set stats ('row_count'='6');"""
 
     qt_select_star "select * from sales_records order by 1,2;"
 
