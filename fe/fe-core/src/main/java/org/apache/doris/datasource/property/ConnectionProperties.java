@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.common.ConfigurationUtils;
+import org.apache.doris.common.CatalogConfigFileUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -67,7 +67,7 @@ public class ConnectionProperties {
         if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
             return Maps.newHashMap();
         }
-        Configuration conf = ConfigurationUtils.loadConfigurationFromHadoopConfDir(origProps.get(resourceConfig));
+        Configuration conf = CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir(origProps.get(resourceConfig));
         Map<String, String> confMap = Maps.newHashMap();
         for (Map.Entry<String, String> entry : conf) {
             confMap.put(entry.getKey(), entry.getValue());
