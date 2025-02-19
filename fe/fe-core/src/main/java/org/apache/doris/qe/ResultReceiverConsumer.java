@@ -91,6 +91,9 @@ public class ResultReceiverConsumer {
         }
 
         ReceiverContext context = contexts.get(readyOffsets.take());
+        if (errMsg != null) {
+            throw new UserException(errMsg);
+        }
         RowBatch rowBatch = context.future.get();
         if (errMsg != null) {
             throw new UserException(errMsg);
