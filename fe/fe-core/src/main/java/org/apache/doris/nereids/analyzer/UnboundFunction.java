@@ -19,21 +19,17 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Suppliers;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -46,8 +42,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
     // the start and end position of the function string in original sql
     private final Optional<FunctionIndexInSql> functionIndexInSql;
-
-    private final Supplier<ExprId> exprIdSupplier;
 
     /**
      * FunctionIndexInSql
@@ -90,7 +84,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         this(dbName, name, isDistinct, arguments, Optional.empty(), Optional.empty());
     }
 
-    /** constructor */
     public UnboundFunction(String dbName, String name, boolean isDistinct,
             List<Expression> arguments, Optional<FunctionIndexInSql> functionIndexInSql,
             Optional<Pair<Integer, Integer>> indexInSqlString) {
@@ -99,7 +92,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         this.isDistinct = isDistinct;
         this.functionIndexInSql = functionIndexInSql;
         this.indexInSqlString = indexInSqlString;
-        this.exprIdSupplier = Suppliers.memoize(StatementScopeIdGenerator::newExprId);
     }
 
     @Override
@@ -120,10 +112,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     public List<Expression> getArguments() {
         return children();
-    }
-
-    public ExprId getExprId() {
-        return exprIdSupplier.get();
     }
 
     @Override

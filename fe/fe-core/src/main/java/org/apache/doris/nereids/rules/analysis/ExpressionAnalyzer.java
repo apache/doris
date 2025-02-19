@@ -394,26 +394,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
 
-        String dbName = unboundFunction.getDbName();
-
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        List<Object> arguments;
-        if (unboundFunction.isDistinct()) {
-            arguments = ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
+        List<Object> arguments = unboundFunction.isDistinct()
+                ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
                     .add(unboundFunction.isDistinct())
                     .addAll(unboundFunction.getArguments())
-                    .build();
-        } else if (StringUtils.isEmpty(dbName)
-                && UniqueFunctionBinder.INSTANCE.isUniqueFunction(unboundFunction.getName())) {
-            arguments = ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
-                    .add(unboundFunction.getExprId())
-                    .addAll(unboundFunction.getArguments())
-                    .build();
-        } else {
-            arguments = (List) unboundFunction.getArguments();
-        }
+                    .build()
+                : (List) unboundFunction.getArguments();
 
+        String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
             // to the corresponding objects rather than BoundFunction.
