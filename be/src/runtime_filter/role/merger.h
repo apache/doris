@@ -45,6 +45,7 @@ public:
 
     Status merge_from(const RuntimeFilter* other) {
         _received_producer_num++;
+        DCHECK_GE(_expected_producer_num, _received_producer_num) << debug_string();
         if (_received_producer_num == _expected_producer_num) {
             _rf_state = State::READY;
         }
@@ -58,8 +59,8 @@ public:
     void set_expected_producer_num(int num) { _expected_producer_num = num; }
 
     bool add_rf_size(uint64_t size) {
-        DCHECK_GE(_expected_producer_num, _received_rf_size_num) << debug_string();
         _received_rf_size_num++;
+        DCHECK_GE(_expected_producer_num, _received_rf_size_num) << debug_string();
         return (_received_rf_size_num == _expected_producer_num);
     }
 
