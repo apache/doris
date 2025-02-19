@@ -383,29 +383,10 @@ public:
             auto& assert_col = column_with_type_and_name.column;
             std::cout << "column: " << col->get_name() << " size: " << col->size()
                       << " assert size: " << assert_col->size() << std::endl;
-            std::cout << block->dump_structure() << std::endl;
             EXPECT_EQ(assert_col->size(), col->size());
-            // print assert_col which is nullable(array) for offsets
-            auto print_a = check_and_get_column<ColumnArray>(remove_nullable(assert_col).get());
-            std::cout << "nested column " << print_a->get_data_ptr()->get_name()
-                      << " size: " << print_a->get_data_ptr()->size() << std::endl;
-            auto nested_a = check_and_get_column<ColumnNullable>(print_a->get_data_ptr().get());
-            for (int j = 0; j < nested_a->get_null_map_data().size(); ++j) {
-                if (nested_a->get_null_map_data()[j] != 0) {
-                    std::cout << "nested column nullmap: 1" << std::endl;
-                } else {
-                    std::cout << "nested column nullmap: 0" << std::endl;
-                }
-            }
             for (size_t j = 0; j < assert_col->size(); ++j) {
-                std::cout << "row: " << j << std::endl;
                 auto cell = col->operator[](j);
-                std::cout << cell.get_type() << std::endl;
                 auto assert_cell = assert_col->operator[](j);
-                if (!assert_cell.is_null()) {
-                    std::cout << "assert size :" << assert_cell.get<Array>().size() << std::endl;
-                }
-                std::cout << assert_cell.get_type() << std::endl;
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
             }
         }
