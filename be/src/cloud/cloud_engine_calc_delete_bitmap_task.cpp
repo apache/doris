@@ -20,6 +20,8 @@
 #include <fmt/format.h>
 
 #include <memory>
+#include <random>
+#include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
@@ -208,6 +210,18 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     }
 
     int64_t t3 = MonotonicMicros();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
+        auto sleep_time = dp->param("sleep", 100);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, txn={}, tablet_id={}", sleep_time,
+                     _transaction_id, _tablet_id);
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
     rowset->set_version(Version(_version, _version));
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
