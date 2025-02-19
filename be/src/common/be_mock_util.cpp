@@ -15,43 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-#include "util/defer_op.h"
+#include "be_mock_util.h"
+
+#include <chrono>
+#include <random>
+#include <thread>
+#include <vector>
 
 namespace doris {
+void mock_random_sleep() {
+    std::vector<int> sleepDurations = {0, 0, 0, 0, 50};
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, sleepDurations.size() - 1);
 
-// #define BE_TEST
-
-#ifdef BE_TEST
-#define MOCK_FUNCTION virtual
-#else
-#define MOCK_FUNCTION
-#endif
-
-#ifdef BE_TEST
-#define MOCK_DEFINE(str) str
-#else
-#define MOCK_DEFINE(str)
-#endif
-
-#ifdef BE_TEST
-#define MOCK_REMOVE(str)
-#else
-#define MOCK_REMOVE(str) str
-#endif
-
-void mock_random_sleep();
-
-#ifdef BE_TEST
-#define INJECT_MOCK_SLEEP(lock_guard) \
-    DEFER(mock_random_sleep());       \
-    lock_guard;
-#else
-#define INJECT_MOCK_SLEEP(lock_guard) lock_guard
-#endif
-
+    int sleepTime = sleepDurations[dis(gen)];
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
+}
 } // namespace doris
-
-/*
-#include "common/be_mock_util.h"
-*/
