@@ -233,9 +233,9 @@ func TestMultiTable(t *testing.T) {
 	for _, e := range batch.Signals[len(batch.Signals)-1].Events {
 		retryEvents = append(retryEvents, e.Content)
 	}
-	_, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[1]}) // has barrier
+	_, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[0]}) // has barrier
 	require.NoError(t, err0)
-	_, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[3]}) // has barrier
+	_, err0 = getBarrierFromEvent(&publisher.Event{Content: retryEvents[2]}) // has barrier
 	require.NoError(t, err0)
 
 	batch = outest.NewBatch(retryEvents...) // Fail (retry)

@@ -209,10 +209,10 @@ func (client *client) label(table string) string {
 // Publish sends events to doris.
 // batch.Events() are grouped by table first (tableEvents).
 // For each tableEvents, call the http stream load api to send the tableEvents to doris.
-// If a tableEvents returns an error, add a barrier to the last event of the tableEvents.
+// If a tableEvents returns an error, add a barrier to the first event of the tableEvents.
 // A barrier contains a table, a stream load label, and the length of the tableEvents.
 // Add all failed tableEvents to the retryEvents.
-// So if the last event in the batch.Events() has a barrier, it means that this is a retry.
+// So if the first event in the batch.Events() has a barrier, it means that this is a retry.
 // In this case, we will split the batch.Events() to some tableEvents by the barrier events
 // and send each tableEvents to doris again reusing the label in the barrier.
 func (client *client) Publish(ctx context.Context, batch publisher.Batch) error {
@@ -252,26 +252,26 @@ func (client *client) makeTableEventsMap(_ context.Context, events []publisher.E
 		return tableEventsMap
 	}
 
-	barrier, err := getBarrierFromEvent(&events[len(events)-1])
+	barrier, err := getBarrierFromEvent(&events[0])
 	if err == nil { // retry
 		if client.tableSelector.Sel.IsConst() { // table is const
-			removeBarrierFromEvent(&events[len(events)-1])
+			removeBarrierFromEvent(&events[0])
 			tableEventsMap[barrier.Table] = &Events{
 				Label:  barrier.Label,
 				Events: events,
 			}
 		} else { // split events by barrier
-			for end := len(events); end > 0; {
-				barrier, _ := getBarrierFromEvent(&events[end-1])
-				removeBarrierFromEvent(&events[end-1])
-				start := end - barrier.Length
+			for start := 0; start < len(events); {
+				barrier, _ := getBarrierFromEvent(&events[start])
+				removeBarrierFromEvent(&events[start])
+				end := start + barrier.Length
 
 				tableEventsMap[barrier.Table] = &Events{
 					Label:  barrier.Label,
 					Events: events[start:end], // should not do any append to the array, because here is a slice of the original array
 				}
 
-				end = start
+				start = end
 			}
 		}
 	} else { // first time
@@ -472,7 +472,7 @@ type barrierT struct {
 }
 
 func addBarrier(table string, events *Events) {
-	events.Events[len(events.Events)-1].Content.Fields[barrierKey] = &barrierT{
+	events.Events[0].Content.Fields[barrierKey] = &barrierT{
 		Table:  table,
 		Label:  events.Label,
 		Length: len(events.Events),
