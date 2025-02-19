@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -105,7 +105,7 @@ class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
                 new Random(new BigIntLiteral(1L), new BigIntLiteral(10L)), "b");
         Expression nonfoldableAdd = new Add(foldableAlias.toSlot(),
                 new Random(new BigIntLiteral(1L), new BigIntLiteral(2L)));
-        Expression condition = new And(Lists.newArrayList(new IsNull(foldableAlias.toSlot()),
+        Expression condition = ExpressionUtils.and(Lists.newArrayList(new IsNull(foldableAlias.toSlot()),
                 new IsNull(nonfoldableAlias.toSlot()), new IsNull(nonfoldableAdd)));
         LogicalPlan plan = new LogicalPlanBuilder(scan)
                 .projectExprs(ImmutableList.of(foldableAlias, nonfoldableAlias))
