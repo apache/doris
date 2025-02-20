@@ -215,6 +215,8 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             outfileInfoOneRow.setTotalRows(row.get(OutFileClause.TOTAL_ROWS));
             outfileInfoOneRow.setFileSize(row.get(OutFileClause.FILE_SIZE));
             outfileInfoOneRow.setUrl(row.get(OutFileClause.URL));
+            outfileInfo.setWriteTime(row.get(OutFileClause.WRITE_TIME));
+            outfileInfo.setWriteSpeed(row.get(OutFileClause.WRITE_SPEED));
             outfileInfo.add(outfileInfoOneRow);
         }
         return outfileInfo;
