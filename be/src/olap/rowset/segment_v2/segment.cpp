@@ -612,6 +612,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         ColumnReaderOptions opts {
                 .kept_in_memory = _tablet_schema->is_in_memory(),
                 .be_exec_version = _be_exec_version,
+                .inverted_index = _tablet_schema->inverted_index(column.unique_id()),
         };
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, footer, iter->second, footer.num_rows(),

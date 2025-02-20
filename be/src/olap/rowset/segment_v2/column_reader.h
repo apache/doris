@@ -88,6 +88,8 @@ struct ColumnReaderOptions {
     bool kept_in_memory = false;
 
     int be_exec_version = -1;
+
+    const TabletIndex* inverted_index = nullptr;
 };
 
 struct ColumnIteratorOptions {
@@ -317,6 +319,8 @@ public:
 
     int64_t get_metadata_size() const override;
 
+    TabletIndex* find_subcolumn_tablet_index(const std::string&);
+
 private:
     bool _read_flat_leaves(ReaderType type, const TabletColumn& target_col);
     // init for compaction read
@@ -329,6 +333,7 @@ private:
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
+    std::map<std::string, std::unique_ptr<TabletIndex>> _variant_subcolumns_indexes;
 };
 
 // Base iterator to read one column data

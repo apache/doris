@@ -228,9 +228,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         opts.inverted_index = index;
         opts.need_inverted_index = true;
         DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
-        // TODO support multiple inverted index
     }
+    opts.inverted_index_file_writer = _inverted_index_file_writer;
+
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \

@@ -539,19 +539,16 @@ Status VariantColumnWriterImpl::_create_column_writer(uint32_t cid, const Tablet
     // }
 
     opts.need_bitmap_index = parent_column.has_bitmap_index();
-    bool skip_inverted_index = false;
-    if (_opts.rowset_ctx != nullptr) {
-        // skip write inverted index for index compaction column
-        skip_inverted_index = _opts.rowset_ctx->columns_to_do_index_compaction.contains(
-                parent_column.unique_id());
-    }
-    if (const auto& index = tablet_schema->inverted_index(parent_column);
-        index != nullptr && !skip_inverted_index) {
-        opts.inverted_index = index;
+    const auto& index = tablet_schema->inverted_index(parent_column.unique_id());
+    if (index != nullptr &&
+        segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(column)) {
+        auto subcolumn_index = std::make_unique<TabletIndex>(*index);
+        subcolumn_index->set_escaped_escaped_index_suffix_path(column.path_info_ptr()->get_path());
+        opts.inverted_index = subcolumn_index.get();
         opts.need_inverted_index = true;
         DCHECK(_opts.inverted_index_file_writer != nullptr);
         opts.inverted_index_file_writer = _opts.inverted_index_file_writer;
-        // TODO support multiple inverted index
+        _subcolumns_indexes.emplace_back(std::move(subcolumn_index));
     }
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \

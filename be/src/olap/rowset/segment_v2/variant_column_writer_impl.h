@@ -98,6 +98,8 @@ private:
 
     // staticstics which will be persisted in the footer
     VariantStatistics _statistics;
+
+    std::vector<std::unique_ptr<TabletIndex>> _subcolumns_indexes;
 };
 } // namespace segment_v2
 } // namespace doris
