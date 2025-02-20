@@ -75,7 +75,7 @@ public:
     void set_synced_size(uint64_t global_size);
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
                                                 std::string reason = "") {
-        if (_set_state(State::READY_TO_PUBLISH)) {
+        if (set_state(State::READY_TO_PUBLISH)) {
             _wrapper->set_state(state, reason);
         }
     }
@@ -104,6 +104,16 @@ public:
         _wrapper = context->runtime_filters[_wrapper->filter_id()];
     }
 
+    bool set_state(State state) {
+        if (_rf_state == State::PUBLISHED ||
+            (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
+            return false;
+        }
+        _rf_state = state;
+        _profile->add_info_string("Info", debug_string());
+        return true;
+    }
+
 private:
     RuntimeFilterProducer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                           RuntimeProfile* parent_profile)
@@ -125,16 +135,6 @@ private:
                             "producer meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterProducer>(assumed_states));
         }
-    }
-
-    bool _set_state(State state) {
-        if (_rf_state == State::PUBLISHED ||
-            (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
-            return false;
-        }
-        _rf_state = state;
-        _profile->add_info_string("Info", debug_string());
-        return true;
     }
 
     const bool _is_broadcast_join;

@@ -109,8 +109,12 @@ Status RuntimeFilterSlots::process(
         } else if (shared_hash_table_ctx) {
             filter->copy_from_shared_context(shared_hash_table_ctx);
         }
-        filter->set_wrapper_state_and_ready_to_publish(
-                wrapper_state, _skip_runtime_filters_process ? "skip all rf process" : "");
+        if (_should_build_hash_table) {
+            filter->set_wrapper_state_and_ready_to_publish(
+                    wrapper_state, _skip_runtime_filters_process ? "skip all rf process" : "");
+        } else {
+            filter->set_state(RuntimeFilterProducer::State::READY_TO_PUBLISH);
+        }
     }
 
     RETURN_IF_ERROR(_publish(state));

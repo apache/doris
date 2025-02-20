@@ -88,7 +88,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         DCHECK(_is_broadcast_join);
     }
 
-    _set_state(State::PUBLISHED);
+    set_state(State::PUBLISHED);
     return Status::OK();
 }
 
@@ -142,7 +142,7 @@ Status RuntimeFilterProducer::send_size(
     }
     _dependency = dependency;
     _dependency->add();
-    _set_state(State::WAITING_FOR_SYNCED_SIZE);
+    set_state(State::WAITING_FOR_SYNCED_SIZE);
 
     // two case we need do local merge:
     // 1. has remote target
@@ -220,7 +220,7 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     if (_dependency) {
         _dependency->sub();
     }
-    _set_state(State::WAITING_FOR_DATA);
+    set_state(State::WAITING_FOR_DATA);
 }
 
 Status RuntimeFilterProducer::init(size_t local_size) {

@@ -149,8 +149,9 @@ public:
     void set_state(State state, std::string reason = "") {
         if (_state == State::DISABLED) {
             return;
+        } else if (state == State::DISABLED) {
+            _disabled_reason = reason;
         }
-        _disabled_reason = reason;
         _state = state;
     }
 
