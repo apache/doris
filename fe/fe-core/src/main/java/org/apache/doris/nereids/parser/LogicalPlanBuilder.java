@@ -5704,6 +5704,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new KillConnectionCommand(connectionId);
     }
 
+    @Override
     public Object visitAlterDatabaseSetQuota(AlterDatabaseSetQuotaContext ctx) {
         String databaseName = Optional.ofNullable(ctx.name)
                 .map(ParseTree::getText).filter(s -> !s.isEmpty())
