@@ -84,8 +84,7 @@ private:
         case State::WAITING_FOR_PRODUCT:
             return "WAITING_FOR_PRODUCT";
         default:
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid State {}",
-                                   int(state));
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid State {}", int(state));
         }
     }
 

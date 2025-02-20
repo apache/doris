@@ -66,7 +66,7 @@ struct GlobalMergeContext {
     std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     TRuntimeFilterDesc runtime_filter_desc;
-    std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
+    std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
 };
@@ -170,7 +170,7 @@ public:
 
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
-                           const std::vector<doris::TRuntimeFilterTargetParamsV2>&& target_info,
+                           const std::vector<TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
 
     UniqueId _query_id;

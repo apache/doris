@@ -180,8 +180,7 @@ public:
         case State::READY:
             return "READY";
         default:
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid State {}",
-                                   int(state));
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid State {}", int(state));
         }
     }
 

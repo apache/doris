@@ -36,14 +36,6 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
-    return Status::OK();
-}
-
-Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
-    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
@@ -52,6 +44,13 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
     _runtime_filter_slots =
             std::make_shared<RuntimeFilterSlotsCross>(_filter_src_expr_ctxs, profile(), true);
     RETURN_IF_ERROR(_runtime_filter_slots->init(state, p._runtime_filter_descs));
+    return Status::OK();
+}
+
+Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
     return Status::OK();
 }
 
