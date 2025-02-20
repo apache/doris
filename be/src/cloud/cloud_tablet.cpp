@@ -55,6 +55,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
+bvar::LatencyRecorder g_compaction_hold_delete_bitmap_lock_time_ms("compaction_hold_delete_bitmap_lock_time_ms");
+
 static constexpr int LOAD_INITIATOR_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
@@ -887,10 +889,13 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
                                                       output_rowset_delete_bitmap.get());
     int64_t t6 = MonotonicMicros();
+    int64_t hold_delete_bitmap_lock_time = t6 - t2;
+    g_compaction_hold_delete_bitmap_lock_time_ms << (hold_delete_bitmap_lock_time / 1000);
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)
               << " us, calc delete bitmap cost " << (t4 - t3) << " us, check rowid conversion cost "
               << (t5 - t4) << " us, store delete bitmap cost " << (t6 - t5)
+              << " us, hold_delete_bitmap_lock_time " << hold_delete_bitmap_lock_time
               << " us, st=" << st.to_string();
     return st;
 }
