@@ -512,6 +512,8 @@ struct JobConfig {
             }
         }
 
+        config.repeat = d["repeat"].GetInt64();
+
         config.write_batch_size = d["write_batch_size"].GetInt64();
         if (config.write_batch_size == 0) {
             config.write_batch_size = doris::config::s3_write_buffer_size;
@@ -755,10 +757,8 @@ public:
         }
 
         if (config.read_iops) {
-            for (int i = 0; i < config.repeat; i++) {
-                // 执行读操作
-                execute_read_tasks(keys, job, config);
-            }
+            // 执行读操作
+            execute_read_tasks(keys, job, config);
         }
         LOG(INFO) << "finish to Run " << job_id;
     }
@@ -950,114 +950,117 @@ private:
                         auto reader = std::make_unique<IopsControlledFileReader>(
                                 status_or_reader.value(), read_limiters[i], read_stats);
 
-                        size_t read_offset = 0;
-                        size_t read_length = 0;
+                        for (int i = 0; i < config.repeat; i++) {
+                            size_t read_offset = 0;
+                            size_t read_length = 0;
 
-                        bool use_random = true;
-                        if (config.read_offset_left + 1 == config.read_offset_right) {
-                            use_random = false;
-                        }
-                        if (exist_job_perfile_size != -1) {
-                            // read exist files
-                            if (config.read_offset_right > exist_job_perfile_size) {
-                                config.read_offset_right = exist_job_perfile_size;
+                            bool use_random = true;
+                            if (config.read_offset_left + 1 == config.read_offset_right) {
+                                use_random = false;
                             }
-                            if (config.read_length_right > exist_job_perfile_size) {
-                                config.read_length_right = exist_job_perfile_size;
-                            }
-
-                            if (use_random) {
-                                std::random_device rd;
-                                std::mt19937 gen(rd());
-                                // 在 read_offset_left 和 read_offset_right 之间生成随机 read_offset
-                                std::uniform_int_distribution<size_t> dis_offset(
-                                        config.read_offset_left, config.read_offset_right - 1);
-                                read_offset = dis_offset(gen); // 生成随机的 read_offset
-                                std::uniform_int_distribution<size_t> dis_length(
-                                        config.read_length_left, config.read_length_right - 1);
-                                read_length = dis_length(gen); // 生成随机的 read_length
-                                if (read_offset + read_length > exist_job_perfile_size) {
-                                    read_length = exist_job_perfile_size - read_offset;
+                            if (exist_job_perfile_size != -1) {
+                                // read exist files
+                                if (config.read_offset_right > exist_job_perfile_size) {
+                                    config.read_offset_right = exist_job_perfile_size;
                                 }
-                            } else { // not random
+                                if (config.read_length_right > exist_job_perfile_size) {
+                                    config.read_length_right = exist_job_perfile_size;
+                                }
+
+                                if (use_random) {
+                                    std::random_device rd;
+                                    std::mt19937 gen(rd());
+                                    // 在 read_offset_left 和 read_offset_right 之间生成随机 read_offset
+                                    std::uniform_int_distribution<size_t> dis_offset(
+                                            config.read_offset_left, config.read_offset_right - 1);
+                                    read_offset = dis_offset(gen); // 生成随机的 read_offset
+                                    std::uniform_int_distribution<size_t> dis_length(
+                                            config.read_length_left, config.read_length_right - 1);
+                                    read_length = dis_length(gen); // 生成随机的 read_length
+                                    if (read_offset + read_length > exist_job_perfile_size) {
+                                        read_length = exist_job_perfile_size - read_offset;
+                                    }
+                                } else { // not random
+                                    read_offset = config.read_offset_left;
+                                    read_length = config.read_length_left;
+                                }
+                            } else {
+                                // new files
                                 read_offset = config.read_offset_left;
                                 read_length = config.read_length_left;
+                                if (read_length == -1 ||
+                                    read_offset + read_length > config.size_bytes_perfile) {
+                                    read_length = config.size_bytes_perfile - read_offset;
+                                }
                             }
-                        } else {
-                            // new files
-                            read_offset = config.read_offset_left;
-                            read_length = config.read_length_left;
-                            if (read_length == -1 ||
-                                read_offset + read_length > config.size_bytes_perfile) {
-                                read_length = config.size_bytes_perfile - read_offset;
+                            LOG(INFO) << "read_offset=" << read_offset
+                                      << " read_length=" << read_length;
+                            CHECK(read_offset >= 0)
+                                    << "Calculated read_offset is negative: " << read_offset;
+                            CHECK(read_length >= 0)
+                                    << "Calculated read_length is negative: " << read_length;
+
+                            std::string read_buffer;
+                            read_buffer.resize(read_length);
+
+                            const size_t block_size = 512 * 1024;
+                            size_t num_blocks = (read_length + block_size - 1) / block_size;
+
+                            bool read_success = true;
+                            for (size_t j = 0; j < num_blocks && read_success; ++j) {
+                                size_t block_offset = j * block_size;
+                                int64_t current_block_size =
+                                        std::min(block_size, read_length - block_offset);
+                                doris::Slice read_slice(read_buffer.data() + block_offset,
+                                                        current_block_size);
+                                size_t bytes_read = 0;
+
+                                doris::Status read_status =
+                                        reader->read_at(read_offset + block_offset, read_slice,
+                                                        &bytes_read, &io_ctx);
+                                if (!read_status.ok()) {
+                                    read_success = false;
+                                    if (++read_retry_count >= max_read_retries) {
+                                        throw std::runtime_error("Read error for segment " + key +
+                                                                 ": " + read_status.to_string());
+                                    }
+                                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                                    break;
+                                }
+
+                                if (bytes_read != current_block_size) {
+                                    read_success = false;
+                                    if (++read_retry_count >= max_read_retries) {
+                                        throw std::runtime_error(
+                                                "Size mismatch for key " + key + ": expected " +
+                                                std::to_string(current_block_size) + ", got " +
+                                                std::to_string(bytes_read));
+                                    }
+                                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                                    break;
+                                }
+                            }
+
+                            if (read_success) {
+                                std::string expected_data =
+                                        DataGenerator::generate_fixed_size_data(read_length);
+
+                                // 校验读取的数据是否与生成的数据匹配
+                                if (memcmp(read_buffer.data(), expected_data.data(),
+                                           std::min(static_cast<size_t>(read_length),
+                                                    expected_data.size())) != 0) {
+                                    if (++read_retry_count >= max_read_retries) {
+                                        throw std::runtime_error(
+                                                "Data verification failed for key " + key);
+                                    }
+                                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                                    continue;
+                                }
                             }
                         }
-                        LOG(INFO) << "read_offset=" << read_offset
-                                  << " read_length=" << read_length;
-                        CHECK(read_offset >= 0)
-                                << "Calculated read_offset is negative: " << read_offset;
-                        CHECK(read_length >= 0)
-                                << "Calculated read_length is negative: " << read_length;
-
-                        std::string read_buffer;
-                        read_buffer.resize(read_length);
-
-                        const size_t block_size = 512 * 1024;
-                        size_t num_blocks = (read_length + block_size - 1) / block_size;
-
-                        bool read_success = true;
-                        for (size_t j = 0; j < num_blocks && read_success; ++j) {
-                            size_t block_offset = j * block_size;
-                            int64_t current_block_size =
-                                    std::min(block_size, read_length - block_offset);
-                            doris::Slice read_slice(read_buffer.data() + block_offset,
-                                                    current_block_size);
-                            size_t bytes_read = 0;
-
-                            doris::Status read_status = reader->read_at(
-                                    read_offset + block_offset, read_slice, &bytes_read, &io_ctx);
-                            if (!read_status.ok()) {
-                                read_success = false;
-                                if (++read_retry_count >= max_read_retries) {
-                                    throw std::runtime_error("Read error for segment " + key +
-                                                             ": " + read_status.to_string());
-                                }
-                                std::this_thread::sleep_for(std::chrono::seconds(1));
-                                break;
-                            }
-
-                            if (bytes_read != current_block_size) {
-                                read_success = false;
-                                if (++read_retry_count >= max_read_retries) {
-                                    throw std::runtime_error("Size mismatch for key " + key +
-                                                             ": expected " +
-                                                             std::to_string(current_block_size) +
-                                                             ", got " + std::to_string(bytes_read));
-                                }
-                                std::this_thread::sleep_for(std::chrono::seconds(1));
-                                break;
-                            }
-                        }
-
-                        if (read_success) {
-                            std::string expected_data =
-                                    DataGenerator::generate_fixed_size_data(read_length);
-
-                            // 校验读取的数据是否与生成的数据匹配
-                            if (memcmp(read_buffer.data(), expected_data.data(),
-                                       std::min(static_cast<size_t>(read_length),
-                                                expected_data.size())) != 0) {
-                                if (++read_retry_count >= max_read_retries) {
-                                    throw std::runtime_error("Data verification failed for key " +
-                                                             key);
-                                }
-                                std::this_thread::sleep_for(std::chrono::seconds(1));
-                                continue;
-                            }
-                            break;
-                        }
+                        break;
+                        completed_reads++;
                     }
-                    completed_reads++;
                 } catch (const std::exception& e) {
                     LOG(ERROR) << "Read task failed for segment " << key << ": " << e.what();
                 }
@@ -1080,7 +1083,8 @@ private:
         // 更新作业统计信息
         job.stats.num_local_io_total = total_stats.num_local_io_total;
         job.stats.num_remote_io_total = total_stats.num_remote_io_total;
-        job.stats.num_inverted_index_remote_io_total = total_stats.num_inverted_index_remote_io_total;
+        job.stats.num_inverted_index_remote_io_total =
+                total_stats.num_inverted_index_remote_io_total;
         job.stats.local_io_timer = total_stats.local_io_timer;
         job.stats.bytes_read_from_local = total_stats.bytes_read_from_local;
         job.stats.bytes_read_from_remote = total_stats.bytes_read_from_remote;
@@ -1178,21 +1182,36 @@ public:
                             allocator);
 
             // struct FileCacheStatistics
-            stats.AddMember("num_local_io_total", job.stats.num_local_io_total, allocator);
-            stats.AddMember("num_remote_io_total", job.stats.num_remote_io_total, allocator);
-            stats.AddMember("num_inverted_index_remote_io_total", job.stats.num_inverted_index_remote_io_total, allocator);
-            stats.AddMember("local_io_timer", job.stats.local_io_timer, allocator);
-            stats.AddMember("bytes_read_from_local", job.stats.bytes_read_from_local, allocator);
-            stats.AddMember("bytes_read_from_remote", job.stats.bytes_read_from_remote, allocator);
-            stats.AddMember("remote_io_timer", job.stats.remote_io_timer, allocator);
-            stats.AddMember("write_cache_io_timer", job.stats.write_cache_io_timer, allocator);
-            stats.AddMember("bytes_write_into_cache", job.stats.bytes_write_into_cache, allocator);
-            stats.AddMember("num_skip_cache_io_total", job.stats.num_skip_cache_io_total, allocator);
-            stats.AddMember("read_cache_file_directly_timer", job.stats.read_cache_file_directly_timer, allocator);
-            stats.AddMember("cache_get_or_set_timer", job.stats.cache_get_or_set_timer, allocator);
-            stats.AddMember("lock_wait_timer", job.stats.lock_wait_timer, allocator);
-            stats.AddMember("get_timer", job.stats.get_timer, allocator);
-            stats.AddMember("set_timer", job.stats.set_timer, allocator);
+            stats.AddMember("num_local_io_total",
+                            static_cast<uint64_t>(job.stats.num_local_io_total), allocator);
+            stats.AddMember("num_remote_io_total",
+                            static_cast<uint64_t>(job.stats.num_remote_io_total), allocator);
+            stats.AddMember("num_inverted_index_remote_io_total",
+                            static_cast<uint64_t>(job.stats.num_inverted_index_remote_io_total),
+                            allocator);
+            stats.AddMember("local_io_timer", static_cast<uint64_t>(job.stats.local_io_timer),
+                            allocator);
+            stats.AddMember("bytes_read_from_local",
+                            static_cast<uint64_t>(job.stats.bytes_read_from_local), allocator);
+            stats.AddMember("bytes_read_from_remote",
+                            static_cast<uint64_t>(job.stats.bytes_read_from_remote), allocator);
+            stats.AddMember("remote_io_timer", static_cast<uint64_t>(job.stats.remote_io_timer),
+                            allocator);
+            stats.AddMember("write_cache_io_timer",
+                            static_cast<uint64_t>(job.stats.write_cache_io_timer), allocator);
+            stats.AddMember("bytes_write_into_cache",
+                            static_cast<uint64_t>(job.stats.bytes_write_into_cache), allocator);
+            stats.AddMember("num_skip_cache_io_total",
+                            static_cast<uint64_t>(job.stats.num_skip_cache_io_total), allocator);
+            stats.AddMember("read_cache_file_directly_timer",
+                            static_cast<uint64_t>(job.stats.read_cache_file_directly_timer),
+                            allocator);
+            stats.AddMember("cache_get_or_set_timer",
+                            static_cast<uint64_t>(job.stats.cache_get_or_set_timer), allocator);
+            stats.AddMember("lock_wait_timer", static_cast<uint64_t>(job.stats.lock_wait_timer),
+                            allocator);
+            stats.AddMember("get_timer", static_cast<uint64_t>(job.stats.get_timer), allocator);
+            stats.AddMember("set_timer", static_cast<uint64_t>(job.stats.set_timer), allocator);
 
             d.AddMember("statistics", stats, allocator);
 
@@ -1208,7 +1227,8 @@ public:
                     file_obj.AddMember("filename",
                                        rapidjson::Value(file_info.filename.c_str(), allocator),
                                        allocator);
-                    file_obj.AddMember("data_size", file_info.data_size, allocator);
+                    file_obj.AddMember("data_size", static_cast<uint64_t>(file_info.data_size),
+                                       allocator);
                     file_obj.AddMember("job_id",
                                        rapidjson::Value(file_info.job_id.c_str(), allocator),
                                        allocator);
