@@ -536,6 +536,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             }
         }
     }
+    DBUG_EXECUTE_IF("segment_iterator.apply_inverted_index", {
+        LOG(INFO) << "Debug Point: segment_iterator.apply_inverted_index";
+        if (!_common_expr_ctxs_push_down.empty() || !_col_predicates.empty()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("it is failed to apply inverted index");
+        }
+    })
+
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
@@ -1068,12 +1075,24 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             // This is because the sub-column is created in create_materialized_variant_column.
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
-            int32_t col_unique_id =
-                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    column,
-                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
-                    _opts, &_inverted_index_iterators[cid]));
+            const TabletIndex* index_meta = nullptr;
+            if (column.is_extracted_column()) {
+                const TabletIndex* parent_index_meta =
+                        _segment->_tablet_schema->inverted_index(column.parent_unique_id());
+
+                // variant column has no inverted index
+                if (parent_index_meta == nullptr) {
+                    continue;
+                }
+
+                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
+                index_meta = assert_cast<VariantColumnReader*>(column_reader)
+                                     ->find_subcolumn_tablet_index(column.suffix_path());
+            } else {
+                index_meta = _segment->_tablet_schema->inverted_index(column.unique_id());
+            }
+            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(column, index_meta, _opts,
+                                                                  &_inverted_index_iterators[cid]));
         }
     }
     return Status::OK();
