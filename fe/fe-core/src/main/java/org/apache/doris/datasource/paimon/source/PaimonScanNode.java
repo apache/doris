@@ -294,8 +294,17 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown) {
-            long totalCount = paimonSplits.stream().mapToLong(s -> s.rowCount()).sum();
-            assignCountToSplits(splits, totalCount);
+            // check if all splits dont't have deletion vector or cardinality of every
+            // deletion vector is not null
+            boolean applyTableCountPushdown = paimonSplits.stream().allMatch(s -> s.deletionFiles().isEmpty()
+                    || s.deletionFiles().get().stream().allMatch(dv -> dv.cardinality() != null));
+            if (applyTableCountPushdown) {
+                long totalCount = paimonSplits.stream().mapToLong(s -> s.rowCount()).sum();
+                long deletionVectorCount = paimonSplits.stream().mapToLong(s -> s.deletionFiles().isEmpty()
+                        ? 0
+                        : s.deletionFiles().get().stream().mapToLong(dv -> dv.cardinality()).sum()).sum();
+                assignCountToSplits(splits, totalCount -= deletionVectorCount);
+            }
         }
 
         this.selectedPartitionNum = selectedPartitionValues.size();

@@ -101,12 +101,7 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
             }
         }
         COUNTER_UPDATE(_paimon_profile.num_delete_rows, _delete_rows.size());
-        if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-            // if the push down agg type is count, we need to update the remaining row count
-            _remaining_table_level_row_count -= _delete_rows.size();
-        } else {
             set_delete_rows();
-        }
     }
     return Status::OK();
 }
