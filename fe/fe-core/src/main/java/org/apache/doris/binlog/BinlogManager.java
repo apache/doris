@@ -112,6 +112,10 @@ public class BinlogManager {
             return;
         }
 
+        LOG.debug("add binlog, db {}, table {}, commitSeq {}, timestamp {}, type {}, data {}",
+                binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(), binlog.getType(),
+                binlog.getData());
+
         DBBinlog dbBinlog;
         lock.writeLock().lock();
         try {
@@ -588,7 +592,6 @@ public class BinlogManager {
 
         return tombstones;
     }
-
 
     public void replayGc(BinlogGcInfo binlogGcInfo) {
         lock.writeLock().lock();
