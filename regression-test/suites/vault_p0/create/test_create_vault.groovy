@@ -215,6 +215,7 @@ suite("test_create_vault", "nonConcurrent") {
                 "type"="hdfs",
                 "s3.bucket"="${getHmsHdfsFs()}",
                 "path_prefix" = "${hdfsVaultName}",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
                 "hadoop.username" = "${getHmsUser()}"
             );
             """
@@ -226,7 +227,8 @@ suite("test_create_vault", "nonConcurrent") {
             PROPERTIES (
                 "type"="hdfs",
                 "path_prefix" = "${hdfsVaultName}",
-                "hadoop.username" = "${getHmsUser()}"
+                "hadoop.username" = "${getHmsUser()}",
+                "check_connectivity" = "false"
             );
             """
     }, "invalid fs_name")
