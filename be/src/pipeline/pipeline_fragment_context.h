@@ -100,7 +100,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline(PipelineId pipeline_id);
+    bool decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
 
