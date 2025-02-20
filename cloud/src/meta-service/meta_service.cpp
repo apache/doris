@@ -2495,43 +2495,94 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         msg = "failed to init txn";
         return;
     }
+    if (!config::enable_batch_get_mow_tablet_stats) {
+        for (const auto& tablet_idx : request->tablet_indexes()) {
+            TabletStatsPB tablet_stat;
+            std::string stats_key =
+                    stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                      tablet_idx.partition_id(), tablet_idx.tablet_id()});
+            std::string stats_val;
+            err = txn->get(stats_key, &stats_val);
+            TEST_SYNC_POINT_CALLBACK(
+                    "get_delete_bitmap_update_lock.get_compaction_cnts_inject_error", &err);
+            if (err == TxnErrorCode::TXN_TOO_OLD) {
+                code = MetaServiceCode::OK;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn when get tablet stats";
+                    msg = ss.str();
+                    return;
+                }
+                err = txn->get(stats_key, &stats_val);
+            }
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
+                                  tablet_idx.tablet_id());
+                return;
+            }
+            if (!tablet_stat.ParseFromArray(stats_val.data(), stats_val.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("marformed tablet stats value, key={}", hex(stats_key));
+                return;
+            }
+            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+            response->add_cumulative_points(tablet_stat.cumulative_point());
+        }
+    } else {
+        int32_t batch_size = config::max_mow_tablet_stat_num_per_batch;
+        std::vector<std::string> stats_keys;
+        std::vector<std::optional<std::string>> stats_values;
+        stats_keys.reserve(batch_size);
+        stats_values.reserve(batch_size);
+        size_t num_acquired = request->tablet_indexes_size();
 
-    for (const auto& tablet_idx : request->tablet_indexes()) {
-        TabletStatsPB tablet_stat;
-        std::string stats_key =
-                stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
-                                  tablet_idx.partition_id(), tablet_idx.tablet_id()});
-        std::string stats_val;
-        err = txn->get(stats_key, &stats_val);
-        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
-                                 &err);
-        if (err == TxnErrorCode::TXN_TOO_OLD) {
-            code = MetaServiceCode::OK;
+        for (size_t i = response->base_compaction_cnts_size(); i < num_acquired; i += batch_size) {
+            size_t limit = (i + batch_size < num_acquired) ? i + batch_size : num_acquired;
+            stats_keys.clear();
+            stats_values.clear();
+            for (size_t j = i; j < limit; j++) {
+                auto& tablet_idx = request->tablet_indexes(j);
+                std::string stats_key =
+                        stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                          tablet_idx.partition_id(), tablet_idx.tablet_id()});
+                stats_keys.push_back(std::move(stats_key));
+            }
+
             err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::CREATE>(err);
-                ss << "failed to init txn when get tablet stats";
-                msg = ss.str();
+                msg = "failed to init txn";
                 return;
             }
-            err = txn->get(stats_key, &stats_val);
-        }
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
-                              tablet_idx.tablet_id());
-            return;
-        }
-        if (!tablet_stat.ParseFromArray(stats_val.data(), stats_val.size())) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = fmt::format("marformed tablet stats value, key={}", hex(stats_key));
-            return;
-        }
-        response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
-        response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
-        response->add_cumulative_points(tablet_stat.cumulative_point());
-    }
 
+            err = txn->batch_get(&stats_values, stats_keys);
+            TEST_SYNC_POINT_CALLBACK(
+                    "get_delete_bitmap_update_lock.get_compaction_cnts_inject_error", &err);
+            if (err != TxnErrorCode::TXN_OK) {
+                msg = fmt::format("failed to batch get tablet stats, index={}, err={}", i, err);
+                code = cast_as<ErrCategory::READ>(err);
+                return;
+            }
+
+            for (auto&& value : stats_values) {
+                TabletStatsPB tablet_stat;
+                if (!tablet_stat.ParseFromString(*value)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "marformed tablet stats value";
+                    return;
+                }
+                response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+                response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+                response->add_cumulative_points(tablet_stat.cumulative_point());
+            }
+        }
+    }
+    DCHECK(request->tablet_indexes_size() == response->base_compaction_cnts_size());
+    DCHECK(request->tablet_indexes_size() == response->cumulative_compaction_cnts_size());
+    DCHECK(request->tablet_indexes_size() == response->cumulative_points_size());
     read_stats_sw.pause();
     LOG(INFO) << fmt::format("tablet_idxes.size()={}, read tablet compaction cnts cost={} ms",
                              request->tablet_indexes().size(), read_stats_sw.elapsed_us() / 1000);
