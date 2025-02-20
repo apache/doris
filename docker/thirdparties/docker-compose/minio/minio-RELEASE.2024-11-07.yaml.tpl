@@ -33,6 +33,7 @@ services:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin
       - MINIO_REGION_NAME=us-east-1
+      - MINIO_DOMAIN=myminio.com
       - TZ=Asia/Shanghai
     volumes:
       - ./script/minio_init.sh:/bin/minio_init.sh
