@@ -246,7 +246,7 @@ public final class RuntimeFilter {
         // all filters will be same
         boolean buildBfByRuntimeSize = singleEq && (runtimeFilterType == TRuntimeFilterType.IN_OR_BLOOM
                 || runtimeFilterType == TRuntimeFilterType.BLOOM) && (!needShuffle || hasGlobalSize);
-        tFilter.setbuildBfByRuntimeSize(buildBfByRuntimeSize);
+        tFilter.setBuildBfByRuntimeSize(buildBfByRuntimeSize);
 
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
