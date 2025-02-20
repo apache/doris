@@ -79,7 +79,6 @@
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
@@ -765,9 +764,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (workload_group_ptr != nullptr) {
                             RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
                             query_ctx->set_workload_group(workload_group_ptr);
-                            _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
-                                    print_id(query_id), workload_group_ptr->id());
                         }
+
                         // There is some logic in query ctx's dctor, we could not check if exists and delete the
                         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
                         map.insert({query_id, query_ctx});
@@ -1400,18 +1398,13 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     return merge_status;
 }
 
-void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_info_list) {
+void FragmentMgr::get_runtime_query_info(
+        std::vector<std::weak_ptr<ResourceContext>>* _resource_ctx_list) {
     _query_ctx_map.apply(
             [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map) -> Status {
                 for (auto iter = map.begin(); iter != map.end();) {
                     if (auto q_ctx = iter->second.lock()) {
-                        WorkloadQueryInfo workload_query_info;
-                        workload_query_info.query_id = print_id(iter->first);
-                        workload_query_info.tquery_id = iter->first;
-                        workload_query_info.wg_id = q_ctx->workload_group() == nullptr
-                                                            ? -1
-                                                            : q_ctx->workload_group()->id();
-                        query_info_list->push_back(workload_query_info);
+                        _resource_ctx_list->push_back(q_ctx->resource_ctx());
                         iter++;
                     } else {
                         iter = map.erase(iter);

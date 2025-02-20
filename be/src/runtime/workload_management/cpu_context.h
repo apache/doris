@@ -18,9 +18,12 @@
 #pragma once
 
 #include "common/factory_creator.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
+
+class ResourceContext;
 
 class CPUContext : public std::enable_shared_from_this<CPUContext> {
     ENABLE_FACTORY_CREATOR(CPUContext);
@@ -47,7 +50,12 @@ public:
 
     CPUContext() { stats_.init_profile(); }
     virtual ~CPUContext() = default;
-    Stats* stats() { return &stats_; }
+
+    RuntimeProfile* stats_profile() { return stats_.profile(); }
+
+    int64_t cpu_cost_ms() const { return stats_.cpu_cost_ms_counter_->value(); }
+
+    void update_cpu_cost_ms(int64_t delta) const;
 
     // Bind current thread to cgroup, only some load thread should do this.
     void bind_workload_group() {
@@ -55,7 +63,12 @@ public:
     }
 
 protected:
+    friend class ResourceContext;
+
+    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
+
     Stats stats_;
+    ResourceContext* resource_ctx_ {nullptr};
 };
 
 } // namespace doris

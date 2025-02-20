@@ -63,21 +63,9 @@ public:
 
     // After attach, the current thread Memory Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
-    void detach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker =
-                                        ExecEnv::GetInstance()->orphan_mem_tracker());
-
-    void attach_task(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                     const std::weak_ptr<WorkloadGroup>& wg_wptr) {
-        DCHECK(mem_tracker);
-        attach_limiter_tracker(mem_tracker);
-        _wg_wptr = wg_wptr;
-        enable_wait_gc();
-    }
-    void detach_task(const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
-        detach_limiter_tracker(old_mem_tracker);
-        _wg_wptr.reset();
-        disable_wait_gc();
-    }
+    void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+                                const std::weak_ptr<WorkloadGroup>& wg_wptr);
+    void detach_limiter_tracker();
 
     // Must be fast enough! Thread update_tracker may be called very frequently.
     bool push_consumer_tracker(MemTracker* mem_tracker);
@@ -134,6 +122,8 @@ public:
 
 private:
     struct LastAttachSnapshot {
+        std::shared_ptr<MemTrackerLimiter> limiter_tracker {nullptr};
+        std::weak_ptr<WorkloadGroup> wg_wptr;
         int64_t reserved_mem = 0;
         std::vector<MemTracker*> consumer_tracker_stack;
     };
@@ -155,7 +145,7 @@ private:
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
 
-    std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker {nullptr};
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 

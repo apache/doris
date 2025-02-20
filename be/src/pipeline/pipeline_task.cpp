@@ -95,8 +95,6 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
 
     _scan_ranges = scan_range;
     auto* parent_profile = _state->get_sink_local_state()->profile();
-    query_ctx->register_query_statistics(
-            _state->get_sink_local_state()->get_query_statistics_ptr());
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
@@ -104,8 +102,6 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
                              _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
-        query_ctx->register_query_statistics(
-                _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
     {
         std::vector<Dependency*> filter_dependencies;
@@ -296,11 +292,7 @@ Status PipelineTask::execute(bool* eos) {
         }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
-        auto cpu_qs = query_context()->get_cpu_statistics();
-        if (cpu_qs) {
-            cpu_qs->add_cpu_nanos(delta_cpu_time);
-        }
-        query_context()->update_cpu_time(delta_cpu_time);
+        query_context()->resource_ctx()->cpu_context()->update_cpu_cost_ms(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         if (config::enable_prefetch_tablet) {

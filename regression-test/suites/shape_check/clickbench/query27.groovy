@@ -24,6 +24,7 @@ suite("query27") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
+    sql 'set enable_two_phase_read_opt = true'
     sql 'set topn_opt_limit_threshold = 1024'
     def ckBench = """SELECT SearchPhrase FROM hits WHERE SearchPhrase <> '' ORDER BY EventTime, SearchPhrase LIMIT 10"""
     qt_ckbench_shape_27 """
