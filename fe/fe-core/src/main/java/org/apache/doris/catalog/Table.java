@@ -29,6 +29,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -332,6 +334,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             LOG.warn("failed to try cloud commit lock at table[" + name + "]", e);
             return false;
         }
+    }
+
+    public Thread getCommitLockOwner() {
+        return this.commitLock.getOwner();
     }
 
     public void commitUnlock() {
