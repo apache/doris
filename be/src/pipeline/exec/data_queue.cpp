@@ -72,17 +72,6 @@ void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int ch
     _free_blocks[child_idx].emplace_back(std::move(block));
 }
 
-//use sink to check can_write
-bool DataQueue::has_enough_space_to_push() {
-    DCHECK(_cur_bytes_in_queue.size() == 1);
-    return _cur_bytes_in_queue[0].load() < MAX_BYTE_OF_QUEUE / 2;
-}
-
-//use source to check can_read
-bool DataQueue::has_data_or_finished(int child_idx) {
-    return remaining_has_data() || _is_finished[child_idx];
-}
-
 //check which queue have data, and save the idx in _flag_queue_idx,
 //so next loop, will check the record idx + 1 first
 //maybe it's useful with many queue, others maybe always 0
@@ -126,10 +115,6 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             if (old_value == 1 && _source_dependency) {
                 set_source_block();
             }
-        } else {
-            if (_is_finished[_flag_queue_idx]) {
-                _data_exhausted = true;
-            }
         }
     }
     return Status::OK();
@@ -151,9 +136,6 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_blocks_total_nums++;
 
         set_source_ready();
-        //this only use to record the queue[0] for profile
-        _max_bytes_in_queue = std::max(_max_bytes_in_queue, _cur_bytes_in_queue[0].load());
-        _max_size_of_queue = std::max(_max_size_of_queue, (int64)_queue_blocks[0].size());
     }
 }
 
