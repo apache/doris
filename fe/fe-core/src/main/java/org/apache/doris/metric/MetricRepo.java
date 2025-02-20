@@ -149,6 +149,7 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
     public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
+    public static Histogram HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY;
 
     // Catlaog/Database/Table num
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
@@ -565,6 +566,8 @@ public final class MetricRepo {
 
         HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
+        HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_delete_bitmap_update_lock", "latency", "ms"));
 
         GAUGE_CATALOG_NUM = new GaugeMetric<Integer>("catalog_num",
                 MetricUnit.NOUNIT, "total catalog num") {
