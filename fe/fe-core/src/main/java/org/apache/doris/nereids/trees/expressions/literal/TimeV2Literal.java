@@ -40,11 +40,11 @@ public class TimeV2Literal extends Literal {
     protected int microsecond;
     protected boolean negative;
 
-    public TimeV2Literal(String s) throws AnalysisException {
-        this(TimeV2Type.of(6), s);
+    public TimeV2Literal(String s){
+        this(TimeV2Type.of(0), s);
     }
 
-    protected TimeV2Literal(TimeV2Type dataType, String s) throws AnalysisException {
+    protected TimeV2Literal(TimeV2Type dataType, String s) {
         super(dataType);
         init(s);
     }
@@ -71,8 +71,8 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor time literal.
      */
-    public TimeV2Literal(int hour, int minute, int second) throws AnalysisException {
-        this(TimeV2Type.INSTANCE, hour, minute, second);
+    public TimeV2Literal(int hour, int minute, int second) {
+        this(TimeV2Type.of(0), hour, minute, second);
     }
 
     /**
@@ -85,7 +85,7 @@ public class TimeV2Literal extends Literal {
         this.second = second;
         this.microsecond = 0;
         this.negative = hour < 0;
-        if (checkRange(hour, minute, second, microsecond)) {
+        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
             throw new AnalysisException("time literal is out of range");
         }
     }
@@ -103,7 +103,7 @@ public class TimeV2Literal extends Literal {
             this.microsecond *= 10;
         }
         this.negative = hour < 0;
-        if (checkRange(hour, minute, second, microsecond)) {
+        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
             throw new AnalysisException("time literal is out of range");
         }
     }
@@ -111,12 +111,12 @@ public class TimeV2Literal extends Literal {
     protected String normalize(String s) {
         // remove suffix/prefix ' '
         s = s.trim();
+        if (s.charAt(0) == '-') {
+            s = s.substring(1);
+            negative = true;
+        }
         if (!s.contains(":")) {
             String tail = "";
-            if (s.charAt(0) == '-') {
-                s = s.substring(1);
-                negative = true;
-            }
             if (s.contains(".")) {
                 tail = s.substring(s.indexOf("."));
                 s = s.substring(0, s.indexOf("."));
@@ -239,9 +239,9 @@ public class TimeV2Literal extends Literal {
             sb.append("-");
         }
         if (hour > 99) {
-            sb.append(String.format("%03.0f:%02d:%02d", hour, minute, second));
+            sb.append(String.format("%03d:%02d:%02d", hour, minute, second));
         } else {
-            sb.append(String.format("%02.0f:%02d:%02d", hour, minute, second));
+            sb.append(String.format("%02d:%02d:%02d", hour, minute, second));
         }
         if (((TimeV2Type) dataType).getScale() > 0) {
             sb.append(String.format(".%0" + ((TimeV2Type) dataType).getScale() + "d", microsecond));

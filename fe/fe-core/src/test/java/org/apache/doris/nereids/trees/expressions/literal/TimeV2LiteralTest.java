@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.common.AnalysisException;
-
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class TimeV2LiteralTest {
 
     @Test
-    public void testTimeLiteralCreate() throws AnalysisException {
+    public void testTimeLiteralCreate(){
         // without micro second
         TimeV2Literal literal = new TimeV2Literal("12:12:12");
         String s = literal.getStringValue();
@@ -58,15 +57,15 @@ public class TimeV2LiteralTest {
         s = literal.getStringValue();
         Assert.assertEquals(s, "-00:59:59");
         // contail micro second part
-        literal = new TimeV2Literal("12:12:12.121212");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "12:12:12.121212");
         s = literal.getStringValue();
         Assert.assertEquals(s, "12:12:12.121212");
         // max val
-        literal = new TimeV2Literal("838:59:59.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "838:59:59.999999");
         s = literal.getStringValue();
         Assert.assertEquals(s, "838:59:59.999999");
         // min val
-        literal = new TimeV2Literal("-838:59:59.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "-838:59:59.999999");
         s = literal.getStringValue();
         Assert.assertEquals(s, "-838:59:59.999999");
         // not string
@@ -91,10 +90,10 @@ public class TimeV2LiteralTest {
         literal = new TimeV2Literal("120000");
         s = literal.getStringValue();
         Assert.assertEquals(s, "12:00:00");
-        literal = new TimeV2Literal("8385959.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "8385959.999999");
         s = literal.getStringValue();
         Assert.assertEquals(s, "838:59:59.999999");
-        literal = new TimeV2Literal("-8385959.999999");
+        literal = new TimeV2Literal(TimeV2Type.of(6), "-8385959.999999");
         s = literal.getStringValue();
         Assert.assertEquals(s, "-838:59:59.999999");
         // one ":"

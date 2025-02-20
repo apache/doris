@@ -75,7 +75,7 @@ public class TimeV2Literal extends LiteralExpr {
         this.second = second;
         this.microsecond = 0;
         this.negative = hour < 0;
-        if (checkRange(hour, minute, second, microsecond)) {
+        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
             throw new AnalysisException("time literal is out of range");
         }
         analysisDone();
@@ -84,20 +84,21 @@ public class TimeV2Literal extends LiteralExpr {
     public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
         super();
         this.type = ScalarType.createTimeV2Type(scale);
-        this.hour = hour;
+        this.hour = Math.abs(hour);
         this.minute = minute;
         this.second = second;
         this.microsecond = microsecond;
         while (microsecond != 0 && this.microsecond < 100000) {
             this.microsecond *= 10;
         }
-        if (checkRange(hour, minute, second, microsecond)) {
+        this.negative = hour < 0;
+        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
             throw new AnalysisException("time literal is out of range");
         }
         analysisDone();
     }
 
-    public TimeV2Literal(String s) throws AnalysisException {
+    public TimeV2Literal(String s) {
         super();
         init(s);
         analysisDone();
@@ -120,12 +121,12 @@ public class TimeV2Literal extends LiteralExpr {
     protected String normalize(String s) {
         // remove suffix/prefix ' '
         s = s.trim();
+        if (s.charAt(0) == '-') {
+            s = s.substring(1);
+            negative = true;
+        }
         if (!s.contains(":")) {
             String tail = "";
-            if (s.charAt(0) == '-') {
-                s = s.substring(1);
-                negative = true;
-            }
             if (s.contains(".")) {
                 tail = s.substring(s.indexOf("."));
                 s = s.substring(0, s.indexOf("."));
@@ -238,9 +239,9 @@ public class TimeV2Literal extends LiteralExpr {
             sb.append("-");
         }
         if (hour > 99) {
-            sb.append(String.format("%03.0f:%02d:%02d", hour, minute, second));
+            sb.append(String.format("%03d:%02d:%02d", hour, minute, second));
         } else {
-            sb.append(String.format("%02.0f:%02d:%02d", hour, minute, second));
+            sb.append(String.format("%02d:%02d:%02d", hour, minute, second));
         }
         if (((ScalarType) type).getScalarScale() > 0) {
             sb.append(String.format(".%0" + ((ScalarType) type).getScalarScale() + "d", microsecond));
