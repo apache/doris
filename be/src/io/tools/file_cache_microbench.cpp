@@ -477,7 +477,7 @@ struct JobConfig {
         d.Parse(json_str.c_str());
 
         if (d.HasParseError()) {
-            throw std::runtime_error("JSON parse error");
+            throw std::runtime_error("JSON parse error json args=" + json_str);
         }
         validate(d);
         if (d.HasMember("write_file_cache") && d["write_file_cache"].GetBool() == false) {
@@ -581,12 +581,25 @@ struct Job {
     struct Statistics {
         double peak_write_iops;
         double peak_read_iops;
-        int64_t cache_hits;
-        int64_t cache_misses;
-        int64_t bytes_read_local;
-        int64_t bytes_read_remote;
         std::string total_write_time;
         std::string total_read_time;
+
+        // struct FileCacheStatistics
+        int64_t num_local_io_total = 0;
+        int64_t num_remote_io_total = 0;
+        int64_t num_inverted_index_remote_io_total = 0;
+        int64_t local_io_timer = 0;
+        int64_t bytes_read_from_local = 0;
+        int64_t bytes_read_from_remote = 0;
+        int64_t remote_io_timer = 0;
+        int64_t write_cache_io_timer = 0;
+        int64_t bytes_write_into_cache = 0;
+        int64_t num_skip_cache_io_total = 0;
+        int64_t read_cache_file_directly_timer = 0;
+        int64_t cache_get_or_set_timer = 0;
+        int64_t lock_wait_timer = 0;
+        int64_t get_timer = 0;
+        int64_t set_timer = 0;
     } stats;
 
     // 记录与作业相关的文件信息
@@ -966,7 +979,6 @@ private:
                                 if (read_offset + read_length > exist_job_perfile_size) {
                                     read_length = exist_job_perfile_size - read_offset;
                                 }
-                                LOG(INFO) << "fuck ... read_offset=" << read_offset;
                             } else { // not random
                                 read_offset = config.read_offset_left;
                                 read_length = config.read_length_left;
@@ -1066,10 +1078,21 @@ private:
         LOG(INFO) << "Total read time: " << job.stats.total_read_time << " seconds";
 
         // 更新作业统计信息
-        job.stats.cache_hits = total_stats.num_local_io_total;
-        job.stats.cache_misses = total_stats.num_remote_io_total;
-        job.stats.bytes_read_local = total_stats.bytes_read_from_local;
-        job.stats.bytes_read_remote = total_stats.bytes_read_from_remote;
+        job.stats.num_local_io_total = total_stats.num_local_io_total;
+        job.stats.num_remote_io_total = total_stats.num_remote_io_total;
+        job.stats.num_inverted_index_remote_io_total = total_stats.num_inverted_index_remote_io_total;
+        job.stats.local_io_timer = total_stats.local_io_timer;
+        job.stats.bytes_read_from_local = total_stats.bytes_read_from_local;
+        job.stats.bytes_read_from_remote = total_stats.bytes_read_from_remote;
+        job.stats.remote_io_timer = total_stats.remote_io_timer;
+        job.stats.write_cache_io_timer = total_stats.write_cache_io_timer;
+        job.stats.bytes_write_into_cache = total_stats.bytes_write_into_cache;
+        job.stats.num_skip_cache_io_total = total_stats.num_skip_cache_io_total;
+        job.stats.read_cache_file_directly_timer = total_stats.read_cache_file_directly_timer;
+        job.stats.cache_get_or_set_timer = total_stats.cache_get_or_set_timer;
+        job.stats.lock_wait_timer = total_stats.lock_wait_timer;
+        job.stats.get_timer = total_stats.lock_wait_timer;
+        job.stats.set_timer = total_stats.lock_wait_timer;
     }
 
     std::mutex _mutex;
@@ -1147,16 +1170,29 @@ public:
             rapidjson::Value stats(rapidjson::kObjectType);
             stats.AddMember("peak_write_iops", job.stats.peak_write_iops, allocator);
             stats.AddMember("peak_read_iops", job.stats.peak_read_iops, allocator);
-            stats.AddMember("cache_hits", job.stats.cache_hits, allocator);
-            stats.AddMember("cache_misses", job.stats.cache_misses, allocator);
-            stats.AddMember("bytes_read_local", job.stats.bytes_read_local, allocator);
-            stats.AddMember("bytes_read_remote", job.stats.bytes_read_remote, allocator);
             stats.AddMember("total_write_time",
                             rapidjson::Value(job.stats.total_write_time.c_str(), allocator),
                             allocator);
             stats.AddMember("total_read_time",
                             rapidjson::Value(job.stats.total_read_time.c_str(), allocator),
                             allocator);
+
+            // struct FileCacheStatistics
+            stats.AddMember("num_local_io_total", job.stats.num_local_io_total, allocator);
+            stats.AddMember("num_remote_io_total", job.stats.num_remote_io_total, allocator);
+            stats.AddMember("num_inverted_index_remote_io_total", job.stats.num_inverted_index_remote_io_total, allocator);
+            stats.AddMember("local_io_timer", job.stats.local_io_timer, allocator);
+            stats.AddMember("bytes_read_from_local", job.stats.bytes_read_from_local, allocator);
+            stats.AddMember("bytes_read_from_remote", job.stats.bytes_read_from_remote, allocator);
+            stats.AddMember("remote_io_timer", job.stats.remote_io_timer, allocator);
+            stats.AddMember("write_cache_io_timer", job.stats.write_cache_io_timer, allocator);
+            stats.AddMember("bytes_write_into_cache", job.stats.bytes_write_into_cache, allocator);
+            stats.AddMember("num_skip_cache_io_total", job.stats.num_skip_cache_io_total, allocator);
+            stats.AddMember("read_cache_file_directly_timer", job.stats.read_cache_file_directly_timer, allocator);
+            stats.AddMember("cache_get_or_set_timer", job.stats.cache_get_or_set_timer, allocator);
+            stats.AddMember("lock_wait_timer", job.stats.lock_wait_timer, allocator);
+            stats.AddMember("get_timer", job.stats.get_timer, allocator);
+            stats.AddMember("set_timer", job.stats.set_timer, allocator);
 
             d.AddMember("statistics", stats, allocator);
 
