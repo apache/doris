@@ -73,7 +73,6 @@ statementBase
 unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
-    | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
