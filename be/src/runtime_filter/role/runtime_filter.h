@@ -108,9 +108,8 @@ protected:
         try {
             _wrapper->check_state(assumed_states);
         } catch (const Exception& e) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "rf wrapper meet invalid state, {}, {}", e.what(),
-                                   debug_string());
+            throw Exception(ErrorCode::INTERNAL_ERROR, "rf wrapper meet invalid state, {}, {}",
+                            e.what(), debug_string());
         }
     }
 

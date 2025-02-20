@@ -89,7 +89,7 @@ Status RuntimeFilterMgr::register_consumer_filter(
 }
 
 Status RuntimeFilterMgr::register_local_merger_filter(
-        const doris::TRuntimeFilterDesc& desc, const doris::TQueryOptions& options,
+        const TRuntimeFilterDesc& desc, const TQueryOptions& options,
         std::shared_ptr<RuntimeFilterProducer> producer_filter) {
     DCHECK(_is_global);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
@@ -169,8 +169,7 @@ Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {
 
 Status RuntimeFilterMergeControllerEntity::_init_with_desc(
         const TRuntimeFilterDesc* runtime_filter_desc,
-        const std::vector<doris::TRuntimeFilterTargetParamsV2>&& targetv2_info,
-        const int producer_size) {
+        const std::vector<TRuntimeFilterTargetParamsV2>&& targetv2_info, const int producer_size) {
     auto filter_id = runtime_filter_desc->filter_id;
     GlobalMergeContext* cnt_val;
     {
@@ -209,7 +208,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
             RETURN_IF_ERROR(_init_with_desc(
                     &filterid_to_desc.second,
                     targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()
-                            ? std::vector<doris::TRuntimeFilterTargetParamsV2> {}
+                            ? std::vector<TRuntimeFilterTargetParamsV2> {}
                             : targetv2_iter->second,
                     build_iter->second));
         }
