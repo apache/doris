@@ -298,6 +298,7 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW PLUGINS                                                                  #showPlugins
+    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault    
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showEncryptKeys
@@ -381,7 +382,6 @@ lockTable
 unsupportedShowStatement
     : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
-    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
