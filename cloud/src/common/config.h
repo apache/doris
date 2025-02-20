@@ -252,4 +252,8 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+
+// Used for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats, "true");
+CONF_mInt32(max_mow_tablet_stat_num_per_batch, "1000");
 } // namespace doris::cloud::config
