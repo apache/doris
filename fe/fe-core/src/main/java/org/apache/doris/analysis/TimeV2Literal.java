@@ -21,7 +21,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTimeV2Literal;
@@ -255,9 +254,8 @@ public class TimeV2Literal extends LiteralExpr {
     }
 
     protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond()
-                || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond()
-                || microsecond < MIN_TIME.getMicroSecond() || microsecond > MAX_TIME.getMicroSecond();
+        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
+                || microsecond < 0 || microsecond > 999999;
     }
 
     public int getHour() {
@@ -279,8 +277,8 @@ public class TimeV2Literal extends LiteralExpr {
 
     public double getValue() {
         if (negative) {
-            return (((-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
+            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
         }
-        return (((hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
+        return (((double) (hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
     }
 }

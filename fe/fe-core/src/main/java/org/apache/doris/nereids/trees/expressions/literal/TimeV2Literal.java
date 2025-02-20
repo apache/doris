@@ -52,7 +52,7 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor time literal.
      */
-    public TimeV2Literal(double value) {
+    public TimeV2Literal(double value) throws AnalysisException {
         super(TimeV2Type.of(6));
         if (value > (double) MAX_TIME.getValue() || value < -(double) MAX_TIME.getValue()) {
             throw new AnalysisException("The value is out of range");
@@ -71,14 +71,14 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor time literal.
      */
-    public TimeV2Literal(int hour, int minute, int second) {
+    public TimeV2Literal(int hour, int minute, int second) throws AnalysisException {
         this(TimeV2Type.INSTANCE, hour, minute, second);
     }
 
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(TimeV2Type dataType, int hour, int minute, int second) {
+    public TimeV2Literal(TimeV2Type dataType, int hour, int minute, int second) throws AnalysisException {
         super(dataType);
         this.hour = Math.abs(hour);
         this.minute = minute;
@@ -93,7 +93,7 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) {
+    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
         super(TimeV2Type.of(scale));
         this.hour = Math.abs(hour);
         this.minute = minute;
@@ -201,9 +201,8 @@ public class TimeV2Literal extends Literal {
     }
 
     protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > MAX_TIME.getHour() || minute > MAX_TIME.getMinute() || second > MAX_TIME.getSecond()
-                || hour < MIN_TIME.getHour() || minute < MIN_TIME.getMinute() || second < MIN_TIME.getSecond()
-                || microsecond < MIN_TIME.getMicroSecond() || microsecond > MAX_TIME.getMicroSecond();
+        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
+                || microsecond < 0 || microsecond > 999999;
     }
 
     public int getHour() {
@@ -264,9 +263,9 @@ public class TimeV2Literal extends Literal {
     @Override
     public Object getValue() {
         if (negative) {
-            return (((-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
+            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
         }
-        return (((hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
+        return (((double) (hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
     }
 
     @Override
