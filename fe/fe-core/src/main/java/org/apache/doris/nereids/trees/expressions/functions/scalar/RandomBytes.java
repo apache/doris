@@ -64,7 +64,7 @@ public class RandomBytes extends ScalarFunction
     @Override
     public RandomBytes withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        ExprId newExprId = children.get(0).equals(child(0)) ? exprId : StatementScopeIdGenerator.newExprId();
+        ExprId newExprId = children().equals(children) ? exprId : StatementScopeIdGenerator.newExprId();
         return new RandomBytes(newExprId, children.get(0));
     }
 
