@@ -37,7 +37,6 @@
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-// #include "vec/functions/string_utils.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
