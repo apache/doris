@@ -19,7 +19,7 @@
 
 #include "join_build_sink_operator.h"
 #include "operator.h"
-#include "runtime_filter/runtime_filter_slots.h"
+#include "runtime_filter/runtime_filter_producer_helper.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -79,7 +79,7 @@ protected:
     size_t _build_side_rows = 0;
 
     vectorized::MutableBlock _build_side_mutable_block;
-    std::shared_ptr<RuntimeFilterSlots> _runtime_filter_slots;
+    std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
 
     /*
      * The comparison result of a null value with any other value is null,

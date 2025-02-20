@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/role/producer.h"
+#include "runtime_filter/runtime_filter_producer.h"
 
 #include <glog/logging.h>
 
-#include "runtime_filter/role/consumer.h"
-#include "runtime_filter/role/merger.h"
+#include "runtime_filter/runtime_filter_consumer.h"
+#include "runtime_filter/runtime_filter_merger.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
@@ -104,7 +104,11 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
-        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
+        Defer defer {[&]() {
+            if (_dependency) {
+                ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+            }
+        }};
         auto wrapper = _wrapper.lock();
         if (!wrapper) {
             return;
@@ -115,7 +119,11 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     }
 
     void _process_if_meet_error_status(const Status& status) override {
-        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
+        Defer defer {[&]() {
+            if (_dependency) {
+                ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+            }
+        }};
         auto wrapper = _wrapper.lock();
         if (!wrapper) {
             return;
@@ -140,8 +148,10 @@ Status RuntimeFilterProducer::send_size(
         _check_state({State::WAITING_FOR_DATA});
         return Status::OK();
     }
-    _dependency = dependency;
-    _dependency->add();
+    if (dependency) {
+        _dependency = dependency;
+        _dependency->add();
+    }
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
     // two case we need do local merge:

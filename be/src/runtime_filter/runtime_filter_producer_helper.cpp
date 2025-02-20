@@ -15,17 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/runtime_filter_slots.h"
+#include "runtime_filter/runtime_filter_producer_helper.h"
 
 #include "pipeline/pipeline_task.h"
-#include "runtime_filter/role/producer.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
-#include "util/defer_op.h"
 
 namespace doris {
 
-Status RuntimeFilterSlots::init(RuntimeState* state,
-                                const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+Status RuntimeFilterProducerHelper::init(
+        RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _runtime_filters.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(
@@ -34,18 +32,20 @@ Status RuntimeFilterSlots::init(RuntimeState* state,
     return Status::OK();
 }
 
-Status RuntimeFilterSlots::send_filter_size(
+Status RuntimeFilterProducerHelper::send_filter_size(
         RuntimeState* state, uint64_t hash_table_size,
         std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
-    // TODO: dependency is not needed if `_skip_runtime_filters_process` is true
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
     for (auto runtime_filter : _runtime_filters) {
-        RETURN_IF_ERROR(runtime_filter->send_size(
-                state, _skip_runtime_filters_process ? 0 : hash_table_size, dependency));
+        RETURN_IF_ERROR(runtime_filter->send_size(state, hash_table_size, dependency));
     }
     return Status::OK();
 }
 
-Status RuntimeFilterSlots::_init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
+Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
+                                                  uint64_t local_hash_table_size) {
     // process IN_OR_BLOOM_FILTER's real type
     for (auto filter : _runtime_filters) {
         RETURN_IF_ERROR(filter->init(local_hash_table_size));
@@ -53,7 +53,7 @@ Status RuntimeFilterSlots::_init_filters(RuntimeState* state, uint64_t local_has
     return Status::OK();
 }
 
-void RuntimeFilterSlots::_insert(const vectorized::Block* block, size_t start) {
+void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
     SCOPED_TIMER(_runtime_filter_compute_timer);
     for (auto& filter : _runtime_filters) {
         if (!filter->impl()->is_valid()) {
@@ -67,16 +67,27 @@ void RuntimeFilterSlots::_insert(const vectorized::Block* block, size_t start) {
     }
 }
 
-Status RuntimeFilterSlots::process(
+Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
+    SCOPED_TIMER(_publish_runtime_filter_timer);
+    for (auto& filter : _runtime_filters) {
+        RETURN_IF_ERROR(filter->publish(state, _should_build_hash_table));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::process(
         RuntimeState* state, const vectorized::Block* block,
         std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
         vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
-    auto wrapper_state = _skip_runtime_filters_process ? RuntimeFilterWrapper::State::DISABLED
-                                                       : RuntimeFilterWrapper::State::READY;
-    if (state->get_task()->wake_up_early() && !_skip_runtime_filters_process) {
-        // Runtime filter is ignored partially which has no effect on correctness.
-        wrapper_state = RuntimeFilterWrapper::State::IGNORED;
-    } else if (_should_build_hash_table && !_skip_runtime_filters_process) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+
+    bool wake_up_early = state->get_task()->wake_up_early();
+    // Runtime filter is ignored partially which has no effect on correctness.
+    auto wrapper_state = wake_up_early ? RuntimeFilterWrapper::State::IGNORED
+                                       : RuntimeFilterWrapper::State::READY;
+    if (_should_build_hash_table && !wake_up_early) {
         // Hash table is completed and runtime filter has a global size now.
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
@@ -86,20 +97,30 @@ Status RuntimeFilterSlots::process(
     }
 
     for (auto filter : _runtime_filters) {
-        if (shared_hash_table_ctx && _should_build_hash_table) {
-            filter->copy_to_shared_context(shared_hash_table_ctx);
-        } else if (shared_hash_table_ctx) {
-            filter->copy_from_shared_context(shared_hash_table_ctx);
+        if (shared_hash_table_ctx && !wake_up_early) {
+            if (_should_build_hash_table) {
+                filter->copy_to_shared_context(shared_hash_table_ctx);
+            } else {
+                filter->copy_from_shared_context(shared_hash_table_ctx);
+            }
         }
-        if (_should_build_hash_table) {
-            filter->set_wrapper_state_and_ready_to_publish(
-                    wrapper_state, _skip_runtime_filters_process ? "skip all rf process" : "");
-        } else {
-            filter->set_state(RuntimeFilterProducer::State::READY_TO_PUBLISH);
-        }
+        filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
     }
 
     RETURN_IF_ERROR(_publish(state));
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
+    RETURN_IF_ERROR(send_filter_size(state, 0, nullptr));
+
+    for (auto filter : _runtime_filters) {
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
+                                                       "skip all rf process");
+    }
+
+    RETURN_IF_ERROR(_publish(state));
+    _skip_runtime_filters_process = true;
     return Status::OK();
 }
 

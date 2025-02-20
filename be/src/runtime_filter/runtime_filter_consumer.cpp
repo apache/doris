@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/role/consumer.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 
 #include "exprs/create_predicate_function.h"
 #include "vec/exprs/vbitmap_predicate.h"
@@ -31,8 +31,8 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     _set_state(State::APPLIED);
 
     if (_wrapper->get_state() != RuntimeFilterWrapper::State::READY) {
-        DCHECK(_wrapper->get_state() == RuntimeFilterWrapper::State::DISABLED ||
-               _wrapper->get_state() == RuntimeFilterWrapper::State::IGNORED);
+        _wrapper->check_state(
+                {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
         return Status::OK();
     }
 
@@ -63,12 +63,12 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilte
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-    _check_state({State::NOT_READY, State::TIMEOUT});
-    _set_state(State::READY);
     _wrapper = other->_wrapper;
     _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
                           RuntimeFilterWrapper::State::IGNORED,
                           RuntimeFilterWrapper::State::READY});
+    _check_state({State::NOT_READY, State::TIMEOUT});
+    _set_state(State::READY);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
             timer->call_ready();
@@ -107,7 +107,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         in_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
                 node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),
-                null_aware);
+                null_aware, _wrapper->filter_id());
         container.push_back(wrapper);
         break;
     }
@@ -123,7 +123,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                min_pred_node, min_pred, get_comparison_ignore_thredhold()));
+                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
+                _wrapper->filter_id()));
         break;
     }
     case RuntimeFilterType::MAX_FILTER: {
@@ -138,7 +139,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                max_pred_node, max_pred, get_comparison_ignore_thredhold()));
+                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
+                _wrapper->filter_id()));
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
@@ -153,7 +155,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware));
+                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
+                _wrapper->filter_id()));
 
         vectorized::VExprContextSPtr new_probe_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
@@ -169,7 +172,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware));
+                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
+                _wrapper->filter_id()));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -185,7 +189,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         bloom_pred->set_filter(_wrapper->bloom_filter_func());
         bloom_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
-                node, bloom_pred, get_bloom_filter_ignore_thredhold());
+                node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
+                _wrapper->filter_id());
         container.push_back(wrapper);
         break;
     }
@@ -201,7 +206,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_wrapper->bitmap_filter_func());
         bitmap_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+                node, bitmap_pred, 0, null_aware, _wrapper->filter_id());
         container.push_back(wrapper);
         break;
     }

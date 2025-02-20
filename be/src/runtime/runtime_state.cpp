@@ -497,7 +497,7 @@ Status RuntimeState::register_producer_runtime_filter(
     RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
             desc, query_options(), producer_filter, parent_profile));
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
-            desc, query_options(), *producer_filter));
+            desc, query_options(), *producer_filter, &_profile));
     return Status::OK();
 }
 

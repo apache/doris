@@ -37,10 +37,10 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime_filter/role/consumer.h"
-#include "runtime_filter/role/merger.h"
-#include "runtime_filter/role/producer.h"
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
+#include "runtime_filter/runtime_filter_consumer.h"
+#include "runtime_filter/runtime_filter_merger.h"
+#include "runtime_filter/runtime_filter_producer.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
 
@@ -90,7 +90,7 @@ Status RuntimeFilterMgr::register_consumer_filter(
 
 Status RuntimeFilterMgr::register_local_merger_producer_filter(
         const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-        std::shared_ptr<RuntimeFilterProducer> producer_filter) {
+        std::shared_ptr<RuntimeFilterProducer> producer_filter, RuntimeProfile* parent_profile) {
     DCHECK(_is_global);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
@@ -106,7 +106,8 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
         std::lock_guard<std::mutex> l(context->mtx);
         if (!context->merger) {
             std::shared_ptr<RuntimeFilterMerger> merge_filter;
-            RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, &desc, &merge_filter));
+            RETURN_IF_ERROR(
+                    RuntimeFilterMerger::create(_state, &desc, &merge_filter, parent_profile));
             context->merger = merge_filter;
         }
         context->producers.emplace_back(producer_filter);
@@ -180,7 +181,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // so we need to copy to cnt_val
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
     cnt_val->targetv2_info = targetv2_info;
-    RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, runtime_filter_desc, &cnt_val->merger));
+    RETURN_IF_ERROR(RuntimeFilterMerger::create(_state, runtime_filter_desc, &cnt_val->merger,
+                                                _state->get_runtime_state()->runtime_profile()));
     cnt_val->merger->set_expected_producer_num(producer_size);
 
     return Status::OK();

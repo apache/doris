@@ -17,20 +17,24 @@
 
 #pragma once
 
+#include <string>
+
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
-
+// Work on ScanNode or MultiCastDataStreamSource, RuntimeFilterConsumerHelper will manage all RuntimeFilterConsumer
+// Used to create VRuntimeFilterWrapper to filter data
 class RuntimeFilterConsumer : public RuntimeFilter {
 public:
+    // NOT_READY (-> TIMEOUT) -> READY -> APPLIED
     enum class State {
-        NOT_READY,
-        READY,
-        TIMEOUT,
-        APPLIED,
+        NOT_READY, // The initial state of consumer
+        READY,     // The consumer will switch to this state when it is signaled.
+        TIMEOUT, // After a consumer has not been ready for a long time(_rf_wait_time_ms), it will be transferred to this state
+        APPLIED, // The consumer will switch to this state after the expression is acquired
     };
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          int node_id, std::shared_ptr<RuntimeFilterConsumer>* res,
@@ -87,7 +91,7 @@ private:
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
         _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
-
+        _profile->add_info_string("timeout_limit", std::to_string(_rf_wait_time_ms));
         parent_profile->add_child(_profile.get(), true, nullptr);
         _profile->add_child(_storage_profile.get(), true, nullptr);
         _profile->add_child(_execution_profile.get(), true, nullptr);

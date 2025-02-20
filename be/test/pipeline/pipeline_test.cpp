@@ -1005,7 +1005,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                 auto& local_state = _runtime_states[i][j]
                                             ->get_sink_local_state()
                                             ->cast<HashJoinBuildSinkLocalState>();
-                EXPECT_EQ(local_state._runtime_filter_slots->_runtime_filters.size(), 1);
+                EXPECT_EQ(local_state._runtime_filter_producer_helper->_runtime_filters.size(), 1);
                 EXPECT_EQ(local_state._should_build_hash_table, true);
             }
         }
@@ -1115,34 +1115,36 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             auto& sink_local_state = _runtime_states[1][j]
                                              ->get_sink_local_state()
                                              ->cast<HashJoinBuildSinkLocalState>();
-            EXPECT_EQ(sink_local_state._runtime_filter_slots->_skip_runtime_filters_process, false);
-            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters.size(), 1);
-            EXPECT_TRUE(sink_local_state._runtime_filter_slots->_runtime_filters[0]->_rf_state ==
-                        RuntimeFilterProducer::State::WAITING_FOR_DATA);
-            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+            EXPECT_EQ(
+                    sink_local_state._runtime_filter_producer_helper->_skip_runtime_filters_process,
+                    false);
+            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_runtime_filters.size(), 1);
+            EXPECT_TRUE(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
+                                ->_rf_state == RuntimeFilterProducer::State::WAITING_FOR_DATA);
+            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
                               ->_runtime_filter_type,
                       RuntimeFilterType::IN_OR_BLOOM_FILTER);
             EXPECT_EQ(_pipeline_tasks[1][j]->is_pending_finish(), false);
             EXPECT_EQ(_pipeline_tasks[1][j]->close(Status::OK()), Status::OK());
-            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
                               ->_wrapper->get_real_type(),
                       j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
                     << "  " << j << " "
-                    << sink_local_state._runtime_filter_slots->_runtime_filters[0]->debug_string();
-            EXPECT_TRUE(
-                    sink_local_state._runtime_filter_slots->_runtime_filters[0]->_wrapper->_state ==
-                    RuntimeFilterWrapper::State::READY);
+                    << sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
+                               ->debug_string();
+            EXPECT_TRUE(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
+                                ->_wrapper->_state == RuntimeFilterWrapper::State::READY);
 
             if (j == 0) {
-                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
                                   ->_wrapper->_hybrid_set->size(),
                           1);
             } else {
-                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
                                   ->_wrapper->_bloom_filter_func->build_bf_by_runtime_size(),
                           false);
 
-                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_runtime_filters[0]
                                   ->_wrapper->_bloom_filter_func->_bloom_filter_length,
                           1048576);
             }

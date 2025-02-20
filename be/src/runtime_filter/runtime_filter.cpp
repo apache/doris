@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 
 #include "common/status.h"
 #include "util/brpc_client_cache.h"
@@ -128,7 +128,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 }
 
 std::string RuntimeFilter::_debug_string() const {
-    return fmt::format("{}, mode: {}", _wrapper->debug_string(),
+    return fmt::format("{}, mode: {}", _wrapper ? _wrapper->debug_string() : "<null wrapper>",
                        _has_local_target ? "LOCAL" : "GLOBAL");
 }
 

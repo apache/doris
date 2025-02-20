@@ -19,9 +19,9 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "runtime_filter/role/producer.h"
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 #include "runtime_filter/runtime_filter_mgr.h"
+#include "runtime_filter/runtime_filter_producer.h"
 #include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/shared_hash_table_controller.h"
@@ -31,23 +31,31 @@ namespace doris {
 /**
  * init -> (skip_runtime_filters ->) send_filter_size -> process
  */
-class RuntimeFilterSlots {
+class RuntimeFilterProducerHelper {
 public:
-    RuntimeFilterSlots(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                       RuntimeProfile* profile, bool should_build_hash_table,
-                       bool is_broadcast_join)
+    RuntimeFilterProducerHelper(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+                                RuntimeProfile* profile, bool should_build_hash_table,
+                                bool is_broadcast_join)
             : _build_expr_context(build_expr_ctxs),
               _should_build_hash_table(should_build_hash_table),
-              _profile(new RuntimeProfile("RuntimeFilterSlots")),
+              _profile(new RuntimeProfile("RuntimeFilterProducerHelper")),
               _is_broadcast_join(is_broadcast_join) {
         profile->add_child(_profile.get(), true, nullptr);
         _publish_runtime_filter_timer = ADD_TIMER_WITH_LEVEL(_profile, "PublishTime", 1);
         _runtime_filter_compute_timer = ADD_TIMER_WITH_LEVEL(_profile, "BuildTime", 1);
     }
+
+    // create and register runtime filters producers
     Status init(RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
+
+    // send local size to remote to sync global rf size if needed
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
                             std::shared_ptr<pipeline::CountedFinishDependency> dependency);
-    void skip_runtime_filters() { _skip_runtime_filters_process = true; }
+
+    // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
+    Status skip_process(RuntimeState* state);
+
+    // build rf's predicate and publish rf
     Status process(RuntimeState* state, const vectorized::Block* block,
                    std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
                    vectorized::SharedHashTableContextPtr& shared_hash_table_ctx);
@@ -55,13 +63,7 @@ public:
 protected:
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
     void _insert(const vectorized::Block* block, size_t start);
-    Status _publish(RuntimeState* state) {
-        SCOPED_TIMER(_publish_runtime_filter_timer);
-        for (auto& filter : _runtime_filters) {
-            RETURN_IF_ERROR(filter->publish(state, _should_build_hash_table));
-        }
-        return Status::OK();
-    }
+    Status _publish(RuntimeState* state);
 
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _runtime_filters;

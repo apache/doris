@@ -20,7 +20,7 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
-#include "runtime_filter/runtime_filter_slots_cross.h"
+#include "runtime_filter/runtime_filter_producer_helper_cross.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -41,9 +41,9 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
     }
 
-    _runtime_filter_slots =
-            std::make_shared<RuntimeFilterSlotsCross>(_filter_src_expr_ctxs, profile());
-    RETURN_IF_ERROR(_runtime_filter_slots->init(state, p._runtime_filter_descs));
+    _runtime_filter_producer_helper =
+            std::make_shared<RuntimeFilterProducerHelperCross>(_filter_src_expr_ctxs, profile());
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, p._runtime_filter_descs));
     return Status::OK();
 }
 
@@ -55,7 +55,7 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    RETURN_IF_ERROR(_runtime_filter_slots->process(state, _shared_state->build_blocks));
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
 }

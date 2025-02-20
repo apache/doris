@@ -33,7 +33,12 @@ using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
 // This class is a wrapper of runtime predicate function
 class RuntimeFilterWrapper {
 public:
-    enum class State { UNINITED, READY, IGNORED, DISABLED };
+    enum class State {
+        UNINITED, // Initial state, filter is not available at this state
+        READY,    // After filter obtains insert data, go to this state
+        IGNORED, // The state indicates that the rf will ignore some instance's data, used in wake up early
+        DISABLED // This state indicates that the rf is deprecated, used in cases such as reach max_in_num / join spill / meet rpc error
+    };
 
     RuntimeFilterWrapper(const RuntimeFilterParams* params);
     RuntimeFilterWrapper(PrimitiveType column_type, RuntimeFilterType type, uint32_t filter_id,
@@ -143,16 +148,12 @@ public:
 
 private:
     friend class RuntimeFilter;
-    void _insert(BloomFilterFuncBase* bloom_filter) const;
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status _assign(const PInFilter& in_filter, bool contain_null);
     Status _assign(const PBloomFilter& bloom_filter, butil::IOBufAsZeroCopyInputStream* data,
                    bool contain_null);
     Status _assign(const PMinMaxFilter& minmax_filter, bool contain_null);
-    void _batch_assign(const PInFilter& filter,
-                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
-                                           PColumnValue&));
     void _to_protobuf(PInFilter* filter);
     void _to_protobuf(PMinMaxFilter* filter);
     void _to_protobuf(PBloomFilter* filter, char** data, int* filter_length);

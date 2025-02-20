@@ -77,7 +77,7 @@
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "runtime_filter/role/consumer.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"

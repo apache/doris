@@ -21,20 +21,20 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 #include "runtime_filter/runtime_filter_mgr.h"
-#include "runtime_filter/runtime_filter_slots.h"
+#include "runtime_filter/runtime_filter_producer_helper.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 // this class used in cross join node
-class RuntimeFilterSlotsCross : public RuntimeFilterSlots {
+class RuntimeFilterProducerHelperCross : public RuntimeFilterProducerHelper {
 public:
-    RuntimeFilterSlotsCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                            RuntimeProfile* profile)
-            : RuntimeFilterSlots(build_expr_ctxs, profile, true, false) {}
+    RuntimeFilterProducerHelperCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+                                     RuntimeProfile* profile)
+            : RuntimeFilterProducerHelper(build_expr_ctxs, profile, true, false) {}
 
     Status process(RuntimeState* state, vectorized::Blocks& blocks) {
         for (auto& block : blocks) {

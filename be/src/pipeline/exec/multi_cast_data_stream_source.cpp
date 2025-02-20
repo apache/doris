@@ -33,7 +33,6 @@ MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(Runtime
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    RETURN_IF_ERROR(_helper.init(state, profile(), false));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
@@ -42,9 +41,8 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
     _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
     _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
-    // init profile for runtime filter
-    _helper.init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
-                                           p.get_name() + "_FILTER_DEPENDENCY");
+    RETURN_IF_ERROR(_helper.init(state, profile(), false, _filter_dependencies, p.operator_id(),
+                                 p.node_id(), p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
 }
 

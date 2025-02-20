@@ -17,16 +17,21 @@
 
 #pragma once
 
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 
 namespace doris {
-
+// The merger is divided into local merger and global merger
+// Which are used to merge backend level rf and global rf respectively.
+// The local merger will also be used to handle local shuffle situations
+// Merger will merge multipe predicate into one predicate
 class RuntimeFilterMerger : public RuntimeFilter {
 public:
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                         std::shared_ptr<RuntimeFilterMerger>* res) {
-        *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(state, desc));
+                         std::shared_ptr<RuntimeFilterMerger>* res,
+                         RuntimeProfile* parent_profile) {
+        *res = std::shared_ptr<RuntimeFilterMerger>(
+                new RuntimeFilterMerger(state, desc, parent_profile));
         vectorized::VExprContextSPtr build_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
         (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
@@ -43,6 +48,9 @@ public:
                 _received_rf_size_num, _received_sum_size);
     }
 
+    // If input is a disabled predicate, the final result is a disabled predicate.
+    // If input is a ignored predicate, then we will skip this predicate.
+    // If all inputs are ignored predicate, the final result is a ignored predicate.
     Status merge_from(const RuntimeFilter* other) {
         _received_producer_num++;
         DCHECK_GE(_expected_producer_num, _received_producer_num) << debug_string();
@@ -51,32 +59,46 @@ public:
         }
         if (_wrapper->get_state() == RuntimeFilterWrapper::State::IGNORED) {
             _wrapper = other->_wrapper;
+            _profile->add_info_string("Info", debug_string());
             return Status::OK();
         }
-        return _wrapper->merge(other->_wrapper.get());
+        auto st = _wrapper->merge(other->_wrapper.get());
+        _profile->add_info_string("Info", debug_string());
+        return st;
     }
 
-    void set_expected_producer_num(int num) { _expected_producer_num = num; }
+    void set_expected_producer_num(int num) {
+        _expected_producer_num = num;
+        _profile->add_info_string("Info", debug_string());
+    }
 
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
         _received_sum_size += size;
         DCHECK_GE(_expected_producer_num, _received_rf_size_num) << debug_string();
-        return _received_rf_size_num == _expected_producer_num;
+        _received_sum_size += size;
+        _profile->add_info_string("Info", debug_string());
+        return (_received_rf_size_num == _expected_producer_num);
     }
 
     uint64_t get_received_sum_size() const { return _received_sum_size; }
 
     enum class State {
-        READY,
-        WAITING_FOR_PRODUCT,
+        WAITING_FOR_PRODUCT, // Still waiting to collect the status of the product
+        READY // Collecting all products(_received_producer_num == _expected_producer_num) will transfer to this state, and filter is already available
     };
 
     bool ready() const { return _rf_state == State::READY; }
 
 private:
-    RuntimeFilterMerger(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
-            : RuntimeFilter(state, desc), _rf_state(State::WAITING_FOR_PRODUCT) {}
+    RuntimeFilterMerger(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+                        RuntimeProfile* parent_profile)
+            : RuntimeFilter(state, desc),
+              _rf_state(State::WAITING_FOR_PRODUCT),
+              _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))) {
+        parent_profile->add_child(_profile.get(), true, nullptr);
+        _profile->add_info_string("Info", debug_string());
+    }
 
     static std::string _to_string(const State& state) {
         switch (state) {
@@ -95,6 +117,8 @@ private:
 
     uint64_t _received_sum_size = 0;
     int _received_rf_size_num = 0;
+
+    std::unique_ptr<RuntimeProfile> _profile;
 
     friend class RuntimeFilterProducer;
 };
