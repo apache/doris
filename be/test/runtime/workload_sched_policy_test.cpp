@@ -224,12 +224,10 @@ TEST_F(WorkloadSchedPolicyTest, one_policy_mutl_condition) {
 }
 
 TEST_F(WorkloadSchedPolicyTest, test_operator) {
-    // GREATER, LESS
+    // LESS
     {
         std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
         std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
-        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
-                                                          TCompareOperator::type::GREATER, "100"));
         cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
                                                           TCompareOperator::type::LESS, "100"));
         std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
@@ -243,28 +241,20 @@ TEST_F(WorkloadSchedPolicyTest, test_operator) {
         EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
     }
 
-    // EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL
+    // EQUAL
     {
         std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
         std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
         cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
                                                           TCompareOperator::type::EQUAL, "100"));
-        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
-                                                          TCompareOperator::type::GREATER, "100"));
-        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
-                                                          TCompareOperator::type::GREATER_EQUAL,
-                                                          "100"));
-        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
-                                                          TCompareOperator::type::LESS, "100"));
-        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
-                                                          TCompareOperator::type::LESS_EQUAL,
-                                                          "100"));
         std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
         std::set<int64_t> wg_id_set;
         policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
                      std::move(action_ptr_list));
 
         WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(100);
         EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
     }
 }
@@ -283,7 +273,10 @@ TEST_F(WorkloadSchedPolicyTest, test_wg_id_set) {
     WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
     EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
     TWorkloadGroupInfo tworkload_group_info;
+    tworkload_group_info.__isset.id = true;
     tworkload_group_info.id = 1;
+    tworkload_group_info.__isset.version = true;
+    tworkload_group_info.version = 1;
     WorkloadGroupInfo workload_group_info =
             WorkloadGroupInfo::parse_topic_info(tworkload_group_info);
     auto workload_group = std::make_shared<WorkloadGroup>(workload_group_info);
