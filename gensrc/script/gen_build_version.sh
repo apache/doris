@@ -32,7 +32,7 @@ build_version_major=3
 build_version_minor=0
 build_version_patch=4
 build_version_hotfix=0
-build_version_rc_version="rc01"
+build_version_rc_version="rc02"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 if [[ ${build_version_hotfix} -gt 0 ]]; then
