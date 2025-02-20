@@ -834,111 +834,129 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
         int totalRetryTime = 0;
-        for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
-            GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
-            builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
-                    .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
-            List<Long> tabletList = lockContext.getTableToTabletList().get(entry.getKey());
-            for (Long tabletId : tabletList) {
-                TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
-                TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
-                tabletIndexBuilder.setDbId(tabletMeta.getDbId());
-                tabletIndexBuilder.setTableId(tabletMeta.getTableId());
-                tabletIndexBuilder.setIndexId(tabletMeta.getIndexId());
-                tabletIndexBuilder.setPartitionId(tabletMeta.getPartitionId());
-                tabletIndexBuilder.setTabletId(tabletId);
-                builder.addTabletIndexes(tabletIndexBuilder);
-            }
-            final GetDeleteBitmapUpdateLockRequest request = builder.build();
-            GetDeleteBitmapUpdateLockResponse response = null;
+        String retryMsg = "";
+        boolean res = false;
+        try {
+            getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
+            for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
+                GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
+                builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
+                        .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
+                List<Long> tabletList = lockContext.getTableToTabletList().get(entry.getKey());
+                for (Long tabletId : tabletList) {
+                    TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
+                    TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
+                    tabletIndexBuilder.setDbId(tabletMeta.getDbId());
+                    tabletIndexBuilder.setTableId(tabletMeta.getTableId());
+                    tabletIndexBuilder.setIndexId(tabletMeta.getIndexId());
+                    tabletIndexBuilder.setPartitionId(tabletMeta.getPartitionId());
+                    tabletIndexBuilder.setTabletId(tabletId);
+                    builder.addTabletIndexes(tabletIndexBuilder);
+                }
+                final GetDeleteBitmapUpdateLockRequest request = builder.build();
+                GetDeleteBitmapUpdateLockResponse response = null;
 
-            int retryTime = 0;
-            while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
-                try {
-                    response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}", transactionId,
-                                request, response);
-                    }
-                    if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict")) {
-                        DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                                "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict");
-                        double percent = debugPoint.param("percent", 0.4);
-                        long timestamp = System.currentTimeMillis();
-                        Random random = new Random(timestamp);
-                        if (Math.abs(random.nextInt()) % 100 < 100 * percent) {
-                            LOG.info("set kv txn conflict for test");
-                            GetDeleteBitmapUpdateLockResponse.Builder getLockResponseBuilder
-                                    = GetDeleteBitmapUpdateLockResponse.newBuilder();
-                            getLockResponseBuilder.setStatus(MetaServiceResponseStatus.newBuilder()
-                                    .setCode(MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES)
-                                    .setMsg("kv txn conflict"));
-                            response = getLockResponseBuilder.build();
+                int retryTime = 0;
+                while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
+                    try {
+                        response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}",
+                                    transactionId,
+                                    request, response);
                         }
+                        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict")) {
+                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.conflict");
+                            double percent = debugPoint.param("percent", 0.4);
+                            long timestamp = System.currentTimeMillis();
+                            Random random = new Random(timestamp);
+                            if (Math.abs(random.nextInt()) % 100 < 100 * percent) {
+                                LOG.info("set kv txn conflict for test");
+                                GetDeleteBitmapUpdateLockResponse.Builder getLockResponseBuilder
+                                        = GetDeleteBitmapUpdateLockResponse.newBuilder();
+                                getLockResponseBuilder.setStatus(MetaServiceResponseStatus.newBuilder()
+                                        .setCode(MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES)
+                                        .setMsg("kv txn conflict"));
+                                response = getLockResponseBuilder.build();
+                            }
+                        }
+                        if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
+                                && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                            break;
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}",
+                                transactionId,
+                                retryTime, e);
                     }
-                    if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
-                            && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
-                        break;
+                    retryMsg = response.toString();
+                    // sleep random millis [20, 300] ms, avoid txn conflict
+                    int randomMillis = 20 + (int) (Math.random() * (300 - 20));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("randomMillis:{}", randomMillis);
                     }
-                } catch (Exception e) {
-                    LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}", transactionId,
-                            retryTime, e);
+                    try {
+                        Thread.sleep(randomMillis);
+                    } catch (InterruptedException e) {
+                        LOG.info("InterruptedException: ", e);
+                    }
                 }
-                // sleep random millis [20, 300] ms, avoid txn conflict
-                int randomMillis = 20 + (int) (Math.random() * (300 - 20));
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("randomMillis:{}", randomMillis);
+                Preconditions.checkNotNull(response);
+                Preconditions.checkNotNull(response.getStatus());
+                if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                    LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}",
+                            transactionId,
+                            retryTime, response);
+                    if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
+                            || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
+                            || response.getStatus().getCode()
+                            == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+                        // DELETE_BITMAP_LOCK_ERR will be retried on be
+                        throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                                "Failed to get delete bitmap lock due to conflict");
+                    }
+                    throw new UserException(
+                            "Failed to get delete bitmap lock, code: " + response.getStatus().getCode() + ", msg: "
+                                    + response.getStatus().getMsg());
                 }
-                try {
-                    Thread.sleep(randomMillis);
-                } catch (InterruptedException e) {
-                    LOG.info("InterruptedException: ", e);
+                // record tablet's latest compaction stats from meta service and send them to BEs
+                // to let BEs eliminate unnecessary sync_rowsets() calls if possible
+                List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
+                List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
+                List<Long> respCumulativePoints = response.getCumulativePointsList();
+                int size1 = respBaseCompactionCnts.size();
+                int size2 = respCumulativeCompactionCnts.size();
+                int size3 = respCumulativePoints.size();
+                if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()) {
+                    throw new UserException("The size of returned compaction cnts can't match the size of tabletList, "
+                            + "tabletList.size()=" + tabletList.size() + ", respBaseCompactionCnts.size()=" + size1
+                            + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()="
+                            + size3);
                 }
+                for (int i = 0; i < tabletList.size(); i++) {
+                    long tabletId = tabletList.get(i);
+                    lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
+                    lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
+                    lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
+                }
+                totalRetryTime += retryTime;
             }
-            Preconditions.checkNotNull(response);
-            Preconditions.checkNotNull(response.getStatus());
-            if (response.getStatus().getCode() != MetaServiceCode.OK) {
-                LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}", transactionId,
-                        retryTime, response);
-                if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
-                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
-                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
-                    // DELETE_BITMAP_LOCK_ERR will be retried on be
-                    throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
-                            "Failed to get delete bitmap lock due to conflict");
-                }
-                throw new UserException(
-                        "Failed to get delete bitmap lock, msg: " + response.getStatus().getMsg() + ", code: "
-                                + response.getStatus().getCode());
+            res = true;
+        } finally {
+            stopWatch.stop();
+            long costTime = stopWatch.getTime();
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY.update(costTime);
             }
+            String status = res ? "successfully" : "fail";
+            LOG.info("get delete bitmap lock {} . txnId: {}. totalRetryTime: {}. "
+                            + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", status,
+                    transactionId, totalRetryTime, lockContext.getTableToPartitions().size(), costTime,
+                    mowTableList.stream().map(Table::getId).collect(Collectors.toList()), retryMsg);
 
-            // record tablet's latest compaction stats from meta service and send them to BEs
-            // to let BEs eliminate unnecessary sync_rowsets() calls if possible
-            List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
-            List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
-            List<Long> respCumulativePoints = response.getCumulativePointsList();
-            int size1 = respBaseCompactionCnts.size();
-            int size2 = respCumulativeCompactionCnts.size();
-            int size3 = respCumulativePoints.size();
-            if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()) {
-                throw new UserException("The size of returned compaction cnts can't match the size of tabletList, "
-                        + "tabletList.size()=" + tabletList.size() + ", respBaseCompactionCnts.size()=" + size1
-                        + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()=" + size3);
-            }
-            for (int i = 0; i < tabletList.size(); i++) {
-                long tabletId = tabletList.get(i);
-                lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
-                lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
-                lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
-            }
-            totalRetryTime += retryTime;
         }
-        stopWatch.stop();
-        LOG.info("get delete bitmap lock successfully. txnId: {}. totalRetryTime: {}. "
-                        + "tableSize: {}. cost: {} ms.", transactionId, totalRetryTime,
-                lockContext.getTableToPartitions().size(), stopWatch.getTime());
     }
 
     private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
