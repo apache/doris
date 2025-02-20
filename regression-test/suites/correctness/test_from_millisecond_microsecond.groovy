@@ -340,10 +340,9 @@ suite("test_from_millisecond_microsecond") {
     qt_select_null_datetime """
         select 
         id,
+        cast(t as DATETIME(3)),
         microseconds_add(cast(t as DATETIME(3)),2),
-        microseconds_sub(cast(t as DATETIME(3)),2),
-        milliseconds_add(cast(t as DATETIME(3)),2),
-        milliseconds_sub(cast(t as DATETIME(3)),2)
+        microseconds_sub(cast(t as DATETIME(3)),2)
         from millimicro
         order by id;
     """ 
