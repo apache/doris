@@ -117,8 +117,6 @@ bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute("txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute("txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
-bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
-bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute("txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
 
 // fdb's bvars
 const int64_t BVAR_FDB_INVALID_VALUE = -99999999L;

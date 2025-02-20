@@ -886,9 +886,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             int retryTime = 0;
             while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
                 try {
-                    // if (DebugPointUtil.isEnable("FE.mow.get_delete_bitmap_lock.timeout")) {
-                    //     throw new UserException("test get_delete_bitmap_lock timeout");
-                    // }
                     response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("get delete bitmap lock, transactionId={}, Request: {}, Response: {}", transactionId,
