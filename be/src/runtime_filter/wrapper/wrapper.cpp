@@ -49,7 +49,7 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
     case RuntimeFilterType::BLOOM_FILTER: {
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
         _bloom_filter_func->init_params(params);
-        _hybrid_set->set_null_aware(params->null_aware);
+        _bloom_filter_func->set_null_aware(params->null_aware);
         return;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
