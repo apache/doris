@@ -478,6 +478,18 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             // check the root is already a leaf node
             _subcolumn_readers->add(relative_path,
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
+            // init TabletIndex for subcolumns
+            if (opts.inverted_index) {
+                const auto& suffix_path = path.get_path();
+                auto it = _variant_subcolumns_indexes.find(suffix_path);
+                if (it == _variant_subcolumns_indexes.end()) {
+                    auto subcolumn_index = std::make_unique<TabletIndex>(*opts.inverted_index);
+                    subcolumn_index->set_escaped_escaped_index_suffix_path(suffix_path);
+                    _variant_subcolumns_indexes.emplace(suffix_path, std::move(subcolumn_index));
+                } else {
+                    DCHECK(false);
+                }
+            }
         }
     }
 
@@ -493,6 +505,11 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
         }
     }
     return Status::OK();
+}
+
+TabletIndex* VariantColumnReader::find_subcolumn_tablet_index(const std::string& path) {
+    auto it = _variant_subcolumns_indexes.find(path);
+    return it == _variant_subcolumns_indexes.end() ? nullptr : it->second.get();
 }
 
 Status ColumnReader::create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,

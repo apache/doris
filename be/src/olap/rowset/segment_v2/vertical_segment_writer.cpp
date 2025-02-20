@@ -214,12 +214,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.inverted_index = index;
         opts.need_inverted_index = true;
         DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
-        // TODO support multiple inverted index
-    } else if (tablet_schema->has_inverted_index() && column.is_variant_type()) {
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
     }
+    opts.inverted_index_file_writer = _inverted_index_file_writer;
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \

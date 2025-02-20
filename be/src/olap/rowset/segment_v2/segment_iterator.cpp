@@ -1077,29 +1077,22 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             const TabletIndex* index_meta = nullptr;
             if (column.is_extracted_column()) {
-                // variant column has no inverted index
                 const TabletIndex* parent_index_meta =
                         _segment->_tablet_schema->inverted_index(column.parent_unique_id());
+
+                // variant column has no inverted index
                 if (parent_index_meta == nullptr) {
                     continue;
                 }
 
-                index_meta = _segment->_tablet_schema->inverted_index(column.parent_unique_id(),
-                                                                      column.suffix_path());
-                if (index_meta == nullptr) {
-                    auto key = std::make_pair(column.parent_unique_id(), column.suffix_path());
-                    auto it = _segment->_variant_subcolumns_indexes.find(key);
-                    if (it == _segment->_variant_subcolumns_indexes.end()) {
-                        auto subcolumn_index = std::make_unique<TabletIndex>(*parent_index_meta);
-                        subcolumn_index->set_escaped_escaped_index_suffix_path(
-                                column.path_info_ptr()->get_path());
-                        index_meta = subcolumn_index.get();
-                        _segment->_variant_subcolumns_indexes.emplace(key,
-                                                                      std::move(subcolumn_index));
-                    } else {
-                        index_meta = it->second.get();
-                    }
-                }
+                // index_meta = _segment->_tablet_schema->inverted_index(column.parent_unique_id(),
+                //                                                       column.suffix_path());
+                // if (index_meta == nullptr) {
+
+                // }
+                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
+                index_meta = assert_cast<VariantColumnReader*>(column_reader)
+                                     ->find_subcolumn_tablet_index(column.suffix_path());
             } else {
                 index_meta = _segment->_tablet_schema->inverted_index(column.unique_id());
             }

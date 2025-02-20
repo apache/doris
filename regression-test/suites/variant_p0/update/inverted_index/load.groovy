@@ -56,7 +56,7 @@ suite("update_test_index_load", "p0") {
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 6
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "9999");
+            properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "0");
         """
 
         for (int i = 0; i < 10; i++) {
