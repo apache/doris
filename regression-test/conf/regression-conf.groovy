@@ -210,6 +210,7 @@ extEsPassword = "***********"
 enableExternalMinioTest = false
 extMinioHost = "***.**.**.**"
 extMinioPort = 9000
+extMinioDomain = "myminio.com"
 extMinioAk = "minioadmin"
 extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"
