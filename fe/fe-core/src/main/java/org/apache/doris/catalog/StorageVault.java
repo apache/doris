@@ -41,8 +41,8 @@ public abstract class StorageVault {
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
-
     public static final String VAULT_NAME = "VAULT_NAME";
+    public static final String CHECK_CONNECTIVITY = "check_connectivity";
 
     public enum StorageVaultType {
         UNKNOWN,
