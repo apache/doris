@@ -250,6 +250,12 @@ supportedAlterStatement
             properties=propertyClause?                                                      #addBackendClause
     | ALTER SYSTEM (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
             (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBackendClause
+    | ALTER SYSTEM DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+              (COMMA hostPorts+=STRING_LITERAL)*                                            #decommissionBackendClause
+    | ALTER SYSTEM ADD OBSERVER hostPort=STRING_LITERAL                                     #addObserverClause
+    | ALTER SYSTEM DROP OBSERVER hostPort=STRING_LITERAL                                    #dropObserverClause
+    | ALTER SYSTEM ADD FOLLOWER hostPort=STRING_LITERAL                                     #addFollowerClause
+    | ALTER SYSTEM DROP FOLLOWER hostPort=STRING_LITERAL                                    #dropFollowerClause
 
     ;
 
@@ -285,7 +291,7 @@ supportedShowStatement
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob    
+    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW VIEW
@@ -638,13 +644,7 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #decommissionBackendClause
-    | ADD OBSERVER hostPort=STRING_LITERAL                                          #addObserverClause
-    | DROP OBSERVER hostPort=STRING_LITERAL                                         #dropObserverClause
-    | ADD FOLLOWER hostPort=STRING_LITERAL                                          #addFollowerClause
-    | DROP FOLLOWER hostPort=STRING_LITERAL                                         #dropFollowerClause
-    | ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+    : ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #addBrokerClause
     | DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBrokerClause
@@ -855,10 +855,10 @@ optionWithoutType
     | (CHAR SET | CHARSET) (charsetName=identifierOrText | DEFAULT)     #setCharset
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
-    | PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL
-        | (isPlain=PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
-    | LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL
-    | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))                 #setLdapAdminPassword
+    | PASSWORD (FOR userIdentify)? EQ (pwd=STRING_LITERAL
+        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN)) #setPassword
+    | LDAP_ADMIN_PASSWORD EQ (pwd=STRING_LITERAL
+        | (PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))         #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType
     ;
 
