@@ -756,6 +756,14 @@ if (BUILD_BENCHMARK)
     add_definitions(-DBE_BENCHMARK)
 endif()
 
+# For the BE_TEST scenario, Wthread-safety can be disabled 
+# because we will write some test code that ignores access permissions.
+if("BE_TEST" IN_LIST COMPILE_DEFS)
+    if (COMPILER_CLANG)
+        add_compile_options(-Wthread-safety)
+    endif()
+endif()
+
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)
 get_directory_property(COMPILER_DEFINES COMPILE_DEFINITIONS)
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")

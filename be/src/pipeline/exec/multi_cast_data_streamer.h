@@ -65,13 +65,15 @@ private:
 
     void _copy_block(vectorized::Block* block, int& un_finish_copy);
     RuntimeProfile* _profile = nullptr;
-    std::list<MultiCastBlock> _multi_cast_blocks;
-    std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
-    std::mutex _mutex;
-    bool _eos = false;
-    int _cast_sender_count = 0;
-    int64_t _cumulative_mem_size = 0;
+    const int _cast_sender_count = 0;
 
+    Mutex _mutex;
+    std::list<MultiCastBlock> _multi_cast_blocks GUARDED_BY(_mutex);
+    std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read GUARDED_BY(_mutex);
+    bool _eos GUARDED_BY(_mutex) = false;
+
+    // use to record the profile
+    int64_t _cumulative_mem_size = 0;
     RuntimeProfile::Counter* _process_rows = nullptr;
     RuntimeProfile::Counter* _peak_mem_usage = nullptr;
 

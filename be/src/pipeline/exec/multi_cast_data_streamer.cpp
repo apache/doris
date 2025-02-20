@@ -32,7 +32,7 @@ MultiCastBlock::MultiCastBlock(vectorized::Block* block, int un_finish_copy, siz
 Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block, bool* eos) {
     int* un_finish_copy = nullptr;
     {
-        INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
+        INJECT_MOCK_SLEEP(UniqueLock l(_mutex));
         auto& pos_to_pull = _sender_pos_to_read[sender_idx];
         const auto end = _multi_cast_blocks.end();
         DCHECK(pos_to_pull != end);
@@ -62,7 +62,7 @@ void MultiCastDataStreamer::_copy_block(vectorized::Block* block, int& un_finish
     for (int i = 0; i < block->columns(); ++i) {
         block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
     }
-    INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
+    INJECT_MOCK_SLEEP(UniqueLock l(_mutex));
     un_finish_copy--;
     if (un_finish_copy == 0) {
         _multi_cast_blocks.pop_front();
@@ -78,7 +78,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
     COUNTER_SET(_peak_mem_usage, std::max(_cumulative_mem_size, _peak_mem_usage->value()));
 
     {
-        INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
+        INJECT_MOCK_SLEEP(UniqueLock l(_mutex));
         _multi_cast_blocks.emplace_back(block, _cast_sender_count, block_mem_size);
         auto last_elem = std::prev(_multi_cast_blocks.end());
         for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
@@ -88,11 +88,10 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
             }
         }
         _eos = eos;
-    }
-
-    if (_eos) {
-        for (auto* read_dep : _dependencies) {
-            read_dep->set_always_ready();
+        if (_eos) {
+            for (auto* read_dep : _dependencies) {
+                read_dep->set_always_ready();
+            }
         }
     }
     return Status::OK();
