@@ -44,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.source.DataSplit;
@@ -207,6 +208,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
+        if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
+            // an empty table in PaimonSnapshotCacheValue
+            return splits;
+        }
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> source.getPaimonTable().rowType()
                         .getFieldNames()
