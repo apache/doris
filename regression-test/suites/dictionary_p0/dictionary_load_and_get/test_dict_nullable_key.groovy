@@ -16,11 +16,9 @@
 // under the License.
 
 suite("test_dict_nullable_key") {
-    def dbName  = "test_dict_nullable_key_db"    
-
-    sql "drop database if exists ${dbName}"
-    sql "create database ${dbName}"
-    sql "use ${dbName}"
+    sql "drop database if exists test_dict_nullable_key_db"
+    sql "create database test_dict_nullable_key_db"
+    sql "use test_dict_nullable_key_db"
 
     sql """
         create table tmp_table_no_null(
@@ -30,11 +28,8 @@ suite("test_dict_nullable_key") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS auto
         properties("replication_num" = "1");
     """ 
-
     sql """insert into tmp_table_no_null values(1, 'abc');"""  
-
     sql """insert into tmp_table_no_null values(2, 'def');"""  
-
 
     sql """
         create dictionary dc_tmp_table_no_null using tmp_table_no_null
@@ -45,22 +40,16 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """ 
-
     sleep(1000);
-
 
     sql """
         refresh dictionary dc_tmp_table_no_null
     """
-   
     qt_sql_constant"""
-        select  dict_get("${dbName}.dc_tmp_table_no_null", "k1", 1)  , dict_get("${dbName}.dc_tmp_table_no_null", "k1", 2)  ;
-    """     
+        select dict_get("test_dict_nullable_key_db.dc_tmp_table_no_null", "k1", 1)  , dict_get("test_dict_nullable_key_db.dc_tmp_table_no_null", "k1", 2)  ;
+    """
   
-
-
-
-     sql """
+    sql """
         create table tmp_table_null(
             k0 int null,    
             k1 varchar not null
@@ -68,11 +57,8 @@ suite("test_dict_nullable_key") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS auto
         properties("replication_num" = "1");
     """ 
-
     sql """insert into tmp_table_null values(1, 'abc');"""  
-
     sql """insert into tmp_table_null values(null, 'def');"""  
-
 
     sql """
         create dictionary tmp_table_null using tmp_table_null
@@ -83,8 +69,7 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """ 
-
-    sleep(5000);
+    sleep(2000);
 
     test {
         sql """
@@ -93,12 +78,9 @@ suite("test_dict_nullable_key") {
         exception "key column k0 has null value"
     }
 
-
     sql """
         drop dictionary tmp_table_null
     """     
-   
-
     sql """
         create dictionary tmp_table_null using tmp_table_null
         (
@@ -108,17 +90,12 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600','skip_null_key'='true');   
     """ 
-
-    sleep(5000);
+    sleep(2000);
 
     sql """
         refresh dictionary tmp_table_null
     """    
-
-
     qt_sql_constant"""
-        select  dict_get("${dbName}.tmp_table_null", "k1", 1)  , dict_get("${dbName}.tmp_table_null", "k1", 2)  ;
+        select  dict_get("test_dict_nullable_key_db.tmp_table_null", "k1", 1)  , dict_get("test_dict_nullable_key_db.tmp_table_null", "k1", 2)  ;
     """     
-  
-    
 }

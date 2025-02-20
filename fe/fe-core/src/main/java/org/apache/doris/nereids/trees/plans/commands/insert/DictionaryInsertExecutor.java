@@ -81,12 +81,14 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }
+        // we should set the context to make the caller know the command failed
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-        // Clean up any resources if needed
-        LOG.debug("dictionary insert finished. label: {}", labelName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("dictionary insert finished. label: {}", labelName);
+        }
     }
 }

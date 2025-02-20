@@ -140,18 +140,6 @@ suite("test_ddl") {
         properties("replication_num" = "1");
     """
 
-    test { // test nullable key column
-        sql """
-        create dictionary dic_null_key using nullable_table
-        (
-            k1 KEY,
-            v1 VALUE
-        )LAYOUT(HASH_MAP)
-        properties('data_lifetime'='600');
-        """
-        exception "Key column k1 cannot be nullable"
-    }
-
     // test right nullable
     sql """
     create dictionary dic_not_null using nullable_table

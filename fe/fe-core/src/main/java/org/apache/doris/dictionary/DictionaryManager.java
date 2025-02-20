@@ -134,7 +134,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // Check and update dictionary data in each cycle
         try {
             checkAndUpdateDictionaries();
-            LOG.info("Collect dictionaries status succeed");
         } catch (Exception e) {
             LOG.warn("Failed to check and update dictionaries", e);
         }
@@ -393,7 +392,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
                     + dictionary.getStatus().name());
         }
-        LOG.info("Start loading data into dictionary " + dictionary.getName());
         if (ctx == null) { // for run with scheduler, not by command.
             // priv check is done in relative(caller) command. so use ADMIN here is ok.
             ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
@@ -404,10 +402,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         NereidsParser parser = new NereidsParser();
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser
                 .parseSingle("insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
-                        + dictionary.getDbName() + "." + dictionary.getSourceTableName());
-        TUniqueId queryId = InsertTask.generateQueryId();
+                        + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
+                        + dictionary.getSourceTableName());
+        LOG.info("Loading to dictionary {} with query {}", dictionary.getName(), ctx.queryId());
         if (!baseCommand.getLabelName().isPresent()) {
-            baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + queryId.toString()));
+            baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
         }
         if (baseCommand.getJobId() == 0) {
             baseCommand.setJobId(DICTIONARY_JOB_ID);
@@ -428,6 +427,16 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             dictionary.setLastUpdateResult(e.getMessage());
             throw e;
         }
+        // some insert failed won't throw but only set error status.
+        if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
+            LOG.warn("Dictionary {} refresh failed", dictionary.getName());
+            dictionary.decreaseVersion();
+            // wont fail cuz status is LOADING owned by me.
+            dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
+            dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
+            return;
+        }
+
         // only when succeed we can do this. because of deleting does NOT conflict with loading,
         // we should check existance again!
         lockRead();
