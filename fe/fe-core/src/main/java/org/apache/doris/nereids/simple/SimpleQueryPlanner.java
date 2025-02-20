@@ -38,6 +38,7 @@ import java.util.BitSet;
 public class SimpleQueryPlanner {
     private static final BitSet SIMPLE_PLAN_TYPES = buildSimplePlanTypes();
 
+    /** isSimplePlan */
     public static boolean isSimplePlan(LogicalPlan plan) {
         BitSet existsTypes = (BitSet) plan.getAllChildrenTypes().clone();
         for (int i = existsTypes.nextSetBit(0); i >= 0; i = existsTypes.nextSetBit(i + 1)) {
@@ -47,7 +48,6 @@ public class SimpleQueryPlanner {
         }
         return true;
     }
-
 
     private static BitSet buildSimplePlanTypes() {
         BitSet simplePlanTypes = new BitSet();

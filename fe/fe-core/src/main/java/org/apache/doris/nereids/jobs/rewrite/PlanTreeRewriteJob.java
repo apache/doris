@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlanProcess;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;

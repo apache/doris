@@ -106,6 +106,16 @@ public class StatementContext implements Closeable {
         MTMV
     }
 
+    /** PlanCachePhase */
+    public enum PlanCachePhase {
+        NONE, ONE, TWO
+    }
+
+    public LogicalPlan initPlaceholderPlan;
+    public PlanCachePhase planCachePhase = PlanCachePhase.NONE;
+
+    public Map<PlaceholderLiteral, Literal> placeholderLiteralToLiteral = new ConcurrentHashMap<>();
+
     private ConnectContext connectContext;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
@@ -215,15 +225,6 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
-
-    public LogicalPlan initPlaceholderPlan;
-    public PlanCachePhase planCachePhase = PlanCachePhase.NONE;
-
-    public enum PlanCachePhase {
-        NONE, ONE, TWO
-    }
-
-    public final Map<PlaceholderLiteral, Literal> placeholderLiteralToLiteral = new ConcurrentHashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
