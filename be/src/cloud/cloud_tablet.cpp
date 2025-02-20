@@ -55,7 +55,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-bvar::LatencyRecorder g_compaction_hold_delete_bitmap_lock_time_ms("compaction_hold_delete_bitmap_lock_time_ms");
+bvar::LatencyRecorder g_compaction_hold_delete_bitmap_lock_time_ms(
+        "compaction_hold_delete_bitmap_lock_time_ms");
 
 static constexpr int LOAD_INITIATOR_ID = -1;
 
