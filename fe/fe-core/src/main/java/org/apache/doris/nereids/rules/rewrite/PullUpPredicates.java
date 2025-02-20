@@ -265,6 +265,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return cacheOrElse(project, () -> {
             ImmutableSet<Expression> childPredicates = project.child().accept(this, context);
             Set<Expression> allPredicates = Sets.newLinkedHashSet();
+            /* this generateMap is used to
+            * e.g LogicalProject(t.a)   the qualifier t may come from LogicalSubQueryAlias
+            *       +--LogicalFilter(a>1)
+            * use generateMap to make sure a>1 is pulled up and turn into t.a>1
+            * */
             for (Entry<Slot, Expression> kv : generateMap(project.getProjects()).entrySet()) {
                 Slot k = kv.getKey();
                 Expression v = kv.getValue();
@@ -281,6 +286,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         });
     }
 
+    /* e.g. LogicalAggregate(output:max(a), min(a), avg(a))
+              +--LogicalFilter(a>1, a<10)
+       when a>1 is pulled up, we can have max(a)>1, min(a)>1 and avg(a)>1
+       and a<10 is pulled up, we can have max(a)<10, min(a)<10 and avg(a)<10
+    * */
     @Override
     public ImmutableSet<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return cacheOrElse(aggregate, () -> {
