@@ -286,7 +286,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             TNetworkAddress brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-            LOG.info("fold query:{}, IP:{}", DebugUtil.printId(context.queryId()), be.getHost());
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
@@ -307,6 +306,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             tParams.setQueryId(context.queryId());
             tParams.setIsNereids(true);
 
+            LOG.info("fold query:{}, IP:{}", DebugUtil.printId(context.queryId()), be.getHost());
             Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
                     tParams);
             long beFoldStartTime = 0L;
