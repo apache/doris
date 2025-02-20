@@ -30,7 +30,7 @@ suite("test_auto_partition_with_single_replica_insert") {
         COMMENT 'OLAP'
         AUTO PARTITION BY LIST (`chain_name`)
         (PARTITION pchain5fname10 VALUES IN ("chain_name"),
-        PARTITION p4e0995e85ce1534e4e3a5 VALUES IN ("三门峡华为"))
+        PARTITION p4e0995e85ce1534e4e3a5 VALUES IN ("星辰医疗科技有限公司"))
         DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
@@ -42,6 +42,7 @@ suite("test_auto_partition_with_single_replica_insert") {
         file "test_auto_partition_with_single_replica_insert.csv"
         time 20000
     }
+    sql " sync "
     qt_select1 "select * from ${tableName1} order by user_id"
     def result1 = sql "show partitions from ${tableName1}"
     logger.info("${result1}")
@@ -59,7 +60,7 @@ suite("test_auto_partition_with_single_replica_insert") {
         COMMENT 'OLAP'
         AUTO PARTITION BY LIST (`chain_name`)
         (PARTITION pchain5fname10 VALUES IN ("chain_name"),
-        PARTITION p4e0995e85ce1534e4e3a5 VALUES IN ("三门峡华为"))
+        PARTITION p4e0995e85ce1534e4e3a5 VALUES IN ("星辰医疗科技有限公司"))
         DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
@@ -68,7 +69,8 @@ suite("test_auto_partition_with_single_replica_insert") {
     sql """set experimental_enable_nereids_planner = true"""
     sql """set enable_memtable_on_sink_node = false"""
     sql """set experimental_enable_single_replica_insert = true"""
-    sql "insert into ${tableName2} select * from ${tableName1}"
+    sql "insert into ${tableName2} select user_id, goods_id, dates, chain_name from ${tableName1}"
+    sql " sync "
     qt_select2 "select * from ${tableName2} order by user_id"
     def result2 = sql "show partitions from ${tableName1}"
     logger.info("${result2}")
