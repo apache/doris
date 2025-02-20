@@ -49,6 +49,11 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
                     AggregateFunctionCollectListData<T, HasLimit>, HasLimit, std::false_type>>(
                     argument_types, result_is_nullable);
         }
+    } else if (!distinct) {
+        // void type means support array/map/struct type for collect_list
+        return creator_without_type::create<AggregateFunctionCollect<
+                AggregateFunctionCollectListData<void, HasLimit>, HasLimit, std::false_type>>(
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
@@ -91,6 +96,9 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
     } else {
         // generic serialize which will not use specializations, ShowNull::value always means array_agg
         if constexpr (ShowNull::value) {
+            return do_create_agg_function_collect<void, HasLimit, ShowNull>(
+                    distinct, argument_types, result_is_nullable);
+        } else {
             return do_create_agg_function_collect<void, HasLimit, ShowNull>(
                     distinct, argument_types, result_is_nullable);
         }
