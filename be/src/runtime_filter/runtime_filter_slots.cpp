@@ -19,7 +19,7 @@
 
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/role/producer.h"
-#include "runtime_filter/runtime_filter_wrapper.h"
+#include "runtime_filter/wrapper/wrapper.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -31,8 +31,6 @@ Status RuntimeFilterSlots::send_filter_size(
         return Status::OK();
     }
 
-    dependency->add(); // add count at start to avoid dependency ready multiple times
-    Defer defer {[&]() { dependency->sub(); }}; // remove the initial external add
     for (auto runtime_filter : _runtime_filters) {
         RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size, dependency));
     }

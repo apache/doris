@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/runtime_filter_wrapper.h"
+#include "runtime_filter/wrapper/wrapper.h"
 
 #include "exprs/create_predicate_function.h"
 #include "vec/exprs/vbitmap_predicate.h"
@@ -33,41 +33,35 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set.reset(create_set(_column_return_type));
         _hybrid_set->set_null_aware(params->null_aware);
-        _hybrid_set->set_filter_id(_filter_id);
         return;
     }
-    // Only use in nested loop join not need set null aware
     case RuntimeFilterType::MIN_FILTER:
     case RuntimeFilterType::MAX_FILTER: {
         _minmax_func.reset(create_minmax_filter(_column_return_type));
-        _minmax_func->set_filter_id(_filter_id);
+        _minmax_func->set_null_aware(params->null_aware);
         return;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
         _minmax_func.reset(create_minmax_filter(_column_return_type));
         _minmax_func->set_null_aware(params->null_aware);
-        _minmax_func->set_filter_id(_filter_id);
         return;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
         _bloom_filter_func->init_params(params);
-        _bloom_filter_func->set_filter_id(_filter_id);
+        _hybrid_set->set_null_aware(params->null_aware);
         return;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
         _hybrid_set.reset(create_set(_column_return_type));
         _hybrid_set->set_null_aware(params->null_aware);
-        _hybrid_set->set_filter_id(_filter_id);
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
         _bloom_filter_func->init_params(params);
-        _bloom_filter_func->set_filter_id(_filter_id);
         return;
     }
     case RuntimeFilterType::BITMAP_FILTER: {
         _bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
         _bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
-        _bitmap_filter_func->set_filter_id(_filter_id);
         return;
     }
     default:
@@ -105,7 +99,8 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         auto in_pred = vectorized::VDirectInPredicate::create_shared(node, _hybrid_set);
         in_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
-                node, in_pred, get_in_list_ignore_thredhold(_hybrid_set->size()), null_aware);
+                node, in_pred, get_in_list_ignore_thredhold(_hybrid_set->size()), null_aware,
+                _filter_id);
         container.push_back(wrapper);
         break;
     }
@@ -121,7 +116,8 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                min_pred_node, min_pred, get_comparison_ignore_thredhold()));
+                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
+                _filter_id));
         break;
     }
     case RuntimeFilterType::MAX_FILTER: {
@@ -136,7 +132,8 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                max_pred_node, max_pred, get_comparison_ignore_thredhold()));
+                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
+                _filter_id));
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
@@ -151,7 +148,8 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware));
+                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
+                _filter_id));
 
         vectorized::VExprContextSPtr new_probe_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
@@ -168,7 +166,8 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
-                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware));
+                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
+                _filter_id));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -184,7 +183,7 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         bloom_pred->set_filter(_bloom_filter_func);
         bloom_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
-                node, bloom_pred, get_bloom_filter_ignore_thredhold());
+                node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware, _filter_id);
         container.push_back(wrapper);
         break;
     }
@@ -200,7 +199,8 @@ Status RuntimeFilterWrapper::get_push_exprs(std::list<vectorized::VExprContextSP
         auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_bitmap_filter_func);
         bitmap_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0,
+                                                                        null_aware, _filter_id);
         container.push_back(wrapper);
         break;
     }

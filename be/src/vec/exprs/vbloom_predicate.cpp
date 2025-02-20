@@ -55,7 +55,6 @@ Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         return Status::InternalError("Invalid argument for VBloomPredicate.");
     }
 
-    _be_exec_version = state->be_exec_version();
     _prepare_finished = true;
     return Status::OK();
 }

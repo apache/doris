@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "exprs/function_filter.h"
+#include "olap/filter_olap_param.h"
 #include "operator.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
@@ -55,11 +56,11 @@ enum class PushDownType {
 struct FilterPredicates {
     // Save all runtime filter predicates which may be pushed down to data source.
     // column name -> bloom filter function
-    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+    std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
 
-    std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+    std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
 
-    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+    std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<> {

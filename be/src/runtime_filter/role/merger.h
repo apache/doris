@@ -61,6 +61,7 @@ public:
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
         DCHECK_GE(_expected_producer_num, _received_rf_size_num) << debug_string();
+        _received_sum_size += size;
         return (_received_rf_size_num == _expected_producer_num);
     }
 

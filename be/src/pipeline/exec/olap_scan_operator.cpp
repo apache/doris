@@ -507,14 +507,14 @@ static std::string olap_filter_to_string(const doris::TCondition& condition) {
                                : to_string(condition.condition_values));
 }
 
-static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
+static std::string olap_filters_to_string(const std::vector<FilterOlapParam<TCondition>>& filters) {
     std::string filters_string;
     filters_string += "[";
     for (auto it = filters.cbegin(); it != filters.cend(); it++) {
         if (it != filters.cbegin()) {
             filters_string += ", ";
         }
-        filters_string += olap_filter_to_string(*it);
+        filters_string += olap_filter_to_string(it->filter);
     }
     filters_string += "]";
     return filters_string;
@@ -604,11 +604,11 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         }
 
         for (auto& iter : _colname_to_value_range) {
-            std::vector<TCondition> filters;
+            std::vector<FilterOlapParam<TCondition>> filters;
             std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
             for (const auto& filter : filters) {
-                _olap_filters.push_back(filter);
+                _olap_filters.emplace_back(filter);
             }
         }
 

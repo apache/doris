@@ -20,6 +20,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
+#include "exprs/filter_base.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "vec/columns/column_dictionary.h"
@@ -56,9 +57,10 @@ struct fixed_len_to_uint32_v2 {
     }
 };
 
-class BloomFilterAdaptor {
+class BloomFilterAdaptor : public FilterBase {
 public:
-    BloomFilterAdaptor(bool null_aware) : _null_aware(null_aware) {
+    BloomFilterAdaptor(bool null_aware) {
+        _null_aware = null_aware;
         _bloom_filter = std::make_shared<doris::BlockBloomFilter>();
     }
 
@@ -102,23 +104,17 @@ public:
         }
     }
 
-    void set_contain_null() { _contain_null = true; }
-
     void set_contain_null_and_null_aware() {
         _contain_null = true;
         _null_aware = true;
     }
 
-    bool contain_null() const { return _null_aware && _contain_null; }
-
 private:
-    bool _null_aware = false;
-    bool _contain_null = false;
     std::shared_ptr<doris::BlockBloomFilter> _bloom_filter;
 };
 
 // Only Used In RuntimeFilter
-class BloomFilterFuncBase : public RuntimeFilterFuncBase {
+class BloomFilterFuncBase : public FilterBase {
 public:
     virtual ~BloomFilterFuncBase() = default;
 
@@ -200,7 +196,7 @@ public:
                     "allocated bytes {}",
                     _bloom_filter_alloced, other_func->_bloom_filter_alloced);
         }
-        if (other_func->_bloom_filter->contain_null()) {
+        if (other_func->contain_null()) {
             _bloom_filter->set_contain_null_and_null_aware();
         }
         return _bloom_filter->merge(other_func->_bloom_filter.get());
@@ -231,7 +227,7 @@ public:
             throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr, inited: {}",
                             _inited);
         }
-        return _bloom_filter->contain_null();
+        return _bloom_filter->contain_null() && _null_aware;
     }
 
     void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
@@ -244,7 +240,6 @@ public:
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
         _enable_fixed_len_to_uint32_v2 = other_func->_enable_fixed_len_to_uint32_v2;
-        set_filter_id(bloomfilter_func->get_filter_id());
     }
 
     virtual void insert(const void* data) = 0;

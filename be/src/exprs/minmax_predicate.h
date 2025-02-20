@@ -17,15 +17,17 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
+#include "exprs/filter_base.h"
 #include "runtime/type_limit.h"
-#include "runtime_filter/utils.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 
 namespace doris {
 
 // only used in Runtime Filter
-class MinMaxFuncBase : public RuntimeFilterFuncBase {
+class MinMaxFuncBase : public FilterBase {
 public:
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
     virtual void* get_max() = 0;
@@ -36,14 +38,7 @@ public:
     virtual Status merge(MinMaxFuncBase* minmax_func) = 0;
     virtual ~MinMaxFuncBase() = default;
 
-    bool contain_null() const { return _null_aware && _contain_null; }
-
-    void set_contain_null() { _contain_null = true; }
-
     virtual void to_pb(PMinMaxFilter* filter) = 0;
-
-protected:
-    bool _contain_null = false;
 };
 
 template <class T, bool NeedMax = true, bool NeedMin = true>
