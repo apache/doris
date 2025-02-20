@@ -30,7 +30,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
-import org.apache.doris.thrift.TWorkloadType;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.collect.ImmutableMap;
@@ -85,11 +84,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String REMOTE_READ_BYTES_PER_SECOND = "remote_read_bytes_per_second";
 
-    // it's used to define Doris's internal workload group,
-    // currently it is internal, only contains compaction
-    // later more type and workload may be included in the future.
-    public static final String INTERNAL_TYPE = "internal_type";
-
     // deprecated, use MEMORY_LOW_WATERMARK and MEMORY_HIGH_WATERMARK instead.
     public static final String SPILL_THRESHOLD_LOW_WATERMARK = "spill_threshold_low_watermark";
     public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
@@ -102,15 +96,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
-            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).add(INTERNAL_TYPE).build();
+            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).build();
 
     private static final ImmutableMap<String, String> DEPRECATED_PROPERTIES_NAME =
             new ImmutableMap.Builder<String, String>()
                     .put(SPILL_THRESHOLD_LOW_WATERMARK, MEMORY_LOW_WATERMARK)
                     .put(SPILL_THRESHOLD_HIGH_WATERMARK, MEMORY_HIGH_WATERMARK).build();
-
-    public static final ImmutableMap<String, Integer> WORKLOAD_TYPE_MAP = new ImmutableMap.Builder<String, Integer>()
-            .put(TWorkloadType.INTERNAL.toString().toLowerCase(), TWorkloadType.INTERNAL.getValue()).build();
 
     public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 50;
     public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 80;
@@ -496,24 +487,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
 
-        // internal workload group is usually created by Doris.
-        // If exception happens here, it means thrift not match WORKLOAD_TYPE_MAP.
-        String interTypeId = properties.get(WorkloadGroup.INTERNAL_TYPE);
-        if (!StringUtils.isEmpty(interTypeId)) {
-            int wid = Integer.valueOf(interTypeId);
-            if (TWorkloadType.findByValue(wid) == null) {
-                throw new DdlException("error internal type id: " + wid + ", current id map:" + WORKLOAD_TYPE_MAP);
-            }
-        }
-
-    }
-
-    Optional<Integer> getInternalTypeId() {
-        String typeIdStr = this.properties.get(INTERNAL_TYPE);
-        if (StringUtils.isEmpty(typeIdStr)) {
-            return Optional.empty();
-        }
-        return Optional.of(Integer.valueOf(typeIdStr));
     }
 
     public long getId() {
@@ -609,12 +582,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public TopicInfo toTopicInfo() {
         TWorkloadGroupInfo tWorkloadGroupInfo = new TWorkloadGroupInfo();
-        long wgId = this.id;
-        Optional<Integer> internalTypeId = getInternalTypeId();
-        if (internalTypeId.isPresent()) {
-            wgId = internalTypeId.get();
-        }
-        tWorkloadGroupInfo.setId(wgId);
+        tWorkloadGroupInfo.setId(this.id);
 
         tWorkloadGroupInfo.setName(name);
         tWorkloadGroupInfo.setVersion(version);
