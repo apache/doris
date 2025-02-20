@@ -874,9 +874,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             break;
                         }
                     } catch (Exception e) {
-                        LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}",
+                        LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}, tableIds={}",
                                 transactionId,
-                                retryTime, e);
+                                retryTime, mowTableList.stream().map(Table::getId).collect(Collectors.toList()), e);
                     }
                     retryMsg = response.toString();
                     // sleep random millis [20, 300] ms, avoid txn conflict
@@ -1180,6 +1180,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         List<Table> tablesToLock = getTablesNeedCommitLock(tableList);
+        StopWatch stopWatch = null;
+        if (!tablesToLock.isEmpty()) {
+            stopWatch = new StopWatch();
+            stopWatch.start();
+        }
         increaseWaitingLockCount(tablesToLock);
         if (!MetaLockUtils.tryCommitLockTables(tablesToLock, timeoutMillis, TimeUnit.MILLISECONDS)) {
             decreaseWaitingLockCount(tablesToLock);
@@ -1187,6 +1192,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
                             + StringUtils.join(tablesToLock, ",") + ")");
+        }
+        if (stopWatch != null) {
+            stopWatch.stop();
+            long costTimeMs = stopWatch.getTime();
+            if (costTimeMs > 1000) {
+                LOG.warn("get table cloud commit lock, tableList=(" + StringUtils.join(tablesToLock, ",") + ")"
+                        + ", transactionId=" + transactionId + ", cost=" + costTimeMs + " ms");
+            }
         }
 
         try {
