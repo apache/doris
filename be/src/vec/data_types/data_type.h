@@ -273,6 +273,7 @@ struct WhichDataType {
     bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
     bool is_fixed_length_object() const { return idx == TypeIndex::FixedLengthObject; }
+    bool is_complex_type() const { return is_array() || is_struct() || is_map(); }
 
     bool is_nothing() const { return idx == TypeIndex::Nothing; }
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
