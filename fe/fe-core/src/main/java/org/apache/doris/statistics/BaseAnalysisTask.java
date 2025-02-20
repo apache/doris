@@ -486,6 +486,7 @@ public abstract class BaseAnalysisTask {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
+                Env.getCurrentEnv().getStatisticsMetricCollector().increaseAbandonedInvalidStats();
                 String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
                 LOG.warn(message);
                 throw new RuntimeException(message);

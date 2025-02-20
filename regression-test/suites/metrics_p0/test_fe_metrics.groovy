@@ -25,6 +25,19 @@ suite("test_fe_metrics") {
             assertEquals(200, code)
             assertTrue(body.contains("jvm_heap_size_bytes"))
             assertTrue(body.contains("jvm_gc"))
+            assertTrue(body.contains("unhealthy_table_count"))
+            assertTrue(body.contains("unhealthy_column_count"))
+            assertTrue(body.contains("unhealthy_table_rate"))
+            assertTrue(body.contains("unhealthy_column_rate"))
+            assertTrue(body.contains("empty_table_count"))
+            assertTrue(body.contains("empty_table_column_count"))
+            assertTrue(body.contains("failed_task_count"))
+            assertTrue(body.contains("abandoned_invalid_stats_count"))
+            assertTrue(body.contains("high_priority_queue_length"))
+            assertTrue(body.contains("mid_priority_queue_length"))
+            assertTrue(body.contains("low_priority_queue_length"))
+            assertTrue(body.contains("very_low_priority_queue_length"))
+            assertTrue(body.contains("not_analyzed_table_count"))
         }
     }
 
