@@ -872,7 +872,19 @@ public:
     // Return true if range or date is invalid
     static bool is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
                            uint8_t minute, uint8_t second, uint32_t microsecond,
-                           bool only_time_part = false);
+                           bool only_time_part = false) {
+        if constexpr (is_datetime) {
+            if (hour >= 24 || minute >= 60 || second >= 60 || microsecond > 999999) {
+                return true;
+            }
+            if (only_time_part) {
+                return false;
+            }
+        }
+        return year > MAX_YEAR || !day || !month || month > 12 ||
+               (day > 28 && ((month != 2 && day > S_DAYS_IN_MONTH[month]) ||
+                             (month == 2 && day > 28 + doris::is_leap(year))));
+    }
 
     [[nodiscard]] bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day,
                                                 uint8_t hour, uint8_t minute, uint8_t second,
@@ -1169,12 +1181,7 @@ public:
 
     underlying_value to_date_int_val() const { return int_val_; }
 
-    bool from_date(uint32_t value);
-    bool from_datetime(uint64_t value);
-
     bool from_date_int64(int64_t value);
-    uint32_t set_date_uint32(uint32_t int_val);
-    uint64_t set_datetime_uint64(uint64_t int_val);
 
     bool get_date_from_daynr(uint64_t);
 

@@ -42,6 +42,7 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
+import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -86,6 +87,8 @@ public class HiveScanNode extends FileQueryScanNode {
     @Setter
     protected SelectedPartitions selectedPartitions = null;
 
+    private DirectoryLister directoryLister;
+
     private boolean partitionInit = false;
     private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
     private List<HivePartition> prunedPartitions;
@@ -100,15 +103,18 @@ public class HiveScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv);
+    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister) {
+        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv, directoryLister);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv) {
+            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
+        this.directoryLister = directoryLister;
     }
 
     @Override
@@ -276,7 +282,8 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName,
+                    directoryLister, hmsTable);
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
@@ -289,12 +296,12 @@ public class HiveScanNode extends FileQueryScanNode {
          * we don't need to split the file because for parquet/orc format, only metadata is read.
          * If we split the file, we will read metadata of a file multiple times, which is not efficient.
          *
-         * - Hive Transactional Table may need merge on read, so do not apply this optimization.
+         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
-                && hiveTransaction != null) {
+                && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {

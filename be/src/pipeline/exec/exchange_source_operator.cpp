@@ -63,8 +63,10 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, this, p.input_row_desc(), state->fragment_instance_id(), p.node_id(),
-            p.num_senders(), profile(), p.is_merging());
+            state, _memory_used_counter, p.input_row_desc(), state->fragment_instance_id(),
+            p.node_id(), p.num_senders(), profile(), p.is_merging(),
+            std::max(20480, config::exchg_node_buffer_size_bytes /
+                                    (p.is_merging() ? p.num_senders() : 1)));
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
@@ -110,9 +112,7 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
                                                     tnode.exchange_node.input_row_tuples.size())),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));
@@ -132,8 +132,6 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
-    }
-    if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
     return Status::OK();
@@ -151,7 +149,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     if (_is_merging && !local_state.is_ready) {
         SCOPED_TIMER(local_state.create_merger_timer);
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
-                local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
+                local_state.vsort_exec_exprs.ordering_expr_ctxs(), _is_asc_order, _nulls_first,
                 state->batch_size(), _limit, _offset));
         local_state.is_ready = true;
         return Status::OK();

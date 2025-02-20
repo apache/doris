@@ -17,6 +17,8 @@
 
 // do compaction during commit rowset
 suite("test_compact_with_seq", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_compact_with_seq"
 
     def enable_publish_spin_wait = {

@@ -61,21 +61,6 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE
 }
 
-// phases of an execution node
-enum TExecNodePhase {
-  PREPARE,
-  OPEN,
-  GETNEXT,
-  CLOSE,
-  INVALID
-}
-
-// what to do when hitting a debug point (TPaloQueryOptions.DEBUG_ACTION)
-enum TDebugAction {
-  WAIT,
-  FAIL
-}
-
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
@@ -845,12 +830,9 @@ struct THashJoinNode {
   // anything from the ON, USING or WHERE clauses that's an equi-join predicate
   2: required list<TEqJoinCondition> eq_join_conjuncts
 
-  // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
-  // equi-join predicate
+  // deprecated
   3: optional list<Exprs.TExpr> other_join_conjuncts
-
-  // If true, this join node can (but may choose not to) generate slot filters
-  // after constructing the build side that can be applied to the probe side.
+  // deprecated
   4: optional bool add_probe_filters
 
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
@@ -861,8 +843,9 @@ struct THashJoinNode {
   6: optional list<Types.TSlotId> hash_output_slot_ids
 
   // TODO: remove 7 and 8 in the version after the version include projection on ExecNode
+  // deprecated
   7: optional list<Exprs.TExpr> srcExprList
-
+  // deprecated
   8: optional Types.TTupleId voutput_tuple_id
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
@@ -873,14 +856,15 @@ struct THashJoinNode {
   12: optional TJoinDistributionType dist_type
   13: optional list<Exprs.TExpr> mark_join_conjuncts
   // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  // deprecated
   14: optional bool use_specific_projections
 }
 
 struct TNestedLoopJoinNode {
   1: required TJoinOp join_op
-  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  // deprecated
   2: optional list<Exprs.TExpr> srcExprList
-
+  // deprecated
   3: optional Types.TTupleId voutput_tuple_id
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
@@ -895,7 +879,7 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 
   9: optional list<Exprs.TExpr> mark_join_conjuncts
-  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  // deprecated
   10: optional bool use_specific_projections
 }
 
@@ -1118,6 +1102,8 @@ struct TAnalyticNode {
   9: optional Exprs.TExpr order_by_eq
 
   10: optional bool is_colocate
+
+  11: optional list<Exprs.TExpr> range_between_offset_exprs
 }
 
 struct TMergeNode {
@@ -1268,7 +1254,7 @@ struct TRuntimeFilterDesc {
   // The order of Expr in join predicate
   3: required i32 expr_order
 
-  // Map of target node id to the target expr
+  // Map of target node id to the target expr. Used by consumer
   4: required map<Types.TPlanNodeId, Exprs.TExpr> planId_to_target_expr
 
   // Indicates if the source join node of this filter is a broadcast or

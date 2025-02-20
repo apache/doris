@@ -304,6 +304,7 @@ public class CoordinatorContext {
             boolean enableProfile) {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setEnableProfile(enableProfile);
+        queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
@@ -364,9 +365,7 @@ public class CoordinatorContext {
             queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
-        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
-                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = connectContext.getMaxExecMemByte();
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             queryOptions.setMemLimit(memLimit);

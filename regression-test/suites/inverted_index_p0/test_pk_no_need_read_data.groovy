@@ -28,7 +28,7 @@ suite("test_pk_no_need_read_data", "p0"){
       `compy` varchar(20) NULL COMMENT "",
       `n` int NULL COMMENT "",
       INDEX idx_city(city) USING INVERTED,
-      INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+      INDEX idx_addr(addr) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
       INDEX idx_n(n) USING INVERTED
     ) ENGINE=OLAP
     DUPLICATE KEY(`date`)

@@ -113,17 +113,10 @@ public:
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
-    void set_block_to_read() {
-        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
-        _shared_state->source_deps.front()->block();
-    }
+
     void set_ready_to_write() {
         DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
-    }
-    void set_block_to_write() {
-        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
-        _shared_state->sink_deps.front()->block();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
@@ -177,7 +170,7 @@ class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name, true) {}
+            : Dependency(id, node_id, std::move(name), true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -274,7 +267,7 @@ struct RuntimeFilterTimerQueue {
 class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
+            : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
 private:
@@ -383,6 +376,9 @@ public:
     };
 
     std::priority_queue<HeapLimitCursor> limit_heap;
+
+    // Refresh the top limit heap with a new row
+    void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
 private:
     vectorized::MutableColumns _get_keys_hash_table();
@@ -545,23 +541,8 @@ class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
 public:
-    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count);
+    MultiCastSharedState(ObjectPool* pool, int cast_sender_count);
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
-};
-
-struct BlockRowPos {
-    int64_t block_num {}; //the pos at which block
-    int64_t row_num {};   //the pos at which row
-    int64_t pos {};       //pos = all blocks size + row_num
-    std::string debug_string() const {
-        std::string res = "\t block_num: ";
-        res += std::to_string(block_num);
-        res += "\t row_num: ";
-        res += std::to_string(row_num);
-        res += "\t pos: ";
-        res += std::to_string(pos);
-        return res;
-    }
 };
 
 struct AnalyticSharedState : public BasicSharedState {
@@ -569,21 +550,10 @@ struct AnalyticSharedState : public BasicSharedState {
 
 public:
     AnalyticSharedState() = default;
-
-    int64_t current_row_position = 0;
-    BlockRowPos partition_by_end;
-    int64_t input_total_rows = 0;
-    BlockRowPos all_block_end;
-    std::vector<vectorized::Block> input_blocks;
-    bool input_eos = false;
-    BlockRowPos found_partition_end;
-    std::vector<int64_t> origin_cols;
-    std::vector<int64_t> input_block_first_row_positions;
-    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
-
-    // TODO: maybe global?
-    std::vector<int64_t> partition_by_column_idxs;
-    std::vector<int64_t> ordey_by_column_idxs;
+    std::queue<vectorized::Block> blocks_buffer;
+    std::mutex buffer_mutex;
+    bool sink_eos = false;
+    std::mutex sink_eos_lock;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -660,7 +630,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetDataVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetDataVariants> hash_table_variants =
+            std::make_unique<SetDataVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     // The SET operator's child might have different nullable attributes.
@@ -779,28 +750,25 @@ public:
         dep->set_ready();
     }
 
-    void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
+    virtual void add_mem_usage(int channel_id, size_t delta) {
         mem_counters[channel_id]->update(delta);
-        if (update_total_mem_usage) {
-            add_total_mem_usage(delta, channel_id);
-        }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta) {
+    virtual void sub_mem_usage(int channel_id, size_t delta) {
         mem_counters[channel_id]->update(-(int64_t)delta);
     }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id) {
-        if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
+    virtual void add_total_mem_usage(size_t delta) {
+        if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) >
+            config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
+    virtual void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
-                                         << " channel_id: " << channel_id;
-        if (prev_usage - delta <= config::local_exchange_buffer_mem_limit) {
+        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
+        if (cast_set<int64_t>(prev_usage - delta) <= config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->set_ready();
         }
     }
@@ -810,12 +778,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
     LocalMergeExchangeSharedState(int num_instances)
             : LocalExchangeSharedState(num_instances),
-              _queues_mem_usage(num_instances),
-              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {
-        for (size_t i = 0; i < num_instances; i++) {
-            _queues_mem_usage[i] = 0;
-        }
-    }
+              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {}
 
     void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
@@ -831,22 +794,21 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
         }
     }
 
-    void sub_total_mem_usage(size_t delta, int channel_id) override {
-        auto prev_usage = _queues_mem_usage[channel_id].fetch_sub(delta);
-        DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
-                                         << " channel_id: " << channel_id;
-        if (prev_usage - delta <= _each_queue_limit) {
-            sink_deps[channel_id]->set_ready();
-        }
-        if (_queues_mem_usage[channel_id] == 0) {
-            source_deps[channel_id]->block();
-        }
-    }
-    void add_total_mem_usage(size_t delta, int channel_id) override {
-        if (_queues_mem_usage[channel_id].fetch_add(delta) + delta > _each_queue_limit) {
+    void sub_total_mem_usage(size_t delta) override { mem_usage.fetch_sub(delta); }
+    void add_total_mem_usage(size_t delta) override { mem_usage.fetch_add(delta); }
+
+    void add_mem_usage(int channel_id, size_t delta) override {
+        LocalExchangeSharedState::add_mem_usage(channel_id, delta);
+        if (mem_counters[channel_id]->value() > _each_queue_limit) {
             sink_deps[channel_id]->block();
         }
-        source_deps[channel_id]->set_ready();
+    }
+
+    void sub_mem_usage(int channel_id, size_t delta) override {
+        LocalExchangeSharedState::sub_mem_usage(channel_id, delta);
+        if (mem_counters[channel_id]->value() <= _each_queue_limit) {
+            sink_deps[channel_id]->set_ready();
+        }
     }
 
     Dependency* get_sink_dep_by_channel_id(int channel_id) override {
@@ -858,7 +820,6 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
 private:
-    std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
 #include "common/compile_check_end.h"

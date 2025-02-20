@@ -79,7 +79,6 @@
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
@@ -354,7 +353,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
     return _thread_pool->submit_func([this, req, ctx]() {
-        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
+        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
         coordinator_callback(req);
         if (!req.done) {
             ctx->refresh_next_report_time();
@@ -741,10 +740,10 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                         // This may be a first fragment request of the query.
                         // Create the query fragments context.
-                        query_ctx = QueryContext::create_shared(
-                                query_id, _exec_env, params.query_options, params.coord,
-                                params.is_nereids, params.current_connect_fe, query_source);
-                        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
+                        query_ctx = QueryContext::create(query_id, _exec_env, params.query_options,
+                                                         params.coord, params.is_nereids,
+                                                         params.current_connect_fe, query_source);
+                        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker());
                         RETURN_IF_ERROR(DescriptorTbl::create(
                                 &(query_ctx->obj_pool), params.desc_tbl, &(query_ctx->desc_tbl)));
                         // set file scan range params
@@ -765,9 +764,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (workload_group_ptr != nullptr) {
                             RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
                             query_ctx->set_workload_group(workload_group_ptr);
-                            _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
-                                    print_id(query_id), workload_group_ptr->id());
                         }
+
                         // There is some logic in query ctx's dctor, we could not check if exists and delete the
                         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
                         map.insert({query_id, query_ctx});
@@ -1290,7 +1288,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     int64_t start_apply = MonotonicMillis();
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    QueryThreadContext query_thread_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
 
@@ -1305,9 +1302,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
             DCHECK(pip_context != nullptr);
             runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-            query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                    pip_context->get_query_ctx()->query_mem_tracker,
-                                    pip_context->get_query_ctx()->workload_group()};
             break;
         }
     }
@@ -1317,7 +1311,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         return Status::OK();
     }
 
-    SCOPED_ATTACH_TASK(query_thread_context);
+    SCOPED_ATTACH_TASK(pip_context->get_query_ctx());
     // 1. get the target filters
     std::vector<std::shared_ptr<IRuntimeFilter>> filters;
     RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
@@ -1404,18 +1398,13 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     return merge_status;
 }
 
-void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_info_list) {
+void FragmentMgr::get_runtime_query_info(
+        std::vector<std::weak_ptr<ResourceContext>>* _resource_ctx_list) {
     _query_ctx_map.apply(
             [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map) -> Status {
                 for (auto iter = map.begin(); iter != map.end();) {
                     if (auto q_ctx = iter->second.lock()) {
-                        WorkloadQueryInfo workload_query_info;
-                        workload_query_info.query_id = print_id(iter->first);
-                        workload_query_info.tquery_id = iter->first;
-                        workload_query_info.wg_id = q_ctx->workload_group() == nullptr
-                                                            ? -1
-                                                            : q_ctx->workload_group()->id();
-                        query_info_list->push_back(workload_query_info);
+                        _resource_ctx_list->push_back(q_ctx->resource_ctx());
                         iter++;
                     } else {
                         iter = map.erase(iter);

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -68,15 +69,40 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
 
     /**
      * check if the sql can run in group commit mode
-     * @param logicalPlan plan of sql
      */
-    public static void analyzeGroupCommit(LogicalPlan logicalPlan) {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx.getSessionVariable().isEnableInsertGroupCommit() && logicalPlan instanceof InsertIntoTableCommand) {
-            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
-            TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
-            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, logicalQuery,
-                    Optional.empty());
+    public static void fastAnalyzeGroupCommit(ConnectContext ctx, LogicalPlan logicalPlan) {
+        try {
+            if (ctx.getSessionVariable().isEnableInsertGroupCommit() && !ctx.isTxnModel() && !ctx.getSessionVariable()
+                    .isEnableUniqueKeyPartialUpdate()) {
+                ctx.setGroupCommit(true);
+            }
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
+        }
+    }
+
+    /**
+     * check if the sql can run in group commit mode
+     */
+    public static void analyzeGroupCommit(ConnectContext ctx, LogicalPlan logicalPlan) {
+        try {
+            if (ctx.isGroupCommit()) {
+                return;
+            }
+            if (!ctx.getSessionVariable().isEnableInsertGroupCommit()) {
+                return;
+            }
+            if (logicalPlan instanceof PrepareCommand) {
+                logicalPlan = ((PrepareCommand) logicalPlan).getLogicalPlan();
+            }
+            if (logicalPlan instanceof InsertIntoTableCommand) {
+                LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+                TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, logicalQuery,
+                        Optional.empty());
+            }
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
         }
     }
 

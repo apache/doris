@@ -36,6 +36,7 @@
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/compaction.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -54,7 +55,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
 static constexpr int LOAD_INITIATOR_ID = -1;
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
@@ -386,6 +386,8 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
+    // ATTN: trick, Use stale_rowsets to temporarily increase the reference count of the rowset shared pointer in _stale_rs_version_map so that in the recycle_cached_data function, it checks if the reference count is 2.
+    std::vector<RowsetSharedPtr> stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
     std::vector<std::string> version_to_delete;
@@ -409,6 +411,7 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 auto rs_it = _stale_rs_version_map.find(v_ts->version());
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
+                    stale_rowsets.push_back(rs_it->second);
                     LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
                               << " version=" << rs_it->first.to_string();
@@ -456,7 +459,8 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
 
     if (config::enable_file_cache) {
         for (const auto& rs : rowsets) {
-            if (rs.use_count() >= 1) {
+            // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
+            if (rs.use_count() > 2) {
                 LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
                              << rs.use_count()
                              << " references. File Cache won't be recycled when query is using it.";
@@ -856,16 +860,21 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 2. calc delete bitmap for incremental data
+    int64_t t1 = MonotonicMicros();
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    int64_t t2 = MonotonicMicros();
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
+    int64_t t3 = MonotonicMicros();
 
     calc_compaction_output_rowset_delete_bitmap(
             input_rowsets, rowid_conversion, version.second, UINT64_MAX, missed_rows.get(),
             location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+    int64_t t4 = MonotonicMicros();
     if (location_map) {
         RETURN_IF_ERROR(check_rowid_conversion(output_rowset, *location_map));
     }
+    int64_t t5 = MonotonicMicros();
     if (missed_rows) {
         DCHECK_EQ(missed_rows->size(), missed_rows_size);
         if (missed_rows->size() != missed_rows_size) {
@@ -875,9 +884,15 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 3. store delete bitmap
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
-                                                            output_rowset_delete_bitmap.get()));
-    return Status::OK();
+    auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
+                                                      output_rowset_delete_bitmap.get());
+    int64_t t6 = MonotonicMicros();
+    LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
+              << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)
+              << " us, calc delete bitmap cost " << (t4 - t3) << " us, check rowid conversion cost "
+              << (t5 - t4) << " us, store delete bitmap cost " << (t6 - t5)
+              << " us, st=" << st.to_string();
+    return st;
 }
 
 Status CloudTablet::sync_meta() {

@@ -56,3 +56,15 @@ insert into null_partition values(2,null);
 insert into null_partition values(3,NULL);
 insert into null_partition values(4,'null');
 insert into null_partition values(5,'NULL');
+
+drop table if exists date_partition;
+CREATE TABLE date_partition (
+                               id BIGINT,
+                               create_date DATE
+) PARTITIONED BY (create_date) TBLPROPERTIES (
+    'primary-key' = 'create_date,id',
+    'bucket'=10,
+    'file.format'='orc'
+);
+
+insert into date_partition values(1,date '2020-01-01');

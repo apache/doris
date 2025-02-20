@@ -70,7 +70,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                 continue;
             }
 
-            int segment_start = 0;
+            int64_t segment_start = 0;
             auto split = RowSetSplits(reader->clone());
 
             for (size_t i = 0; i != segments_rows.size(); ++i) {
@@ -164,32 +164,27 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
+    size_t idx = 0;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
-        auto& read_source = _all_read_sources[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
-        if (!_state->skip_delete_predicate()) {
-            read_source.fill_delete_predicates();
-        }
-        bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
-                                            ? _state->query_options().enable_segment_cache
-                                            : true;
+        _all_read_sources[tablet_id] = _read_sources[idx];
+        const auto& read_source = _all_read_sources[tablet_id];
 
         for (auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
             RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
-            SegmentCacheHandle segment_cache_handle;
 
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
-                    enable_segment_cache, false));
-
-            for (const auto& segment : segment_cache_handle.get_segments()) {
-                _all_segments_rows[rowset_id].emplace_back(segment->num_rows());
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_rows;
+            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows));
+            auto segment_count = rowset->num_segments();
+            for (int64_t i = 0; i != segment_count; i++) {
+                _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);
             }
             _total_rows += rowset->num_rows();
         }
+        idx++;
     }
 
     _rows_per_scanner = _total_rows / _max_scanners_count;

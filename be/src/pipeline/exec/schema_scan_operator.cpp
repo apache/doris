@@ -192,14 +192,6 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
 
     _tuple_idx = 0;
 
-    if (_common_scanner_param->user) {
-        TSetSessionParams param;
-        param.__set_user(*_common_scanner_param->user);
-        //TStatus t_status;
-        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
-        //RETURN_IF_ERROR(Status(t_status));
-    }
-
     return Status::OK();
 }
 

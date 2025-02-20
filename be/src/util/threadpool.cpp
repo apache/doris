@@ -46,10 +46,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_threads, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_submit_failed, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(task_execution_time_ns_avg_in_last_1000_times,
-                                   MetricUnit::NANOSECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(task_wait_worker_ns_avg_in_last_1000_times,
-                                   MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(task_execution_time_ns_total, MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(task_wait_worker_time_ns_total, MetricUnit::NANOSECONDS);
 using namespace ErrorCode;
 
 using std::string;
@@ -273,19 +271,32 @@ ThreadPool::~ThreadPool() {
     shutdown();
 }
 
+Status ThreadPool::try_create_thread(int thread_num, std::lock_guard<std::mutex>&) {
+    for (int i = 0; i < thread_num; i++) {
+        Status status = create_thread();
+        if (status.ok()) {
+            _num_threads_pending_start++;
+        } else {
+            LOG(WARNING) << "Thread pool " << _name << " failed to create thread: " << status;
+            return status;
+        }
+    }
+    return Status::OK();
+}
+
 Status ThreadPool::init() {
     if (!_pool_status.is<UNINITIALIZED>()) {
         return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();
-    _num_threads_pending_start = _min_threads;
-    for (int i = 0; i < _min_threads; i++) {
-        Status status = create_thread();
-        if (!status.ok()) {
-            shutdown();
-            return status;
-        }
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        // create thread failed should not cause threadpool init failed,
+        // because thread can be created later such as when submit a task.
+        static_cast<void>(try_create_thread(_min_threads, l));
     }
+
     // _id of thread pool is used to make sure when we create thread pool with same name, we can
     // get different _metric_entity
     // If not, we will have problem when we deregister entity and register hook.
@@ -298,8 +309,8 @@ Status ThreadPool::init() {
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_queue_size);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_queue_size);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, task_execution_time_ns_avg_in_last_1000_times);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, task_wait_worker_ns_avg_in_last_1000_times);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, task_execution_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, task_wait_worker_time_ns_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_submit_failed);
 
     _metric_entity->register_hook("update", [this]() {
@@ -314,10 +325,6 @@ Status ThreadPool::init() {
         thread_pool_queue_size->set_value(get_queue_size());
         thread_pool_max_queue_size->set_value(get_max_queue_size());
         thread_pool_max_threads->set_value(max_threads());
-        task_execution_time_ns_avg_in_last_1000_times->set_value(
-                _task_execution_time_ns_statistic.mean());
-        task_wait_worker_ns_avg_in_last_1000_times->set_value(
-                _task_wait_worker_time_ns_statistic.mean());
     });
     return Status::OK();
 }
@@ -589,7 +596,7 @@ void ThreadPool::dispatch_thread() {
         DCHECK_EQ(ThreadPoolToken::State::RUNNING, token->state());
         DCHECK(!token->_entries.empty());
         Task task = std::move(token->_entries.front());
-        _task_wait_worker_time_ns_statistic.add(task.submit_time_wather.elapsed_time());
+        task_wait_worker_time_ns_total->increment(task.submit_time_wather.elapsed_time());
         token->_entries.pop_front();
         token->_active_threads++;
         --_total_queued_tasks;
@@ -607,7 +614,7 @@ void ThreadPool::dispatch_thread() {
         // with this threadpool, and produce a deadlock.
         task.runnable.reset();
         l.lock();
-        _task_execution_time_ns_statistic.add(task_execution_time_watch.elapsed_time());
+        task_execution_time_ns_total->increment(task_execution_time_watch.elapsed_time());
         // Possible states:
         // 1. The token was shut down while we ran its task. Transition to QUIESCED.
         // 2. The token has no more queued tasks. Transition back to IDLE.
@@ -688,16 +695,7 @@ Status ThreadPool::set_min_threads(int min_threads) {
     _min_threads = min_threads;
     if (min_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = min_threads - _num_threads - _num_threads_pending_start;
-        _num_threads_pending_start += addition_threads;
-        for (int i = 0; i < addition_threads; i++) {
-            Status status = create_thread();
-            if (!status.ok()) {
-                _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool " << _name
-                             << " failed to create thread: " << status.to_string();
-                return status;
-            }
-        }
+        RETURN_IF_ERROR(try_create_thread(addition_threads, l));
     }
     return Status::OK();
 }
@@ -713,16 +711,7 @@ Status ThreadPool::set_max_threads(int max_threads) {
     if (_max_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = _max_threads - _num_threads - _num_threads_pending_start;
         addition_threads = std::min(addition_threads, _total_queued_tasks);
-        _num_threads_pending_start += addition_threads;
-        for (int i = 0; i < addition_threads; i++) {
-            Status status = create_thread();
-            if (!status.ok()) {
-                _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool " << _name
-                             << " failed to create thread: " << status.to_string();
-                return status;
-            }
-        }
+        RETURN_IF_ERROR(try_create_thread(addition_threads, l));
     }
     return Status::OK();
 }

@@ -458,7 +458,7 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
+    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
         ss << "failed to get delete bitmap update lock key, instance_id=" << instance_id
@@ -474,7 +474,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         return false;
     }
     if (lock_info.lock_id() != lock_id) {
-        msg = "lock id not match";
+        ss << "lock id not match, locked by lock_id=" << lock_info.lock_id();
+        msg = ss.str();
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
@@ -488,13 +489,14 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         }
     }
     if (!found) {
-        msg = "lock initiator not exist";
+        ss << "lock initiator " << lock_initiator << " not exist";
+        msg = ss.str();
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
     if (initiators->empty()) {
         INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                           << " key=" << hex(lock_key);
+                           << " lock_id=" << lock_id << " key=" << hex(lock_key);
         txn->remove(lock_key);
         return true;
     }
@@ -505,7 +507,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         return false;
     }
     INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                       << ", key=" << hex(lock_key) << ", initiator=" << lock_initiator
+                       << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                       << " initiator=" << lock_initiator
                        << " initiators_size=" << lock_info.initiators_size();
     txn->put(lock_key, lock_val);
     return true;
@@ -517,7 +520,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
+    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
@@ -547,7 +550,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
     if (initiators->empty()) {
         INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                           << " key=" << hex(lock_key);
+                           << " lock_id=" << lock_id << " key=" << hex(lock_key);
         txn->remove(lock_key);
         return;
     }
@@ -558,7 +561,8 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
         return;
     }
     INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                       << ", key=" << hex(lock_key) << ", initiator=" << lock_initiator
+                       << ", key=" << hex(lock_key) << " lock_id=" << lock_id
+                       << " initiator=" << lock_initiator
                        << " initiators_size=" << lock_info.initiators_size();
     txn->put(lock_key, lock_val);
 }
@@ -875,6 +879,14 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     } while (it->more());
 
     txn->remove(rs_start, rs_end);
+
+    LOG_INFO("cloud process compaction job txn remove meta rowset key")
+            .tag("instance_id", instance_id)
+            .tag("tablet_id", tablet_id)
+            .tag("start_version", start)
+            .tag("end_version", end + 1)
+            .tag("rs_start key", hex(rs_start))
+            .tag("rs_end key", hex(rs_end));
 
     TEST_SYNC_POINT_CALLBACK("process_compaction_job::loop_input_done", &num_rowsets);
 

@@ -27,7 +27,6 @@ import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -541,9 +540,7 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public List<AutoAnalysisPendingJob> showAutoPendingJobs(ShowAutoAnalyzeJobsStmt stmt) {
-        TableName tblName = stmt.getTableName();
-        String priority = stmt.getPriority();
+    public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableName tblName, String priority) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         if (priority == null || priority.isEmpty()) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
@@ -568,7 +565,9 @@ public class AnalysisManager implements Writable {
         synchronized (jobMap) {
             for (Entry<TableName, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
                 TableName table = entry.getKey();
-                if (tblName == null || tblName.equals(table)) {
+                if (tblName == null
+                        || tblName.getCtl() == null && tblName.getDb() == null && tblName.getTbl() == null
+                        || tblName.equals(table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
                             table.getDb(), table.getTbl(), entry.getValue(), priority));
                 }
@@ -578,22 +577,35 @@ public class AnalysisManager implements Writable {
     }
 
     public List<AnalysisInfo> findAnalysisJobs(ShowAnalyzeStmt stmt) {
-        String state = stmt.getStateValue();
-        TableName tblName = stmt.getDbTableName();
+        String ctl = null;
+        String db = null;
+        String table = null;
+        TableName dbTableName = stmt.getDbTableName();
+        if (dbTableName != null) {
+            ctl = dbTableName.getCtl();
+            db = dbTableName.getDb();
+            table = dbTableName.getTbl();
+        }
+        return findAnalysisJobs(stmt.getStateValue(), ctl, db, table, stmt.getJobId(), stmt.isAuto());
+    }
+
+    public List<AnalysisInfo> findAnalysisJobs(String state, String ctl, String db,
+            String table, long jobId, boolean isAuto) {
         TableIf tbl = null;
-        if (tblName != null) {
-            tbl = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+        boolean tableSpecified = ctl != null && db != null && table != null;
+        if (tableSpecified) {
+            tbl = StatisticsUtil.findTable(ctl, db, table);
         }
         long tblId = tbl == null ? -1 : tbl.getId();
         synchronized (analysisJobInfoMap) {
             return analysisJobInfoMap.values().stream()
-                .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
-                .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
-                .filter(a -> tblName == null || a.tblId == tblId)
-                .filter(a -> stmt.isAuto() && a.jobType.equals(JobType.SYSTEM)
-                    || !stmt.isAuto() && a.jobType.equals(JobType.MANUAL))
-                .sorted(Comparator.comparingLong(a -> a.jobId))
-                .collect(Collectors.toList());
+                    .filter(a -> jobId == 0 || a.jobId == jobId)
+                    .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state.toUpperCase())))
+                    .filter(a -> !tableSpecified || a.tblId == tblId)
+                    .filter(a -> isAuto && a.jobType.equals(JobType.SYSTEM)
+                            || !isAuto && a.jobType.equals(JobType.MANUAL))
+                    .sorted(Comparator.comparingLong(a -> a.jobId))
+                    .collect(Collectors.toList());
         }
     }
 

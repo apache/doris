@@ -80,8 +80,6 @@ import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
@@ -367,11 +365,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
-            return null;
-        }
-
-        @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
@@ -507,13 +500,6 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-        @Override
-        public void transmitData(InternalService.PTransmitDataParams request,
-                                 StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
-            responseObserver.onCompleted();
-        }
 
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,

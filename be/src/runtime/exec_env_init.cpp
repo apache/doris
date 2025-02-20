@@ -36,9 +36,12 @@
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/config.h"
+#include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -112,6 +115,15 @@
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_map_pool.h"
 #include "vec/spill/spill_stream_manager.h"
+// clang-format off
+// this must after util/brpc_client_cache.h
+// /doris/thirdparty/installed/include/brpc/errno.pb.h:69:3: error: expected identifier
+//  EINTERNAL = 2001,
+//   ^
+//  /doris/thirdparty/installed/include/hadoop_hdfs/hdfs.h:61:19: note: expanded from macro 'EINTERNAL'
+//  #define EINTERNAL 255
+#include "io/fs/hdfs/hdfs_mgr.h"
+// clang-format on
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -119,6 +131,7 @@
 #endif
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
@@ -192,7 +205,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    _vstream_mgr = new doris::vectorized::VDataStreamMgr();
+    set_stream_mgr(new doris::vectorized::VDataStreamMgr());
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
@@ -211,8 +224,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             get_num_threads(config::num_buffered_reader_prefetch_thread_pool_min_thread,
                             config::num_buffered_reader_prefetch_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
-                              .set_min_threads(buffered_reader_min_threads)
-                              .set_max_threads(buffered_reader_max_threads)
+                              .set_min_threads(cast_set<int>(buffered_reader_min_threads))
+                              .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
@@ -224,8 +237,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
                             config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(s3_file_upload_min_threads)
-                              .set_max_threads(s3_file_upload_max_threads)
+                              .set_min_threads(cast_set<int>(s3_file_upload_min_threads))
+                              .set_max_threads(cast_set<int>(s3_file_upload_max_threads))
                               .build(&_s3_file_upload_thread_pool));
 
     // min num equal to fragment pool's min num
@@ -237,8 +250,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
     static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
-                              .set_min_threads(config::min_nonblock_close_thread_num)
-                              .set_max_threads(config::max_nonblock_close_thread_num)
+                              .set_min_threads(cast_set<int>(config::min_nonblock_close_thread_num))
+                              .set_max_threads(cast_set<int>(config::max_nonblock_close_thread_num))
                               .build(&_non_block_close_thread_pool));
     static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
                               .set_min_threads(config::min_s3_file_system_thread_num)
@@ -249,6 +262,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     CgroupCpuCtl::init_doris_cgroup_path();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
@@ -257,7 +271,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
-    _workload_group_manager->init_internal_workload_group();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -289,11 +302,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
     _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
+    _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
+    _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -345,8 +359,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
-    WorkloadGroupPtr internal_wg = _workload_group_manager->get_internal_wg();
-    if (st = _storage_engine->start_bg_threads(internal_wg); !st.ok()) {
+    if (st = _storage_engine->start_bg_threads(nullptr); !st.ok()) {
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
@@ -453,10 +466,10 @@ Status ExecEnv::_init_mem_env() {
         storage_cache_limit = storage_cache_limit / 2;
     }
     int32_t index_percentage = config::index_page_cache_percentage;
-    uint32_t num_shards = config::storage_page_cache_shard_size;
+    int32 num_shards = config::storage_page_cache_shard_size;
     if ((num_shards & (num_shards - 1)) != 0) {
         int old_num_shards = num_shards;
-        num_shards = BitUtil::RoundUpToPowerOfTwo(num_shards);
+        num_shards = cast_set<int>(BitUtil::RoundUpToPowerOfTwo(num_shards));
         LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
                      << ". Rounded up to " << num_shards
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
@@ -810,6 +823,8 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+    SAFE_DELETE(_kerberos_ticket_mgr);
+    SAFE_DELETE(_hdfs_mgr);
 
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);

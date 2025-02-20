@@ -221,8 +221,8 @@ Status RowsetBuilder::init() {
         };
     })
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -274,13 +274,6 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         }
     }
 
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
-    }
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
@@ -288,6 +281,14 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
                                                                      _delete_bitmap));
+    }
+
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                     "tablet_id: "
+                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        return Status::OK();
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -322,8 +323,6 @@ Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
-              << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
 }
 
@@ -396,9 +395,9 @@ Status BaseRowsetBuilder::cancel() {
     return Status::OK();
 }
 
-void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
-                                                     const OlapTableSchemaParam* table_schema_param,
-                                                     const TabletSchema& ori_tablet_schema) {
+Status BaseRowsetBuilder::_build_current_tablet_schema(
+        int64_t index_id, const OlapTableSchemaParam* table_schema_param,
+        const TabletSchema& ori_tablet_schema) {
     // find the right index id
     int i = 0;
     auto indexes = table_schema_param->indexes();
@@ -438,13 +437,15 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(
-            *_tablet_schema, table_schema_param->unique_key_update_mode(),
+    RETURN_IF_ERROR(_partial_update_info->init(
+            tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
+            table_schema_param->unique_key_update_mode(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
             table_schema_param->auto_increment_coulumn(),
-            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase);
+            table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
+    return Status::OK();
 }
 
 } // namespace doris

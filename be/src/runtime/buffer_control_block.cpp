@@ -49,12 +49,11 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     delete this;
 }
 
-void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics) {
+void GetResultBatchCtx::on_close(int64_t packet_seq, int64_t returned_rows) {
     Status status;
     status.to_protobuf(result->mutable_status());
-    if (statistics != nullptr) {
-        statistics->to_pb(result->mutable_query_statistics());
-    }
+    PQueryStatistics* statistics = result->mutable_query_statistics();
+    statistics->set_returned_rows(returned_rows);
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
     { done->Run(); }
@@ -160,7 +159,6 @@ BufferControlBlock::BufferControlBlock(TUniqueId id, int buffer_size, RuntimeSta
           _fragement_transmission_compression_type(
                   state->fragement_transmission_compression_type()),
           _profile("BufferControlBlock " + print_id(_fragment_id)) {
-    _query_statistics = std::make_unique<QueryStatistics>();
     _serialize_batch_ns_timer = ADD_TIMER(&_profile, "SerializeBatchNsTime");
     _uncompressed_bytes_counter = ADD_COUNTER(&_profile, "UncompressedBytes", TUnit::BYTES);
     _compressed_bytes_counter = ADD_COUNTER(&_profile, "CompressedBytes", TUnit::BYTES);
@@ -271,7 +269,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         return;
     }
     if (_is_close) {
-        ctx->on_close(_packet_num, _query_statistics.get());
+        ctx->on_close(_packet_num, _returned_rows);
         return;
     }
     // no ready data, push ctx to waiting list
@@ -428,7 +426,7 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
-                ctx->on_close(_packet_num, _query_statistics.get());
+                ctx->on_close(_packet_num, _returned_rows);
             }
         } else {
             for (auto& ctx : _waiting_rpc) {

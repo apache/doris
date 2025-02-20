@@ -221,6 +221,8 @@ public:
 
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
 
+    bool has_enough_capacity(const IColumn& src) const override { return true; }
+
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
         auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 

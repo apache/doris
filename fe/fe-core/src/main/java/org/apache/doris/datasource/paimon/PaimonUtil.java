@@ -36,9 +36,9 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
+import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
-import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.core.type.TypeReference;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.ArrayType;
@@ -46,7 +46,6 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
-import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 
@@ -62,14 +61,16 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
 
     public static List<InternalRow> read(
-            Table table, @Nullable int[][] projection, @Nullable Predicate predicate,
+            Table table, @Nullable int[] projection, @Nullable Predicate predicate,
             Pair<ConfigOption<?>, String>... dynamicOptions)
             throws IOException {
         Map<String, String> options = new HashMap<>();
         for (Pair<ConfigOption<?>, String> pair : dynamicOptions) {
             options.put(pair.getKey().key(), pair.getValue());
         }
-        table = table.copy(options);
+        if (!options.isEmpty()) {
+            table = table.copy(options);
+        }
         ReadBuilder readBuilder = table.newReadBuilder();
         if (projection != null) {
             readBuilder.withProjection(projection);
@@ -89,62 +90,38 @@ public class PaimonUtil {
         return rows;
     }
 
-
-    /*
-    https://paimon.apache.org/docs/0.9/maintenance/system-tables/#partitions-table
-    +---------------+----------------+--------------------+--------------------+------------------------+
-    |  partition    |   record_count |  file_size_in_bytes|          file_count|        last_update_time|
-    +---------------+----------------+--------------------+--------------------+------------------------+
-    |  [1]          |           1    |             645    |                1   | 2024-06-24 10:25:57.400|
-    +---------------+----------------+--------------------+--------------------+------------------------+
-    org.apache.paimon.table.system.PartitionsTable.TABLE_TYPE
-    public static final RowType TABLE_TYPE =
-            new RowType(
-                    Arrays.asList(
-                            new DataField(0, "partition", SerializationUtils.newStringType(true)),
-                            new DataField(1, "record_count", new BigIntType(false)),
-                            new DataField(2, "file_size_in_bytes", new BigIntType(false)),
-                            new DataField(3, "file_count", new BigIntType(false)),
-                            new DataField(4, "last_update_time", DataTypes.TIMESTAMP_MILLIS())));
-    */
-    public static PaimonPartition rowToPartition(InternalRow row) {
-        String partition = row.getString(0).toString();
-        long recordCount = row.getLong(1);
-        long fileSizeInBytes = row.getLong(2);
-        long fileCount = row.getLong(3);
-        long lastUpdateTime = row.getTimestamp(4, 3).getMillisecond();
-        return new PaimonPartition(partition, recordCount, fileSizeInBytes, fileCount, lastUpdateTime);
-    }
-
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<PaimonPartition> paimonPartitions) throws AnalysisException {
-        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
-        Map<String, PaimonPartition> nameToPartition = Maps.newHashMap();
-        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
-        if (CollectionUtils.isEmpty(partitionColumns)) {
-            return partitionInfo;
+                                                            List<Partition> paimonPartitions) {
+
+        if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
+            return PaimonPartitionInfo.EMPTY;
         }
-        for (PaimonPartition paimonPartition : paimonPartitions) {
-            String partitionName = getPartitionName(partitionColumns, paimonPartition.getPartitionValues());
-            nameToPartition.put(partitionName, paimonPartition);
-            nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+        Map<String, Partition> nameToPartition = Maps.newHashMap();
+        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+
+        for (Partition partition : paimonPartitions) {
+            Map<String, String> spec = partition.spec();
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, String> entry : spec.entrySet()) {
+                sb.append(entry.getKey()).append("=").append(entry.getValue()).append("/");
+            }
+            if (sb.length() > 0) {
+                sb.deleteCharAt(sb.length() - 1);
+            }
+            String partitionName = sb.toString();
+            nameToPartition.put(partitionName, partition);
+            try {
+                // partition values return by paimon api, may have problem,
+                // to avoid affecting the query, we catch exceptions here
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+            } catch (Exception e) {
+                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
+                        partitionColumns, partition.spec(), e);
+            }
         }
         return partitionInfo;
-    }
-
-    private static String getPartitionName(List<Column> partitionColumns, String partitionValueStr) {
-        Preconditions.checkNotNull(partitionValueStr);
-        String[] partitionValues = partitionValueStr.replace("[", "").replace("]", "")
-                .split(",");
-        Preconditions.checkState(partitionColumns.size() == partitionValues.length);
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < partitionColumns.size(); ++i) {
-            if (i != 0) {
-                sb.append("/");
-            }
-            sb.append(partitionColumns.get(i).getName()).append("=").append(partitionValues[i]);
-        }
-        return sb.toString();
     }
 
     public static ListPartitionItem toListPartitionItem(String partitionName, List<Column> partitionColumns)
@@ -243,33 +220,5 @@ public class PaimonUtil {
 
     public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
         return paimonPrimitiveTypeToDorisType(type);
-    }
-
-    /**
-     * https://paimon.apache.org/docs/0.9/maintenance/system-tables/#schemas-table
-     * demo:
-     * 0
-     * [{"id":0,"name":"user_id","type":"BIGINT NOT NULL"},
-     * {"id":1,"name":"item_id","type":"BIGINT"},
-     * {"id":2,"name":"behavior","type":"STRING"},
-     * {"id":3,"name":"dt","type":"STRING NOT NULL"},
-     * {"id":4,"name":"hh","type":"STRING NOT NULL"}]
-     * ["dt"]
-     * ["dt","hh","user_id"]
-     * {"owner":"hadoop","provider":"paimon"}
-     * 2024-12-03 15:38:14.734
-     *
-     * @param row
-     * @return
-     */
-    public static PaimonSchema rowToSchema(InternalRow row) {
-        long schemaId = row.getLong(0);
-        String fieldsStr = row.getString(1).toString();
-        String partitionKeysStr = row.getString(2).toString();
-        List<DataField> fields = JsonSerdeUtil.fromJson(fieldsStr, new TypeReference<List<DataField>>() {
-        });
-        List<String> partitionKeys = JsonSerdeUtil.fromJson(partitionKeysStr, new TypeReference<List<String>>() {
-        });
-        return new PaimonSchema(schemaId, fields, partitionKeys);
     }
 }

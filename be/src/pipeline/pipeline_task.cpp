@@ -74,8 +74,8 @@ PipelineTask::PipelineTask(
     }
 }
 
-Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
-                             QueryContext* query_ctx) {
+Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
+                             const TDataSink& tsink, QueryContext* query_ctx) {
     DCHECK(_sink);
     _init_profile();
     SCOPED_TIMER(_task_profile->total_time_counter());
@@ -87,20 +87,14 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     });
     {
         // set sink local state
-        LocalSinkStateInfo info {_task_idx,
-                                 _task_profile.get(),
-                                 local_params.sender_id,
-                                 get_sink_shared_state().get(),
-                                 _le_state_map,
-                                 tsink};
+        LocalSinkStateInfo info {_task_idx,     _task_profile.get(),
+                                 sender_id,     get_sink_shared_state().get(),
+                                 _le_state_map, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     }
 
-    _scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                     _operators.front()->node_id(), _scan_ranges);
+    _scan_ranges = scan_range;
     auto* parent_profile = _state->get_sink_local_state()->profile();
-    query_ctx->register_query_statistics(
-            _state->get_sink_local_state()->get_query_statistics_ptr());
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
@@ -108,8 +102,6 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
                              _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
-        query_ctx->register_query_statistics(
-                _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
     {
         std::vector<Dependency*> filter_dependencies;
@@ -300,13 +292,12 @@ Status PipelineTask::execute(bool* eos) {
         }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
-        auto cpu_qs = query_context()->get_cpu_statistics();
-        if (cpu_qs) {
-            cpu_qs->add_cpu_nanos(delta_cpu_time);
-        }
-        query_context()->update_cpu_time(delta_cpu_time);
+        query_context()->resource_ctx()->cpu_context()->update_cpu_cost_ms(delta_cpu_time);
     }};
     if (_wait_to_start()) {
+        if (config::enable_prefetch_tablet) {
+            RETURN_IF_ERROR(_source->hold_tablets(_state));
+        }
         return Status::OK();
     }
 
@@ -426,7 +417,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         return false;
     } else if (is_wg_mem_low_water_mark) {
         int64_t spill_threshold = query_ctx->spill_threshold();
-        int64_t memory_usage = query_ctx->query_mem_tracker->consumption();
+        int64_t memory_usage = query_ctx->query_mem_tracker()->consumption();
         if (spill_threshold == 0 || memory_usage < spill_threshold) {
             return false;
         }

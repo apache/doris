@@ -58,6 +58,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -74,6 +75,9 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
+import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -114,6 +118,8 @@ public class SingleNodePlanner {
     private final PlannerContext ctx;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
     private Map<Analyzer, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
+
+    private DirectoryLister directoryLister;
 
     public SingleNodePlanner(PlannerContext ctx) {
         this.ctx = ctx;
@@ -313,7 +319,6 @@ public class SingleNodePlanner {
             boolean useTopN = true;
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
-            ((SortNode) root).setDefaultLimit(limit == -1);
             root.setOffset(stmt.getOffset());
             if (useTopN) {
                 if (sqlSelectLimit >= 0) {
@@ -1938,9 +1943,10 @@ public class SingleNodePlanner {
             case SCHEMA:
                 if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                         tblRef.getDesc().getTable().getName())) {
-                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                        null, null, null);
                 } else {
-                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(), null, null, null);
                 }
                 break;
             case BROKER:
@@ -1959,6 +1965,10 @@ public class SingleNodePlanner {
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId(), sv);
                 break;
             case HMS_EXTERNAL_TABLE:
+                if (directoryLister == null) {
+                    this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
+                            Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+                }
                 TableIf table = tblRef.getDesc().getTable();
                 switch (((HMSExternalTable) table).getDlaType()) {
                     case HUDI:
@@ -1969,13 +1979,13 @@ public class SingleNodePlanner {
                                     + "please set enable_nereids_planner = true to enable new optimizer");
                         }
                         scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
-                                Optional.empty(), Optional.empty(), sv);
+                                Optional.empty(), Optional.empty(), sv, directoryLister);
                         break;
                     case ICEBERG:
                         scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                         break;
                     case HIVE:
-                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
+                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv, directoryLister);
                         ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:

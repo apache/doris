@@ -35,7 +35,13 @@ suite ("onlyGroupBy") {
 
 
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
 
     createMV("create materialized view onlyGroupBy_mv as select deptno, count(salary) from onlyGroupBy group by deptno;")
@@ -43,12 +49,11 @@ suite ("onlyGroupBy") {
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table onlyGroupBy with sync;"
+    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='9');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 
     sql """set enable_stats=true;"""
-    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='4');"""
-
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 }

@@ -140,8 +140,13 @@ public class Config extends ConfigBase {
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"PreparedStatement stmtId 起始位置，仅用于测试",
+                    "PreparedStatement stmtId starting position, used for testing onl"})
+    public static long prepared_stmt_start_id = -1;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
-    public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+    public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true, description = {"是否启用插件", "Whether to enable the plugin"})
     public static boolean plugin_enable = true;
@@ -150,7 +155,7 @@ public class Config extends ConfigBase {
             "JDBC 驱动的存放路径。在创建 JDBC Catalog 时，如果指定的驱动文件路径不是绝对路径，则会在这个目录下寻找",
             "The path to save jdbc drivers. When creating JDBC Catalog,"
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
-    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
+    public static String jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
 
     @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
             + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
@@ -190,6 +195,12 @@ public class Config extends ConfigBase {
             "For ALTER, EXPORT jobs, remove the finished job if expired."})
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对 EXPORT 作业，如果系统内 EXPORT 作业数量超过这个值，则会删除最老的记录。",
+            "For EXPORT jobs, If the number of EXPORT jobs in the system exceeds this value, "
+                    + "the oldest records will be deleted."})
+    public static int max_export_history_job_num = 1000;
+
     @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
             "The clean interval of transaction, in seconds. "
                     + "In each cycle, the expired history transaction will be cleaned"})
@@ -201,10 +212,10 @@ public class Config extends ConfigBase {
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
 
     @ConfField(description = {"元数据的存储目录", "The directory to save Doris meta data"})
-    public static String meta_dir = System.getenv("DORIS_HOME") + "/doris-meta";
+    public static String meta_dir =  EnvUtils.getDorisHome() + "/doris-meta";
 
     @ConfField(description = {"临时文件的存储目录", "The directory to save Doris temp data"})
-    public static String tmp_dir = System.getenv("DORIS_HOME") + "/temp_dir";
+    public static String tmp_dir =  EnvUtils.getDorisHome() + "/temp_dir";
 
     @ConfField(description = {"元数据日志的存储类型。BDB: 日志存储在 BDBJE 中。LOCAL：日志存储在本地文件中（仅用于测试）",
             "The storage type of the metadata log. BDB: Logs are stored in BDBJE. "
@@ -303,6 +314,10 @@ public class Config extends ConfigBase {
             "Queue size to store heartbeat task in heartbeat_mgr"})
     public static int heartbeat_mgr_blocking_queue_size = 1024;
 
+    @ConfField(masterOnly = true, description = {"TabletStatMgr线程数",
+            "Num of thread to update tablet stat"})
+    public static int tablet_stat_mgr_threads_num = -1;
+
     @ConfField(masterOnly = true, description = {"Agent任务线程池的线程数",
             "Num of thread to handle agent task in agent task thread-pool"})
     public static int max_agent_task_threads_num = 4096;
@@ -355,7 +370,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"FE https 服务的 key store 路径",
             "The key store path of FE https service"})
-    public static String key_store_path = System.getenv("DORIS_HOME")
+    public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
     @ConfField(description = {"FE https 服务的 key store 密码",
@@ -627,7 +642,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Spark Load 所使用的 Spark 程序目录",
             "Spark dir for Spark Load"})
-    public static String spark_home_default_dir = System.getenv("DORIS_HOME") + "/lib/spark2x";
+    public static String spark_home_default_dir =  EnvUtils.getDorisHome() + "/lib/spark2x";
 
     @ConfField(description = {"Spark load 所使用的依赖项目录", "Spark dependencies dir for Spark Load"})
     public static String spark_resource_path = "";
@@ -636,10 +651,10 @@ public class Config extends ConfigBase {
     public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
 
     @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
-    public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
+    public static String yarn_client_path =  EnvUtils.getDorisHome() + "/lib/yarn-client/hadoop/bin/yarn";
 
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
-    public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
+    public static String yarn_config_dir =  EnvUtils.getDorisHome() + "/lib/yarn-config";
 
     @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
             "Default timeout for ingestion load job, in seconds."})
@@ -943,7 +958,8 @@ public class Config extends ConfigBase {
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
-    @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
+    @ConfField(mutable = true)
+    public static int tablet_stat_update_interval_second = 60;  // 1 min
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
@@ -1288,7 +1304,7 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField
-    public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
+    public static String small_file_dir =  EnvUtils.getDorisHome() + "/small_files";
 
     /**
      * This will limit the max recursion depth of hash distribution pruner.
@@ -2209,6 +2225,10 @@ public class Config extends ConfigBase {
         "Max cache number of external table row count"})
     public static long max_external_table_row_count_cache_num = 100000;
 
+    @ConfField(description = {"每个查询的外表文件元数据缓存的最大文件数量。",
+            "Max cache file number of external table split file meta cache at query level."})
+    public static long max_external_table_split_file_meta_cache_num = 100000;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
@@ -2371,14 +2391,14 @@ public class Config extends ConfigBase {
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_ca_certificate = System.getenv("DORIS_HOME")
+    public static String mysql_ssl_default_ca_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/ca_certificate.p12";
 
     /**
      * Default server certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_server_certificate = System.getenv("DORIS_HOME")
+    public static String mysql_ssl_default_server_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/server_certificate.p12";
 
     /**
@@ -2542,7 +2562,7 @@ public class Config extends ConfigBase {
     public static int max_binlog_messsage_size = 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
+            "是否禁止使用 WITH RESOURCE 语句创建 Catalog。",
             "Whether to disable creating catalog with WITH RESOURCE statement."})
     public static boolean disallow_create_catalog_with_resource = true;
 
@@ -2910,7 +2930,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
@@ -3272,14 +3292,22 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认60s"})
     public static int delete_bitmap_lock_expiration_seconds = 60;
 
-    @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
-    public static int calculate_delete_bitmap_task_timeout_seconds = 15;
+    @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认60s"})
+    public static int calculate_delete_bitmap_task_timeout_seconds = 60;
 
     @ConfField(mutable = true, description = {"存算分离模式下事务导入calculate delete bitmap task 超时时间，默认300s"})
     public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
+
+    @ConfField(mutable = true, description = {"是否在事务提交时对所有表启用提交锁。设置为 true 时，所有表都会使用提交锁。"
+            + "设置为 false 时，仅对 Merge-On-Write 表使用提交锁。默认值为 true。",
+            "Whether to enable commit lock for all tables during transaction commit."
+            + "If true, commit lock will be applied to all tables."
+            + "If false, commit lock will only be applied to Merge-On-Write tables."
+            + "Default value is true." })
+    public static boolean enable_commit_lock_for_all_tables = true;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
@@ -3305,6 +3333,18 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
+            "Whether to enable retry when schema change failed in cloud model, default is true."})
+    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
+            "Max retry times when schema change failed in cloud model, default is 3."})
+    public static int schema_change_max_retry_time = 3;
+
+    @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
+            "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
+    public static boolean enable_show_file_cache_hotspot_stmt = false;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

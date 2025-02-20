@@ -375,16 +375,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                                 }
                                 break;
                             }
-                            if (columnDef.getType().isFloatingPointType()) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                                break;
-                            }
-                            if (columnDef.getType().isComplexType()) {
+                            if (!columnDef.getType().couldBeShortKey()) {
                                 break;
                             }
                             if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -429,7 +420,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
-                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
                             + "only be set in merge-on-write unique table.");
                 }
                 // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property

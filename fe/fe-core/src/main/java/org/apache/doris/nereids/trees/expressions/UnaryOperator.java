@@ -56,7 +56,7 @@ public abstract class UnaryOperator extends Expression implements UnaryExpressio
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(symbol, child());
     }
 

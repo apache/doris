@@ -29,6 +29,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
@@ -61,13 +62,13 @@ public:
 
     static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
 
-    void static check_chars_length(size_t total_length, size_t element_number) {
+    void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
             throw Exception(
                     ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                     "string column length is too large: total_length={}, element_number={}, "
-                    "you can set batch_size a number smaller than {} to avoid this error",
-                    total_length, element_number, element_number);
+                    "you can set batch_size a number smaller than {} to avoid this error. rows:{}",
+                    total_length, element_number, element_number, rows);
         }
     }
 
@@ -89,8 +90,11 @@ private:
     // Start position of i-th element.
     T ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
-    /// Size of i-th element, including terminating zero.
-    T ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
+    // Size of i-th element, including terminating zero.
+    // assume that the length of a single element is less than 32-bit
+    uint32_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return uint32_t(offsets[i] - offsets[i - 1]);
+    }
 
     template <bool positive>
     struct less;
@@ -112,6 +116,8 @@ public:
     size_t size() const override { return offsets.size(); }
 
     size_t byte_size() const override { return chars.size() + offsets.size() * sizeof(offsets[0]); }
+
+    bool has_enough_capacity(const IColumn& src) const override;
 
     size_t allocated_bytes() const override {
         return chars.allocated_bytes() + offsets.allocated_bytes();
@@ -357,7 +363,7 @@ public:
 
         for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
-            auto& src = dict[codeword];
+            const auto& src = dict[codeword];
             memcpy(chars.data() + old_size, src.data, src.size);
             old_size += src.size;
         }

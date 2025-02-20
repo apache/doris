@@ -72,7 +72,7 @@ Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {
 Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
              bool ignore_trivial_slot) {
     for (auto* const slot_desc : slots) {
-        if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+        if (ignore_trivial_slot && !slot_desc->is_materialized()) {
             continue;
         }
         auto column_ptr = slot_desc->get_empty_mutable_column();
@@ -80,6 +80,15 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
                                      slot_desc->col_name()));
     }
+}
+
+Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
+             bool ignore_trivial_slot) {
+    std::vector<SlotDescriptor*> slot_ptrs(slots.size());
+    for (size_t i = 0; i < slots.size(); ++i) {
+        slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
+    }
+    *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
 }
 
 Status Block::deserialize(const PBlock& pblock) {
@@ -147,7 +156,7 @@ void Block::initialize_index_by_name() {
 void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
     if (position > data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
 
@@ -164,7 +173,7 @@ void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
 void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
     if (position > data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
 
@@ -802,26 +811,25 @@ void Block::update_hash(SipHash& hash) const {
 void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-    if (count == 0) {
-        for (const auto& col : columns_to_filter) {
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+    for (const auto& col : columns_to_filter) {
+        auto& column = block->get_by_position(col).column;
+        if (column->size() == count) {
+            continue;
         }
-    } else {
-        for (const auto& col : columns_to_filter) {
-            auto& column = block->get_by_position(col).column;
-            if (column->size() != count) {
-                if (column->is_exclusive()) {
-                    const auto result_size = column->assume_mutable()->filter(filter);
-                    if (result_size != count) [[unlikely]] {
-                        throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "result_size not equal with filter_size, result_size={}, "
-                                        "filter_size={}",
-                                        result_size, count);
-                    }
-                } else {
-                    column = column->filter(filter, count);
-                }
+        if (count == 0) {
+            block->get_by_position(col).column->assume_mutable()->clear();
+            continue;
+        }
+        if (column->is_exclusive()) {
+            const auto result_size = column->assume_mutable()->filter(filter);
+            if (result_size != count) [[unlikely]] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "result_size not equal with filter_size, result_size={}, "
+                                "filter_size={}",
+                                result_size, count);
             }
+        } else {
+            column = column->filter(filter, count);
         }
     }
 }
@@ -998,7 +1006,7 @@ MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int
                            bool ignore_trivial_slot) {
     for (auto* const tuple_desc : tuple_descs) {
         for (auto* const slot_desc : tuple_desc->slots()) {
-            if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+            if (ignore_trivial_slot && !slot_desc->is_materialized()) {
                 continue;
             }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());

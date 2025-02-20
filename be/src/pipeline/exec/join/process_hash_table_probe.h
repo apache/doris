@@ -52,8 +52,7 @@ struct ProcessHashTableProbe {
 
     void probe_side_output_column(vectorized::MutableColumns& mcol,
                                   const std::vector<bool>& output_slot_flags, int size,
-                                  int last_probe_index, bool all_match_one,
-                                  bool have_other_join_conjunct);
+                                  bool all_match_one, bool have_other_join_conjunct);
 
     template <typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
@@ -111,10 +110,6 @@ struct ProcessHashTableProbe {
     uint32_t _build_index_for_null_probe_key {0};
 
     std::vector<int> _build_blocks_locs;
-    // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
-    vectorized::ColumnUInt8::Container* _tuple_is_null_left_flags = nullptr;
-    // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
-    vectorized::ColumnUInt8::Container* _tuple_is_null_right_flags = nullptr;
 
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer = nullptr;
