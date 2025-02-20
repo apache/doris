@@ -28,44 +28,19 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <iomanip>
-#include <memory>
-#include <ostream>
-#include <random>
-#include <sstream>
-#include <tuple>
-#include <type_traits>
-#include <unordered_map>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/exception.h"
-#include "common/status.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/string_search.hpp"
-#include "util/sha.h"
-#include "util/string_util.h"
-#include "util/utf8_check.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
-#include "vec/common/int_exp.h"
-#include "vec/common/memcmp_small.h"
-#include "vec/common/memcpy_small.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
 #include <memory_resource>
@@ -79,33 +54,15 @@
 #include <fmt/format.h>
 
 #include <cstdint>
-#include <string>
 #include <string_view>
 
-#include "exprs/math_functions.h"
 #include "udf/udf.h"
-#include "util/md5.h"
 #include "util/simd/vstring_function.h"
-#include "util/sm3.h"
-#include "util/url_coding.h"
-#include "util/url_parser.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/pinyin.h"
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/functions/string_utils.h"
-#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
