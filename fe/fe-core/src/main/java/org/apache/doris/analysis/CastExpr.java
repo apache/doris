@@ -154,8 +154,8 @@ public class CastExpr extends Expr {
             Type from = getActualArgTypes(collectChildReturnTypes())[0];
             Type to = getActualType(type);
             NullableMode nullableMode = TYPE_NULLABLE_MODE.get(Pair.of(from, to));
-            // for complex type cast to jsonb we make ret is always nullable
-            if (from.isComplexType() && type.isJsonbType()) {
+            // for complex type cast to jsonb|variant we make ret is always nullable
+            if (from.isComplexType() && (type.isJsonbType() || type.isVariantType())) {
                 nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
             }
             Preconditions.checkState(nullableMode != null,
@@ -336,7 +336,11 @@ public class CastExpr extends Expr {
                 return;
             }
             // same with Type.canCastTo() can be cast to jsonb
-            if (childType.isComplexType() && type.isJsonbType()) {
+            if ((type.isVariantType() || type.isJsonbType()) && childType.isComplexType()) {
+                // for complex type cast to jsonb|variant we make ret is always nullable
+                NullableMode nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
+                fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(childType), type,
+                        false, true, nullableMode);
                 return;
             }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
