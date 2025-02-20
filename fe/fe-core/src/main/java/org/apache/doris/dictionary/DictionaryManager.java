@@ -523,17 +523,30 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     /**
-     * Get dictionary status from all alive backends.
+     * Get dictionary status from all alive backends. shouldn't under lock because of RPC.
+     * if dictionaries changed, just let it fail.
      *
      * @param queryDicts query dictionaries. if null, query all dictionaries.
      * @return Map of unknown dictionary <id, List<beId>>
      */
     public Map<Long, List<Long>> collectDictionaryStatus(List<Long> queryDicts) throws RuntimeException {
         Map<Long, List<Long>> unknownDictionaries = Maps.newHashMap();
-        Set<Long> updatedDictIds = Sets.newHashSet();
+        // make the old stats of query dicts expired
         if (queryDicts == null) {
             queryDicts = ImmutableList.of(); // query all dictionaries
+            for (Dictionary dictionary : idToDictionary.values()) {
+                dictionary.resetDataDistributions();
+            }
+        } else {
+            for (Long dictId : queryDicts) {
+                Dictionary dictionary = getDictionary(dictId);
+                if (dictionary == null) {
+                    throw new RuntimeException("Dictionary " + dictId + " does not exist");
+                }
+                dictionary.resetDataDistributions();
+            }
         }
+
         LOG.info("Collecting all dictionaries status for " + queryDicts.size() + " dictionaries");
         // traverse all backends
         for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackends(true)) {
@@ -555,6 +568,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 throw new RuntimeException("failed to get dictionary status from backend[" + backend.getId() + "]");
             }
 
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Get dictionary status from backend[{}]: {}", backend.getId(), allStatusList);
+            }
+
             // traverse all dictionary status in this BE
             for (TDictionaryStatus status : allStatusList.getDictionaryStatusList()) {
                 if (!status.isSetDictionaryId() || !status.isSetVersionId() || !status.isSetDictionaryMemorySize()) {
@@ -572,15 +589,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 DictionaryDistribution newDistribution = new DictionaryDistribution(backend, status.getVersionId(),
                         status.getDictionaryMemorySize());
 
-                // Update the distribution list
-                List<DictionaryDistribution> distributions = dictionary.getDataDistributions();
-                // if it's new here, set it with a new list(invalidating the old list)
-                if (updatedDictIds.add(dictionaryId)) {
-                    dictionary.resetDataDistributions();
-                    distributions = dictionary.getDataDistributions();
-                }
-                // add new distribution
-                distributions.add(newDistribution);
+                // add new distribution to list
+                dictionary.getDataDistributions().add(newDistribution);
             }
         }
         LOG.info("Collect all dictionaries status succeed");
