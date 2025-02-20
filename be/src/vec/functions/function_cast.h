@@ -1958,6 +1958,8 @@ private:
                 auto dst_str = ColumnString::create();
                 dst_str->clear();
                 dst_str->reserve(input_rows_count);
+                auto dst_null_map = ColumnUInt8::create(input_rows_count, 1);
+                auto* __restrict null_map_data = dst_null_map->get_data().data();
                 VectorBufferWriter write_buffer(*dst_str.get());
                 auto from_serde = from_type->get_serde();
                 DataTypeSerDe::FormatOptions options;
@@ -1972,9 +1974,13 @@ private:
                         continue;
                     }
                     write_buffer.commit();
+                    null_map_data[i] = 0;
                 }
                 // then change origin type and column to  string type and column
-                variant->create_root(std::make_shared<DataTypeString>(), dst_str->assume_mutable());
+                variant->create_root(
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+                        ColumnNullable::create(dst_str->assume_mutable(),
+                                               dst_null_map->assume_mutable()));
             } else {
                 variant->create_root(from_type, col_from->assume_mutable());
             }
