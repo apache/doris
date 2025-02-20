@@ -94,29 +94,7 @@ public:
 
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
-<<<<<<< HEAD
     ~BlockFileCache();
-=======
-    ~BlockFileCache() {
-        {
-            std::lock_guard lock(_close_mtx);
-            _close = true;
-        }
-        _close_cv.notify_all();
-        if (_cache_background_monitor_thread.joinable()) {
-            _cache_background_monitor_thread.join();
-        }
-        if (_cache_background_ttl_gc_thread.joinable()) {
-            _cache_background_ttl_gc_thread.join();
-        }
-        if (_cache_background_gc_thread.joinable()) {
-            _cache_background_gc_thread.join();
-        }
-        if (_cache_background_evict_in_advance_thread.joinable()) {
-            _cache_background_evict_in_advance_thread.join();
-        }
-    }
->>>>>>> upstream/master
 
     /// Restore cache from local filesystem.
     Status initialize();

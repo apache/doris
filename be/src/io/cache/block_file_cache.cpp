@@ -319,8 +319,17 @@ BlockFileCache::~BlockFileCache() {
         _close = true;
     }
     _close_cv.notify_all();
-    if (_cache_background_thread.joinable()) {
-        _cache_background_thread.join();
+    if (_cache_background_monitor_thread.joinable()) {
+        _cache_background_monitor_thread.join();
+    }
+    if (_cache_background_ttl_gc_thread.joinable()) {
+        _cache_background_ttl_gc_thread.join();
+    }
+    if (_cache_background_gc_thread.joinable()) {
+        _cache_background_gc_thread.join();
+    }
+    if (_cache_background_evict_in_advance_thread.joinable()) {
+        _cache_background_evict_in_advance_thread.join();
     }
     _cache_capacity_md_metrics.delete_stats({_cache_base_path});
     _cur_cache_size_md_metrics.delete_stats({_cache_base_path});
