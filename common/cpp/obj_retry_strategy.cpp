@@ -57,7 +57,7 @@ std::unique_ptr<Azure::Core::Http::RawResponse> AzureRetryRecordPolicy::Send(
     }
     return resp;
 }
-
+//first_test
 std::unique_ptr<AzureRetryRecordPolicy::HttpPolicy> AzureRetryRecordPolicy::Clone() const {
     auto ret = std::make_unique<AzureRetryRecordPolicy>(*this);
     ret->retry_cnt = 0;
