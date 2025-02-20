@@ -143,7 +143,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
             set 'column_separator', ','
             set 'columns', 'id, name, score'
-            file "test_stream_load.csv"
+            file "test_stream_load0.csv"
 
             time 10000 // limit inflight 10s
 
@@ -153,7 +153,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
                 assertEquals("success", json.Status.toLowerCase())
             }
         }
-        qt_sql """ select * from ${tableName} order by id"""
+        qt_sql1 """ select * from ${tableName} order by id"""
 
         getTotalRetry.call()
         assertEquals(last_total_retry, total_retry)
@@ -163,7 +163,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
             set 'column_separator', ','
             set 'columns', 'id, name, score'
-            file "test_stream_load.csv"
+            file "test_stream_load1.csv"
 
             time 10000 // limit inflight 10s
 
@@ -173,7 +173,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
                 assertEquals("success", json.Status.toLowerCase())
             }
         }
-        qt_sql """ select * from ${tableName} order by id"""
+        qt_sql2 """ select * from ${tableName} order by id"""
 
         getTotalRetry.call()
         assertEquals(last_total_retry, total_retry)
@@ -187,7 +187,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
             set 'column_separator', ','
             set 'columns', 'id, name, score'
-            file "test_stream_load.csv"
+            file "test_stream_load2.csv"
 
             time 10000 // limit inflight 10s
 
@@ -198,7 +198,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
                 assertTrue(json.Message.contains("FE.mow.commit.exception"))
             }
         }
-        qt_sql """ select * from ${tableName} order by id"""
+        qt_sql3 """ select * from ${tableName} order by id"""
 
         // commit fail is not DELETE_BITMAP_LOCK_ERR will not retry
         getTotalRetry.call()
@@ -211,7 +211,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
             set 'column_separator', ','
             set 'columns', 'id, name, score'
-            file "test_stream_load.csv"
+            file "test_stream_load2.csv"
 
             time 10000 // limit inflight 10s
 
@@ -221,7 +221,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
                 assertEquals("success", json.Status.toLowerCase())
             }
         }
-        qt_sql """ select * from ${tableName} order by id"""
+        qt_sql4 """ select * from ${tableName} order by id"""
         getTotalRetry.call()
         assertEquals(last_total_retry, total_retry)
 
@@ -236,7 +236,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load3.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -250,7 +250,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             def time_cost = System.currentTimeMillis() - now
             getTotalRetry.call()
             assertEquals(last_total_retry + 2, total_retry)
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql5 """ select * from ${tableName} order by id"""
 
             // 3.2 second load will success because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::test_update_delete_bitmap_fail")
@@ -259,7 +259,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load3.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -271,7 +271,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             }
             getTotalRetry.call()
             assertEquals(last_total_retry + 2, total_retry)
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql6 """ select * from ${tableName} order by id"""
         }
 
         //4. test wait fe lock timeout, will retry
@@ -286,7 +286,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load4.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -301,7 +301,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             getTotalRetry.call()
             assertEquals(last_total_retry + 4, total_retry)
             assertTrue(time_cost > 10000, "wait time should bigger than total retry interval")
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql7 """ select * from ${tableName} order by id"""
 
             // 4.2 second load will success because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.tryCommitLock.timeout")
@@ -310,7 +310,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load4.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -322,7 +322,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             }
             getTotalRetry.call()
             assertEquals(last_total_retry + 4, total_retry)
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql8 """ select * from ${tableName} order by id"""
         }
         //5. test wait delete bitmap lock timeout, lock is released normally, will retry
         GetDebugPoint().enableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.fail")
@@ -334,7 +334,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load5.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -348,7 +348,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             def time_cost = System.currentTimeMillis() - now
             getTotalRetry.call()
             assertEquals(last_total_retry + 6, total_retry)
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql9 """ select * from ${tableName} order by id"""
 
             // 5.2 second load will success because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.fail")
@@ -357,7 +357,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load5.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -369,7 +369,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             }
             getTotalRetry.call()
             assertEquals(last_total_retry + 6, total_retry)
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql10 """ select * from ${tableName} order by id"""
         }
 
         //6.test calculate delete bitmap task timeout, after retry, will succeed
@@ -383,7 +383,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
 
                 set 'column_separator', ','
                 set 'columns', 'id, name, score'
-                file "test_stream_load.csv"
+                file "test_stream_load6.csv"
 
                 time 10000 // limit inflight 10s
 
@@ -397,7 +397,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             getTotalRetry.call()
             assertEquals(last_total_retry + 7, total_retry)
             assertTrue(time_cost > 2000, "wait time should bigger than total retry interval")
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql11 """ select * from ${tableName} order by id"""
 
             // 6.2 second load will success and no need retry because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
@@ -418,16 +418,10 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             }
             getTotalRetry.call()
             assertEquals(last_total_retry + 7, total_retry)
-            qt_sql """ select * from ${tableName} order by id"""
+            qt_sql12 """ select * from ${tableName} order by id"""
         }
     } finally {
         reset_be_param("mow_stream_load_commit_retry_times")
-        GetDebugPoint().disableDebugPointForAllFEs('FE.mow.check.lock.release')
-        GetDebugPoint().disableDebugPointForAllFEs('FE.mow.commit.exception')
-        GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
-        GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::test_update_delete_bitmap_fail")
-        GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.tryCommitLock.timeout")
-        GetDebugPoint().disableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.fail")
         GetDebugPoint().clearDebugPointsForAllBEs()
         GetDebugPoint().clearDebugPointsForAllFEs()
     }
