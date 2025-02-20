@@ -75,6 +75,14 @@ private:
     FetchOption _fetch_option;
 };
 
+struct RowStoreReadStruct {
+    RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
+    std::string& row_store_buffer;
+    vectorized::DataTypeSerDeSPtrs serdes;
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+};
+
 class RowIdStorageReader {
 public:
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
@@ -84,9 +92,9 @@ private:
     static Status read_doris_format_row(
             const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
             std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
-            bool fetch_row_store, size_t total_rows, OlapReaderStatistics& stats,
-            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-            int64_t* lookup_row_data_ms,
+            RowStoreReadStruct& row_store_read_struct, size_t total_rows,
+            OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
             vectorized::Block& result_block, PMultiGetBlockV2* ret_block);
 };

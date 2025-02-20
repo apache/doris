@@ -479,6 +479,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         int64_t acquire_rowsets_ms = 0;
         int64_t acquire_segments_ms = 0;
         int64_t lookup_row_data_ms = 0;
+        std::string row_store_buffer;
 
         // Add counters for different file mapping types
         std::unordered_map<FileMappingType, int64_t> file_type_counts;
@@ -492,25 +493,34 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         }
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
-            const auto& request_schema = request.request_block_descs(i);
+            const auto& request_block_desc = request.request_block_descs(i);
             auto& result_block = result_blocks[i];
             auto ret_block = response->add_blocks();
 
             std::vector<SlotDescriptor> slots;
-            slots.reserve(request_schema.slots_size());
-            for (const auto& pslot : request_schema.slots()) {
+            slots.reserve(request_block_desc.slots_size());
+            for (const auto& pslot : request_block_desc.slots()) {
                 slots.push_back(SlotDescriptor(pslot));
             }
 
             TabletSchema full_read_schema;
-            for (const ColumnPB& column_pb : request_schema.column_descs()) {
+            for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
                 full_read_schema.append_column(TabletColumn(column_pb));
             }
-
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
 
-            for (size_t j = 0; j < request_schema.row_id_size(); ++j) {
-                auto file_id = request_schema.file_id(j);
+            RowStoreReadStruct row_store_read_struct(row_store_buffer);
+            if (request_block_desc.fetch_row_store()) {
+                for (int j = 0; j < request_block_desc.slots_size(); ++j) {
+                    row_store_read_struct.serdes.emplace_back(
+                            slots[i].get_data_type_ptr()->get_serde());
+                    row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
+                    row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
+                }
+            }
+
+            for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+                auto file_id = request_block_desc.file_id(j);
                 auto file_mapping = id_file_map->get_file_mapping(file_id);
                 if (!file_mapping) {
                     return Status::InternalError(
@@ -523,8 +533,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
                 if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
                     RETURN_IF_ERROR(read_doris_format_row(
-                            file_mapping, request_schema.row_id(j), slots, full_read_schema,
-                            request_schema.fetch_row_store(), request_schema.row_id_size(), stats,
+                            file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
+                            row_store_read_struct, request_block_desc.row_id_size(), stats,
                             &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
                             &lookup_row_data_ms, iterator_map, result_block, ret_block));
                 }
@@ -570,7 +580,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
         std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
-        bool fetch_row_store, size_t total_rows, OlapReaderStatistics& stats,
+        RowStoreReadStruct& row_store_read_struct, size_t total_rows, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
@@ -625,18 +635,25 @@ Status RowIdStorageReader::read_doris_format_row(
     }
     segment_v2::SegmentSharedPtr segment = *it;
 
-    if (fetch_row_store) {
+    if (result_block.is_empty_column()) {
+        result_block = vectorized::Block(slots, total_rows);
+    }
+    if (!row_store_read_struct.default_values.empty()) {
         CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
         RowLocation loc(rowset_id, segment->id(), row_id);
-        string* value = ret_block->add_binary_row_data();
+        row_store_read_struct.row_store_buffer.clear();
         RETURN_IF_ERROR(scope_timer_run(
-                [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
+                [&]() {
+                    return tablet->lookup_row_data({}, loc, rowset, stats,
+                                                   row_store_read_struct.row_store_buffer);
+                },
                 lookup_row_data_ms));
-    } else {
-        if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(slots, total_rows);
-        }
 
+        vectorized::JsonbSerializeUtil::jsonb_to_block(
+                row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
+                row_store_read_struct.row_store_buffer.size(), row_store_read_struct.col_uid_to_idx,
+                result_block, row_store_read_struct.default_values, {});
+    } else {
         for (int x = 0; x < slots.size(); ++x) {
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
