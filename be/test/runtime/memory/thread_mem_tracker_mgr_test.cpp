@@ -43,7 +43,7 @@ TEST_F(ThreadMemTrackerMgrTest, ConsumeMemory) {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ConsumeMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -104,7 +104,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTracker3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -125,7 +125,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1); // not changed, now consume t2
     EXPECT_EQ(t2->consumption(), size1 + size2);
 
-    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(t1); // detach
+    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(); // detach
     EXPECT_EQ(t2->consumption(),
               size1 + size2 + size1); // detach automatic call flush_untracked_mem.
 
@@ -149,7 +149,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
     thread_context->thread_mem_tracker_mgr->consume(-size1);
     EXPECT_EQ(t3->consumption(), size1);
 
-    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(t2); // detach
+    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(); // detach
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2);
     EXPECT_EQ(t2->consumption(), size1 + size2);
     EXPECT_EQ(t3->consumption(), 0);
@@ -160,7 +160,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2);
     EXPECT_EQ(t2->consumption(), 0);
 
-    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(t1); // detach
+    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(); // detach
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2);
     EXPECT_EQ(t2->consumption(), -size1);
 
@@ -177,7 +177,7 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -239,7 +239,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ReserveMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -337,7 +337,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size2 = 4 * 1024 * 1024;
     int64_t size3 = size2 * 2;
@@ -396,7 +396,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTrackerReserveMemory3");
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t1);
-    rc->workload_group_context()->set_workload_group(workload_group);
+    rc->set_workload_group(workload_group);
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -439,14 +439,14 @@ TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(),
               size3 - size2 + size3 + size2);
 
-    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(t2); // detach
+    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(); // detach
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3 + size2);
     EXPECT_EQ(t3->consumption(), -size1 - size2); // size3 - _reserved_mem
     //  size3 - size2 + size3 + size2 - (_reserved_mem + _untracked_mem)
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
-    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(t1); // detach
+    thread_context->thread_mem_tracker_mgr->detach_limiter_tracker(); // detach
     EXPECT_EQ(t1->consumption(), size3);
     // not changed, reserved memory used done.
     EXPECT_EQ(t2->consumption(), size3 + size2);

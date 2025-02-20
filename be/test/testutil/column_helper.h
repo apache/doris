@@ -17,27 +17,42 @@
 
 #pragma once
 
+#include <memory>
 #include <type_traits>
 #include <vector>
 
+#include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 struct ColumnHelper {
 public:
     template <typename DataType>
-    static ColumnPtr create_column(const std::vector<typename DataType::FieldType>& datas) {
+    static ColumnPtr create_column(const std::vector<typename DataType::FieldType>& data) {
         auto column = DataType::ColumnType::create();
         if constexpr (std::is_same_v<DataTypeString, DataType>) {
-            for (const auto& data : datas) {
-                column->insert_data(data.data(), data.size());
+            for (const auto& datum : data) {
+                column->insert_data(datum.data(), datum.size());
             }
         } else {
-            for (const auto& data : datas) {
-                column->insert_value(data);
+            for (const auto& datum : data) {
+                column->insert_value(datum);
             }
         }
         return std::move(column);
+    }
+
+    template <typename DataType>
+    static ColumnPtr create_nullable_column(
+            const std::vector<typename DataType::FieldType>& data,
+            const std::vector<typename NullMap::value_type>& null_map) {
+        auto null_col = ColumnUInt8::create();
+        for (const auto& datum : null_map) {
+            null_col->insert_value(datum);
+        }
+        auto ptr = create_column<DataType>(data);
+        return ColumnNullable::create(std::move(ptr), std::move(null_col));
     }
 
     static bool column_equal(const ColumnPtr& column1, const ColumnPtr& column2) {
@@ -50,6 +65,43 @@ public:
             }
         }
         return true;
+    }
+
+    static bool block_equal(const Block& block1, const Block& block2) {
+        if (block1.columns() != block2.columns()) {
+            return false;
+        }
+        for (size_t i = 0; i < block1.columns(); i++) {
+            if (!column_equal(block1.get_by_position(i).column, block2.get_by_position(i).column)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    template <typename DataType>
+    static Block create_block(const std::vector<typename DataType::FieldType>& data) {
+        auto column = create_column<DataType>(data);
+        auto data_type = std::make_shared<DataType>();
+        Block block({ColumnWithTypeAndName(column, data_type, "column")});
+        return block;
+    }
+
+    template <typename DataType>
+    static Block create_nullable_block(const std::vector<typename DataType::FieldType>& data,
+                                       const std::vector<typename NullMap::value_type>& null_map) {
+        auto column = create_nullable_column<DataType>(data, null_map);
+        auto data_type = std::make_shared<DataTypeNullable>(std::make_shared<DataType>());
+        Block block({ColumnWithTypeAndName(column, data_type, "column")});
+        return block;
+    }
+
+    template <typename DataType>
+    static ColumnWithTypeAndName create_column_with_name(
+            const std::vector<typename DataType::FieldType>& datas) {
+        auto column = create_column<DataType>(datas);
+        auto data_type = std::make_shared<DataType>();
+        return ColumnWithTypeAndName(column, data_type, "column");
     }
 };
 } // namespace doris::vectorized

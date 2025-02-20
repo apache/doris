@@ -62,6 +62,8 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final String getValueFn;
     private final String removeFn;
     private final String checkSum;
+    private final boolean isStaticLoad;
+    private final long expirationTime;
 
     /**
      * Constructor of UDAF
@@ -72,7 +74,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
             String objectFile, String symbol,
             String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
-            boolean isDistinct, String checkSum, Expression... args) {
+            boolean isDistinct, String checkSum, boolean isStaticLoad, long expirationTime, Expression... args) {
         super(name, isDistinct, args);
         this.dbName = dbName;
         this.functionId = functionId;
@@ -90,6 +92,8 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         this.getValueFn = getValueFn;
         this.removeFn = removeFn;
         this.checkSum = checkSum;
+        this.isStaticLoad = isStaticLoad;
+        this.expirationTime = expirationTime;
     }
 
     @Override
@@ -120,7 +124,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdaf(getName(), functionId, dbName, binaryType, signature, intermediateType, nullableMode,
                 objectFile, symbol, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
-                isDistinct, checkSum, children.toArray(new Expression[0]));
+                isDistinct, checkSum, isStaticLoad, expirationTime, children.toArray(new Expression[0]));
     }
 
     /**
@@ -162,6 +166,8 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                 aggregate.getRemoveFnSymbol(),
                 false,
                 aggregate.getChecksum(),
+                aggregate.isStaticLoad(),
+                aggregate.getExpirationTime(),
                 virtualSlots);
 
         JavaUdafBuilder builder = new JavaUdafBuilder(udaf);
@@ -196,6 +202,8 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
             expr.setNullableMode(nullableMode);
             expr.setChecksum(checkSum);
             expr.setId(functionId);
+            expr.setStaticLoad(isStaticLoad);
+            expr.setExpirationTime(expirationTime);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
