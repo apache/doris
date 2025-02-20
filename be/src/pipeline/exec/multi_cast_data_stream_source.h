@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "runtime_filter/runtime_filter_helper.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 
 namespace doris {
 class RuntimeState;
@@ -71,7 +71,7 @@ private:
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _materialize_data_timer = nullptr;
 
-    RuntimeFilterHelper _helper;
+    RuntimeFilterConsumerHelper _helper;
 };
 
 class MultiCastDataStreamerSourceOperatorX final

@@ -24,11 +24,12 @@
 
 #include "common/status.h"
 #include "exprs/function_filter.h"
+#include "olap/filter_olap_param.h"
 #include "operator.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
-#include "runtime_filter/runtime_filter_helper.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
@@ -55,11 +56,11 @@ enum class PushDownType {
 struct FilterPredicates {
     // Save all runtime filter predicates which may be pushed down to data source.
     // column name -> bloom filter function
-    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+    std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
 
-    std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+    std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
 
-    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+    std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
 class ScanLocalStateBase : public PipelineXLocalState<> {
@@ -123,7 +124,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
-    RuntimeFilterHelper _helper;
+    RuntimeFilterConsumerHelper _helper;
     std::mutex _conjunct_lock;
 };
 

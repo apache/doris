@@ -51,25 +51,6 @@ struct RuntimeFilterParams {
     bool enable_fixed_len_to_uint32_v2 {};
 };
 
-struct RuntimeFilterFuncBase {
-public:
-    void set_filter_id(int filter_id) {
-        if (_filter_id == -1) {
-            _filter_id = filter_id;
-        }
-    }
-
-    int get_filter_id() const { return _filter_id; }
-
-    bool is_runtime_filter() const { return _filter_id != -1; }
-
-    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
-
-protected:
-    int _filter_id = -1;
-    bool _null_aware = false;
-};
-
 class MinMaxFuncBase;
 class HybridSetBase;
 class BloomFilterFuncBase;
@@ -86,6 +67,7 @@ struct RuntimeFilterParamsContext {
     static RuntimeFilterParamsContext* create(QueryContext* query_ctx);
 
     QueryContext* get_query_ctx() const { return _query_ctx; }
+    RuntimeState* get_runtime_state() const { return _state; }
     void set_state(RuntimeState* state) { _state = state; }
     RuntimeFilterMgr* global_runtime_filter_mgr();
     RuntimeFilterMgr* local_runtime_filter_mgr();

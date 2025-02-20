@@ -19,22 +19,29 @@
 
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
-#include "runtime_filter/role/runtime_filter.h"
+#include "runtime_filter/runtime_filter.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 
+// Work on (hash/corss) join build sink node, RuntimeFilterProducerHelper will manage all RuntimeFilterProducer
+// Used to generate specific predicate and publish it to consumer/merger
 /**
  * init -> send_size -> insert -> publish
  */
 class RuntimeFilterProducer : public RuntimeFilter {
 public:
+    // WAITING_FOR_SEND_SIZE -> WAITING_FOR_SYNCED_SIZE -> WAITING_FOR_DATA -> READY_TO_PUBLISH -> PUBLISHED
     enum class State {
-        WAITING_FOR_SEND_SIZE = 0,
-        WAITING_FOR_SYNCED_SIZE = 1,
-        WAITING_FOR_DATA = 2,
-        READY_TO_PUBLISH = 3,
-        PUBLISHED = 4
+        WAITING_FOR_SEND_SIZE =
+                0, // If the rf needs to synchronize the global rf size, it is initialized to this state
+        WAITING_FOR_SYNCED_SIZE =
+                1, // The rf in the WAITING_FOR_SEND_SIZE state will be set to this state after the rf size is sent.
+        WAITING_FOR_DATA =
+                2, // Rfs that do not need to be synchronized in the global rf size will be initialized to this state, or WAITING_FOR_SYNCED_SIZE will also be converted to this state after receiving the global rf size.
+        READY_TO_PUBLISH =
+                3, // rf will be converted to this state when there are actually available filters after an insert, or it will be converted directly to this state when it is disabled/ignore for some reason during the process.
+        PUBLISHED = 4 // Publish is complete, entering the final state of rf
     };
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterProducer>* res,
@@ -96,9 +103,11 @@ public:
     }
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        DCHECK(!context->runtime_filters.contains(_wrapper->filter_id()));
         context->runtime_filters[_wrapper->filter_id()] = _wrapper;
     }
     void copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        DCHECK(context->runtime_filters.contains(_wrapper->filter_id()));
         _wrapper = context->runtime_filters[_wrapper->filter_id()];
     }
 

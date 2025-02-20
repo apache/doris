@@ -17,21 +17,26 @@
 
 #pragma once
 
-#include <utility>
-
 #include "pipeline/dependency.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris::pipeline {
 
-class RuntimeFilterHelper {
+// this class used in ScanNode or MultiCastDataStreamSource
+/**
+ * init -> acquire_runtime_filter -> try_append_late_arrival_runtime_filter
+ */
+class RuntimeFilterConsumerHelper {
 public:
-    RuntimeFilterHelper(const int32_t node_id,
-                        const std::vector<TRuntimeFilterDesc>& runtime_filters,
-                        const RowDescriptor& row_descriptor);
-    ~RuntimeFilterHelper() = default;
+    RuntimeFilterConsumerHelper(const int32_t node_id,
+                                const std::vector<TRuntimeFilterDesc>& runtime_filters,
+                                const RowDescriptor& row_descriptor);
+    ~RuntimeFilterConsumerHelper() = default;
 
-    Status init(RuntimeState* state, RuntimeProfile* profile, bool need_local_merge);
+    Status init(RuntimeState* state, RuntimeProfile* profile, bool need_local_merge,
+                std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
+                        runtime_filter_dependencies,
+                const int id, const int node_id, const std::string& name);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
     Status acquire_runtime_filter(vectorized::VExprContextSPtrs& conjuncts);
@@ -41,11 +46,6 @@ public:
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num,
                                                   vectorized::VExprContextSPtrs& conjuncts);
 
-    void init_runtime_filter_dependency(
-            std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
-                    runtime_filter_dependencies,
-            const int id, const int node_id, const std::string& name);
-
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter(bool need_local_merge);
@@ -53,6 +53,10 @@ private:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
                                      vectorized::VExprContextSPtrs& conjuncts);
+
+    void _init_dependency(
+            std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies,
+            const int id, const int node_id, const std::string& name);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     std::mutex _rf_locks;

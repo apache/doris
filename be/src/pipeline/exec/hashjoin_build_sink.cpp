@@ -88,9 +88,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
-    _runtime_filter_slots = std::make_shared<RuntimeFilterSlots>(
+    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
             _build_expr_ctxs, profile(), _should_build_hash_table, p._is_broadcast_join);
-    RETURN_IF_ERROR(_runtime_filter_slots->init(state, p._runtime_filter_descs));
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, p._runtime_filter_descs));
     return Status::OK();
 }
 
@@ -98,15 +98,6 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
-
-#ifndef NDEBUG
-    if (state->fuzzy_disable_runtime_filter_in_be()) {
-        if ((_parent->operator_id() + random()) % 2 == 0) {
-            _runtime_filter_slots->skip_runtime_filters();
-        }
-    }
-#endif
-
     return Status::OK();
 }
 
@@ -137,14 +128,14 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || state->is_cancelled() || !_eos) {
+    if (!_runtime_filter_producer_helper || state->is_cancelled() || !_eos) {
         return Base::close(state, exec_status);
     }
 
     try {
-        RETURN_IF_ERROR(_runtime_filter_slots->process(state, _shared_state->build_block.get(),
-                                                       _finish_dependency,
-                                                       p._shared_hash_table_context));
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
+                state, _shared_state->build_block.get(), _finish_dependency,
+                p._shared_hash_table_context));
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
                                                    p._shared_hashtable_controller &&
@@ -491,7 +482,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
-        RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
+        RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
                 state, local_state._shared_state->build_block->rows(),
                 local_state._finish_dependency));
 

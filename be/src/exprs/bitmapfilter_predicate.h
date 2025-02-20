@@ -28,7 +28,7 @@
 namespace doris {
 
 // only used in Runtime Filter
-class BitmapFilterFuncBase : public RuntimeFilterFuncBase {
+class BitmapFilterFuncBase {
 public:
     virtual void insert_many(const std::vector<const BitmapValue*>& bitmaps) = 0;
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
