@@ -55,7 +55,7 @@ DataQueue::DataQueue(int child_count)
 
 std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
     {
-        std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
         if (!_free_blocks[child_idx].empty()) {
             auto block = std::move(_free_blocks[child_idx].front());
             _free_blocks[child_idx].pop_front();
@@ -68,7 +68,7 @@ std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
 
 void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
     DCHECK(block->rows() == 0);
-    std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
+    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
     _free_blocks[child_idx].emplace_back(std::move(block));
 }
 
@@ -99,7 +99,7 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
     }
 
     {
-        std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]));
         if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
             *output_block = std::move(_queue_blocks[_flag_queue_idx].front());
             _queue_blocks[_flag_queue_idx].pop_front();
@@ -125,7 +125,7 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         return;
     }
     {
-        std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
@@ -140,7 +140,7 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
 }
 
 void DataQueue::set_finish(int child_idx) {
-    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
+    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
     if (_is_finished[child_idx]) {
         return;
     }
@@ -152,7 +152,7 @@ void DataQueue::set_finish(int child_idx) {
 }
 
 void DataQueue::set_canceled(int child_idx) {
-    std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]);
+    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
     DCHECK(!_is_finished[child_idx]);
     _is_canceled[child_idx] = true;
     _is_finished[child_idx] = true;
