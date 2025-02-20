@@ -60,8 +60,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeDatabaseOp;
-import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -209,10 +207,9 @@ public class AnalysisManager implements Writable {
 
     // for nereids analyze database/table
     public void createAnalysisJobs(AnalyzeDatabaseCommand command, boolean proxy) throws AnalysisException {
-        AnalyzeDatabaseOp op = command.getAnalyzeDatabaseOp();
-        DatabaseIf<TableIf> db = op.getDb();
-        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForNereidsDB(db, op.getAnalyzeProperties());
-        if (!op.isSync()) {
+        DatabaseIf<TableIf> db = command.getDb();
+        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForNereidsDB(db, command.getAnalyzeProperties());
+        if (!command.isSync()) {
             sendJobId(analysisInfos, proxy);
         }
     }
@@ -220,11 +217,11 @@ public class AnalysisManager implements Writable {
     // for nereids analyze database/table
     public void createAnalysisJob(AnalyzeTableCommand command, boolean proxy) throws DdlException {
         // Using auto analyzer if user specifies.
-        if ("true".equalsIgnoreCase(command.getAnalyzeTableOp().getAnalyzeProperties()
+        if ("true".equalsIgnoreCase(command.getAnalyzeProperties()
                     .getProperties().get("use.auto.analyzer"))) {
-            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(command.getAnalyzeTableOp().getTable(),
-                    command.getAnalyzeTableOp().getTable()
-                            .getColumnIndexPairs(command.getAnalyzeTableOp().getColumnNames()), JobPriority.HIGH);
+            Env.getCurrentEnv().getStatisticsAutoCollector().processOneJob(command.getTable(),
+                    command.getTable()
+                            .getColumnIndexPairs(command.getColumnNames()), JobPriority.HIGH);
             return;
         }
         AnalysisInfo jobInfo = buildAndAssignJob(command);
@@ -239,20 +236,19 @@ public class AnalysisManager implements Writable {
     @VisibleForTesting
     protected AnalysisInfo buildAndAssignJob(AnalyzeTableCommand command) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(command);
-        AnalyzeTableOp op = command.getAnalyzeTableOp();
         if (jobInfo.jobColumns == null || jobInfo.jobColumns.isEmpty()) {
             // No statistics need to be collected or updated
-            LOG.info("Job columns are empty, skip analyze table {}", op.getTblName().toString());
+            LOG.info("Job columns are empty, skip analyze table {}", command.getTblName().toString());
             return null;
         }
         // Only OlapTable and Hive HMSExternalTable support sample analyze.
-        if ((op.getSamplePercent() > 0 || op.getSampleRows() > 0) && !canSample(op.getTable())) {
-            String message = String.format("Table %s doesn't support sample analyze.", op.getTable().getName());
+        if ((command.getSamplePercent() > 0 || command.getSampleRows() > 0) && !canSample(command.getTable())) {
+            String message = String.format("Table %s doesn't support sample analyze.", command.getTable().getName());
             LOG.info(message);
             throw new DdlException(message);
         }
 
-        boolean isSync = op.isSync();
+        boolean isSync = command.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         constructJob(jobInfo, analysisTaskInfos.values());
@@ -286,9 +282,8 @@ public class AnalysisManager implements Writable {
                         db.getFullName(), table.getName());
                 // columnNames null means to add all visible columns.
                 // Will get all the visible columns in analyzeTableOp.check()
-                AnalyzeTableOp op = new AnalyzeTableOp(analyzeProperties, tableNameInfo,
+                AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,
                         null, db.getId(), table);
-                AnalyzeTableCommand command = new AnalyzeTableCommand(op);
                 try {
                     command.check();
                 } catch (AnalysisException analysisException) {
@@ -526,26 +521,25 @@ public class AnalysisManager implements Writable {
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTableCommand command) {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
-        AnalyzeTableOp op = command.getAnalyzeTableOp();
-        TableIf table = op.getTable();
-        Set<String> columnNames = op.getColumnNames();
-        boolean partitionOnly = op.isPartitionOnly();
-        boolean isSamplingPartition = op.isSamplingPartition();
-        boolean isAllPartition = op.isStarPartition();
-        long partitionCount = op.getPartitionCount();
-        int samplePercent = op.getSamplePercent();
-        int sampleRows = op.getSampleRows();
-        AnalysisType analysisType = op.getAnalysisType();
-        AnalysisMethod analysisMethod = op.getAnalysisMethod();
-        ScheduleType scheduleType = op.getScheduleType();
-        CronExpression cronExpression = op.getCron();
+        TableIf table = command.getTable();
+        Set<String> columnNames = command.getColumnNames();
+        boolean partitionOnly = command.isPartitionOnly();
+        boolean isSamplingPartition = command.isSamplingPartition();
+        boolean isAllPartition = command.isStarPartition();
+        long partitionCount = command.getPartitionCount();
+        int samplePercent = command.getSamplePercent();
+        int sampleRows = command.getSampleRows();
+        AnalysisType analysisType = command.getAnalysisType();
+        AnalysisMethod analysisMethod = command.getAnalysisMethod();
+        ScheduleType scheduleType = command.getScheduleType();
+        CronExpression cronExpression = command.getCron();
 
         infoBuilder.setJobId(jobId);
         infoBuilder.setTaskId(-1);
-        infoBuilder.setCatalogId(op.getCatalogId());
-        infoBuilder.setDBId(op.getDbId());
-        infoBuilder.setTblId(op.getTable().getId());
-        infoBuilder.setPartitionNames(op.getPartitionNames());
+        infoBuilder.setCatalogId(command.getCatalogId());
+        infoBuilder.setDBId(command.getDbId());
+        infoBuilder.setTblId(command.getTable().getId());
+        infoBuilder.setPartitionNames(command.getPartitionNames());
         infoBuilder.setPartitionOnly(partitionOnly);
         infoBuilder.setSamplingPartition(isSamplingPartition);
         infoBuilder.setAllPartition(isAllPartition);
@@ -557,20 +551,20 @@ public class AnalysisManager implements Writable {
         infoBuilder.setAnalysisMethod(analysisMethod);
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setCronExpression(cronExpression);
-        infoBuilder.setForceFull(op.forceFull());
-        infoBuilder.setUsingSqlForExternalTable(op.usingSqlForExternalTable());
+        infoBuilder.setForceFull(command.forceFull());
+        infoBuilder.setUsingSqlForExternalTable(command.usingSqlForExternalTable());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
         }
 
         if (analysisType == AnalysisType.HISTOGRAM) {
-            int numBuckets = op.getNumBuckets();
+            int numBuckets = command.getNumBuckets();
             int maxBucketNum = numBuckets > 0 ? numBuckets : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
             infoBuilder.setMaxBucketNum(maxBucketNum);
         }
 
-        long periodTimeInMs = op.getPeriodTimeInMs();
+        long periodTimeInMs = command.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
         Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
         infoBuilder.setJobColumns(jobColumns);

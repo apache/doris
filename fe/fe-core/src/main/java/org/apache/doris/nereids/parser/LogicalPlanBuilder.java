@@ -674,8 +674,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeDatabaseOp;
-import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
@@ -5846,9 +5844,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         propertiesMap.putAll(visitPropertyClause(ctx.propertyClause()));
         AnalyzeProperties properties = new AnalyzeProperties(propertiesMap);
-        AnalyzeTableOp analyzeTableOp = new AnalyzeTableOp(tableNameInfo,
+        return new AnalyzeTableCommand(tableNameInfo,
                 partitionNamesInfo, columnNames, properties);
-        return new AnalyzeTableCommand(analyzeTableOp);
     }
 
     @Override
@@ -5875,8 +5872,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         propertiesMap.putAll(visitPropertyClause(ctx.propertyClause()));
         AnalyzeProperties properties = new AnalyzeProperties(propertiesMap);
-        AnalyzeDatabaseOp analyzeDatabaseOp = new AnalyzeDatabaseOp(ctlName, dbName, properties);
-        return new AnalyzeDatabaseCommand(analyzeDatabaseOp);
+        return new AnalyzeDatabaseCommand(ctlName, dbName, properties);
     }
 
     @Override

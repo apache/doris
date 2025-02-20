@@ -17,8 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.AnalyzeProperties;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.AnalyzeDatabaseOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -27,23 +32,40 @@ import org.apache.doris.qe.StmtExecutor;
  * AnalyzeDatabaseCommand
  */
 public class AnalyzeDatabaseCommand extends AnalyzeCommand {
-    AnalyzeDatabaseOp analyzeDatabaseOp;
+    private final String ctlName;
+    private final String dbName;
+
+    private CatalogIf ctlIf;
+
+    private DatabaseIf<TableIf> db;
 
     /**
      * AnalyzeCommand
      */
-    public AnalyzeDatabaseCommand(AnalyzeDatabaseOp analyzeDatabaseOp) {
-        super(PlanType.ANALYZE_DATABASE, analyzeDatabaseOp.getAnalyzeProperties());
-        this.analyzeDatabaseOp = analyzeDatabaseOp;
+    public AnalyzeDatabaseCommand(String ctlName, String dbName, AnalyzeProperties properties) {
+        super(PlanType.ANALYZE_DATABASE, properties);
+        this.ctlName = ctlName;
+        this.dbName = dbName;
     }
 
-    public AnalyzeDatabaseOp getAnalyzeDatabaseOp() {
-        return analyzeDatabaseOp;
+    @Override
+    public void validate(ConnectContext ctx) throws UserException {
+        super.validate(ctx);
+        if (ctlName == null) {
+            ctlIf = Env.getCurrentEnv().getCurrentCatalog();
+        } else {
+            ctlIf = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctlName);
+        }
+        db = ctlIf.getDbOrAnalysisException(dbName);
+    }
+
+    public DatabaseIf<TableIf> getDb() {
+        return db;
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        analyzeDatabaseOp.validate(ctx);
+        validate(ctx);
         ctx.getEnv().analyze(this, executor.isProxy());
     }
 
