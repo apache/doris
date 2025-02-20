@@ -1085,11 +1085,6 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                     continue;
                 }
 
-                // index_meta = _segment->_tablet_schema->inverted_index(column.parent_unique_id(),
-                //                                                       column.suffix_path());
-                // if (index_meta == nullptr) {
-
-                // }
                 auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
                 index_meta = assert_cast<VariantColumnReader*>(column_reader)
                                      ->find_subcolumn_tablet_index(column.suffix_path());
