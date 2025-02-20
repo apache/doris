@@ -153,8 +153,7 @@ bvar::MultiDimension<bvar::Status<double>> _hit_ratio_1h_md("file_cache_hit_rati
 bvar::MultiDimension<bvar::Status<size_t>> _disk_limit_mode_md_metrics("file_cache_disk_limit_mode",
                                                                        {"path"});
 bvar::MultiDimension<bvar::Status<size_t>> _need_evict_cache_in_advance_md_metrics(
-        "file_cache_need_evict_cache_in_advance",
-        {"path"});
+        "file_cache_need_evict_cache_in_advance", {"path"});
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -278,6 +277,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _disk_limit_mode_metrics = _disk_limit_mode_md_metrics.get_stats({_cache_base_path});
     _need_evict_cache_in_advance_metrics =
             _need_evict_cache_in_advance_md_metrics.get_stats({_cache_base_path});
+    _need_evict_cache_in_advance_metrics->set_value(0);
 
     _cache_lock_wait_time_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
