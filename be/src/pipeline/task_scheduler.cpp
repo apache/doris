@@ -115,9 +115,9 @@ void TaskScheduler::_do_work(int index) {
         task->log_detail_if_need();
         task->set_running(true);
         bool fragment_is_finished = false;
-        Defer task_running_defer {[&, fragment_is_finished = &fragment_is_finished]() {
+        Defer task_running_defer {[&]() {
             // If fragment is finished, fragment context will be de-constructed with all tasks in it.
-            if (!*fragment_is_finished) {
+            if (!fragment_is_finished) {
                 task->set_running(false);
             }
         }};
