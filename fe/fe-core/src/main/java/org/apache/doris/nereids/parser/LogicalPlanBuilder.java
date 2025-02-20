@@ -295,6 +295,7 @@ import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowCharsetContext;
 import org.apache.doris.nereids.DorisParser.ShowCollationContext;
+import org.apache.doris.nereids.DorisParser.ShowColumnsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowConvertLscContext;
@@ -594,6 +595,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -5461,6 +5463,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             databaseName = databaseParts.get(0);
         }
         return new ShowSyncJobCommand(databaseName);
+    }
+
+    @Override
+    public LogicalPlan visitShowColumns(ShowColumnsContext ctx) {
+        boolean isFull = ctx.FULL() != null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+        String databaseName = ctx.database != null ? ctx.database.getText() : null;
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+
+        return new ShowColumnsCommand(isFull, new TableNameInfo(nameParts), databaseName, pattern);
     }
 
     @Override
