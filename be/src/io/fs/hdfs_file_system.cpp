@@ -385,7 +385,7 @@ Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, const std
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
-        return Status::IOError("faield to connect to hdfs {}: {}", fs_name, hdfs_error());
+        return Status::IOError("failed to connect to hdfs {}: {}", fs_name, hdfs_error());
     }
     *fs = hdfs_fs;
     return Status::OK();
