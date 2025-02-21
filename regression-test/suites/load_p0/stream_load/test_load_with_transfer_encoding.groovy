@@ -65,7 +65,7 @@ suite("test_load_with_transfer_encoding", "p0") {
 
     String db = context.config.getDbNameByFile(context.file)
 
-    def command = """curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H read_json_by_line:false -H Expect:100-continue -H max_filter_ratio:1 -H strict_mode:false -H strip_outer_array:true -H columns:id,created,creater,deleted,updated,card_id,card_type_id,card_type_name,cash_balance,cashier_id,client_id,cost,creater_name,details,id_name,id_number,last_client_id,login_id,operation_type,place_id,present,present_balance,remark,shift_id,source_type,online_account -H format:json -H Transfer-Encoding:chunked -T ${context.config.dataPath}/load_p0/stream_load/test_load_with_transfer_encoding.json -XPUT http://127.0.0.1:10326/api/${db}/${table_name}/_stream_load"""
+    def command = """curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H read_json_by_line:false -H Expect:100-continue -H max_filter_ratio:1 -H strict_mode:false -H strip_outer_array:true -H columns:id,created,creater,deleted,updated,card_id,card_type_id,card_type_name,cash_balance,cashier_id,client_id,cost,creater_name,details,id_name,id_number,last_client_id,login_id,operation_type,place_id,present,present_balance,remark,shift_id,source_type,online_account -H format:json -H Transfer-Encoding:chunked -T ${context.config.dataPath}/load_p0/stream_load/test_load_with_transfer_encoding.json -XPUT http://${context.config.feHttpAddress}/api/${db}/${table_name}/_stream_load"""
     log.info("stream load: ${command}")
     def process = command.execute()
     def code = process.waitFor()
