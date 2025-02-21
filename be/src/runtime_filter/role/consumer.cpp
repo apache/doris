@@ -17,10 +17,15 @@
 
 #include "runtime_filter/role/consumer.h"
 
+#include "exprs/create_predicate_function.h"
+#include "vec/exprs/vbitmap_predicate.h"
+#include "vec/exprs/vbloom_predicate.h"
+#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 
 Status RuntimeFilterConsumer::_apply_ready_expr(
-        std::list<vectorized::VExprContextSPtr>& probe_ctxs,
         std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
     _check_state({State::READY});
     _set_state(State::APPLIED);
@@ -32,12 +37,12 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     }
 
     auto origin_size = push_exprs.size();
-    RETURN_IF_ERROR(_wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr));
+    RETURN_IF_ERROR(_get_push_exprs(push_exprs, _probe_expr));
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter =
-            ADD_COUNTER(_excution_profile, "ExprFilteredRows", TUnit::UNIT);
-    auto* expr_input_rows_counter = ADD_COUNTER(_excution_profile, "ExprInputRows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_excution_profile, "AlwaysTruePassRows", TUnit::UNIT);
+            ADD_COUNTER(_execution_profile, "ExprFilteredRows", TUnit::UNIT);
+    auto* expr_input_rows_counter = ADD_COUNTER(_execution_profile, "ExprInputRows", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -45,10 +50,9 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     return Status::OK();
 }
 
-Status RuntimeFilterConsumer::acquire_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                                           std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
+Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
     if (_rf_state == State::READY) {
-        RETURN_IF_ERROR(_apply_ready_expr(probe_ctxs, push_exprs));
+        RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
         _check_state({State::NOT_READY});
@@ -73,11 +77,139 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
 }
 
 std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
-        std::shared_ptr<pipeline::RuntimeFilterDependency> dependencie) {
+        std::shared_ptr<pipeline::RuntimeFilterDependency> dependencies) {
     auto timer = std::make_shared<pipeline::RuntimeFilterTimer>(_registration_time,
-                                                                _rf_wait_time_ms, dependencie);
+                                                                _rf_wait_time_ms, dependencies);
     _filter_timer.push_back(timer);
     return timer;
+}
+
+Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFilterPtr>& container,
+                                              const TExpr& probe_expr) {
+    // TODO: `VExprContextSPtr` is not need, we should just create an expr.
+    vectorized::VExprContextSPtr probe_ctx;
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
+
+    auto real_filter_type = _wrapper->get_real_type();
+    bool null_aware = _wrapper->contain_null();
+    switch (real_filter_type) {
+    case RuntimeFilterType::IN_FILTER: {
+        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+        type_desc.__set_is_nullable(false);
+        TExprNode node;
+        node.__set_type(type_desc);
+        node.__set_node_type(null_aware ? TExprNodeType::NULL_AWARE_IN_PRED
+                                        : TExprNodeType::IN_PRED);
+        node.in_predicate.__set_is_not_in(false);
+        node.__set_opcode(TExprOpcode::FILTER_IN);
+        node.__set_is_nullable(false);
+        auto in_pred = vectorized::VDirectInPredicate::create_shared(node, _wrapper->hybrid_set());
+        in_pred->add_child(probe_ctx->root());
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+                node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),
+                null_aware);
+        container.push_back(wrapper);
+        break;
+    }
+    case RuntimeFilterType::MIN_FILTER: {
+        // create min filter
+        vectorized::VExprSPtr min_pred;
+        TExprNode min_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::GE, min_pred,
+                                              &min_pred_node, null_aware));
+        vectorized::VExprSPtr min_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
+                                       _wrapper->minmax_func()->get_min(), min_literal));
+        min_pred->add_child(probe_ctx->root());
+        min_pred->add_child(min_literal);
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                min_pred_node, min_pred, get_comparison_ignore_thredhold()));
+        break;
+    }
+    case RuntimeFilterType::MAX_FILTER: {
+        vectorized::VExprSPtr max_pred;
+        // create max filter
+        TExprNode max_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
+                                              &max_pred_node, null_aware));
+        vectorized::VExprSPtr max_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
+                                       _wrapper->minmax_func()->get_max(), max_literal));
+        max_pred->add_child(probe_ctx->root());
+        max_pred->add_child(max_literal);
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                max_pred_node, max_pred, get_comparison_ignore_thredhold()));
+        break;
+    }
+    case RuntimeFilterType::MINMAX_FILTER: {
+        vectorized::VExprSPtr max_pred;
+        // create max filter
+        TExprNode max_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
+                                              &max_pred_node, null_aware));
+        vectorized::VExprSPtr max_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
+                                       _wrapper->minmax_func()->get_max(), max_literal));
+        max_pred->add_child(probe_ctx->root());
+        max_pred->add_child(max_literal);
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware));
+
+        vectorized::VExprContextSPtr new_probe_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
+
+        // create min filter
+        vectorized::VExprSPtr min_pred;
+        TExprNode min_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(new_probe_ctx->root()->type(), TExprOpcode::GE,
+                                              min_pred, &min_pred_node, null_aware));
+        vectorized::VExprSPtr min_literal;
+        RETURN_IF_ERROR(create_literal(new_probe_ctx->root()->type(),
+                                       _wrapper->minmax_func()->get_min(), min_literal));
+        min_pred->add_child(new_probe_ctx->root());
+        min_pred->add_child(min_literal);
+        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+                min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware));
+        break;
+    }
+    case RuntimeFilterType::BLOOM_FILTER: {
+        // create a bloom filter
+        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+        type_desc.__set_is_nullable(false);
+        TExprNode node;
+        node.__set_type(type_desc);
+        node.__set_node_type(TExprNodeType::BLOOM_PRED);
+        node.__set_opcode(TExprOpcode::RT_FILTER);
+        node.__set_is_nullable(false);
+        auto bloom_pred = vectorized::VBloomPredicate::create_shared(node);
+        bloom_pred->set_filter(_wrapper->bloom_filter_func());
+        bloom_pred->add_child(probe_ctx->root());
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+                node, bloom_pred, get_bloom_filter_ignore_thredhold());
+        container.push_back(wrapper);
+        break;
+    }
+    case RuntimeFilterType::BITMAP_FILTER: {
+        // create a bitmap filter
+        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+        type_desc.__set_is_nullable(false);
+        TExprNode node;
+        node.__set_type(type_desc);
+        node.__set_node_type(TExprNodeType::BITMAP_PRED);
+        node.__set_opcode(TExprOpcode::RT_FILTER);
+        node.__set_is_nullable(false);
+        auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
+        bitmap_pred->set_filter(_wrapper->bitmap_filter_func());
+        bitmap_pred->add_child(probe_ctx->root());
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0);
+        container.push_back(wrapper);
+        break;
+    }
+    default:
+        DCHECK(false);
+        break;
+    }
+    return Status::OK();
 }
 
 } // namespace doris

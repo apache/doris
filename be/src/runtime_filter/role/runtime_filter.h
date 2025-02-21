@@ -44,8 +44,8 @@ public:
     bool has_local_target() const { return _has_local_target; }
 
     template <class T>
-    Status assign_data_into_wrapper(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
-        return _wrapper->assign_data(request, data);
+    Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
+        return _wrapper->assign(request, data);
     }
 
     template <class T>
@@ -68,10 +68,8 @@ public:
             auto in_filter = request->mutable_in_filter();
             _to_protobuf(in_filter);
         } else if (real_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER) {
-            _wrapper->get_bloom_filter_desc((char**)data, len);
             DCHECK(data != nullptr);
-            request->mutable_bloom_filter()->set_filter_length(*len);
-            request->mutable_bloom_filter()->set_always_true(false);
+            _to_protobuf(request->mutable_bloom_filter(), (char**)data, len);
         } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER ||
                    real_runtime_filter_type == RuntimeFilterType::MIN_FILTER ||
                    real_runtime_filter_type == RuntimeFilterType::MAX_FILTER) {
@@ -88,10 +86,9 @@ public:
 protected:
     RuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
             : _state(state),
-              _has_remote_target(desc->has_remote_targets),
               _has_local_target(desc->has_local_targets),
               _runtime_filter_type(get_runtime_filter_type(desc)) {
-        DCHECK_NE(_has_remote_target, _has_local_target);
+        DCHECK_NE(desc->has_remote_targets, _has_local_target);
     }
 
     Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
@@ -99,6 +96,9 @@ protected:
     template <typename T>
     void _to_protobuf(T* filter) {
         _wrapper->_to_protobuf(filter);
+    }
+    void _to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
+        _wrapper->_to_protobuf(filter, data, filter_length);
     }
 
     Status _push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
@@ -118,8 +118,6 @@ protected:
     // _wrapper is a runtime filter function wrapper
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
-    // will apply to remote node
-    bool _has_remote_target;
     // will apply to local node
     bool _has_local_target;
 

@@ -27,27 +27,9 @@ namespace doris {
 Status RuntimeFilterSlots::init(RuntimeState* state,
                                 const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _runtime_filters.resize(runtime_filter_descs.size());
-    std::unordered_map<int, RuntimeFilterProducer*> id_to_in_filter;
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(
                 runtime_filter_descs[i], &_runtime_filters[i], _profile.get()));
-        if (runtime_filter_descs[i].type == TRuntimeFilterType::IN) {
-            id_to_in_filter.insert({runtime_filter_descs[i].expr_order, _runtime_filters[i].get()});
-        } else if (runtime_filter_descs[i].type == TRuntimeFilterType::IN_OR_BLOOM &&
-                   !id_to_in_filter.contains(runtime_filter_descs[i].expr_order)) {
-            id_to_in_filter.insert({runtime_filter_descs[i].expr_order, _runtime_filters[i].get()});
-        }
-    }
-    for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
-        if (id_to_in_filter.contains(_runtime_filters[i]->expr_order()) &&
-            _runtime_filters[i].get() != id_to_in_filter[_runtime_filters[i]->expr_order()]) {
-            RuntimeFilterProducer::Callback callback =
-                    [&, filter = _runtime_filters[i].get()]() -> void {
-                filter->set_wrapper_state_and_ready_to_publish(
-                        RuntimeFilterWrapper::State::DISABLED, "exist in_filter");
-            };
-            id_to_in_filter[_runtime_filters[i]->expr_order()]->with_callback(callback);
-        }
     }
     return Status::OK();
 }

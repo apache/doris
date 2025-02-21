@@ -147,7 +147,7 @@ Status RuntimeFilterProducer::send_size(
     // two case we need do local merge:
     // 1. has remote target
     // 2. has local target and has global consumer (means target scan has local shuffle)
-    if (_has_remote_target ||
+    if (!_has_local_target ||
         !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
         LocalMergeContext* local_merge_filters = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
@@ -224,26 +224,7 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
 }
 
 Status RuntimeFilterProducer::init(size_t local_size) {
-    size_t real_size = _synced_size != -1 ? _synced_size : local_size;
-    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-        real_size > _wrapper->max_in_num()) {
-        RETURN_IF_ERROR(_wrapper->change_to_bloom_filter());
-    }
-
-    if (_wrapper->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-        RETURN_IF_ERROR(_wrapper->init_bloom_filter(real_size));
-    }
-    if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER &&
-        real_size > _wrapper->max_in_num()) {
-        set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
-                                               "reach max in num");
-    }
-    if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER && !_callback.empty()) {
-        for (auto& call : _callback) {
-            call();
-        }
-    }
-    return Status::OK();
+    return _wrapper->init(_synced_size != -1 ? _synced_size : local_size);
 }
 
 } // namespace doris

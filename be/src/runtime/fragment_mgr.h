@@ -218,8 +218,6 @@ private:
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
-
-    RuntimeFilterMergeController _runtimefilter_controller;
 };
 
 uint64_t get_fragment_executing_count();

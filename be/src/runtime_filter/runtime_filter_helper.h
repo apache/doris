@@ -28,32 +28,31 @@ class RuntimeFilterHelper {
 public:
     RuntimeFilterHelper(const int32_t node_id,
                         const std::vector<TRuntimeFilterDesc>& runtime_filters,
-                        const RowDescriptor& row_descriptor,
-                        vectorized::VExprContextSPtrs& conjuncts);
+                        const RowDescriptor& row_descriptor);
     ~RuntimeFilterHelper() = default;
 
     Status init(RuntimeState* state, RuntimeProfile* profile, bool need_local_merge);
-
-    // Try to append late arrived runtime filters.
-    // Return num of filters which are applied already.
-    Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
+    // Get all arrived runtime filters at Open phase which will be push down to storage.
+    // Called by Operator.
+    Status acquire_runtime_filter(vectorized::VExprContextSPtrs& conjuncts);
+    // The un-arrival filters will be checked every time the scanner is scheduled.
+    // And once new runtime filters arrived, we will use it to do operator's filtering.
+    // Called by Scanner.
+    Status try_append_late_arrival_runtime_filter(int* arrived_rf_num,
+                                                  vectorized::VExprContextSPtrs& conjuncts);
 
     void init_runtime_filter_dependency(
             std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
                     runtime_filter_dependencies,
             const int id, const int node_id, const std::string& name);
 
-    // Get all arrived runtime filters at Open phase.
-    Status acquire_runtime_filter();
-
-    bool is_all_rf_applied() const { return _is_all_rf_applied; }
-
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter(bool need_local_merge);
 
     // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
+    Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
+                                     vectorized::VExprContextSPtrs& conjuncts);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     std::mutex _rf_locks;
@@ -61,18 +60,13 @@ private:
 
     int32_t _node_id;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::list<vectorized::VExprContextSPtr> _probe_ctxs;
-
     const RowDescriptor& _row_descriptor_ref;
-
-    vectorized::VExprContextSPtrs& _conjuncts_ref;
 
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
-
     std::unique_ptr<RuntimeProfile> _profile;
 };
 
