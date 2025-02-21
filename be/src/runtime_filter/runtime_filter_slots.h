@@ -28,74 +28,49 @@
 
 namespace doris {
 // this class used in hash join node
+/**
+ * init -> (skip_runtime_filters ->) send_filter_size -> process
+ */
 class RuntimeFilterSlots {
 public:
     RuntimeFilterSlots(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                       RuntimeProfile* profile, bool should_build_hash_table)
+                       RuntimeProfile* profile, bool should_build_hash_table,
+                       bool is_broadcast_join)
             : _build_expr_context(build_expr_ctxs),
               _should_build_hash_table(should_build_hash_table),
-              _profile(new RuntimeProfile("RuntimeFilterSlots")) {
+              _profile(new RuntimeProfile("RuntimeFilterSlots")),
+              _is_broadcast_join(is_broadcast_join) {
         profile->add_child(_profile.get(), true, nullptr);
         _publish_runtime_filter_timer = ADD_TIMER_WITH_LEVEL(_profile, "PublishTime", 1);
         _runtime_filter_compute_timer = ADD_TIMER_WITH_LEVEL(_profile, "BuildTime", 1);
     }
-
-    Status init(RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
-        _runtime_filters.resize(runtime_filter_descs.size());
-        for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
-            RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                    runtime_filter_descs[i], &_runtime_filters[i], _profile.get()));
-        }
-        return Status::OK();
-    }
-
+    Status init(RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
                             std::shared_ptr<pipeline::CountedFinishDependency> dependency);
-
-    Status skip_runtime_filters_process(
-            RuntimeState* state,
-            std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency);
-
+    void skip_runtime_filters() { _skip_runtime_filters_process = true; }
     Status process(RuntimeState* state, const vectorized::Block* block,
-                   std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency);
-
-    void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
-        for (auto& filter : _runtime_filters) {
-            filter->copy_to_shared_context(context);
-        }
-    }
-
-    Status copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
-        for (auto& filter : _runtime_filters) {
-            filter->copy_from_shared_context(context);
-        }
-        return Status::OK();
-    }
+                   std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
+                   vectorized::SharedHashTableContextPtr& shared_hash_table_ctx);
 
 protected:
-    Status _disable_meaningless_filters(RuntimeState* state);
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
     void _insert(const vectorized::Block* block, size_t start);
     Status _publish(RuntimeState* state) {
-        if (_skip_runtime_filters_process) {
-            return Status::OK();
-        }
         SCOPED_TIMER(_publish_runtime_filter_timer);
         for (auto& filter : _runtime_filters) {
-            RETURN_IF_ERROR(filter->publish(state, !_should_build_hash_table));
+            RETURN_IF_ERROR(filter->publish(state, _should_build_hash_table));
         }
         return Status::OK();
     }
 
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _runtime_filters;
-    bool _should_build_hash_table;
-
+    const bool _should_build_hash_table;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
     std::unique_ptr<RuntimeProfile> _profile;
-
     bool _skip_runtime_filters_process = false;
+    const bool _is_broadcast_join;
 };
 
 } // namespace doris

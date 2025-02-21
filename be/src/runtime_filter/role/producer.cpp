@@ -44,9 +44,10 @@ Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* merger_filte
     return Status::OK();
 };
 
-Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
+Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table) {
     _check_state({State::READY_TO_PUBLISH});
 
+    // TODO: do we still need this if wrapper is disabled / ignored?
     auto do_merge = [&]() {
         // two case we need do local merge:
         // 1. has remote target
@@ -77,19 +78,17 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool publish_local) {
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
         RETURN_IF_ERROR(do_merge());
         RETURN_IF_ERROR(_send_to_local_targets(this, false));
-    } else if (!publish_local) {
+    } else if (build_hash_table) {
         if (_is_broadcast_join) {
             RETURN_IF_ERROR(_send_to_remote_targets(state, this));
         } else {
             RETURN_IF_ERROR(do_merge());
         }
     } else {
-        // remote broadcast join only push onetime in build shared hash table
-        // publish_local only set true on copy shared hash table
         DCHECK(_is_broadcast_join);
     }
 
-    _set_state(State::PUBLISHED);
+    set_state(State::PUBLISHED);
     return Status::OK();
 }
 
@@ -134,7 +133,7 @@ public:
             : Base(req, callback, context), _dependency(std::move(dependency)), _wrapper(wrapper) {}
 };
 
-Status RuntimeFilterProducer::send_filter_size(
+Status RuntimeFilterProducer::send_size(
         RuntimeState* state, uint64_t local_filter_size,
         const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
@@ -143,7 +142,7 @@ Status RuntimeFilterProducer::send_filter_size(
     }
     _dependency = dependency;
     _dependency->add();
-    _set_state(State::WAITING_FOR_SYNCED_SIZE);
+    set_state(State::WAITING_FOR_SYNCED_SIZE);
 
     // two case we need do local merge:
     // 1. has remote target
@@ -221,10 +220,10 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     if (_dependency) {
         _dependency->sub();
     }
-    _set_state(State::WAITING_FOR_DATA);
+    set_state(State::WAITING_FOR_DATA);
 }
 
-Status RuntimeFilterProducer::init_with_size(size_t local_size) {
+Status RuntimeFilterProducer::init(size_t local_size) {
     size_t real_size = _synced_size != -1 ? _synced_size : local_size;
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
         real_size > _wrapper->max_in_num()) {
@@ -236,23 +235,15 @@ Status RuntimeFilterProducer::init_with_size(size_t local_size) {
     }
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER &&
         real_size > _wrapper->max_in_num()) {
-        disable_and_ready_to_publish("reach max in num");
+        set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
+                                               "reach max in num");
+    }
+    if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER && !_callback.empty()) {
+        for (auto& call : _callback) {
+            call();
+        }
     }
     return Status::OK();
-}
-
-void RuntimeFilterProducer::disable_meaningless_filters(std::unordered_set<int>& has_in_filter,
-                                                        bool collect_in_filters) {
-    if (_rf_state == State::READY_TO_PUBLISH ||
-        collect_in_filters != (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER)) {
-        return;
-    }
-
-    if (has_in_filter.contains(_expr_order)) {
-        disable_and_ready_to_publish("exist in_filter");
-    } else if (collect_in_filters) {
-        has_in_filter.insert(_expr_order);
-    }
 }
 
 } // namespace doris

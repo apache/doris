@@ -24,8 +24,19 @@
 
 namespace doris {
 
+/**
+ * init -> send_size -> insert -> publish
+ */
 class RuntimeFilterProducer : public RuntimeFilter {
 public:
+    using Callback = std::function<void()>;
+    enum class State {
+        WAITING_FOR_SEND_SIZE = 0,
+        WAITING_FOR_SYNCED_SIZE = 1,
+        WAITING_FOR_DATA = 2,
+        READY_TO_PUBLISH = 3,
+        PUBLISHED = 4
+    };
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterProducer>* res,
                          RuntimeProfile* parent_profile) {
@@ -40,54 +51,34 @@ public:
         return Status::OK();
     }
 
+    Status init(size_t local_size);
+    Status send_size(RuntimeState* state, uint64_t local_filter_size,
+                     const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
     // insert data to build filter
-    void insert_batch(vectorized::ColumnPtr column, size_t start) {
+    void insert(vectorized::ColumnPtr column, size_t start) {
         if (_rf_state == State::READY_TO_PUBLISH || _rf_state == State::PUBLISHED) {
+            DCHECK(!_wrapper->is_valid());
             return;
         }
         _check_state({State::WAITING_FOR_DATA});
         _wrapper->insert_batch(column, start);
     }
-
-    int expr_order() const { return _expr_order; }
-
-    Status init_with_size(size_t local_size);
-
-    Status send_filter_size(RuntimeState* state, uint64_t local_filter_size,
-                            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
-
-    Status publish(RuntimeState* state, bool publish_local);
-
-    void set_synced_size(uint64_t global_size);
-
+    Status publish(RuntimeState* state, bool build_hash_table);
     std::string debug_string() const override {
         return fmt::format("Producer: ({}, state: {}, dependency: {}, synced_size: {})",
                            _debug_string(), to_string(_rf_state),
                            _dependency ? _dependency->debug_string() : "none", _synced_size);
     }
 
-    enum class State {
-        WAITING_FOR_SEND_SIZE = 0,
-        WAITING_FOR_SYNCED_SIZE = 1,
-        WAITING_FOR_DATA = 2,
-        READY_TO_PUBLISH = 3,
-        PUBLISHED = 4
-    };
-
-    void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state) {
-        if (_set_state(State::READY_TO_PUBLISH)) {
-            _wrapper->set_state(state);
+    void with_callback(Callback& callback) { _callback.emplace_back(callback); }
+    int expr_order() const { return _expr_order; }
+    void set_synced_size(uint64_t global_size);
+    void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
+                                                std::string reason = "") {
+        if (set_state(State::READY_TO_PUBLISH)) {
+            _wrapper->set_state(state, reason);
         }
     }
-
-    void disable_and_ready_to_publish(std::string reason) {
-        if (_set_state(State::READY_TO_PUBLISH)) {
-            _wrapper->disable(reason);
-        }
-    }
-
-    void disable_meaningless_filters(std::unordered_set<int>& has_in_filter,
-                                     bool collect_in_filters);
 
     static std::string to_string(const State& state) {
         switch (state) {
@@ -109,9 +100,18 @@ public:
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
         context->runtime_filters[_wrapper->filter_id()] = _wrapper;
     }
-
     void copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
         _wrapper = context->runtime_filters[_wrapper->filter_id()];
+    }
+
+    bool set_state(State state) {
+        if (_rf_state == State::PUBLISHED ||
+            (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
+            return false;
+        }
+        _rf_state = state;
+        _profile->add_info_string("Info", debug_string());
+        return true;
     }
 
 private:
@@ -137,24 +137,15 @@ private:
         }
     }
 
-    bool _set_state(State state) {
-        if (_rf_state == State::PUBLISHED ||
-            (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
-            return false;
-        }
-        _rf_state = state;
-        _profile->add_info_string("Info", debug_string());
-        return true;
-    }
-
-    bool _is_broadcast_join;
-    int _expr_order;
+    const bool _is_broadcast_join;
+    const int _expr_order;
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 
     std::atomic<State> _rf_state;
     std::unique_ptr<RuntimeProfile> _profile;
+    std::vector<Callback> _callback;
 };
 
 } // namespace doris
