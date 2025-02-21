@@ -17,22 +17,32 @@
 
 #pragma once
 
+#include <vector>
+
+#include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/data_queue.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
-        : public PipelineXSinkLocalState<MultiCastSharedState> {
+        : public PipelineXSpillSinkLocalState<MultiCastSharedState> {
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
-    using Base = PipelineXSinkLocalState<MultiCastSharedState>;
+    using Base = PipelineXSpillSinkLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamSinkOperatorX;
     std::string name_suffix() override;
+
+    Status open(RuntimeState* state) override;
+
+    std::vector<Dependency*> dependencies() const override;
+
+    std::string debug_string(int indentation_level) const override;
 };
 
 class MultiCastDataStreamSinkOperatorX final

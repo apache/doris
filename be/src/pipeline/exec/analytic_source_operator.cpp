@@ -49,6 +49,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
+    local_state._estimate_memory_usage = 0;
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     output_block->clear_column_data();
     size_t output_rows = 0;
     {
@@ -58,8 +60,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state._shared_state->blocks_buffer.pop();
             output_rows = output_block->rows();
             //if buffer have no data and sink not eos, block reading and wait for signal again
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, output_block, output_block->columns()));
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, output_block,
+                                                     output_block->columns()));
             if (local_state._shared_state->blocks_buffer.empty() &&
                 !local_state._shared_state->sink_eos) {
                 // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.

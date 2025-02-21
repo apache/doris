@@ -463,25 +463,29 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_string_value(
                 1, resource_ctx->task_controller()->fe_addr().hostname, block);
-        SchemaScannerHelper::insert_string_value(2, query_id, block);
+        auto wg = resource_ctx->workload_group();
+        SchemaScannerHelper::insert_int64_value(2, wg ? wg->id() : -1, block);
+        SchemaScannerHelper::insert_string_value(3, query_id, block);
 
         int64_t task_time =
                 resource_ctx->task_controller()->is_finished()
                         ? resource_ctx->task_controller()->finish_time() -
                                   resource_ctx->task_controller()->start_time()
                         : MonotonicMillis() - resource_ctx->task_controller()->start_time();
-        SchemaScannerHelper::insert_int64_value(3, task_time, block);
-        SchemaScannerHelper::insert_int64_value(4, tqs.cpu_ms, block);
-        SchemaScannerHelper::insert_int64_value(5, tqs.scan_rows, block);
-        SchemaScannerHelper::insert_int64_value(6, tqs.scan_bytes, block);
-        SchemaScannerHelper::insert_int64_value(7, tqs.max_peak_memory_bytes, block);
-        SchemaScannerHelper::insert_int64_value(8, tqs.current_used_memory_bytes, block);
-        SchemaScannerHelper::insert_int64_value(9, tqs.shuffle_send_bytes, block);
-        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_rows, block);
+        SchemaScannerHelper::insert_int64_value(4, task_time, block);
+        SchemaScannerHelper::insert_int64_value(5, tqs.cpu_ms, block);
+        SchemaScannerHelper::insert_int64_value(6, tqs.scan_rows, block);
+        SchemaScannerHelper::insert_int64_value(7, tqs.scan_bytes, block);
+        SchemaScannerHelper::insert_int64_value(8, tqs.max_peak_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(9, tqs.current_used_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_bytes, block);
+        SchemaScannerHelper::insert_int64_value(11, tqs.shuffle_send_rows, block);
 
         std::stringstream ss;
         ss << resource_ctx->task_controller()->query_type();
-        SchemaScannerHelper::insert_string_value(11, ss.str(), block);
+        SchemaScannerHelper::insert_string_value(12, ss.str(), block);
+        SchemaScannerHelper::insert_int64_value(13, tqs.spill_write_bytes_to_local_storage, block);
+        SchemaScannerHelper::insert_int64_value(14, tqs.spill_read_bytes_from_local_storage, block);
     }
 }
 

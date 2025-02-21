@@ -319,6 +319,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
           _mgr(stream_mgr),
           _memory_used_counter(memory_used_counter),
           _resource_ctx(state->get_query_ctx()->resource_ctx()),
+          _query_context(state->get_query_ctx()->shared_from_this()),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _row_desc(row_desc),
@@ -336,7 +337,8 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
     _sender_to_local_channel_dependency.resize(num_queues);
     for (size_t i = 0; i < num_queues; i++) {
         _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
-                _dest_node_id, _dest_node_id, "LocalExchangeChannelDependency", true);
+                _dest_node_id, _dest_node_id, fmt::format("LocalExchangeChannelDependency_{}", i),
+                true);
     }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
@@ -392,12 +394,19 @@ Status VDataStreamRecvr::add_block(std::unique_ptr<PBlock> pblock, int sender_id
                                    const int64_t wait_for_worker,
                                    const uint64_t time_to_find_recvr) {
     SCOPED_ATTACH_TASK(_resource_ctx);
+    if (_query_context->low_memory_mode()) {
+        set_low_memory_mode();
+    }
+
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(std::move(pblock), be_number, packet_seq, done,
                                                     wait_for_worker, time_to_find_recvr);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+    if (_query_context->low_memory_mode()) {
+        set_low_memory_mode();
+    }
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }

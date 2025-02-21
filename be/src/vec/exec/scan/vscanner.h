@@ -71,7 +71,10 @@ public:
     virtual Status init() { return Status::OK(); }
     // Not virtual, all child will call this method explictly
     virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-    virtual Status open(RuntimeState* state) { return Status::OK(); }
+    virtual Status open(RuntimeState* state) {
+        _block_avg_bytes = state->batch_size() * 8;
+        return Status::OK();
+    }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
@@ -153,6 +156,10 @@ public:
 
     int64_t limit() const { return _limit; }
 
+    auto get_block_avg_bytes() const { return _block_avg_bytes; }
+
+    void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
+
 protected:
     void _discard_conjuncts() {
         for (auto& conjunct : _conjuncts) {
@@ -206,6 +213,8 @@ protected:
 
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;
+
+    size_t _block_avg_bytes = 0;
 
     // Set true after counter is updated finally
     bool _has_updated_counter = false;

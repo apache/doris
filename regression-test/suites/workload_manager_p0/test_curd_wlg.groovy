@@ -427,7 +427,7 @@ suite("test_crud_wlg") {
     // test workload spill property
     // 1 create group
     test {
-        sql "create workload group if not exists spill_group_test_failed properties (  'memory_low_watermark'='90%');"
+        sql "create workload group if not exists spill_group_test_failed properties (  'memory_low_watermark'='96%');"
         exception "should bigger than memory_low_watermark"
     }
     sql "create workload group if not exists spill_group_test properties (  'memory_low_watermark'='10%','memory_high_watermark'='10%');"

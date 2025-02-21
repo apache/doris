@@ -479,7 +479,7 @@ public class NereidsCoordinator extends Coordinator {
                         // throw exception during workload group manager.
                         throw new UserException("could not find query queue");
                     }
-                    QueueToken queueToken = queryQueue.getToken();
+                    QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
                     queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);

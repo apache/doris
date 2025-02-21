@@ -37,6 +37,7 @@
 #include "runtime/process_profile.h"
 #include "runtime/thread_context.h"
 #include "util/mem_info.h"
+#include "util/pretty_printer.h"
 #include "util/stack_util.h"
 #include "util/uid_util.h"
 

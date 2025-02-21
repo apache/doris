@@ -161,6 +161,8 @@ private:
     RuntimeProfile::Counter* _remove_count = nullptr;
     RuntimeProfile::Counter* _remove_rows = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
+
+    int64_t _reserve_mem_size = 0;
 };
 
 class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
@@ -188,6 +190,8 @@ public:
     }
 
     bool require_data_distribution() const override { return true; }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class AnalyticSinkLocalState;

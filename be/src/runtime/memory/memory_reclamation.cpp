@@ -236,7 +236,7 @@ int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_me
     int64_t total_free_memory = 0;
     bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
     std::string log_prefix = fmt::format(
-            "work load group that enable overcommit, number of group: {}, request_free_memory:{}, "
+            "workload group that enable overcommit, number of group: {}, request_free_memory:{}, "
             "total_exceeded_memory:{}",
             task_groups.size(), request_free_memory, total_exceeded_memory);
     if (gc_all_exceeded) {

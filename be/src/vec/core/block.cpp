@@ -60,6 +60,25 @@ enum CompressionTypePB : int;
 } // namespace doris::segment_v2
 
 namespace doris::vectorized {
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr) {
+    T block;
+    while (blocks.try_dequeue(block)) {
+        if (memory_used_counter) {
+            if constexpr (std::is_same_v<T, Block>) {
+                memory_used_counter->update(-block.allocated_bytes());
+            } else {
+                memory_used_counter->update(-block->allocated_bytes());
+            }
+        }
+    }
+}
+
+template void clear_blocks<Block>(moodycamel::ConcurrentQueue<Block>&,
+                                  RuntimeProfile::Counter* memory_used_counter);
+template void clear_blocks<BlockUPtr>(moodycamel::ConcurrentQueue<BlockUPtr>&,
+                                      RuntimeProfile::Counter* memory_used_counter);
 
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {
     initialize_index_by_name();
@@ -743,7 +762,9 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     }
     for (auto& d : data) {
         if (d.column) {
-            DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
+            // Temporarily disable reference count check because a column might be referenced multiple times within a block.
+            // Queries like this: `select c, c from t1;`
+            // DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
             (*std::move(d.column)).assume_mutable()->clear();
         }
     }
