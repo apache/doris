@@ -66,7 +66,7 @@ public class PhysicalSqlCache extends PhysicalLeaf
             Optional<ResultSet> resultSet, List<InternalService.PCacheValue> cacheValues,
             String backendAddress, String planBody) {
         super(PlanType.PHYSICAL_SQL_CACHE, Optional.empty(),
-                new LogicalProperties(() -> ImmutableList.of(), () -> DataTrait.EMPTY_TRAIT));
+                new LogicalProperties(ImmutableList::of, () -> DataTrait.EMPTY_TRAIT));
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "colNames can not be null");
         this.fieldInfos = Objects.requireNonNull(fieldInfos, "fieldInfos can not be null");
