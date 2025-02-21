@@ -40,7 +40,7 @@ public class TimeV2Literal extends Literal {
     protected int microsecond;
     protected boolean negative;
 
-    public TimeV2Literal(String s){
+    public TimeV2Literal(String s) {
         this(TimeV2Type.of(0), s);
     }
 
@@ -229,7 +229,7 @@ public class TimeV2Literal extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.TimeV2Literal(hour, minute, second, microsecond, ((TimeV2Type) dataType).getScale());
+        return new org.apache.doris.analysis.TimeV2Literal((double) getValue());
     }
 
     @Override
