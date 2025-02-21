@@ -895,6 +895,12 @@ public abstract class RoutineLoadJob
         this.jobStatistic.currentTotalRows += numOfTotalRows;
         this.jobStatistic.errorRowsAfterResumed = this.jobStatistic.currentErrorRows;
         if (this.jobStatistic.currentTotalRows > maxBatchRows * 10) {
+            if ((double) this.jobStatistic.currentAbortedTaskNum
+                    / (this.jobStatistic.currentAbortedTaskNum + this.jobStatistic.currentCommittedTaskNum) > 0.5) {
+                Env.getCurrentEnv().getRoutineLoadManager().addAbnormalJob(this);
+            } else {
+                Env.getCurrentEnv().getRoutineLoadManager().removeAbnormalJob(this);
+            }
             if (this.jobStatistic.currentErrorRows > maxErrorNum
                     || ((double) this.jobStatistic.currentErrorRows
                             / this.jobStatistic.currentTotalRows) > maxFilterRatio) {
@@ -1103,6 +1109,7 @@ public abstract class RoutineLoadJob
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
                 ++this.jobStatistic.committedTaskNum;
+                ++this.jobStatistic.currentCommittedTaskNum;
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
                 }
@@ -1228,6 +1235,7 @@ public abstract class RoutineLoadJob
                             .build());
                 }
                 ++this.jobStatistic.abortedTaskNum;
+                ++this.jobStatistic.currentAbortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =

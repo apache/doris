@@ -43,6 +43,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -91,6 +92,8 @@ public class RoutineLoadManager implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
+    private Set<String> abnormalJobs = ConcurrentHashMap.newKeySet();
+
     private void readLock() {
         lock.readLock().lock();
     }
@@ -134,6 +137,26 @@ public class RoutineLoadManager implements Writable {
     // this is not real-time number
     public int getTotalMaxConcurrentTaskNum() {
         return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
+    }
+
+    public Set<String> getAbnormalJobs() {
+        return abnormalJobs;
+    }
+
+    public void addAbnormalJob(RoutineLoadJob job) {
+        abnormalJobs.add(fullJobName(job));
+        MetricRepo.COUNTER_ROUTINE_LOAD_ABNORMAL_JOB_NUMS.increase(1L);
+    }
+
+    public void removeAbnormalJob(RoutineLoadJob job) {
+        abnormalJobs.remove(fullJobName(job));
+        long value = MetricRepo.COUNTER_ROUTINE_LOAD_ABNORMAL_JOB_NUMS.getValue() - 1;
+        MetricRepo.COUNTER_ROUTINE_LOAD_ABNORMAL_JOB_NUMS.update(value);
+    }
+
+    // dbName.jobName
+    private String fullJobName(RoutineLoadJob job) {
+        return Env.getCurrentEnv().getInternalCatalog().getDbNullable(job.getDbId()).getName() + "." + job.getName();
     }
 
     // return the map of be id -> running tasks num

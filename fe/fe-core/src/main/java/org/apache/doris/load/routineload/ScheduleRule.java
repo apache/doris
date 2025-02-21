@@ -85,6 +85,9 @@ public class ScheduleRule {
                         jobRoutine.latestResumeTimestamp = System.currentTimeMillis();
                         if (jobRoutine.autoResumeCount < Long.MAX_VALUE) {
                             jobRoutine.autoResumeCount++;
+                            if (jobRoutine.autoResumeCount == 5) {
+                                Env.getCurrentEnv().getRoutineLoadManager().addAbnormalJob(jobRoutine);
+                            }
                         }
                         return true;
                     }
@@ -98,6 +101,7 @@ public class ScheduleRule {
                      */
                     jobRoutine.latestResumeTimestamp = current;
                     jobRoutine.autoResumeCount = 1;
+                    Env.getCurrentEnv().getRoutineLoadManager().removeAbnormalJob(jobRoutine);
                     return true;
                 }
             }
