@@ -29,7 +29,6 @@ namespace doris {
  */
 class RuntimeFilterProducer : public RuntimeFilter {
 public:
-    using Callback = std::function<void()>;
     enum class State {
         WAITING_FOR_SEND_SIZE = 0,
         WAITING_FOR_SYNCED_SIZE = 1,
@@ -61,7 +60,7 @@ public:
             return;
         }
         _check_state({State::WAITING_FOR_DATA});
-        _wrapper->insert_batch(column, start);
+        _wrapper->insert(column, start);
     }
     Status publish(RuntimeState* state, bool build_hash_table);
     std::string debug_string() const override {
@@ -70,7 +69,6 @@ public:
                            _dependency ? _dependency->debug_string() : "none", _synced_size);
     }
 
-    void with_callback(Callback& callback) { _callback.emplace_back(callback); }
     int expr_order() const { return _expr_order; }
     void set_synced_size(uint64_t global_size);
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
@@ -145,7 +143,6 @@ private:
 
     std::atomic<State> _rf_state;
     std::unique_ptr<RuntimeProfile> _profile;
-    std::vector<Callback> _callback;
 };
 
 } // namespace doris

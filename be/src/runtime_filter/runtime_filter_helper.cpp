@@ -24,12 +24,10 @@ namespace doris::pipeline {
 
 RuntimeFilterHelper::RuntimeFilterHelper(const int32_t _node_id,
                                          const std::vector<TRuntimeFilterDesc>& runtime_filters,
-                                         const RowDescriptor& row_descriptor,
-                                         vectorized::VExprContextSPtrs& conjuncts)
+                                         const RowDescriptor& row_descriptor)
         : _node_id(_node_id),
           _runtime_filter_descs(runtime_filters),
           _row_descriptor_ref(row_descriptor),
-          _conjuncts_ref(conjuncts),
           _profile(new RuntimeProfile("RuntimeFilterHelper")) {
     _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
 }
@@ -85,22 +83,23 @@ void RuntimeFilterHelper::init_runtime_filter_dependency(
     }
 }
 
-Status RuntimeFilterHelper::acquire_runtime_filter() {
+Status RuntimeFilterHelper::acquire_runtime_filter(vectorized::VExprContextSPtrs& conjuncts) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     std::vector<vectorized::VRuntimeFilterPtr> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        RETURN_IF_ERROR(_consumers[i]->acquire_expr(_probe_ctxs, vexprs));
+        RETURN_IF_ERROR(_consumers[i]->acquire_expr(vexprs));
 
-        if (!_consumers[i]->applied()) {
+        if (!_consumers[i]->is_applied()) {
             _is_all_rf_applied = false;
         }
     }
-    RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
+    RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs, conjuncts));
     return Status::OK();
 }
 
 Status RuntimeFilterHelper::_append_rf_into_conjuncts(
-        const std::vector<vectorized::VRuntimeFilterPtr>& vexprs) {
+        const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
+        vectorized::VExprContextSPtrs& conjuncts) {
     if (vexprs.empty()) {
         return Status::OK();
     }
@@ -109,13 +108,14 @@ Status RuntimeFilterHelper::_append_rf_into_conjuncts(
         vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor_ref));
         RETURN_IF_ERROR(conjunct->open(_state));
-        _conjuncts_ref.emplace_back(conjunct);
+        conjuncts.emplace_back(conjunct);
     }
 
     return Status::OK();
 }
 
-Status RuntimeFilterHelper::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
+Status RuntimeFilterHelper::try_append_late_arrival_runtime_filter(
+        int* arrived_rf_num, vectorized::VExprContextSPtrs& conjuncts) {
     if (_is_all_rf_applied) {
         *arrived_rf_num = _runtime_filter_descs.size();
         return Status::OK();
@@ -133,12 +133,12 @@ Status RuntimeFilterHelper::try_append_late_arrival_runtime_filter(int* arrived_
     std::vector<vectorized::VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        RETURN_IF_ERROR(_consumers[i]->acquire_expr(_probe_ctxs, exprs));
-        current_arrived_rf_num += _consumers[i]->applied();
+        RETURN_IF_ERROR(_consumers[i]->acquire_expr(exprs));
+        current_arrived_rf_num += _consumers[i]->is_applied();
     }
     // 2. Append unapplied runtime filters to _conjuncts
     if (!exprs.empty()) {
-        RETURN_IF_ERROR(_append_rf_into_conjuncts(exprs));
+        RETURN_IF_ERROR(_append_rf_into_conjuncts(exprs, conjuncts));
     }
     if (current_arrived_rf_num == _runtime_filter_descs.size()) {
         _is_all_rf_applied = true;

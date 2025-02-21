@@ -259,6 +259,9 @@ public:
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
     }
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
+        return _merge_controller_handler;
+    }
 
     bool is_nereids() const { return _is_nereids; }
 
