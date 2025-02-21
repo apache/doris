@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -32,7 +36,7 @@ import java.util.List;
 /**
  * Multiply Expression.
  */
-public class Multiply extends BinaryArithmetic implements PropagateNullable {
+public class Multiply extends BinaryArithmetic implements PropagateNullable, Monotonic {
 
     public Multiply(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.MULTIPLY);
@@ -96,5 +100,32 @@ public class Multiply extends BinaryArithmetic implements PropagateNullable {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiply(this, context);
+    }
+
+    @Override
+    public boolean isMonotonic(Literal lower, Literal upper) {
+        return !(child(0) instanceof Literal) && child(1) instanceof Literal
+                || child(0) instanceof Literal && !(child(1) instanceof Literal);
+    }
+
+    @Override
+    public boolean isPositive() {
+        return true;
+    }
+
+    @Override
+    public int getMonotonicFunctionChildIndex() {
+        return child(1) instanceof Literal ? 0 : 1;
+    }
+
+    @Override
+    public boolean isStrictlyMonotonic() {
+        return !(getDataType() instanceof DoubleType) && !(getDataType() instanceof FloatType)
+                && isMonotonic(null, null);
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return child(1) instanceof Literal ? new Multiply(literal, child(1)) : new Multiply(child(0), literal);
     }
 }

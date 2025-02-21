@@ -285,6 +285,9 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 continue;
             }
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            if (((Alias) expr).child().strictlyMonotonic()) {
+                builder.addDeps(ImmutableSet.of(expr.toSlot()), expr.getInputSlots());
+            }
         }
     }
 }
