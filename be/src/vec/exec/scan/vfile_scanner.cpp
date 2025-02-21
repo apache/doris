@@ -752,8 +752,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                     fmt::format_to(error_msg,"column({}) value is incorrect while strict mode is {}, src value is {}",
                                             slot_desc->col_name(), _strict_mode, raw_string);
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
+                                }));
                             filter_map[i] = false;
                         } else if (!slot_desc->is_nullable()) {
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
@@ -764,8 +763,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg, "column({}) values is null while columns is not nullable", slot_desc->col_name());
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
+                                }));
                             filter_map[i] = false;
                         }
                         // clang-format on
