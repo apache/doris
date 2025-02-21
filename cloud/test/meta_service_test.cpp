@@ -4611,6 +4611,9 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     auto meta_service = get_meta_service();
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
     remove_delete_bitmap_lock(meta_service.get(), 1);
     remove_delete_bitmap_lock(meta_service.get(), 2);
 
@@ -4640,7 +4643,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 2: lock key does not exist, get and remove compaction lock
-    req.set_table_id(1);
     req.add_partition_ids(123);
     req.set_expiration(600);
     req.set_lock_id(-1);
@@ -4649,7 +4651,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
-    remove_req.set_table_id(1);
     remove_req.set_tablet_id(2);
     remove_req.set_lock_id(-1);
     remove_req.set_initiator(100);
@@ -4659,7 +4660,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 3: lock key owned by load1, load2 get lock
-    req.set_table_id(1);
     req.add_partition_ids(123);
     req.set_expiration(600);
     req.set_lock_id(888);
@@ -4680,7 +4680,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
-    remove_req.set_table_id(1);
     remove_req.set_tablet_id(2);
     remove_req.set_lock_id(888);
     remove_req.set_initiator(-1);
@@ -4690,7 +4689,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 5: lock key owned by load1 but expired, load2 get lock
-    req.set_table_id(1);
     req.add_partition_ids(123);
     req.set_expiration(1);
     req.set_lock_id(888);
@@ -4713,7 +4711,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 6: lock key owned by load1 but expired, compaction1 get lock
-    req.set_table_id(1);
     req.add_partition_ids(123);
     req.set_expiration(1);
     req.set_lock_id(888);
@@ -4778,6 +4775,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     sleep(2);
+    req.set_table_id(1);
     req.set_lock_id(888);
     req.set_initiator(-1);
     req.set_expiration(60);
@@ -4785,8 +4783,32 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
+    remove_req.set_lock_id(888);
+    remove_req.set_initiator(-1);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+
     // case 10: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
-    
+    /*sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
+        auto* first_retry = try_any_cast<bool*>(args[0]);
+        if (first_retry) {
+            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_CONFLICT;
+        } else {
+            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_OK;
+        }
+    });
+    sp->enable_processing();
+    req.set_lock_id(-1);
+    req.set_initiator(100);
+    req.set_expiration(10);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();*/
 
     remove_delete_bitmap_lock(meta_service.get(), 1);
     remove_delete_bitmap_lock(meta_service.get(), 2);
