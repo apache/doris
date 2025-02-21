@@ -23,7 +23,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -40,6 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * `SplitGenerator` provides the file splits, and `FederationBackendPolicy` assigns these splits to backends.
  */
 public class SplitAssignment {
+    private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
@@ -50,10 +54,11 @@ public class SplitAssignment {
     private final List<String> pathPartitionKeys;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
-    private final AtomicBoolean isStop = new AtomicBoolean(false);
+    private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
     private UserException exception = null;
+    private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -85,7 +90,7 @@ public class SplitAssignment {
     }
 
     private boolean waitFirstSplit() {
-        return !scheduleFinished.get() && !isStop.get() && exception == null;
+        return !scheduleFinished.get() && !isStopped.get() && exception == null;
     }
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
@@ -150,7 +155,7 @@ public class SplitAssignment {
         }
         BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
                 be -> new LinkedBlockingQueue<>());
-        if (scheduleFinished.get() && splits.isEmpty() || isStop.get()) {
+        if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
         }
         return splits;
@@ -167,11 +172,26 @@ public class SplitAssignment {
     }
 
     public void stop() {
-        isStop.set(true);
+        if (isStop()) {
+            return;
+        }
+        isStopped.set(true);
+        closeableResources.forEach((closeable) -> {
+            try {
+                closeable.close();
+            } catch (Exception e) {
+                LOG.warn("close resource error:{}", e.getMessage(), e);
+                // ignore
+            }
+        });
         notifyAssignment();
     }
 
     public boolean isStop() {
-        return isStop.get();
+        return isStopped.get();
+    }
+
+    public void addCloseable(Closeable resource) {
+        closeableResources.add(resource);
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -69,6 +71,7 @@ import java.util.function.Supplier;
 
 public class ThreadPoolManager {
 
+    private static final Logger LOG = LogManager.getLogger(ThreadPoolManager.class);
     private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = Maps.newConcurrentMap();
 
     private static String[] poolMetricTypes = {"pool_size", "active_thread_num", "task_in_queue"};
@@ -138,6 +141,17 @@ public class ThreadPoolManager {
         return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(queueSize), new BlockedPolicy(poolName, 60),
                 poolName, needRegisterMetric);
+    }
+
+    public static ThreadPoolExecutor newDaemonFixedThreadPoolWithPreAuth(
+            int numThread,
+            int queueSize,
+            String poolName,
+            boolean needRegisterMetric,
+            PreExecutionAuthenticator preAuth) {
+        return newDaemonThreadPoolWithPreAuth(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(queueSize), new BlockedPolicy(poolName, 60),
+            poolName, needRegisterMetric, preAuth);
     }
 
     public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize,
@@ -227,6 +241,40 @@ public class ThreadPoolManager {
      */
     private static ThreadFactory namedThreadFactory(String poolName) {
         return new ThreadFactoryBuilder().setDaemon(true).setNameFormat(poolName + "-%d").build();
+    }
+
+
+    public static ThreadPoolExecutor newDaemonThreadPoolWithPreAuth(
+            int corePoolSize,
+            int maximumPoolSize,
+            long keepAliveTime,
+            TimeUnit unit,
+            BlockingQueue<Runnable> workQueue,
+            RejectedExecutionHandler handler,
+            String poolName,
+            boolean needRegisterMetric,
+            PreExecutionAuthenticator preAuth) {
+        ThreadFactory threadFactory = namedThreadFactoryWithPreAuth(poolName, preAuth);
+        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
+                keepAliveTime, unit, workQueue, threadFactory, handler);
+        if (needRegisterMetric) {
+            nameToThreadPoolMap.put(poolName, threadPool);
+        }
+        return threadPool;
+    }
+
+    private static ThreadFactory namedThreadFactoryWithPreAuth(String poolName, PreExecutionAuthenticator preAuth) {
+        return new ThreadFactoryBuilder()
+            .setDaemon(true)
+            .setNameFormat(poolName + "-%d")
+            .setThreadFactory(runnable -> new Thread(() -> {
+                try {
+                    preAuth.execute(runnable);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }))
+            .build();
     }
 
     private static class PriorityThreadPoolExecutor<T> extends ThreadPoolExecutor {
@@ -382,6 +430,27 @@ public class ThreadPoolManager {
                 LOG.warn("Task: {} submit to {}, and discard the oldest task:{}", task, threadPoolName, discardTask);
                 executor.execute(task);
             }
+        }
+    }
+
+    public static void shutdownExecutorService(ExecutorService executorService) {
+        // Disable new tasks from being submitted
+        executorService.shutdown();
+        try {
+            // Wait a while for existing tasks to terminate
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                // Cancel currently executing tasks
+                executorService.shutdownNow();
+                // Wait a while for tasks to respond to being cancelled
+                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                    LOG.warn("ExecutorService did not terminate");
+                }
+            }
+        } catch (InterruptedException e) {
+            // (Re-)Cancel if current thread also interrupted
+            executorService.shutdownNow();
+            // Preserve interrupt status
+            Thread.currentThread().interrupt();
         }
     }
 }
