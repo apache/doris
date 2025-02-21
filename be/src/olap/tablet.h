@@ -215,6 +215,7 @@ public:
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::shared_mutex& get_meta_store_lock() { return _meta_store_lock; }
 
     std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -729,7 +730,7 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
 
-    // use a seperate thread to check all tablets paths existance
+    // use a separate thread to check all tablets paths existence
     std::atomic<bool> _is_tablet_path_exists;
 
     int64_t _last_missed_version;
