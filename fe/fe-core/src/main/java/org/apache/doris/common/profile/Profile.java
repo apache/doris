@@ -386,7 +386,7 @@ public class Profile {
         }
 
         if (this.executionProfiles.size() == 1) {
-            builder.append("MergedProfile\n");
+            builder.append("MergedProfile:\n");
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
             } else {
@@ -405,9 +405,9 @@ public class Profile {
             builder.append("build  profile failed");
         }
 
-        builder.append("\nAppendix\n");
+        builder.append("\nAppendix:\n");
         if (physicalPlan != null) {
-            builder.append("\nPhysicalPlan\n");
+            builder.append("\nPhysicalPlan:\n");
             StringBuilder physcialPlanBuilder = new StringBuilder();
             physcialPlanBuilder.append(physicalPlan.treeString());
             physcialPlanBuilder.append("\n");

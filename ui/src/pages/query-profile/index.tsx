@@ -191,7 +191,7 @@ export default function QueryProfile(params: any) {
                 <div
                     ref={container}
                     style={{ background: '#f9f9f9', padding: '20px', whiteSpace: 'pre-wrap',
-                             fontFamily: 'Menlo, Monaco, \'Courier New\', monospace' // 添加等宽字体
+                             fontFamily: 'Menlo, Monaco, \'Courier New\', monospace'
                              }}
                 >
                     {/* {profile} */}
