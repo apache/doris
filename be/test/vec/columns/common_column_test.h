@@ -26,8 +26,10 @@
 #include "olap/schema.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/cow.h"
 #include "vec/core/field.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
@@ -36,7 +38,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 
-// this test is gonna to be a column test template for all column which should make ut test to coverage the function defined in column
+// this test is gonna to be a column test template for all column which should make ut test to coverage the function defined in column (all maybe we need 79 interfaces to be tested)
 // for example column_array should test this function:
 // size, reserve, resize, empty, byte_size, allocated_bytes, clone_resized,
 // get_shrinked_column, filter, filter_by_selector, serialize_vec, deserialize_vec, get_max_row_byte_size
@@ -67,19 +69,16 @@ protected:
         DataTypeSerDe::FormatOptions options;
         while (std::getline(file, line)) {
             std::stringstream lineStream(line);
-            //            std::cout << "whole : " << lineStream.str() << std::endl;
             std::string value;
             int l_idx = 0;
             int c_idx = 0;
             while (std::getline(lineStream, value, spliter)) {
-                if (idxes.contains(l_idx)) {
+                if (!value.starts_with("//") && idxes.contains(l_idx)) {
                     Slice string_slice(value.data(), value.size());
-                    std::cout << string_slice << std::endl;
                     if (auto st = serders[c_idx]->deserialize_one_cell_from_json(
                                 *columns[c_idx], string_slice, options);
                         !st.ok()) {
-                        //                        std::cout << "error in deserialize but continue: " << st.to_string()
-                        //                                  << std::endl;
+                        LOG(INFO) << "error in deserialize but continue: " << st.to_string();
                     }
                     ++c_idx;
                 }
@@ -97,8 +96,7 @@ protected:
         string filename = "./res_" + function_name + ".csv";
         if (gen_check_data_in_assert) {
             std::ofstream res_file(filename);
-            std::cout << "gen check data: " << res.size() << " with file: " << filename
-                      << std::endl;
+            LOG(INFO) << "gen check data: " << res.size() << " with file: " << filename;
             if (!res_file.is_open()) {
                 throw std::ios_base::failure("Failed to open file.");
             }
@@ -117,7 +115,7 @@ protected:
             res_file.close();
         } else {
             // we read generate file to check result
-            std::cout << "check data: " << res.size() << " with file: " << filename << std::endl;
+            LOG(INFO) << "check data: " << res.size() << " with file: " << filename;
             std::ifstream file(filename);
             if (!file) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
@@ -218,7 +216,7 @@ public:
                 std::filesystem::path fs_path(column_data_file);
                 for (const auto& entry : std::filesystem::directory_iterator(fs_path)) {
                     std::string file_path = entry.path().string();
-                    std::cout << "load data from file: " << file_path << std::endl;
+                    LOG(INFO) << "load data from file: " << file_path;
                     load_data_from_csv(serders, columns, file_path, col_spliter, idxes);
                 }
             }
@@ -257,8 +255,7 @@ public:
     }
 
     void printColumn(const IColumn& column, const IDataType& dataType) {
-        std::cout << "colum: " << column.get_name() << " total size: " << column.size()
-                  << std::endl;
+        LOG(INFO) << "colum: " << column.get_name() << " total size: " << column.size();
         auto serde = dataType.get_serde(0);
         auto serde_col = ColumnString::create();
         auto option = DataTypeSerDe::FormatOptions();
@@ -267,18 +264,76 @@ public:
         for (size_t i = 0; i < column.size(); ++i) {
             if (auto st = serde->serialize_one_cell_to_json(column, i, buffer_writer, option);
                 !st) {
-                std::cerr << "Failed to serialize column at row " << i << std::endl;
+                LOG(ERROR) << "Failed to serialize column at row " << i;
                 break;
             }
             buffer_writer.commit();
-            std::cout << serde_col->get_data_at(i).to_string() << std::endl;
+            LOG(INFO) << serde_col->get_data_at(i).to_string();
+        }
+    }
+
+    ////////// =================== column data insert interface assert(16) =================== //////////
+    // In storage layer such as segment_iterator to call these function
+    // insert_many_fix_len_data (const char *pos, size_t num);
+    // insert_many_dict_data (const int32_t *data_array, size_t start_index, const StringRef *dict, size_t data_num, uint32_t dict_num=0)
+    // insert_many_continuous_binary_data (const char *data, const uint32_t *offsets, const size_t num)
+    static void assert_insert_many_fix_len_data(
+            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    assert_callback) {
+        // Create a column to verify `insert_many_fix_len_data` functionality
+        assert_callback(load_cols, serders);
+    }
+
+    static void assert_insert_many_dict_data(
+            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    assert_callback) {
+        // Create a column to verify `insert_many_dict_data` functionality
+        assert_callback(load_cols, serders);
+    }
+
+    static void assert_insert_many_continuous_binary_data(
+            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    assert_callback) {
+        // Create a column to verify `insert_many_continuous_binary_data` functionality
+        assert_callback(load_cols, serders);
+    }
+
+    // only support in column_string: insert_many_strings(const StringRef *data, size_t num) && insert_many_strings_overflow
+    static void assert_insert_many_strings(
+            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    assert_callback) {
+        for (auto& col : load_cols) {
+            // Create a column to verify `insert_many_strings` functionality
+            if (!is_column<ColumnString>(*col)) {
+                EXPECT_ANY_THROW(col->insert_many_strings(nullptr, 0));
+            } else {
+                assert_callback(load_cols, serders);
+            }
+        }
+    }
+
+    static void assert_insert_many_strings_overflow(
+            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    assert_callback) {
+        for (auto& col : load_cols) {
+            // Create a column to verify `insert_many_strings_overflow` functionality
+            if (!is_column<ColumnString>(*col)) {
+                // just expect throw exception as not support
+                EXPECT_ANY_THROW(col->insert_many_strings_overflow(nullptr, 0, 0));
+            } else {
+                assert_callback(load_cols, serders);
+            }
         }
     }
 
     // assert insert_from
     // Define the custom assert callback function to verify insert_from behavior
-    static void assert_insert_from_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
-                                            std::vector<std::vector<std::string>>& assert_res) {
+    static void assert_insert_from_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `insert_from` functionality
         MutableColumns verify_columns;
         for (auto& col : load_cols) {
@@ -303,7 +358,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -312,7 +367,53 @@ public:
             }
             res.push_back(data);
         }
-        check_res_file("insert_from", assert_res);
+        check_res_file("insert_from", res);
+    }
+
+    // insert_from_multi_column (const std::vector< const IColumn * > &srcs, std::vector< size_t > positions)
+    // speed up for insert_from interface according to avoid virtual call
+    static void assert_insert_from_multi_column_callback(MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders) {
+        // Create an empty column to verify `insert_from_multi_column` functionality
+        MutableColumns verify_columns;
+        for (auto& col : load_cols) {
+            verify_columns.push_back(col->clone_empty());
+        }
+        auto option = DataTypeSerDe::FormatOptions();
+        // Insert data from `load_cols` to `verify_columns` using `insert_from_multi_column`
+        std::vector<std::vector<std::string>> res;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            size_t si = load_cols[i]->size();
+            std::vector<size_t> positions = {0, si >> 1, si - 1};
+            auto& source_column = load_cols[i];
+            std::vector<const IColumn*> s = {source_column.get(), source_column.get(),
+                                             source_column.get()};
+            auto& target_column = verify_columns[i];
+            target_column->insert_from_multi_column(s, positions);
+        }
+
+        // Verify the inserted data matches the expected results in `assert_res`
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& target_column = verify_columns[i];
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(target_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<std::string> data;
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                data.push_back("now assert insert_from_multi_column for column " +
+                               target_column->get_name() + " at row " + std::to_string(j));
+                if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
+                                                                     buffer_writer, option);
+                    !st) {
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
+                    break;
+                }
+                buffer_writer.commit();
+                data.push_back(ser_col->get_data_at(j).to_string());
+            }
+            res.push_back(data);
+        }
+        check_res_file("insert_from_multi_column", res);
     }
 
     // assert insert_range_from
@@ -332,8 +433,8 @@ public:
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 std::vector<std::string> data;
-                std::cout << "==== now test insert_range_from with col "
-                          << verify_columns[i]->get_name() << std::endl;
+                LOG(INFO) << "==== now test insert_range_from with col "
+                          << verify_columns[i]->get_name();
                 auto& source_column = load_cols[i];
                 auto& target_column = verify_columns[i];
                 std::vector<size_t> check_start_pos = {0, source_column->size(),
@@ -341,16 +442,15 @@ public:
                 // size_t(-1) may cause overflow, but here we have compiler to check it
                 std::vector<size_t> err_start_pos = {source_column->size() + 1};
                 for (auto pos = err_start_pos.begin(); pos < err_start_pos.end(); ++pos) {
-                    std::cout << "error insert_range_from from " << *pos << " with length " << *cl
-                              << std::endl;
-                    std::cout << *pos + *cl << " > " << source_column->size() << std::endl;
+                    LOG(INFO) << "error insert_range_from from " << *pos << " with length " << *cl
+                              << *pos + *cl << " > " << source_column->size();
                     EXPECT_THROW(target_column->insert_range_from(*source_column, *pos, *cl),
                                  Exception);
                 }
                 for (auto pos = check_start_pos.begin(); pos < check_start_pos.end(); ++pos) {
                     target_column->clear();
-                    std::cout << "now insert_range_from from " << *pos << " with length " << *cl
-                              << " with source size: " << source_column->size() << std::endl;
+                    LOG(INFO) << "now insert_range_from from " << *pos << " with length " << *cl
+                              << " with source size: " << source_column->size();
                     if (*pos + *cl > source_column->size()) {
                         EXPECT_THROW(target_column->insert_range_from(*source_column, *pos, *cl),
                                      Exception);
@@ -367,8 +467,7 @@ public:
                         if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                              buffer_writer, option);
                             !st) {
-                            std::cerr << "Failed to serialize column " << i << " at row " << j
-                                      << std::endl;
+                            LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                             break;
                         }
                         buffer_writer.commit();
@@ -383,13 +482,57 @@ public:
 
     // assert insert_range_from_ignore_overflow which happened in columnStr<UInt32> want to insert from ColumnStr<UInt64> for more column string to be inserted not just limit to the 4G
     // Define the custom assert callback function to verify insert_range_from_ignore_overflow behavior
+    static void assert_insert_range_from_ignore_overflow(MutableColumns& load_cols,
+                                                         DataTypes types) {
+        size_t max = load_cols[0]->size();
+        for (size_t i = 1; i < load_cols.size(); ++i) {
+            max = std::max(max, load_cols[i]->size());
+        }
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            if (load_cols[i]->size() < max) {
+                load_cols[i]->resize(max);
+            }
+        }
+        // step1. to construct a block for load_cols
+        Block block;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            ColumnWithTypeAndName columnTypeAndName;
+            columnTypeAndName.column = load_cols[i]->assume_mutable();
+            columnTypeAndName.type = types[i];
+            block.insert(columnTypeAndName);
+        }
+        MutableBlock mb = MutableBlock::build_mutable_block(&block);
+        // step2. to construct a block for assert_cols
+        Block assert_block;
+        Block empty_block;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            ColumnWithTypeAndName columnTypeAndName;
+            columnTypeAndName.column = load_cols[i]->clone_empty();
+            columnTypeAndName.type = types[i];
+            assert_block.insert(columnTypeAndName);
+            empty_block.insert(columnTypeAndName);
+        }
+        MutableBlock assert_mb = MutableBlock::build_mutable_block(&empty_block);
+        // step3. to insert data from load_cols to assert_cols
+        Status st = mb.merge_impl_ignore_overflow(assert_block);
+        EXPECT_TRUE(st.ok()) << "Failed to merge block: " << st.to_string();
+        Status st2 = assert_mb.merge_impl_ignore_overflow(block);
+        EXPECT_TRUE(st2.ok()) << "Failed to merge block1: " << st2.to_string();
+        // step4. to check data in assert_cols
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            checkColumn(*load_cols[i], *mb.get_column_by_position(i), *types[i],
+                        load_cols[i]->size());
+            checkColumn(*load_cols[i], *assert_mb.get_column_by_position(i), *types[i],
+                        load_cols[i]->size());
+        }
+    }
 
     // assert insert_many_from (used in join situation, which handle left table col to expand for right table : such as A[1,2,3] inner join B[2,2,4,4] => A[2,2] )
     // Define the custom assert callback function to verify insert_many_from behavior
     static void assert_insert_many_from_callback(MutableColumns& load_cols,
                                                  DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `insert_many_from` functionality
-        std::cout << "now we are in assert_insert_many_from_callback" << std::endl;
+        LOG(INFO) << "now we are in assert_insert_many_from_callback";
         MutableColumns verify_columns;
         for (auto& col : load_cols) {
             verify_columns.push_back(col->clone_empty());
@@ -412,11 +555,23 @@ public:
                         // insert_range_from now we have no any exception error data to handle, so here will meet crash
                         continue;
                     } else if (*pos + *cl > source_column->size()) {
+                        if (is_column<ColumnArray>(
+                                    remove_nullable(source_column->assume_mutable()).get())) {
+                            // insert_range_from in array has DCHECK_LG
+                            continue;
+                        }
                         target_column->clear();
                         // insert_range_from now we have no any exception error data to handle and also no crash
-                        std::cout << "we expect exception insert_many_from from " << *pos
-                                  << " with length " << *cl
-                                  << "with source size: " << source_column->size() << std::endl;
+                        LOG(INFO) << "we expect exception insert_many_from from " << *pos
+                                  << " with length " << *cl << " for column "
+                                  << source_column->get_name()
+                                  << " with source size: " << source_column->size();
+                        target_column->insert_many_from(*source_column, *pos, *cl);
+                    } else {
+                        target_column->clear();
+                        LOG(INFO) << "now insert_many_from from " << *pos << " with length " << *cl
+                                  << " for column " << source_column->get_name()
+                                  << " with source size: " << source_column->size();
                         target_column->insert_many_from(*source_column, *pos, *cl);
                     }
 
@@ -425,12 +580,14 @@ public:
                     ser_col->reserve(target_column->size());
                     VectorBufferWriter buffer_writer(*ser_col.get());
                     std::vector<std::string> data;
+                    data.push_back("now assert insert_many_from for column " +
+                                   target_column->get_name() + " from " + std::to_string(*pos) +
+                                   " with length " + std::to_string(*cl));
                     for (size_t j = 0; j < target_column->size(); ++j) {
                         if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                              buffer_writer, option);
                             !st) {
-                            std::cerr << "Failed to serialize column " << i << " at row " << j
-                                      << std::endl;
+                            LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                             break;
                         }
                         buffer_writer.commit();
@@ -461,9 +618,9 @@ public:
 
             // uint32_t(-1) now we have compiler to make sure it will not appear
             // and this function
-            std::vector<uint32_t> check_indices = {0, uint32_t(source_column->size()),
-                                                   uint32_t(source_column->size() + 1),
-                                                   uint32_t((source_column->size() + 1) >> 1)};
+            std::vector<uint32_t> check_indices = {0, uint32_t((source_column->size() + 1) >> 1),
+                                                   uint32_t(source_column->size()),
+                                                   uint32_t(source_column->size() + 1)};
             for (auto from_idx = check_indices.begin(); from_idx < check_indices.end();
                  ++from_idx) {
                 for (auto end_idx = check_indices.begin(); end_idx < check_indices.end();
@@ -477,11 +634,12 @@ public:
                         // here we will meet `heap-buffer-overflow on address`
                         continue;
                     } else {
+                        LOG(INFO) << source_column->get_name() << " now insert_indices_from from "
+                                  << *from_idx << " to " << *end_idx
+                                  << " with source size: " << source_column->size();
                         target_column->insert_indices_from(*source_column, &(*from_idx),
                                                            &(*end_idx));
                     }
-                    std::cout << source_column->get_name() << " now insert_indices_from from "
-                              << *from_idx << " to " << *end_idx << std::endl;
                     // Verify the inserted data matches the expected results in `assert_res`
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(target_column->size());
@@ -491,13 +649,11 @@ public:
                         if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                              buffer_writer, option);
                             !st) {
-                            std::cerr << "Failed to serialize column " << i << " at row " << j
-                                      << std::endl;
+                            LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                             break;
                         }
                         buffer_writer.commit();
                         std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                        std::cout << "actual_str_value: " << actual_str_value << std::endl;
                         data.push_back(actual_str_value);
                     }
                     res.push_back(data);
@@ -507,8 +663,7 @@ public:
         check_res_file("insert_indices_from", res);
     }
 
-    static void assert_insert_data_from_callback(MutableColumns& load_cols,
-                                                 DataTypeSerDeSPtrs serders) {
+    static void assert_insert_data_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `insert_data` functionality
         MutableColumns verify_columns;
         for (auto& col : load_cols) {
@@ -535,7 +690,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
@@ -574,7 +729,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
@@ -610,7 +765,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -649,8 +804,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*target_column, j,
                                                                          buffer_writer, option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -663,7 +817,7 @@ public:
         check_res_file("insert_many_defaults", res);
     }
 
-    //// data access interfaces:
+    ////////// =================== column data access interface assert (6)=================== //////////
     // virtual StringRef
     //get_data_at (size_t n) const = 0
     // if we implement the get_data_at, we should know the data is stored in the column, and we can get the data by the index
@@ -689,76 +843,90 @@ public:
     //virtual Field
     //operator[] (size_t n) const = 0
     static void assert_field_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        MutableColumns assert_cols(load_cols.size());
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            assert_cols[i] = load_cols[i]->clone_empty();
-        }
         auto option = DataTypeSerDe::FormatOptions();
-        std::vector<std::vector<std::string>> res;
-        // just check cols get is the same as assert_res
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
-            std::cout << " new insert field for column : " << assert_cols[i]->get_name()
-                      << " with size : " << assert_cols[i]->size() << std::endl;
-            for (size_t j = 0; j < source_column->size(); ++j) {
-                Field f;
-                source_column->get(j, f);
-                std::cout << "field: " << f.get_type() << std::endl;
-                assert_cols[i]->insert(f);
+        {
+            MutableColumns assert_cols(load_cols.size());
+            for (size_t i = 0; i < load_cols.size(); ++i) {
+                assert_cols[i] = load_cols[i]->clone_empty();
             }
-        }
-        // Verify the inserted data matches the expected results in `assert_res`
-        for (size_t i = 0; i < assert_cols.size(); ++i) {
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(load_cols[i]->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
-            std::vector<string> data;
-            for (size_t j = 0; j < assert_cols[i]->size(); ++j) {
-                if (auto st = serders[i]->serialize_one_cell_to_json(*assert_cols[i], j,
-                                                                     buffer_writer, option);
-                    !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
-                    break;
+            std::vector<std::vector<std::string>> res;
+            // just check cols get is the same as assert_res
+            for (size_t i = 0; i < load_cols.size(); ++i) {
+                auto& source_column = load_cols[i];
+                LOG(INFO) << " new insert field for column : " << assert_cols[i]->get_name()
+                          << " with size : " << assert_cols[i]->size() << " source_coumn"
+                          << source_column->size();
+                for (size_t j = 0; j < source_column->size(); ++j) {
+                    Field f;
+                    source_column->get(j, f);
+                    assert_cols[i]->insert(f);
                 }
-                buffer_writer.commit();
-                std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                std::cout << "actual_str_value: " << actual_str_value << std::endl;
-                data.push_back(actual_str_value);
+                // check with null Field
+                Field null_field;
+                assert_cols[i]->insert(null_field);
             }
-            res.push_back(data);
-        }
-        check_res_file("get_field", res);
-        // just check cols operator [] to get field same with field
-        std::vector<std::vector<std::string>> res2;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
-            for (size_t j = 0; j < source_column->size(); ++j) {
-                Field f = source_column->operator[](j);
-                assert_cols[i]->insert(f);
+            // Verify the inserted data matches the expected results in `assert_res`
+            for (size_t i = 0; i < assert_cols.size(); ++i) {
+                auto ser_col = ColumnString::create();
+                ser_col->reserve(load_cols[i]->size());
+                VectorBufferWriter buffer_writer(*ser_col.get());
+                std::vector<string> data;
+                for (size_t j = 0; j < assert_cols[i]->size() - 1; ++j) {
+                    if (auto st = serders[i]->serialize_one_cell_to_json(*assert_cols[i], j,
+                                                                         buffer_writer, option);
+                        !st) {
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
+                        break;
+                    }
+                    buffer_writer.commit();
+                    std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                    data.push_back(actual_str_value);
+                    EXPECT_EQ(load_cols[i]->operator[](j), assert_cols[i]->operator[](j));
+                }
+                res.push_back(data);
             }
+            check_res_file("get_field", res);
         }
+        {
+            MutableColumns assert_cols(load_cols.size());
+            for (size_t i = 0; i < load_cols.size(); ++i) {
+                assert_cols[i] = load_cols[i]->clone_empty();
+            }
+            // just check cols operator [] to get field same with field
+            std::vector<std::vector<std::string>> res2;
+            for (size_t i = 0; i < load_cols.size(); ++i) {
+                auto& source_column = load_cols[i];
+                for (size_t j = 0; j < source_column->size(); ++j) {
+                    Field f = source_column->operator[](j);
+                    assert_cols[i]->insert(f);
+                }
+                // check with null Field
+                Field null_field;
+                assert_cols[i]->insert(null_field);
+            }
 
-        // Verify the inserted data matches the expected results in `assert_res`
-        for (size_t i = 0; i < assert_cols.size(); ++i) {
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(load_cols[i]->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
-            std::vector<string> data;
-            for (size_t j = 0; j < assert_cols[i]->size(); ++j) {
-                if (auto st = serders[i]->serialize_one_cell_to_json(*assert_cols[i], j,
-                                                                     buffer_writer, option);
-                    !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
-                    break;
+            // Verify the inserted data matches the expected results in `assert_res`
+            for (size_t i = 0; i < assert_cols.size(); ++i) {
+                auto ser_col = ColumnString::create();
+                ser_col->reserve(load_cols[i]->size());
+                VectorBufferWriter buffer_writer(*ser_col.get());
+                std::vector<string> data;
+                for (size_t j = 0; j < assert_cols[i]->size() - 1; ++j) {
+                    if (auto st = serders[i]->serialize_one_cell_to_json(*assert_cols[i], j,
+                                                                         buffer_writer, option);
+                        !st) {
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
+                        break;
+                    }
+                    buffer_writer.commit();
+                    std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                    data.push_back(actual_str_value);
+                    EXPECT_EQ(load_cols[i]->operator[](j), assert_cols[i]->operator[](j));
                 }
-                buffer_writer.commit();
-                std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                std::cout << "actual_str_value: " << actual_str_value << std::endl;
-                data.push_back(actual_str_value);
+                res2.push_back(data);
             }
-            res2.push_back(data);
+            check_res_file("get_field_operator", res2);
         }
-        check_res_file("get_field_operator", res2);
     }
     //
     //virtual StringRef
@@ -768,7 +936,7 @@ public:
     static void assert_get_raw_data_callback(MutableColumns& load_cols,
                                              DataTypeSerDeSPtrs serders) {
         // just check cols get_raw_data is the same as assert_res
-        std::cout << "now we are in assert_get_raw_data_callback" << std::endl;
+        LOG(INFO) << "now we are in assert_get_raw_data_callback";
         std::vector<std::vector<string>> res;
         MutableColumns assert_cols(load_cols.size());
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -797,12 +965,11 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*assert_cols[i], j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                std::cout << "actual_str_value: " << actual_str_value << std::endl;
                 data.push_back(actual_str_value);
             }
             res.push_back(data);
@@ -844,29 +1011,30 @@ public:
         check_res_file("get_bool", res);
     }
 
-    //// column meta interfaces:
+    ////////// =================== column data meta interface assert (7)=================== //////////
     // virtual std::string
     //get_name () const , simple assert to make sure name
-    static void getNameAssert(IColumn& column, const string expect_name) {
+    static void assert_get_name(IColumn& column, const string expect_name) {
         ASSERT_EQ(expect_name, column.get_name());
     }
 
+    // use in ColumnObject for check_if_sparse_column
+    static void assert_get_ratio_of_default_rows(MutableColumns& load_cols,
+                                                 DataTypeSerDeSPtrs serders) {
+        // just check cols get_ratio_of_default_rows is the same as assert_res
+        std::vector<std::vector<string>> res;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            std::vector<string> data;
+            data.push_back("in column: " + source_column->get_name() + " ratio of default rows: ");
+            auto actual_str_value = std::to_string(source_column->get_ratio_of_default_rows());
+            data.push_back(actual_str_value);
+            res.push_back(data);
+        }
+        check_res_file("get_ratio_of_default_rows", res);
+    }
+
     // size related we can check from checked file to make sure the size is right
-    //
-    //Returns number of values in column.
-    //virtual size_t
-    //size_of_value_if_fixed () const
-    //
-    //If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    //virtual size_t
-    //byte_size () const =0
-    //
-    //Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
-    //
-    //
-    //virtual size_t
-    //allocated_bytes () const =0
-    //
     static void assert_size_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         std::vector<std::vector<string>> res;
         // just check cols size is the same as assert_res
@@ -899,7 +1067,7 @@ public:
     static void assert_allocated_bytes_callback(MutableColumns& load_cols,
                                                 DataTypeSerDeSPtrs serders) {
         // just check cols allocated_bytes is the same as assert_res
-        std::cout << "now we are in assert_allocated_bytes_callback" << std::endl;
+        LOG(INFO) << "now we are in assert_allocated_bytes_callback";
         std::vector<std::vector<string>> res;
         for (size_t i = 0; i < load_cols.size(); ++i) {
             std::vector<string> data;
@@ -911,9 +1079,18 @@ public:
         check_res_file("allocated_bytes", res);
     }
 
-    // is_exclusive assert should assert the column which has multiple columnPtr in the column
+    // empty just use size() == 0 to impl as default behavior
+    void assert_empty(MutableColumnPtr col) { EXPECT_EQ(col->size(), 0); }
 
-    //// data manage interfaces
+    //The is_exclusive function is implemented differently in different columns, and the correctness should be verified reasonably.
+    void assert_is_exclusive(
+            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
+                    assert_callback) {
+        assert_callback(load_cols, serders);
+    }
+
+    ////////// =================== column data meta manage assert (11)=================== //////////
     //virtual void
     // pop_back (size_t n) = 0
     // assert pop_back
@@ -930,13 +1107,13 @@ public:
                 if (*cl > source_column->size()) {
                     // now we do not check in popback, but we should make sure the arguments are passed correctly,
                     // otherwise we should meet `Check failed: false Amount of memory requested to allocate is more than allowed`
-                    std::cout << "now we are in pop_back column : " << load_cols[i]->get_name()
-                              << " for column size : " << source_column->size() << std::endl;
+                    LOG(INFO) << "now we are in pop_back column : " << load_cols[i]->get_name()
+                              << " for column size : " << source_column->size();
                     source_column->pop_back(source_column->size());
                 } else {
-                    std::cout << "now we are in pop_back column : " << load_cols[i]->get_name()
+                    LOG(INFO) << "now we are in pop_back column : " << load_cols[i]->get_name()
                               << " with check length: " << *cl
-                              << " for column size : " << source_column->size() << std::endl;
+                              << " for column size : " << source_column->size();
                     source_column->pop_back(*cl);
                 }
 
@@ -949,8 +1126,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
                                                                          buffer_writer, option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1002,8 +1178,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
                                                                          option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1015,8 +1190,6 @@ public:
         }
         check_res_file("clone_resized", res);
     }
-
-    // is_exclusive() means to check the ptr is not shared with other, and we can just clean it. so it's important to check the column is exclusive or not
 
     //virtual Ptr
     //cut (size_t start, size_t length) const final will call clone_empty and insert_range_from
@@ -1035,9 +1208,9 @@ public:
                 size_t insert_size = *cl > source_column->size() ? source_column->size() : *cl;
                 // now we do not check in cut, but we should make sure the arguments are passed correctly,
                 // otherwise we should meet `Check failed: false Amount of memory requested to allocate is more than allowed`
-                std::cout << "now we are in cut column : " << load_cols[i]->get_name()
+                LOG(INFO) << "now we are in cut column : " << load_cols[i]->get_name()
                           << " with check length: " << insert_size
-                          << " for column size : " << source_column->size() << std::endl;
+                          << " for column size : " << source_column->size();
                 ptr = source_column->cut(0, insert_size);
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
@@ -1054,8 +1227,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
                                                                          option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1087,15 +1259,21 @@ public:
                 size_t insert_size = *cl > source_column->size() ? source_column->size() : *cl;
                 // now we do not check in cut, but we should make sure the arguments are passed correctly,
                 // otherwise we should meet `Check failed: false Amount of memory requested to allocate is more than allowed`
-                std::cout << "now we are in shrink column : " << load_cols[i]->get_name()
+                LOG(INFO) << "now we are in shrink column : " << load_cols[i]->get_name()
                           << " with check length: " << insert_size
-                          << " for column size : " << source_column->size() << std::endl;
+                          << " for column size : " << source_column->size();
+                size_t cnt = source_column->use_count();
                 ptr = source_column->shrink(insert_size);
-                std::cout << "use_count : " << source_column->use_count() << std::endl;
+                LOG(INFO) << "use_count : " << source_column->use_count();
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
                 // check ptr is not the same
-                EXPECT_NE(ptr.get(), source_column.get());
+                if (cnt == 1) {
+                    // just return the origin column to avoid the copy
+                    EXPECT_EQ(ptr.get(), source_column.get());
+                } else {
+                    EXPECT_NE(ptr.get(), source_column.get());
+                }
                 // check after cut with assert_res
                 auto ser_col = ColumnString::create();
                 ser_col->reserve(ptr->size());
@@ -1107,8 +1285,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
                                                                          option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1135,9 +1312,9 @@ public:
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto assert_origin_size = load_cols[i]->size();
                 auto& source_column = load_cols[i];
-                std::cout << "now we are in reserve column : " << load_cols[i]->get_name()
+                LOG(INFO) << "now we are in reserve column : " << load_cols[i]->get_name()
                           << " with check length: " << *cl
-                          << " for column size : " << source_column->size() << std::endl;
+                          << " for column size : " << source_column->size();
                 source_column->reserve(*cl);
                 // check size no changed after reserve
                 EXPECT_EQ(source_column->size(), assert_origin_size);
@@ -1153,8 +1330,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
                                                                          buffer_writer, option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1179,9 +1355,9 @@ public:
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto& source_column = load_cols[i];
-                std::cout << "now we are in resize column : " << load_cols[i]->get_name()
+                LOG(INFO) << "now we are in resize column : " << load_cols[i]->get_name()
                           << " with check length: " << *cl
-                          << " for column size : " << source_column->size() << std::endl;
+                          << " for column size : " << source_column->size();
                 source_column->resize(*cl);
                 // check size
                 EXPECT_EQ(source_column->size(), *cl);
@@ -1197,8 +1373,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
                                                                          buffer_writer, option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1237,11 +1412,16 @@ public:
                 EXPECT_ANY_THROW(load_cols[i]->replicate(offsets));
             }
             auto source_column = load_cols[i]->shrink(check_length.size());
-            std::cout << "now we are in replicate column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size() << std::endl;
+            LOG(INFO) << "now we are in replicate column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
             //               auto ptr = const_col->convert_to_full_column();
             // here will return different ptr
+            // record replicate cost time
+            auto start = std::chrono::high_resolution_clock::now();
             auto ptr = source_column->replicate(offsets);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+            LOG(INFO) << "replicate cost time: " << duration.count() << "ms";
             // check ptr
             EXPECT_NE(ptr.get(), source_column.get());
             // check after replicate with assert_res
@@ -1256,7 +1436,7 @@ public:
                 if (auto st =
                             serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -1282,17 +1462,16 @@ public:
         for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 if (load_cols[i]->is_variable_length()) {
-                    throw std::runtime_error(
-                            "replace_column_data only support non-variable length column");
+                    EXPECT_ANY_THROW(load_cols[i]->replace_column_data(*load_cols[i], *cl));
                 }
                 auto& source_column = load_cols[i];
                 if (*cl > source_column->size()) {
                     // if replace row is bigger than the source column size here meet pod coredump
                     continue;
                 }
-                std::cout << "now we are in replace_column_data column : "
+                LOG(INFO) << "now we are in replace_column_data column : "
                           << load_cols[i]->get_name() << " with check length: " << *cl
-                          << " for column size : " << source_column->size() << std::endl;
+                          << " for column size : " << source_column->size();
                 source_column->replace_column_data(*source_column, *cl);
                 // check after replace_column_data: the first data is same with the data in source column's *cl row
                 auto ser_col = ColumnString::create();
@@ -1306,8 +1485,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
                                                                          buffer_writer, option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1335,9 +1513,9 @@ public:
         const NullMap null_map = {1, 1, 0, 1};
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
-            std::cout << "now we are in replace_column_null_data column : "
+            LOG(INFO) << "now we are in replace_column_null_data column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size()
-                      << "with nullmap" << null_map.data() << std::endl;
+                      << "with nullmap" << null_map.data();
             source_column->replace_column_null_data(null_map.data());
 
             // check after replace_column_null_data: 1 in nullmap present the load cols data is null and data should be default value
@@ -1352,7 +1530,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -1380,9 +1558,9 @@ public:
             // selector size should bigger than begin and end ,
             // because selector[i], i in range(begin,end),  Make a DCHECK for this
             const ColumnArray::Selector selector = {1, 2, 3, 0};
-            std::cout << "now we are in append_data_by_selector column : "
+            LOG(INFO) << "now we are in append_data_by_selector column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size()
-                      << " with selector size: " << selector.size() << std::endl;
+                      << " with selector size: " << selector.size();
             source_column->append_data_by_selector(res_col, selector, 0, 4);
             // check after append_data_by_selector: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
@@ -1396,7 +1574,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*res_col, j, buffer_writer,
                                                                      option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -1408,24 +1586,88 @@ public:
         check_res_file("append_data_by_selector", res);
     }
 
-    //
-    //virtual bool
-    //structure_equals (const IColumn &) const
-    //void
-    //copy_date_types (const IColumn &col)
-    //String
-    //dump_structure () const
-    //MutablePtr
-    //mutate () const &&
-    //virtual void
-    //clear ()=0
-    //
-    //Clear data of column, just like vector clear.
-
+    ////////// =================== column calculate interface assert (8)=================== //////////
     // Column Calculate Interface: filter, compare, permute, sort
-    // filter (const Filter &filt, ssize_t result_size_hint) const =0 with a result_size_hint to pass, but we should make sure the result_size_hint is not bigger than the source column size
+    // filter (const Filter &filt) const =0
     //  Filter is a array contains 0 or 1 to present the row is selected or not, so it should be the same size with the source column
     static void assert_filter_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+        // Create an empty column to verify `filter` functionality
+        // check filter with different filter
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            auto source_size = source_column->size();
+            auto cloned_col = load_cols[i]->clone_resized(source_size);
+            const ColumnArray::Filter all_filtered(source_size, 0);
+            const ColumnArray::Filter no_filtered(source_size, 1);
+            // invalid data -1 will also make data without be filtered ??
+            ColumnArray::Filter invalid_filter(source_size - 1, 1);
+            invalid_filter.emplace_back(-1);
+            std::vector<string> data;
+            LOG(INFO) << "now we are in filter column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            {
+                auto ret_size = source_column->filter(no_filtered);
+                EXPECT_EQ(ret_size, source_size);
+                // check filter res
+                auto ser_col = ColumnString::create();
+                ser_col->reserve(ret_size);
+                VectorBufferWriter buffer_writer(*ser_col.get());
+                data.clear();
+                data.push_back("column: " + source_column->get_name() +
+                               " with no filtered with ptr: " + std::to_string(ret_size));
+                for (size_t j = 0; j < ret_size; ++j) {
+                    if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
+                                                                         buffer_writer, option);
+                        !st) {
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
+                        break;
+                    }
+                    buffer_writer.commit();
+                    std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                    data.push_back(actual_str_value);
+                }
+                res.push_back(data);
+            }
+            {
+                auto ret_size = source_column->filter(all_filtered);
+                EXPECT_EQ(ret_size, 0);
+            }
+            {
+                // check filter with invalid filter
+                // source_column is filterd, size=0
+                EXPECT_ANY_THROW(source_column->filter(invalid_filter));
+                auto ret_size = cloned_col->filter(invalid_filter);
+                // check filter res
+                auto ser_col = ColumnString::create();
+                ser_col->reserve(ret_size);
+                VectorBufferWriter buffer_writer(*ser_col.get());
+                data.clear();
+                data.push_back("column: " + source_column->get_name() +
+                               " with invalid filtered with ptr: " + std::to_string(ret_size));
+                for (size_t j = 0; j < ret_size; ++j) {
+                    if (auto st = serders[i]->serialize_one_cell_to_json(*cloned_col, j,
+                                                                         buffer_writer, option);
+                        !st) {
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
+                        break;
+                    }
+                    buffer_writer.commit();
+                    std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                    data.push_back(actual_str_value);
+                }
+                res.push_back(data);
+            }
+        }
+        check_res_file("filter", res);
+    }
+
+    // filter with result_hint_size which should return new column ptr
+    // filter (const Filter &filt, ssize_t result_size_hint) const =0 with a result_size_hint to pass, but we should make sure the result_size_hint is not bigger than the source column size
+    static void assert_filter_with_result_hint_callback(MutableColumns& load_cols,
+                                                        DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `filter` functionality
         // check filter with different filter
         std::vector<std::vector<string>> res;
@@ -1438,10 +1680,11 @@ public:
             const ColumnArray::Filter no_filtered(source_size, 1);
             // invalid data -1 will also make data without be filtered ??
             ColumnArray::Filter invalid_filter(source_size - 1, 1);
+            // now  AddressSanitizer: negative-size-param: (size=-1) can be checked
             invalid_filter.emplace_back(-1);
             std::vector<string> data;
-            std::cout << "now we are in filter column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size() << std::endl;
+            LOG(INFO) << "now we are in filter column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
             {
                 auto ptr = source_column->filter(all_filtered, source_column->size());
                 // check filter res
@@ -1454,8 +1697,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
                                                                          option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1464,7 +1706,6 @@ public:
                 }
                 res.push_back(data);
             }
-
             {
                 auto ptr = source_column->filter(no_filtered, source_column->size());
                 // check filter res
@@ -1478,8 +1719,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
                                                                          option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1502,8 +1742,7 @@ public:
                     if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
                                                                          option);
                         !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
+                        LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                         break;
                     }
                     buffer_writer.commit();
@@ -1513,12 +1752,100 @@ public:
                 res.push_back(data);
             }
         }
-        check_res_file("filter", res);
+        check_res_file("filter_hint", res);
     }
 
-    // Compare
+    // sort calculation: (which used in sort_block )
+    //   get_permutation
+    // this function helps check permutation result with sort & limit
+    //  by given ColumnValueGetter which how to generate a column value
+    void assert_column_permutations(vectorized::IColumn& column, DataTypePtr dataType) {
+        IColumn::Permutation actual_permutation;
+        IColumn::Permutation expected_permutation;
 
-    // Column Hash Interfaces:
+        static constexpr size_t limit_parts = 4;
+        printColumn(column, *dataType);
+
+        size_t column_size = column.size();
+        size_t column_limit_part = (column_size / limit_parts) + 1;
+        LOG(INFO) << "column size: " << column_size;
+        for (size_t limit = 0; limit < column_size; limit += column_limit_part) {
+            assert_column_permutation(column, true, limit, -1, actual_permutation,
+                                      expected_permutation);
+            assert_column_permutation(column, true, limit, 1, actual_permutation,
+                                      expected_permutation);
+
+            assert_column_permutation(column, false, limit, -1, actual_permutation,
+                                      expected_permutation);
+            assert_column_permutation(column, false, limit, 1, actual_permutation,
+                                      expected_permutation);
+        }
+    }
+
+    // this function helps to check sort permutation behavior for column which use column::compare_at
+    void stable_get_column_permutation(const IColumn& column, bool ascending, size_t limit,
+                                       int nan_direction_hint,
+                                       IColumn::Permutation& out_permutation) {
+        (void)(limit);
+
+        size_t size = column.size();
+        out_permutation.resize(size);
+        std::iota(out_permutation.begin(), out_permutation.end(),
+                  IColumn::Permutation::value_type(0));
+
+        std::stable_sort(out_permutation.begin(), out_permutation.end(),
+                         [&](size_t lhs, size_t rhs) {
+                             int res = column.compare_at(lhs, rhs, column, nan_direction_hint);
+                             // to check element in column is sorted or not
+                             if (ascending)
+                                 return res < 0;
+                             else
+                                 return res > 0;
+                         });
+    }
+    // sort calculation: (which used in sort_block )
+    //    get_permutation means sort data in Column as sort order
+    //    limit should be set to limit the sort result
+    //    nan_direction_hint deal with null|NaN value
+    void assert_column_permutation(const IColumn& column, bool ascending, size_t limit,
+                                   int nan_direction_hint, IColumn::Permutation& actual_permutation,
+                                   IColumn::Permutation& expected_permutation) {
+        LOG(INFO) << "assertColumnPermutation start, limit: " << limit
+                  << " ascending: " << ascending << " nan_direction_hint: " << nan_direction_hint
+                  << " column size: " << column.size()
+                  << " actual_permutation size: " << actual_permutation.size()
+                  << " expected_permutation size: " << expected_permutation.size();
+        // step1. get expect permutation as stabled sort
+        stable_get_column_permutation(column, ascending, limit, nan_direction_hint,
+                                      expected_permutation);
+        // step2. get permutation by column
+        column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation);
+
+        if (limit == 0) {
+            limit = actual_permutation.size();
+        }
+
+        // step3. check the permutation result
+        assert_permutations_with_limit(actual_permutation, expected_permutation, limit);
+        LOG(INFO) << "assertColumnPermutation done";
+    }
+
+    //  permute()
+    //   1/ Key topN set read_orderby_key_reverse = true; SegmentIterator::next_batch will permute the column by the given permutation(which reverse the rows of current segment)
+    //  should check rows with the given permutation
+    void assert_permute(MutableColumns& cols, IColumn::Permutation& permutation, size_t num_rows) {
+        std::vector<ColumnPtr> res_permuted;
+        for (auto& col : cols) {
+            res_permuted.emplace_back(col->permute(permutation, num_rows));
+        }
+        // check the permutation result for rowsize
+        size_t res_rows = res_permuted[0]->size();
+        for (auto& col : res_permuted) {
+            EXPECT_EQ(col->size(), res_rows);
+        }
+    }
+
+    ////////// =================== column hash interface assert (6)=================== //////////
     // update_hashes_with_value (size_t, size_t, Hashes &hashes) const : which inner just use xxhash for column data
     static void assert_update_hashes_with_value_callback(MutableColumns& load_cols,
                                                          DataTypeSerDeSPtrs serders) {
@@ -1530,9 +1857,8 @@ public:
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
             std::vector<uint64_t> xx_hash_vals(source_column->size());
-            std::cout << "now we are in update_hashes_with_value column : "
-                      << load_cols[i]->get_name() << " for column size : " << source_column->size()
-                      << std::endl;
+            LOG(INFO) << "now we are in update_hashes_with_value column : "
+                      << load_cols[i]->get_name() << " for column size : " << source_column->size();
             auto* __restrict xx_hashes = xx_hash_vals.data();
             EXPECT_NO_FATAL_FAILURE(source_column->update_hashes_with_value(xx_hashes));
             // check after update_hashes_with_value: 1 in selector present the load cols data is selected and data should be default value
@@ -1560,8 +1886,8 @@ public:
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
             std::vector<uint32_t> crc_hash_vals(source_column->size());
-            std::cout << "now we are in update_hashes column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size() << std::endl;
+            LOG(INFO) << "now we are in update_hashes column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
             EXPECT_NO_FATAL_FAILURE(source_column->update_crcs_with_value(
                     crc_hash_vals.data(), pts[i], source_column->size()));
             // check after update_hashes: 1 in selector present the load cols data is selected and data should be default value
@@ -1577,9 +1903,313 @@ public:
         check_res_file("update_crcs_hashes", res);
     }
 
-    // column size changed calculation:
-    //  size, reserve, resize, empty, byte_size, allocated_bytes, clone_resized, get_shrinked_column
-    //  cut(LIMIT operation), shrink
+    // virtual void
+    // update_hash_with_value(size_t n, SipHash& hash)
+    // siphash we still keep siphash for storge layer because we use it in
+    //     EngineChecksumTask::_compute_checksum() and can not to remove it
+    static void assert_update_siphashes_with_value_callback(MutableColumns& load_cols,
+                                                            DataTypeSerDeSPtrs serders) {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            SipHash hash;
+            LOG(INFO) << "now we are in update_hashes column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            for (size_t j = 0; j < source_column->size(); ++j) {
+                source_column->update_hash_with_value(j, hash);
+            }
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash.get64()) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_res_file("update_siphashes_hashes", res);
+    }
+
+    ////////// =================== column serde interface assert (7)=================== //////////
+    //serialize and deserialize which usually used in AGG function:
+    //  serialize_value_into_arena, deserialize_and_insert_from_arena (called by AggregateFunctionDistinctMultipleGenericData, group_array_intersect, nested-types serder like: DataTypeArraySerDe::write_one_cell_to_jsonb)
+    void ser_deserialize_with_arena_impl(MutableColumns& columns, const DataTypes& data_types) {
+        size_t rows = columns[0]->size();
+        for (auto& column : columns) {
+            if (column->size() > rows) {
+                LOG(ERROR) << "Column size mismatch: " << column->size() << " vs " << rows;
+                column->pop_back(column->size() - rows);
+            } else if (column->size() < rows) {
+                LOG(ERROR) << "Column size mismatch: " << column->size() << " vs " << rows;
+                column->insert_many_defaults(rows - column->size());
+            }
+        }
+        /// check serialization is reversible.
+        Arena arena;
+        MutableColumns argument_columns(data_types.size());
+        const char* pos = nullptr;
+        StringRef key(pos, 0);
+        {
+            // serialize
+            for (size_t r = 0; r < columns[0]->size(); ++r) {
+                for (size_t i = 0; i < columns.size(); ++i) {
+                    auto cur_ref = columns[i]->serialize_value_into_arena(r, arena, pos);
+                    key.data = cur_ref.data - key.size;
+                    key.size += cur_ref.size;
+                    //                    printColumn(*columns[i], *data_types[i]);
+                }
+            }
+        }
+
+        {
+            // deserialize
+            for (size_t i = 0; i < data_types.size(); ++i) {
+                argument_columns[i] = data_types[i]->create_column();
+            }
+            const char* begin = key.data;
+            for (size_t r = 0; r < columns[0]->size(); ++r) {
+                for (size_t i = 0; i < argument_columns.size(); ++i) {
+                    begin = argument_columns[i]->deserialize_and_insert_from_arena(begin);
+                    //                    printColumn(*argument_columns[i], *data_types[i]);
+                }
+            }
+        }
+        {
+            // check column data equal
+            for (size_t i = 0; i < columns.size(); ++i) {
+                EXPECT_EQ(columns[i]->size(), argument_columns[i]->size());
+                checkColumn(*columns[i], *argument_columns[i], *data_types[i], columns[0]->size());
+            }
+        }
+    }
+
+    //  serialize_vec, deserialize_vec (called by MethodSerialized.init_serialized_keys), here are some scenarios:
+    //    1/ AggState: groupby key column which be serialized to hash-table key, eg.AggLocalState::_emplace_into_hash_table
+    //    2/ JoinState: hash join key column which be serialized to hash-table key, or probe column which be serialized to hash-table key, eg.ProcessHashTableBuild, ProcessHashTableProbe<JoinOpType>::probe_side_output_column
+    //  serialize_vec_with_null_map, deserialize_vec_with_null_map which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
+    //  get_max_row_byte_size used in MethodSerialized which calculating the memory size for vectorized serialization of aggregation keys.
+    void ser_deser_vec(MutableColumns& columns, DataTypes dataTypes) {
+        // step1. make input_keys with given rows for a block
+        size_t rows = columns[0]->size();
+        std::vector<StringRef> input_keys;
+        input_keys.resize(rows);
+        MutableColumns check_columns(columns.size());
+        int c = 0;
+        for (auto& column : columns) {
+            if (column->size() > rows) {
+                LOG(ERROR) << "Column size mismatch: " << column->size() << " vs " << rows;
+                column->pop_back(column->size() - rows);
+            } else if (column->size() < rows) {
+                LOG(ERROR) << "Column size mismatch: " << column->size() << " vs " << rows;
+                column->insert_many_defaults(rows - column->size());
+            }
+            check_columns[c] = column->clone_empty();
+            ++c;
+        }
+
+        // step2. calculate the needed memory size for vectorized serialization of aggregation keys
+        size_t max_one_row_byte_size = 0;
+        for (const auto& column : columns) {
+            max_one_row_byte_size += column->get_max_row_byte_size();
+        }
+        size_t memory_size = max_one_row_byte_size * rows;
+        Arena arena(memory_size);
+        auto* serialized_key_buffer = reinterpret_cast<uint8_t*>(arena.alloc(memory_size));
+
+        // serialize the keys into arena
+        {
+            // step3. serialize the keys into arena
+            for (size_t i = 0; i < rows; ++i) {
+                input_keys[i].data =
+                        reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
+                input_keys[i].size = 0;
+            }
+            LOG(INFO) << "max_one_row_byte_size : " << max_one_row_byte_size;
+            for (const auto& column : columns) {
+                LOG(INFO) << "now serialize_vec for column:" << column->get_name()
+                          << " with column size: " << column->size();
+                column->serialize_vec(input_keys, rows, max_one_row_byte_size);
+            }
+        }
+        // deserialize the keys from arena into columns
+        {
+            // step4. deserialize the keys from arena into columns
+            for (auto& column : check_columns) {
+                column->deserialize_vec(input_keys, rows);
+            }
+        }
+        // check the deserialized columns
+        {
+            for (size_t i = 0; i < columns.size(); ++i) {
+                EXPECT_EQ(columns[i]->size(), check_columns[i]->size());
+                EXPECT_EQ(columns[i]->size(), check_columns[i]->size());
+                checkColumn(*columns[i], *check_columns[i], *dataTypes[i], rows);
+            }
+        }
+    }
+
+    ////////// =================== column convert interface assert (5)=================== //////////
+    // convert_to_full_column_if_const in ColumnConst will expand the column, if not return itself ptr
+    static void assert_convert_to_full_column_if_const_callback(
+            MutableColumns& load_cols, DataTypes typs, std::function<void(ColumnPtr)> assert_func) {
+        // Create an empty column to verify `convert_to_full_column_if_const` functionality
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            auto assert_column = source_column->clone_empty();
+            LOG(INFO) << "now we are in convert_to_full_column_if_const column : "
+                      << load_cols[i]->get_name() << " for column size : " << source_column->size();
+            auto ptr = source_column->convert_to_full_column_if_const();
+            if (is_column<ColumnConst>(*source_column)) {
+                // now we should check the ptr is not the same with source_column,we create a new column for the const column
+                EXPECT_NE(ptr.get(), source_column.get());
+                assert_func(ptr);
+            } else {
+                EXPECT_EQ(ptr.get(), source_column.get());
+                // check the column ptr is the same as the source column
+                checkColumn(*source_column, *ptr, *typs[i], source_column->size());
+            }
+        }
+    }
+    // convert_column_if_overflow just used in ColumnStr or nested columnStr
+    static void assert_convert_column_if_overflow_callback(MutableColumns& load_cols,
+                                                           DataTypeSerDeSPtrs serders) {
+        // Create an empty column to verify `convert_column_if_overflow` functionality
+        auto option = DataTypeSerDe::FormatOptions();
+        std::vector<std::vector<string>> res;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            auto assert_column = source_column->clone_empty();
+            LOG(INFO) << "now we are in convert_column_if_overflow column : "
+                      << load_cols[i]->get_name() << " for column size : " << source_column->size();
+            auto ptr = source_column->convert_column_if_overflow();
+            // check after convert_column_if_overflow: 1 in selector present the load cols data is selected and data should be default value
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(ptr->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back(
+                    "column: " + ptr->get_name() +
+                    " with convert_column_if_overflow with ptr: " + std::to_string(ptr->size()));
+            for (size_t j = 0; j < ptr->size(); ++j) {
+                if (auto st =
+                            serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer, option);
+                    !st) {
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
+                    break;
+                }
+                buffer_writer.commit();
+                std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                data.push_back(actual_str_value);
+            }
+            res.push_back(data);
+        }
+        check_res_file("convert_column_if_overflow", res);
+    }
+
+    // column_dictionary funcs
+    // is_column_dictionary
+    // convert_to_predicate_column_if_dictionary
+    // If column isn't ColumnDictionary, return itself. Otherwise, transforms is to predicate column.
+    static void assert_convert_to_predicate_column_if_dictionary_callback(
+            MutableColumns& load_cols, DataTypes typs, std::function<void(IColumn*)> assert_func) {
+        // Create an empty column to verify `convert_to_predicate_column_if_dictionary` functionality
+        auto option = DataTypeSerDe::FormatOptions();
+        std::vector<std::vector<string>> res;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            LOG(INFO) << "now we are in convert_to_predicate_column_if_dictionary column : "
+                      << load_cols[i]->get_name() << " for column size : " << source_column->size();
+            auto ptr = source_column->convert_to_predicate_column_if_dictionary();
+            if (source_column->is_column_dictionary()) {
+                // in dictionary column, we should do some check staff.
+                EXPECT_NE(ptr.get(), source_column.get());
+                assert_func(ptr.get());
+            } else {
+                // just check the column ptr is the same as the source column and res
+                EXPECT_EQ(ptr.get(), source_column.get());
+                checkColumn(*source_column, *ptr, *typs[i], source_column->size());
+            }
+        }
+    }
+
+    // convert_dict_codes_if_necessary just used in ColumnDictionary
+    // ColumnDictionary and is a range comparison predicate, will convert dict encoding
+    static void assert_convert_dict_codes_if_necessary_callback(
+            MutableColumns& load_cols, std::function<void(IColumn*, size_t)> assert_func) {
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            LOG(INFO) << "now we are in convert_to_predicate_column_if_dictionary column : "
+                      << load_cols[i]->get_name() << " for column size : " << source_column->size();
+            EXPECT_NO_FATAL_FAILURE(source_column->convert_dict_codes_if_necessary());
+            assert_func(source_column.get(), i);
+        }
+    }
+
+    ////////// =================== column data other interface assert =================== //////////
+    // column date or datetime has some weird function which should be deleted in the future
+    //copy_date_types (const IColumn &col) now we can not delete, just used in ColumnVector to judge the column type is the date or datetime
+    // which in update_crc_with_value_without_null, called from update_crc_with_value used in situation Crc32HashPartitioner::do_hash
+    // but it should be deleted in the future, we should not use the column type to judge the column data type and also do not need to set a sign
+    // for column to present the column belong to datatime or date type
+    static void assert_copy_date_types_callback(MutableColumns& load_cols) {
+        //Create an empty column to verify `copy_date_types` functionality
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            auto assert_column = source_column->clone_empty();
+            LOG(INFO) << "now we are in copy_date_types column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            source_column->copy_date_types(*source_column);
+            // check after copy_date_types: the column type is the same as the source column
+            EXPECT_EQ(source_column->is_date_type(), assert_column->is_date_type());
+            EXPECT_EQ(source_column->is_datetime_type(), assert_column->is_datetime_type());
+        }
+    }
+
+    // column_nullable functions
+    // only_null ; is_null_at ; is_nullable ; has_null ; has_null(size_t) ;
+    static void assert_column_nullable_funcs(MutableColumns& load_cols,
+                                             std::function<void(IColumn*)> assert_func) {
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            LOG(INFO) << "now we are in column_nullable_funcs column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            if (source_column->is_nullable() || is_column<ColumnConst>(*source_column)) {
+                if (source_column->size() == 1 && source_column->is_null_at(0)) {
+                    EXPECT_EQ(source_column->only_null(), true);
+                    EXPECT_EQ(source_column->has_null(), true);
+                    EXPECT_EQ(source_column->has_null(0), true);
+                } else {
+                    EXPECT_EQ(source_column->only_null(), false);
+                }
+            } else {
+                assert_func(source_column.get());
+            }
+        }
+    }
+
+    // column_string functions: is_column_string ; is_column_string64
+    static void assert_column_string_funcs(MutableColumns& load_cols) {
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& source_column = load_cols[i];
+            LOG(INFO) << "now we are in column_string_funcs column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            if (is_column<ColumnString>(*source_column)) {
+                EXPECT_EQ(source_column->is_column_string(), true);
+                EXPECT_EQ(source_column->is_column_string64(), false);
+            } else if (is_column<ColumnString64>(*source_column)) {
+                EXPECT_EQ(source_column->is_column_string(), false);
+                EXPECT_EQ(source_column->is_column_string64(), true);
+            } else {
+                EXPECT_EQ(source_column->is_column_string(), false);
+                EXPECT_EQ(source_column->is_column_string64(), false);
+            }
+        }
+    }
 
     // get_shrinked_column should only happened in char-type column or nested char-type column,
     // other column just return the origin column without any data changed, so check file content should be the same as the origin column
@@ -1592,8 +2222,8 @@ public:
         std::vector<std::vector<string>> res;
         for (size_t i = 0; i < load_cols.size(); i++) {
             auto& source_column = load_cols[i];
-            std::cout << "now we are in shrink_padding_chars column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size() << std::endl;
+            LOG(INFO) << "now we are in shrink_padding_chars column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
             source_column->shrink_padding_chars();
             // check after get_shrinked_column: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
@@ -1606,7 +2236,7 @@ public:
                 if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
                                                                      buffer_writer, option);
                     !st) {
-                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
                     break;
                 }
                 buffer_writer.commit();
@@ -1621,9 +2251,6 @@ public:
     void assert_size_eq(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->size(), expect_size);
     }
-
-    // empty just use size() == 0 to impl as default behavior
-    void assert_empty(MutableColumnPtr col) { EXPECT_EQ(col->size(), 0); }
 
     // reserve, resize, byte_size, allocated_bytes, clone_resized, get_shrinked_column
     void assert_reserve_size(MutableColumnPtr col, size_t reserve_size, size_t expect_size) {
@@ -1683,127 +2310,6 @@ public:
         EXPECT_EQ(new_col->size(), expect_size);
     }
 
-    //serialize and deserialize which usually used in AGG function:
-    //  serialize_value_into_arena, deserialize_and_insert_from_arena (called by AggregateFunctionDistinctMultipleGenericData, group_array_intersect, nested-types serder like: DataTypeArraySerDe::write_one_cell_to_jsonb)
-    void ser_deserialize_with_arena_impl(MutableColumns& columns, const DataTypes& data_types) {
-        size_t rows = columns[0]->size();
-        for (auto& column : columns) {
-            if (column->size() > rows) {
-                std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
-                          << std::endl;
-                column->pop_back(rows - column->size());
-            } else if (column->size() < rows) {
-                std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
-                          << std::endl;
-                column->insert_many_defaults(rows - column->size());
-            }
-        }
-        /// check serialization is reversible.
-        Arena arena;
-        MutableColumns argument_columns(data_types.size());
-        const char* pos = nullptr;
-        StringRef key(pos, 0);
-        {
-            // serialize
-            for (size_t r = 0; r < columns[0]->size(); ++r) {
-                for (size_t i = 0; i < columns.size(); ++i) {
-                    auto cur_ref = columns[i]->serialize_value_into_arena(r, arena, pos);
-                    key.data = cur_ref.data - key.size;
-                    key.size += cur_ref.size;
-                    //                    printColumn(*columns[i], *data_types[i]);
-                }
-            }
-        }
-
-        {
-            // deserialize
-            for (size_t i = 0; i < data_types.size(); ++i) {
-                argument_columns[i] = data_types[i]->create_column();
-            }
-            const char* begin = key.data;
-            for (size_t r = 0; r < columns[0]->size(); ++r) {
-                for (size_t i = 0; i < argument_columns.size(); ++i) {
-                    begin = argument_columns[i]->deserialize_and_insert_from_arena(begin);
-                    //                    printColumn(*argument_columns[i], *data_types[i]);
-                }
-            }
-        }
-        {
-            // check column data equal
-            for (size_t i = 0; i < columns.size(); ++i) {
-                EXPECT_EQ(columns[i]->size(), argument_columns[i]->size());
-                checkColumn(*columns[i], *argument_columns[i], *data_types[i], columns[0]->size());
-            }
-        }
-    }
-
-    //  serialize_vec, deserialize_vec (called by MethodSerialized.init_serialized_keys), here are some scenarios:
-    //    1/ AggState: groupby key column which be serialized to hash-table key, eg.AggLocalState::_emplace_into_hash_table
-    //    2/ JoinState: hash join key column which be serialized to hash-table key, or probe column which be serialized to hash-table key, eg.ProcessHashTableBuild, ProcessHashTableProbe<JoinOpType>::probe_side_output_column
-    //  serialize_vec_with_null_map, deserialize_vec_with_null_map which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
-    //  get_max_row_byte_size used in MethodSerialized which calculating the memory size for vectorized serialization of aggregation keys.
-    void ser_deser_vec(MutableColumns& columns, DataTypes dataTypes) {
-        // step1. make input_keys with given rows for a block
-        size_t rows = columns[0]->size();
-        std::vector<StringRef> input_keys;
-        input_keys.resize(rows);
-        MutableColumns check_columns(columns.size());
-        int c = 0;
-        for (auto& column : columns) {
-            if (column->size() > rows) {
-                std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
-                          << std::endl;
-                column->pop_back(rows - column->size());
-            } else if (column->size() < rows) {
-                std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
-                          << std::endl;
-                column->insert_many_defaults(rows - column->size());
-            }
-            check_columns[c] = column->clone_empty();
-            ++c;
-        }
-
-        // step2. calculate the needed memory size for vectorized serialization of aggregation keys
-        size_t max_one_row_byte_size = 0;
-        for (const auto& column : columns) {
-            max_one_row_byte_size += column->get_max_row_byte_size();
-        }
-        size_t memory_size = max_one_row_byte_size * rows;
-        Arena arena(memory_size);
-        auto* serialized_key_buffer = reinterpret_cast<uint8_t*>(arena.alloc(memory_size));
-
-        // serialize the keys into arena
-        {
-            // step3. serialize the keys into arena
-            for (size_t i = 0; i < rows; ++i) {
-                input_keys[i].data =
-                        reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
-                input_keys[i].size = 0;
-            }
-            std::cout << "max_one_row_byte_size : " << max_one_row_byte_size << std::endl;
-            for (const auto& column : columns) {
-                std::cout << "now serialize_vec for column:" << column->get_name()
-                          << " with column size: " << column->size() << std::endl;
-                column->serialize_vec(input_keys, rows, max_one_row_byte_size);
-            }
-        }
-        // deserialize the keys from arena into columns
-        {
-            // step4. deserialize the keys from arena into columns
-            for (auto& column : check_columns) {
-                column->deserialize_vec(input_keys, rows);
-            }
-        }
-        // check the deserialized columns
-        {
-            for (size_t i = 0; i < columns.size(); ++i) {
-                EXPECT_EQ(columns[i]->size(), check_columns[i]->size());
-                EXPECT_EQ(columns[i]->size(), check_columns[i]->size());
-                checkColumn(*columns[i], *check_columns[i], *dataTypes[i], rows);
-            }
-        }
-    }
-
     PaddedPODArray<UInt8> create_filter(std::vector<uint8_t> data) {
         PaddedPODArray<UInt8> filter;
         filter.insert(filter.end(), data.begin(), data.end());
@@ -1819,153 +2325,16 @@ public:
         EXPECT_EQ(filted_col->size(), expect_size);
     }
 
-    //  filter_by_selector (called SegmentIterator::copy_column_data_by_selector,
-    //  now just used in filter column, according to the selector to
-    //  select size of row_ids for column by given column, which only used for predict_column and column_dictionary, column_nullable sometimes in Schema::get_predicate_column_ptr() also will return)
-    void assert_filter_by_selector(vectorized::IColumn::MutablePtr col,
-                                   std::vector<uint16_t> selector, DataTypeSerDeSPtr serder,
-                                   MutableColumnPtr should_sel_col, size_t expect_size) {
-        // for every data type should assert behavior in own UT case
-        DataTypeSerDe::FormatOptions option;
-        col->clear();
-        col->insert_many_defaults(should_sel_col->size());
-        std::cout << "col size:" << col->size() << std::endl;
-        Status st = col->filter_by_selector(selector.data(), expect_size, should_sel_col.get());
-        EXPECT_EQ(st, Status::OK());
-        std::vector<std::vector<string>> res;
-        std::vector<string> data;
-        auto ser_col = ColumnString::create();
-        ser_col->reserve(should_sel_col->size());
-        VectorBufferWriter buffer_writer(*ser_col.get());
-        data.push_back("column: " + col->get_name() +
-                       " with selector: " + std::to_string(selector.size()) +
-                       " with ptr: " + std::to_string(should_sel_col->size()));
-        for (size_t j = 0; j < should_sel_col->size(); ++j) {
-            if (auto ret = serder->serialize_one_cell_to_json(*should_sel_col, j, buffer_writer,
-                                                              option);
-                !ret) {
-                std::cerr << "Failed to serialize column "
-                          << " at row " << j << std::endl;
-                break;
-            }
-            buffer_writer.commit();
-            std::string actual_str_value = ser_col->get_data_at(j).to_string();
-            data.push_back(actual_str_value);
-        }
-        res.push_back(data);
-        check_res_file("filter_by_selector-" + col->get_name(), res);
-    }
-
     void assert_permutations_with_limit(const IColumn::Permutation& lhs,
                                         const IColumn::Permutation& rhs, size_t limit) {
-        std::cout << "lhs size: " << lhs.size() << " rhs size: " << rhs.size()
-                  << " limit: " << limit << std::endl;
+        LOG(INFO) << "lhs size: " << lhs.size() << " rhs size: " << rhs.size()
+                  << " limit: " << limit;
         if (limit == 0) {
             limit = lhs.size();
         }
 
         for (size_t i = 0; i < limit; ++i) {
             ASSERT_EQ(lhs[i], rhs[i]) << "i: " << i << "limit: " << limit;
-        }
-    }
-
-    // this function helps to check sort permutation behavior for column
-    void stable_get_column_permutation(const IColumn& column, bool ascending, size_t limit,
-                                       int nan_direction_hint,
-                                       IColumn::Permutation& out_permutation) {
-        (void)(limit);
-
-        size_t size = column.size();
-        out_permutation.resize(size);
-        std::iota(out_permutation.begin(), out_permutation.end(),
-                  IColumn::Permutation::value_type(0));
-
-        std::stable_sort(out_permutation.begin(), out_permutation.end(),
-                         [&](size_t lhs, size_t rhs) {
-                             int res = column.compare_at(lhs, rhs, column, nan_direction_hint);
-                             // to check element in column is sorted or not
-                             if (ascending)
-                                 return res < 0;
-                             else
-                                 return res > 0;
-                         });
-    }
-
-    // sort calculation: (which used in sort_block )
-    //   get_permutation
-    // this function helps check permutation result with sort & limit
-    //  by given ColumnValueGetter which how to generate a column value
-    void assert_column_permutations(vectorized::IColumn& column, DataTypePtr dataType) {
-        IColumn::Permutation actual_permutation;
-        IColumn::Permutation expected_permutation;
-
-        static constexpr size_t limit_parts = 4;
-        printColumn(column, *dataType);
-
-        size_t column_size = column.size();
-        size_t column_limit_part = (column_size / limit_parts) + 1;
-        std::cout << "column size: " << column_size << std::endl;
-        for (size_t limit = 0; limit < column_size; limit += column_limit_part) {
-            assert_column_permutation(column, true, limit, -1, actual_permutation,
-                                      expected_permutation);
-            assert_column_permutation(column, true, limit, 1, actual_permutation,
-                                      expected_permutation);
-
-            assert_column_permutation(column, false, limit, -1, actual_permutation,
-                                      expected_permutation);
-            assert_column_permutation(column, false, limit, 1, actual_permutation,
-                                      expected_permutation);
-        }
-    }
-
-    // sort calculation: (which used in sort_block )
-    //    get_permutation means sort data in Column as sort order
-    //    limit should be set to limit the sort result
-    //    nan_direction_hint deal with null|NaN value
-    void assert_column_permutation(const IColumn& column, bool ascending, size_t limit,
-                                   int nan_direction_hint, IColumn::Permutation& actual_permutation,
-                                   IColumn::Permutation& expected_permutation) {
-        std::cout << "assertColumnPermutation start, limit: " << limit
-                  << " ascending: " << ascending << " nan_direction_hint: " << nan_direction_hint
-                  << " column size: " << column.size()
-                  << " actual_permutation size: " << actual_permutation.size()
-                  << " expected_permutation size: " << expected_permutation.size() << std::endl;
-        // step1. get expect permutation as stabled sort
-        stable_get_column_permutation(column, ascending, limit, nan_direction_hint,
-                                      expected_permutation);
-        std::cout << "expected_permutation size: " << expected_permutation.size() << std::endl;
-        for (size_t i = 0; i < expected_permutation.size(); i++) {
-            std::cout << "expected_permutation: " << expected_permutation[i] << std::endl;
-        }
-        // step2. get permutation by column
-        column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation);
-
-        std::cout << "actual_permutation size: " << actual_permutation.size() << std::endl;
-        for (size_t i = 0; i < actual_permutation.size(); i++) {
-            std::cout << "actual_permutation: " << actual_permutation[i] << std::endl;
-        }
-
-        if (limit == 0) {
-            limit = actual_permutation.size();
-        }
-
-        // step3. check the permutation result
-        assert_permutations_with_limit(actual_permutation, expected_permutation, limit);
-        std::cout << "assertColumnPermutation done" << std::endl;
-    }
-
-    //  permute()
-    //   1/ Key topN set read_orderby_key_reverse = true; SegmentIterator::next_batch will permute the column by the given permutation(which reverse the rows of current segment)
-    //  should check rows with the given permutation
-    void assert_permute(MutableColumns& cols, IColumn::Permutation& permutation, size_t num_rows) {
-        std::vector<ColumnPtr> res_permuted;
-        for (auto& col : cols) {
-            res_permuted.emplace_back(col->permute(permutation, num_rows));
-        }
-        // check the permutation result for rowsize
-        size_t res_rows = res_permuted[0]->size();
-        for (auto& col : res_permuted) {
-            EXPECT_EQ(col->size(), res_rows);
         }
     }
 };
