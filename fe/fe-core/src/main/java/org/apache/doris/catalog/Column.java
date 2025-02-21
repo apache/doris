@@ -997,15 +997,14 @@ public class Column implements GsonPostProcessable {
         if (isAutoInc) {
             sb.append(" AUTO_INCREMENT(").append(autoIncInitValue).append(")");
         }
-        if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP
-                && getDataType() != PrimitiveType.DOUBLE) {
+        if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
             } else {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
         }
-        if ((getDataType() == PrimitiveType.BITMAP || getDataType() == PrimitiveType.DOUBLE) && defaultValue != null) {
+        if ((getDataType() == PrimitiveType.BITMAP) && defaultValue != null) {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
             }
