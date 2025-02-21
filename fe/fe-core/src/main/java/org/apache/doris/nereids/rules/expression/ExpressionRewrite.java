@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -204,7 +205,14 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         private Pair<Boolean, List<Expression>> rewriteConjuncts(List<Expression> conjuncts,
                 ExpressionRewriteContext context) {
             boolean isChanged = false;
-            ImmutableList.Builder<Expression> rewrittenConjuncts = new ImmutableList.Builder<>();
+            // some rules will append new conjunct, we need to distinct it
+            // for example:
+            //   pk = 2 or pk < 0
+            // after AddMinMax rule:
+            //   (pk = 2 or pk < 0) and pk <= 2
+            //
+            // if not distinct it, the pk <= 2 will generate repeat forever
+            ImmutableSet.Builder<Expression> rewrittenConjuncts = new ImmutableSet.Builder<>();
             for (Expression expr : conjuncts) {
                 Expression newExpr = rewriter.rewrite(expr, context);
                 newExpr = newExpr.isNullLiteral() && expr instanceof EqualPredicate
@@ -214,7 +222,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 isChanged = isChanged || !newExpr.equals(expr);
                 rewrittenConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
             }
-            return Pair.of(isChanged, rewrittenConjuncts.build());
+            ImmutableList<Expression> newConjuncts = Utils.fastToImmutableList(rewrittenConjuncts.build());
+            return Pair.of(isChanged && !newConjuncts.equals(conjuncts), newConjuncts);
         }
     }
 
