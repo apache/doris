@@ -257,8 +257,11 @@ public class InitMaterializationContextHook implements PlannerHook {
                             LOG.warn(String.format("can't parse %s ", createMvSql));
                             continue;
                         }
+                        ConnectContext basicMvContext = MTMVPlanUtil.createBasicMvContext(
+                                cascadesContext.getConnectContext());
+                        basicMvContext.setDatabase(meta.getDbName());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
-                                MTMVPlanUtil.createBasicMvContext(cascadesContext.getConnectContext()), true,
+                                basicMvContext, true,
                                 false, cascadesContext.getConnectContext());
                         contexts.add(new SyncMaterializationContext(mtmvCache.getLogicalPlan(),
                                 mtmvCache.getOriginalPlan(), olapTable, meta.getIndexId(), indexName,

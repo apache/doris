@@ -110,6 +110,9 @@ public class MTMVCache {
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
         createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
+        Plan originPlan;
+        Plan mvPlan;
+        Optional<StructInfo> structInfoOptional;
         try {
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
@@ -120,13 +123,6 @@ public class MTMVCache {
                 // No need cost for performance
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             }
-        } finally {
-            createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
-        }
-        Plan originPlan;
-        Plan mvPlan;
-        Optional<StructInfo> structInfoOptional;
-        try {
             originPlan = planner.getCascadesContext().getRewritePlan();
             // Eliminate result sink because sink operator is useless in query rewrite by materialized view
             // and the top sort can also be removed
@@ -150,6 +146,7 @@ public class MTMVCache {
                     planner.getCascadesContext(),
                     new BitSet());
         } finally {
+            createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
             if (currentContext != null) {
                 currentContext.setThreadLocalInfo();
             }
