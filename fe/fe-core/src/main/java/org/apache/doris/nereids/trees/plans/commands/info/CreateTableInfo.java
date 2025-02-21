@@ -201,6 +201,21 @@ public class CreateTableInfo {
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
 
+    /**
+     * withTableNameAndIfNotExists
+     */
+    public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
+        if (ctasColumns != null) {
+            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, ctasColumns, engineName,
+                    keysType, keys, comment, partitionTableInfo, distribution, rollups, properties, extProperties,
+                    clusterKeysColumnNames);
+        } else {
+            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, columns, indexes,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, clusterKeysColumnNames);
+        }
+    }
+
     public List<String> getCtasColumns() {
         return ctasColumns;
     }
