@@ -36,3 +36,10 @@ Hello, world!
 -- !compress_numeric_direct --
 12345
 
+-- !compress_multiple_samples --
+Quick brown fox jumps over the lazy dog
+Lorem ipsum dolor sit amet
+数据压缩测试
+xxxxxxxxxxxxxxxxxxxx
+1234567890
+
