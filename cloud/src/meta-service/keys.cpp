@@ -33,6 +33,7 @@ static const char* STATS_KEY_PREFIX    = "stats";
 static const char* JOB_KEY_PREFIX      = "job";
 static const char* COPY_KEY_PREFIX     = "copy";
 static const char* VAULT_KEY_PREFIX    = "storage_vault";
+static const char* MOW_KEY_PREFIX      = "mow";
 
 // Infix
 static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
@@ -159,7 +160,7 @@ static void encode_prefix(const T& t, std::string* key) {
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
     } else if constexpr(std::is_same_v<T, MowTabletCompactionInfo>) {
-        encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, key);
+        encode_bytes(MOW_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -313,13 +314,6 @@ void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::st
     encode_prefix(in, out);                              // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_INFIX_SCHEMA_DICTIONARY, out); // "tablet_schema_pb_dict"
     encode_int64(std::get<1>(in), out);                  // index_id
-}
-
-void mow_tablet_compaction_key(const MowTabletCompactionInfo& in, std::string* out) {
-    encode_prefix(in, out);                                  // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, out); // "mow_tablet_comp"
-    encode_int64(std::get<1>(in), out);                      // table_id
-    encode_int64(std::get<2>(in), out);                      // initiator
 }
 
 //==============================================================================
@@ -507,6 +501,13 @@ std::string system_meta_service_encryption_key_info_key() {
 //==============================================================================
 // Other keys
 //==============================================================================
+
+void mow_tablet_compaction_key(const MowTabletCompactionInfo& in, std::string* out) {
+    encode_prefix(in, out);                                  // 0x01 "mow" ${instance_id}
+    encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, out); // "mow_tablet_comp"
+    encode_int64(std::get<1>(in), out);                      // table_id
+    encode_int64(std::get<2>(in), out);                      // initiator
+}
 
 //==============================================================================
 // Decode keys
