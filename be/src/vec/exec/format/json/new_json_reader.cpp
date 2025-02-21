@@ -1164,8 +1164,31 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         break;
     }
     case TFileType::FILE_STREAM: {
-        RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
-                                ->read_one_message(file_buf, read_size));
+        // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+        // Need to read all the data before performing JSON parsing
+        uint64_t buffer_size = 1024 * 1024;
+        std::vector<uint8_t> buf(buffer_size);
+
+        uint64_t cur_size = 0;
+        while (true) {
+            RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
+                                    ->read_one_message(file_buf, read_size));
+
+            if (*read_size == 0) {
+                break;
+            } else {
+                if (cur_size + (*read_size) > buf.size()) {
+                    buffer_size = 2 * (cur_size + (*read_size));
+                    buf.resize(buffer_size);
+                }
+                memcpy(buf.data() + cur_size, file_buf->get(), *read_size);
+                cur_size += *read_size;
+            }
+        }
+
+        file_buf->reset(new uint8_t[cur_size]);
+        memcpy(file_buf->get(), buf.data(), cur_size);
+        *read_size = cur_size;
         break;
     }
     default: {
