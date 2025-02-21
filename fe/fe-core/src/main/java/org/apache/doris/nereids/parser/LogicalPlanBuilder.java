@@ -5738,7 +5738,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAddBrokerClause(AddBrokerClauseContext ctx) {
-        String brokerName = ctx.name.getText();
+        String brokerName = stripQuotes(ctx.name.getText());
         List<String> hostPorts = ctx.hostPorts.stream()
                 .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
@@ -5748,7 +5748,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDropBrokerClause(DropBrokerClauseContext ctx) {
-        String brokerName = ctx.name.getText();
+        String brokerName = stripQuotes(ctx.name.getText());
         List<String> hostPorts = ctx.hostPorts.stream()
                 .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
