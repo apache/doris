@@ -45,6 +45,7 @@ public:
 
     Status change_to_bloom_filter();
 
+    bool is_valid() const { return _state != State::DISABLED && _state != State::IGNORED; }
     int filter_id() const { return _filter_id; }
 
     int max_in_num() const { return _max_in_num; }
@@ -145,19 +146,16 @@ public:
 
     std::string debug_string() const;
 
-    void set_state(State state) {
-        DCHECK(state != State::DISABLED);
+    void set_state(State state, std::string reason = "") {
         if (_state == State::DISABLED) {
             return;
+        } else if (state == State::DISABLED) {
+            _disabled_reason = reason;
         }
-
         _state = state;
     }
 
-    void disable(std::string reason) {
-        _state = State::DISABLED;
-        _disabled_reason = reason;
-    }
+    void disable(std::string reason) { set_state(State::DISABLED, reason); }
 
     State get_state() const { return _state; }
 
