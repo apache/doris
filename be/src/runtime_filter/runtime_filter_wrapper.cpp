@@ -432,13 +432,11 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
 
 Status RuntimeFilterWrapper::_assign(const PBloomFilter& bloom_filter,
                                      butil::IOBufAsZeroCopyInputStream* data, bool contain_null) {
-    DCHECK(get_real_type() == RuntimeFilterType::BLOOM_FILTER);
     RETURN_IF_ERROR(_bloom_filter_func->assign(data, bloom_filter.filter_length(), contain_null));
     return Status::OK();
 }
 
 Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool contain_null) {
-    DCHECK(get_real_type() == RuntimeFilterType::MINMAX_FILTER);
     if (contain_null) {
         _minmax_func->set_null_aware(true);
         _minmax_func->set_contain_null();
