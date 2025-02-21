@@ -565,7 +565,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_block_init_timer, stats.block_init_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_counter, stats.block_init_seek_num);
-    COUNTER_UPDATE(local_state->_segment_generate_row_range_timer, stats.generate_row_ranges_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_keys_timer,
+                   stats.generate_row_ranges_by_keys_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_column_conditions_timer,
+                   stats.generate_row_ranges_by_column_conditions_ns);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_bf_timer,
                    stats.generate_row_ranges_by_bf_ns);
     COUNTER_UPDATE(local_state->_collect_iterator_merge_next_timer,
