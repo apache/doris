@@ -167,6 +167,7 @@ void RuntimeFilterWrapper::insert(const vectorized::ColumnPtr& column, size_t st
             }
         }
         _bitmap_filter_func->insert_many(bitmaps);
+        break;
     }
     default:
         DCHECK(false);
