@@ -70,7 +70,6 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -102,6 +101,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -757,14 +757,12 @@ public class OlapScanNode extends ScanNode {
         }
         String visibleVersionStr = String.valueOf(visibleVersion);
 
-        Set<Tag> allowedTags = Sets.newHashSet();
         int useFixReplica = -1;
-        boolean needCheckTags = false;
         boolean skipMissingVersion = false;
         ConnectContext context = ConnectContext.get();
+        Set<String> computeGroupSet = null;
         if (context != null) {
-            allowedTags = context.getResourceTags();
-            needCheckTags = context.isResourceTagsSet();
+            computeGroupSet = context.getComputeGroupSet();
             useFixReplica = context.getSessionVariable().useFixReplica;
             if (useFixReplica == -1
                     && context.getState().isNereids() && context.getSessionVariable().getEnableQueryCache()) {
@@ -914,10 +912,11 @@ public class OlapScanNode extends ScanNode {
                 if (!backend.isMixNode()) {
                     continue;
                 }
-                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                String beCgName = backend.getComputeGroupName();
+                if (!Config.isCloudMode() && !computeGroupSet.contains(beCgName)) {
                     String err = String.format(
-                            "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
-                            backend.getId(), backend.getLocationTag(), allowedTags);
+                            "Replica on backend %d with tag %s," + " which is not in user's compute groups: %s",
+                            backend.getId(), beCgName, StringUtils.join(computeGroupSet, ","));
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(err);
                     }

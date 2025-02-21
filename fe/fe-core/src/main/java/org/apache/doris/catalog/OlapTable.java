@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -66,6 +67,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
@@ -114,7 +116,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -3100,19 +3101,31 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         fetchOption.setFetchRowStore(useStoreRow);
         fetchOption.setUseTwoPhaseFetch(true);
 
-        // get backend by tag
-        Set<Tag> tagSet = new HashSet<>();
         ConnectContext context = ConnectContext.get();
-        if (context != null) {
-            tagSet = context.getResourceTags();
+        if (context == null) {
+            context = new ConnectContext();
+            context.setThreadLocalInfo();
         }
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .needQueryAvailable()
                 .setRequireAliveBe()
-                .addTags(tagSet)
                 .build();
+
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        for (Backend backend : Env.getCurrentSystemInfo().getBackendsByPolicy(policy)) {
+        ComputeGroup computeGroup = null;
+        if (Config.isCloudMode()) {
+            try {
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr()
+                        .getComputeGroup(context.getComputeGroup());
+            } catch (ComputeGroupException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr()
+                    .getComputeGroup(context.getComputeGroupSet());
+        }
+
+        for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
 

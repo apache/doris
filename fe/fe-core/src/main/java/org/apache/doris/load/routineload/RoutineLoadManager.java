@@ -49,6 +49,7 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 
@@ -57,6 +58,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -560,19 +562,47 @@ public class RoutineLoadManager implements Writable {
             throw new LoadException("job " + jobId + " does not exist");
         }
         Set<Tag> tags;
-        if (job.getUserIdentity() == null) {
-            // For old job, there may be no user info. So we have to use tags from replica allocation
-            tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
-        } else {
-            tags = Env.getCurrentEnv().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
-            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                // user may be dropped, or may not set resource tag property.
-                // Here we fall back to use replica tag
-                tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+        boolean couldUseComputeGroup = false;
+        // Usually Cloud node could not reach here(refer CloudRoutineLoadManager.getAvailableBackendIds),
+        // check cloud mode here is just to be on the safe side.
+        if (Config.isCloudMode()) {
+            throw new LoadException("cloud mode should not reach here");
+        }
+        if (job.getUserIdentity() != null) {
+            String computeGroup = Env.getCurrentEnv().getAuth()
+                    .getDefaultCloudCluster(job.getUserIdentity().getQualifiedUser());
+            if (!StringUtils.isEmpty(computeGroup)) {
+                ConnectContext context = ConnectContext.get();
+                if (context == null) {
+                    context = new ConnectContext();
+                    context.setThreadLocalInfo();
+                }
+                context.setQualifiedUser(job.getUserIdentity().getQualifiedUser());
+                couldUseComputeGroup = true;
             }
         }
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().addTags(tags).build();
-        return Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
+        if (couldUseComputeGroup) {
+            ComputeGroup computeGroup = Env.getCurrentEnv().getComputeGroupMgr()
+                    .getComputeGroup(ConnectContext.get().getComputeGroupSet());
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+            return Env.getCurrentSystemInfo()
+                    .selectBackendIdsByPolicy(policy, -1 /* as many as possible */, computeGroup.getBackendList());
+        } else {
+            if (job.getUserIdentity() == null) {
+                // For old job, there may be no user info. So we have to use tags from replica allocation
+                tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+            } else {
+                tags = Env.getCurrentEnv().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
+                if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                    // user may be dropped, or may not set resource tag property.
+                    // Here we fall back to use replica tag
+                    tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+                }
+            }
+
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().addTags(tags).build();
+            return Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
+        }
     }
 
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {

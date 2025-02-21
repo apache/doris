@@ -259,10 +259,15 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
-            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
-                newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
+                if (Config.isCloudMode()) {
+                    newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
+                } else {
+                    newDefaultCloudCluster = checkDefaultComputeGroup(keyArr, value, DEFAULT_COMPUTE_GROUP,
+                            isReplay);
+                }
             } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
                 // set property "max_query_instances" = "1000"
                 if (keyArr.length != 1) {
@@ -410,6 +415,41 @@ public class UserProperty implements Writable {
         }
         if (value == null) {
             value = "";
+        }
+        return value;
+    }
+
+    private String checkDefaultComputeGroup(String[] keyArr, String value, String defaultComputeGroup,
+            boolean isReplay)
+            throws ComputeGroupException, DdlException {
+        // isReplay not check auth, not throw exception
+        if (isReplay) {
+            return value;
+        }
+
+        if (Config.isCloudMode()) {
+            throw new RuntimeException("cloud mode should not call here.");
+        }
+
+        if (value == null) {
+            value = "";
+        }
+
+        String[] valueArr = value.split(",");
+        for (String val : valueArr) {
+            // check cluster auth
+            if (!Strings.isNullOrEmpty(val) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+                    new UserIdentity(qualifiedUser, "%"), val, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                throw new ComputeGroupException(String.format("set default compute group failed, "
+                        + "user %s has no permission to use compute group '%s', please grant use privilege first ",
+                        qualifiedUser, val),
+                        ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
+            }
+        }
+
+        // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
+        if (keyArr.length != 1) {
+            throw new DdlException(defaultComputeGroup + " format error");
         }
         return value;
     }
