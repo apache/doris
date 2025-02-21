@@ -345,6 +345,8 @@ supportedShowStatement
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
+    | SHOW QUERY STATS ((FOR database=identifier)
+            | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     ;
 
 supportedLoadStatement
@@ -428,8 +430,6 @@ unsupportedShowStatement
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
-    | SHOW QUERY STATS ((FOR database=identifier)
-            | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters

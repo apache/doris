@@ -41,6 +41,7 @@ suite("query_stats_test") {
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
     sql "clean all query stats"
     sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
     explain {
         sql("select k1 from ${tbName} where k1 = 1")
     }
