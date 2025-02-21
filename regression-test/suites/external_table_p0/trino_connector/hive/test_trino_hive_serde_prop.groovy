@@ -19,6 +19,7 @@ suite("test_trino_hive_serde_prop", "external_docker,hive,external_docker_hive,p
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        sql """ set nereids_timeout_second=60; """
         def host_ips = new ArrayList()
         String[][] backends = sql """ show backends """
         for (def b in backends) {
