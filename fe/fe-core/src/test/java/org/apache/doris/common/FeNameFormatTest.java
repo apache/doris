@@ -17,27 +17,24 @@
 
 package org.apache.doris.common;
 
-import org.junit.Test;
+import org.apache.doris.qe.VariableMgr;
+
+import com.google.common.collect.Lists;
+import org.apache.ivy.util.StringUtils;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class FeNameFormatTest {
 
     @Test
-    public void testCheckColumnName() {
+    void testLabelName() {
         // check label use correct regex, begin with '-' is different from others
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkLabel("-lable"));
+    }
 
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("_id"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("__id"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("___id"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("___id_"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("@timestamp"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("@timestamp#"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("timestamp*"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("timestamp.1"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("timestamp.#"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("?id_"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("#id_"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("$id_"));
+    @Test
+    void testTableName() {
         // length 64
         String tblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb-uniq";
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkTableName(tblName));
@@ -46,19 +43,100 @@ public class FeNameFormatTest {
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName(largeTblName));
         // check table name use correct regex, not begin with '-'
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName("-" + tblName));
+    }
 
+    @Test
+    void testCheckColumnName() {
+        List<String> alwaysValid = Lists.newArrayList(
+                "_id",
+                "_id",
+                "_ id",
+                " _id",
+                "__id",
+                "___id",
+                "___id_",
+                "@timestamp",
+                "@timestamp#",
+                "timestamp*",
+                "timestamp.1",
+                "timestamp.#",
+                "?id_",
+                "#id_",
+                "$id_",
+                "a-zA-Z0-9.+-/?@#$%^&*\" ,:"
+        );
+
+        List<String> alwaysInvalid = Lists.newArrayList(
+                // inner column prefix
+                "mv_",
+                "mva_",
+                "__doris_shadow_",
+
+                // invalid
+                "",
+                "\\",
+                "column\\",
+                StringUtils.repeat("a", 257)
+        );
+
+        List<String> unicodeValid = Lists.newArrayList(
+                "中文",
+                "語言",
+                "язык",
+                "언어",
+                "لغة",
+                "ภาษา",
+                "שפה",
+                "γλώσσα",
+                "ენა",
+                "げんご"
+        );
+
+        boolean defaultUnicode = VariableMgr.getDefaultSessionVariable().enableUnicodeNameSupport;
+        List<Boolean> enableUnicode = Lists.newArrayList(false, true);
+        try {
+            for (Boolean unicode : enableUnicode) {
+                VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(unicode);
+                for (String s : alwaysValid) {
+                    ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName(s));
+                }
+                for (String s : alwaysInvalid) {
+                    ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName(s));
+                }
+                for (String s : unicodeValid) {
+                    if (unicode) {
+                        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName(s));
+                    } else {
+                        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName(s));
+                    }
+                }
+            }
+        } finally {
+            VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(defaultUnicode);
+        }
+    }
+
+    @Test
+    void testUserName() {
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkUserName("a.b"));
         // check user name use correct regex, not begin with '.'
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkUserName(".a.b"));
+    }
+
+    @Test
+    void testCommonName() {
+        String commonName = "test_sys_partition_list_basic_test_list_partition_bigint_tb-uniq";
 
         // check common name use correct regex, length 65
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", tblName + "t"));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", commonName + "t"));
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", "_commonName"));
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "common-Name"));
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "commonName-"));
+    }
 
+    @Test
+    void testOutfileName() {
         // check success file name prefix
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkOutfileSuccessFileName("fakeType", "_success"));
     }
-
 }
