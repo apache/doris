@@ -64,6 +64,11 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     if (range_params->__isset.serialized_table) {
         params["serialized_table"] = range_params->serialized_table;
     }
+    if (range.table_format_params.paimon_params.__isset.row_count) {
+        _remaining_table_level_row_count = range.table_format_params.paimon_params.row_count;
+    } else {
+        _remaining_table_level_row_count = -1;
+    }
 
     // Used to create paimon option
     for (const auto& kv : range.table_format_params.paimon_params.paimon_options) {
@@ -79,7 +84,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
 }
 
 Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count > 0) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
         _remaining_table_level_row_count -= rows;

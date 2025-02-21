@@ -41,6 +41,8 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
     if (range.table_format_params.paimon_params.__isset.row_count) {
         _remaining_table_level_row_count = range.table_format_params.paimon_params.row_count;
+    } else {
+        _remaining_table_level_row_count = -1;
     }
 }
 
@@ -113,7 +115,7 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
 }
 
 Status PaimonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count > 0) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
         _remaining_table_level_row_count -= rows;
