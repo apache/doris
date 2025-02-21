@@ -190,7 +190,7 @@ Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://gi
 
 ### 📚 Docs
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/get-starting/quick-start)  
+All Documentation   🔗[Docs](https://doris.apache.org/docs/gettingStarted/quick-start)  
 
 ### ⬇️ Download 
 
@@ -198,7 +198,7 @@ All release and binary version 🔗[Download](https://doris.apache.org/download)
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-general)
+See how to compile  🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker)
 
 ### 📮 Install
 
