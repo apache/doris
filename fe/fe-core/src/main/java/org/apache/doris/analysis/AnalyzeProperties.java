@@ -81,7 +81,7 @@ public class AnalyzeProperties {
     }
 
     public void check() throws AnalysisException {
-        String msgTemplate = "%s = %s is invalid property";
+        String msgTemplate = "[%s] = %s is invalid property";
         Optional<String> optional = properties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
 

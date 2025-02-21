@@ -85,7 +85,7 @@ public class StageProperties extends CopyProperties {
         analyzeDryRun();
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!STAGE_PROPERTIES.contains(entry.getKey())) {
-                throw new AnalysisException("Property '" + entry.getKey() + "' is invalid");
+                throw new AnalysisException("Property [" + entry.getKey() + "] is invalid");
             }
         }
     }
