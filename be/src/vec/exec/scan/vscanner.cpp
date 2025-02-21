@@ -222,7 +222,8 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     DCHECK(_applied_rf_num < _total_rf_num);
 
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_local_state->_helper.try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    RETURN_IF_ERROR(_local_state->_helper.try_append_late_arrival_runtime_filter(
+            &arrived_rf_num, _local_state->_conjuncts));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
