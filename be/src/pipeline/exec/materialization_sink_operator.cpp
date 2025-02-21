@@ -60,7 +60,9 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
               tnode.materialization_node.slot_locs_lists.size());
 
     const auto& slots =
-            state->desc_tbl().get_tuple_descriptor(tnode.materialization_node.tuple_id)->slots();
+            state->desc_tbl()
+                    .get_tuple_descriptor(tnode.materialization_node.intermediate_tuple_id)
+                    ->slots();
     for (int i = 0; i < tnode.materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
         request_block_desc->set_fetch_row_store(tnode.materialization_node.fetch_row_stores[i]);

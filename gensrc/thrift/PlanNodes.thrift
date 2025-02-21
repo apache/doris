@@ -968,18 +968,20 @@ struct TRepeatNode {
 }
 
 struct TMaterializationNode {
-    // A Materialization materializes all tuple
+    // Materialization node output tuple
     1: optional Types.TTupleId tuple_id
+    // Intertemporal materializes tuple
+    2: optional Types.TTupleId intermediate_tuple_id
     // Nodes in this cluster, used for second phase fetch
-    2: optional Descriptors.TPaloNodesInfo nodes_info
+    3: optional Descriptors.TPaloNodesInfo nodes_info
     // Separate list of expr for fetch data
-    3: optional list<Exprs.TExpr> fetch_expr_lists
+    4: optional list<Exprs.TExpr> fetch_expr_lists
     // Fetch schema
-    4: optional list<list<Descriptors.TColumn>> column_descs_lists; 
+    5: optional list<list<Descriptors.TColumn>> column_descs_lists; 
     // Add column in tuple offset
-    5: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
+    6: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
     // Whether fetch row store
-    6: optional list<bool> fetch_row_stores
+    7: optional list<bool> fetch_row_stores
 }
 
 struct TPreAggregationNode {
