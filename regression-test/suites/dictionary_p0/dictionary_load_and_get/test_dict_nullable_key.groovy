@@ -69,7 +69,7 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """ 
-    sleep(2000);
+    sleep(5000)
 
     test {
         sql """
@@ -90,7 +90,7 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600','skip_null_key'='true');   
     """ 
-    sleep(2000);
+    sleep(5000)
 
     sql """
         refresh dictionary tmp_table_null
