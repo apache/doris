@@ -234,6 +234,8 @@ supportedAlterStatement
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
     | ALTER DATABASE name=identifier RENAME newName=identifier                              #alterDatabaseRename
     | ALTER ROLE role=identifier commentSpec                                                #alterRole
+    | ALTER STORAGE POLICY name=identifierOrText
+        properties=propertyClause                                                           #alterStoragePolicy
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
     | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
@@ -641,8 +643,6 @@ unsupportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
     ;
