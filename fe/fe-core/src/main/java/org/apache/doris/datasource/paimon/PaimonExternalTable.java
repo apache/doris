@@ -61,12 +61,11 @@ public class PaimonExternalTable extends ExternalTable implements MvccTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
 
-    private final Table paimonTable;
+    private Table paimonTable;
 
     public PaimonExternalTable(long id, String name, String remoteName, PaimonExternalCatalog catalog,
             PaimonExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.PAIMON_EXTERNAL_TABLE);
-        this.paimonTable = catalog.getPaimonTable(dbName, name);
     }
 
     public String getPaimonCatalogType() {
@@ -76,11 +75,13 @@ public class PaimonExternalTable extends ExternalTable implements MvccTable {
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
+            this.paimonTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
             objectCreated = true;
         }
     }
 
     public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
+        makeSureInitialized();
         return paimonTable.copy(
                 Collections.singletonMap(CoreOptions.SCAN_VERSION.key(),
                         String.valueOf(getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getSnapshotId())));
