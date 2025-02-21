@@ -677,16 +677,16 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
                        _origin_json_doc.GetParseError(),
                        rapidjson::GetParseError_En(_origin_json_doc.GetParseError()));
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+        auto st = _state->append_error_msg_to_file(
                 [&]() -> std::string { return std::string((char*)json_str, *size); },
-                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); });
         _counter->num_rows_filtered++;
-        if (*_scanner_eof) {
-            // Case A: if _scanner_eof is set to true in "append_error_msg_to_file", which means
+        if (!st.ok()) {
+            // Case A: if status is not OK in "append_error_msg_to_file", which means
             // we meet enough invalid rows and the scanner should be stopped.
             // So we set eof to true and return OK, the caller will stop the process as we meet the end of file.
             *eof = true;
-            return Status::OK();
+            return st;
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     }
@@ -698,14 +698,14 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         if (_json_doc == nullptr) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "{}", "JSON Root not found.");
-            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+            auto st = _state->append_error_msg_to_file(
                     [&]() -> std::string { return _print_json_value(_origin_json_doc); },
-                    [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
+                    [&]() -> std::string { return fmt::to_string(error_msg); });
             _counter->num_rows_filtered++;
-            if (*_scanner_eof) {
+            if (!st.ok()) {
                 // Same as Case A
                 *eof = true;
-                return Status::OK();
+                return st;
             }
             return Status::DataQualityError(fmt::to_string(error_msg));
         }
@@ -717,14 +717,14 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "{}",
                        "JSON data is array-object, `strip_outer_array` must be TRUE.");
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+        auto st = _state->append_error_msg_to_file(
                 [&]() -> std::string { return _print_json_value(_origin_json_doc); },
-                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); });
         _counter->num_rows_filtered++;
-        if (*_scanner_eof) {
+        if (!st.ok()) {
             // Same as Case A
             *eof = true;
-            return Status::OK();
+            return st;
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     }
@@ -733,14 +733,14 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "{}",
                        "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+        auto st = _state->append_error_msg_to_file(
                 [&]() -> std::string { return _print_json_value(_origin_json_doc); },
-                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); });
         _counter->num_rows_filtered++;
-        if (*_scanner_eof) {
+        if (!st.ok()) {
             // Same as Case A
             *eof = true;
-            return Status::OK();
+            return st;
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     }
@@ -1124,12 +1124,12 @@ Status NewJsonReader::_append_error_msg(const rapidjson::Value& objectValue, std
         err_msg = error_msg;
     }
 
-    RETURN_IF_ERROR(_state->append_error_msg_to_file(
+    auto st = _state->append_error_msg_to_file(
             [&]() -> std::string { return NewJsonReader::_print_json_value(objectValue); },
-            [&]() -> std::string { return err_msg; }, _scanner_eof));
+            [&]() -> std::string { return err_msg; });
 
     // TODO(ftw): check here？
-    if (*_scanner_eof) {
+    if (!st.ok()) {
         _reader_eof = true;
     }
 
@@ -1138,7 +1138,7 @@ Status NewJsonReader::_append_error_msg(const rapidjson::Value& objectValue, std
         // current row is invalid
         *valid = false;
     }
-    return Status::OK();
+    return st;
 }
 
 std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
@@ -1214,11 +1214,14 @@ Status NewJsonReader::_handle_simdjson_error(simdjson::simdjson_error& error, Bl
     fmt::memory_buffer error_msg;
     fmt::format_to(error_msg, "Parse json data failed. code: {}, error info: {}", error.error(),
                    error.what());
-    RETURN_IF_ERROR(_state->append_error_msg_to_file(
+    auto st = _state->append_error_msg_to_file(
             [&]() -> std::string {
                 return std::string(_simdjson_ondemand_padding_buffer.data(), _original_doc_size);
             },
-            [&]() -> std::string { return fmt::to_string(error_msg); }, eof));
+            [&]() -> std::string { return fmt::to_string(error_msg); });
+    if (!st.ok()) {
+        *eof = true;
+    }
     _counter->num_rows_filtered++;
     // Before continuing to process other rows, we need to first clean the fail parsed row.
     for (int i = 0; i < block.columns(); ++i) {
@@ -1228,7 +1231,7 @@ Status NewJsonReader::_handle_simdjson_error(simdjson::simdjson_error& error, Bl
         }
     }
 
-    return Status::OK();
+    return st;
 }
 
 Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Block& block,
@@ -1831,7 +1834,7 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
         err_msg = error_msg;
     }
 
-    RETURN_IF_ERROR(_state->append_error_msg_to_file(
+    auto st = _state->append_error_msg_to_file(
             [&]() -> std::string {
                 if (!obj) {
                     return "";
@@ -1840,14 +1843,14 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
                 (void)!obj->raw_json().get(str_view);
                 return std::string(str_view.data(), str_view.size());
             },
-            [&]() -> std::string { return err_msg; }, _scanner_eof));
+            [&]() -> std::string { return err_msg; });
 
     _counter->num_rows_filtered++;
     if (valid != nullptr) {
         // current row is invalid
         *valid = false;
     }
-    return Status::OK();
+    return st;
 }
 
 Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
@@ -1916,16 +1919,16 @@ Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_c
     SCOPED_TIMER(_file_read_timer);
     auto return_quality_error = [&](fmt::memory_buffer& error_msg,
                                     const std::string& doc_info) -> Status {
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+        auto st = _state->append_error_msg_to_file(
                 [&]() -> std::string { return doc_info; },
-                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
+                [&]() -> std::string { return fmt::to_string(error_msg); });
         _counter->num_rows_filtered++;
-        if (*_scanner_eof) {
-            // Case A: if _scanner_eof is set to true in "append_error_msg_to_file", which means
+        if (!st.ok()) {
+            // Case A: if status is not OK in "append_error_msg_to_file", which means
             // we meet enough invalid rows and the scanner should be stopped.
             // So we set eof to true and return OK, the caller will stop the process as we meet the end of file.
             *eof = true;
-            return Status::OK();
+            return st;
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     };
