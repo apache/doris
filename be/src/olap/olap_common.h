@@ -38,6 +38,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_stats.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
@@ -378,6 +379,7 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    InvertedIndexStatistics inverted_index_stats;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
