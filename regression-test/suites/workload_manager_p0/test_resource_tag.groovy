@@ -79,7 +79,7 @@ suite("test_resource_tag") {
         code1 = process.waitFor()
         out1 = process.text
         log.info("stream load skip_rg_test_table failed test result, ${out1}".toString())
-        assertTrue("${out1}".toString().contains("No backend load available") || "${out1}".toString().contains("No available backends"))
+        assertTrue("${out1}".toString().contains("No backend available for load") || "${out1}".toString().contains("No available backends"))
 
         sql "set property for test_rg 'allow_resource_tag_downgrade' = 'true';"
 
@@ -89,7 +89,7 @@ suite("test_resource_tag") {
         out2 = process2.text
         jsonRet = parseJson(out2)
         log.info("stream load skip_rg_test_table succ test result, ${out2}".toString())
-        assertFalse("${out2}".toString().contains("No backend load available"))
+        assertFalse("${out2}".toString().contains("No backend available for load"))
         assertTrue(jsonRet['Status'] == 'Success')
 
 
