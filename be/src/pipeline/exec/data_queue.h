@@ -53,14 +53,8 @@ public:
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
-    bool has_enough_space_to_push();
-    bool has_data_or_finished(int child_idx = 0);
     bool remaining_has_data();
 
-    int64_t max_bytes_in_queue() const { return _max_bytes_in_queue; }
-    int64_t max_size_of_queue() const { return _max_size_of_queue; }
-
-    bool data_exhausted() const { return _data_exhausted; }
     void set_source_dependency(std::shared_ptr<Dependency> source_dependency) {
         _source_dependency = source_dependency;
     }
@@ -94,13 +88,8 @@ private:
     //this will be indicate which queue has data, it's useful when have many queues
     std::atomic_int _flag_queue_idx = 0;
     // only used by streaming agg source operator
-    bool _data_exhausted = false;
 
     int64_t _max_blocks_in_sub_queue = 1;
-
-    //this only use to record the queue[0] for profile
-    int64_t _max_bytes_in_queue = 0;
-    int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
     // data queue is multi sink one source
