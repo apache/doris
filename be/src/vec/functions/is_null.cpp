@@ -65,12 +65,13 @@ public:
         const ColumnWithTypeAndName& elem = block.get_by_position(arguments[0]);
         if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
             /// Merely return the embedded null map.
-            block.get_by_position(result).column = nullable->get_null_map_column_ptr();
+            block.get_by_position(result).column =
+                    nullable->get_null_map_column_ptr()->clone_resized(input_rows_count);
         } else {
             /// Since no element is nullable, return a zero-constant column representing
             /// a zero-filled null map.
             block.get_by_position(result).column =
-                    DataTypeUInt8().create_column_const(elem.column->size(), 0u);
+                    DataTypeUInt8().create_column_const(elem.column->size(), false);
         }
         return Status::OK();
     }
