@@ -101,22 +101,24 @@ Status OperatorBase::close(RuntimeState* state) {
 
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::name_suffix() const {
-    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
-        if (_parent->nereids_id() == -1) {
-            return "";
-        }
-        return " , nereids_id=" + std::to_string(_parent->nereids_id());
-    }() + ")";
+    if (_parent->nereids_id() == -1) {
+        return fmt::format(operator_name_suffix, std::to_string(_parent->node_id()));
+    } else {
+        return fmt::format("(nereids_id={})" + operator_name_suffix,
+                           std::to_string(_parent->nereids_id()),
+                           std::to_string(_parent->node_id()));
+    }
 }
 
 template <typename SharedStateArg>
 std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
-    return " (id=" + std::to_string(_parent->node_id()) + [&]() -> std::string {
-        if (_parent->nereids_id() == -1) {
-            return "";
-        }
-        return " , nereids_id=" + std::to_string(_parent->nereids_id());
-    }() + ")";
+    if (_parent->nereids_id() == -1) {
+        return fmt::format(operator_name_suffix, std::to_string(_parent->node_id()));
+    } else {
+        return fmt::format("(nereids_id={})" + operator_name_suffix,
+                           std::to_string(_parent->nereids_id()),
+                           std::to_string(_parent->node_id()));
+    }
 }
 
 DataDistribution OperatorBase::required_data_distribution() const {

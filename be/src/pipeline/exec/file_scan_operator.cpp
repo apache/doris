@@ -24,6 +24,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/scan/scanner_context.h"
@@ -55,9 +56,10 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 }
 
 std::string FileScanLocalState::name_suffix() const {
-    return fmt::format(" (id={}. nereids_id={}. table name = {})",
-                       std::to_string(_parent->node_id()), std::to_string(_parent->nereids_id()),
-                       _parent->cast<FileScanOperatorX>()._table_name);
+    return fmt::format("(nereids_id={}. table name = {})" + operator_name_suffix,
+                       std::to_string(_parent->nereids_id()),
+                       _parent->cast<FileScanOperatorX>()._table_name,
+                       std::to_string(_parent->node_id()));
 }
 
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,

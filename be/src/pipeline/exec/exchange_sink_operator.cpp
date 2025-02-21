@@ -252,11 +252,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 }
 
 std::string ExchangeSinkLocalState::name_suffix() {
-    std::string name = " (id=" + std::to_string(_parent->node_id());
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    name += ",dst_id=" + std::to_string(p._dest_node_id);
-    name += ")";
-    return name;
+    return fmt::format(exchange_sink_name_suffix, std::to_string(p._dest_node_id));
 }
 
 segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
