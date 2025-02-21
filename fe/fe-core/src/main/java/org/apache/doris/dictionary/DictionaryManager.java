@@ -51,14 +51,12 @@ import org.apache.doris.thrift.TDictionaryStatus;
 import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,7 +68,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -353,10 +350,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     // 1. if it's OUT_OF_DATE(maybe update failed or something), try to refresh it.
                     if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE) {
                         submitDataLoad(dictionary, updateVersion.second);
+                        continue;
                     }
                     // 2. if some BE lost datas(new or restart), refresh it all.
                     // TODO: modify UnassignedAllBEJob and Coordinator to do partially refresh.
-                    else if (!dictionary.dataCompleted() // rely on collectDictionaryStatus() we just did.
+                    if (!dictionary.dataCompleted() // rely on collectDictionaryStatus() we just did.
                             // 3. base table has been updated AND when data is older than its lifetime, refresh it.
                             || updateVersion.first && dictionary.getNextRefreshTime() < now) {
                         // should schedule refresh. ONLY trigger when it's NORMAL because if not,

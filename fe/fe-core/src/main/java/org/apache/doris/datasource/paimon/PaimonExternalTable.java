@@ -206,7 +206,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public long getNewestUpdateTime() {
         return getPaimonSnapshotCacheValue().getPartitionInfo().getNameToPartition().values().stream()
-                .mapToLong(PaimonPartition::getLastUpdateTime).max().orElse(0);
+                .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
     }
 
     @Override

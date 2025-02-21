@@ -69,7 +69,7 @@ suite('test_dictionary_fe_failover', 'docker') {
                 v1 VALUE,
                 v2 VALUE
             )LAYOUT(HASH_MAP)
-        properties('data_lifetime'='600');
+            properties('data_lifetime'='600');
         """
         sql "REFRESH DICTIONARY dict1"
         def dictResult = sql "SHOW DICTIONARIES"
@@ -83,7 +83,7 @@ suite('test_dictionary_fe_failover', 'docker') {
                 v1 VALUE,
                 v2 VALUE
             )LAYOUT(IP_TRIE)
-        properties('data_lifetime'='600');
+            properties('data_lifetime'='600');
         """
         sql "REFRESH DICTIONARY dict_iptrie"
         dictResult = sql "SHOW DICTIONARIES"
@@ -121,7 +121,7 @@ suite('test_dictionary_fe_failover', 'docker') {
                 v1 VALUE,
                 v2 VALUE
             )LAYOUT(HASH_MAP)
-        properties('data_lifetime'='600');
+            properties('data_lifetime'='600');
         """
         sql "REFRESH DICTIONARY dict3"
         def finalDictResult = sql "SHOW DICTIONARIES"

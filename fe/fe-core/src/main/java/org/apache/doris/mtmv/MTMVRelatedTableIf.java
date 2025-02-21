@@ -102,7 +102,7 @@ public interface MTMVRelatedTableIf extends TableIf {
     /**
      * getNewestUpdateTime Used for dictionary update. for those external tables support MTMV getTableSnapshot, means
      * could support this also. then we can use it for dictionary update.
-     * 
+     *
      * @return the newest update time of the table. 0 for something wrong.
      */
     long getNewestUpdateTime();
