@@ -23,6 +23,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -392,8 +393,15 @@ public class Profile {
             physcialPlanBuilder.append("\n");
             for (PhysicalRelation relation : physicalRelations) {
                 if (relation.getStats() != null) {
-                    physcialPlanBuilder.append(relation).append("\n")
-                            .append(relation.getStats().printColumnStats());
+                    if (relation instanceof CatalogRelation) {
+                        physcialPlanBuilder.append(relation).append("\n")
+                                .append(relation.getStats().printColumnStats(
+                                        ((CatalogRelation) relation).getOperativeSlots()
+                                ));
+                    } else {
+                        physcialPlanBuilder.append(relation).append("\n")
+                                .append(relation.getStats().printColumnStats());
+                    }
                 }
             }
             builder.append(
