@@ -60,8 +60,9 @@ public:
 
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
+        _received_sum_size += size;
         DCHECK_GE(_expected_producer_num, _received_rf_size_num) << debug_string();
-        return (_received_rf_size_num == _expected_producer_num);
+        return _received_rf_size_num == _expected_producer_num;
     }
 
     uint64_t get_received_sum_size() const { return _received_sum_size; }
@@ -90,10 +91,10 @@ private:
 
     std::atomic<State> _rf_state;
     int _expected_producer_num = 0;
-    std::atomic_int _received_producer_num = 0;
+    int _received_producer_num = 0;
 
     uint64_t _received_sum_size = 0;
-    std::atomic_int _received_rf_size_num = 0;
+    int _received_rf_size_num = 0;
 
     friend class RuntimeFilterProducer;
 };

@@ -26,6 +26,12 @@ namespace doris {
 
 class RuntimeFilterConsumer : public RuntimeFilter {
 public:
+    enum class State {
+        NOT_READY,
+        READY,
+        TIMEOUT,
+        APPLIED,
+    };
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          int node_id, std::shared_ptr<RuntimeFilterConsumer>* res,
                          RuntimeProfile* parent_profile) {
@@ -36,28 +42,20 @@ public:
         return Status::OK();
     }
 
-    int node_id() const { return _node_id; }
-
+    // Published by producer.
     void signal(RuntimeFilter* other);
 
     std::shared_ptr<pipeline::RuntimeFilterTimer> create_filter_timer(
-            std::shared_ptr<pipeline::RuntimeFilterDependency> dependencie);
+            std::shared_ptr<pipeline::RuntimeFilterDependency> dependencies);
 
-    Status acquire_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                        std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
+    // Called after `State` is ready (e.g. signaled)
+    Status acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
 
     std::string debug_string() const override {
         return fmt::format("Consumer: ({}, state: {})", _debug_string(), to_string(_rf_state));
     }
 
-    bool applied() { return _rf_state == State::APPLIED; }
-
-    enum class State {
-        NOT_READY,
-        READY,
-        TIMEOUT,
-        APPLIED,
-    };
+    bool is_applied() { return _rf_state == State::APPLIED; }
 
     static std::string to_string(const State& state) {
         switch (state) {
@@ -78,11 +76,10 @@ private:
     RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                           int node_id, RuntimeProfile* parent_profile)
             : RuntimeFilter(state, desc),
-              _node_id(node_id),
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))),
               _storage_profile(new RuntimeProfile(fmt::format("Storage", desc->filter_id))),
-              _excution_profile(new RuntimeProfile(fmt::format("Execution", desc->filter_id))),
+              _execution_profile(new RuntimeProfile(fmt::format("Execution", desc->filter_id))),
               _registration_time(MonotonicMillis()),
               _rf_state(State::NOT_READY) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
@@ -93,13 +90,13 @@ private:
 
         parent_profile->add_child(_profile.get(), true, nullptr);
         _profile->add_child(_storage_profile.get(), true, nullptr);
-        _profile->add_child(_excution_profile.get(), true, nullptr);
+        _profile->add_child(_execution_profile.get(), true, nullptr);
         _wait_timer = ADD_TIMER(_profile, "WaitTime");
     }
 
-    Status _apply_ready_expr(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
-                             std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
-
+    Status _apply_ready_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
+    Status _get_push_exprs(std::vector<vectorized::VRuntimeFilterPtr>& container,
+                           const TExpr& probe_expr);
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -113,15 +110,13 @@ private:
         _profile->add_info_string("Info", debug_string());
     }
 
-    int _node_id;
-
     TExpr _probe_expr;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     std::unique_ptr<RuntimeProfile> _profile;
-    std::unique_ptr<RuntimeProfile> _storage_profile;  // for storage layer stats
-    std::unique_ptr<RuntimeProfile> _excution_profile; // for execution layer stats
+    std::unique_ptr<RuntimeProfile> _storage_profile;   // for storage layer stats
+    std::unique_ptr<RuntimeProfile> _execution_profile; // for execution layer stats
     RuntimeProfile::Counter* _wait_timer = nullptr;
 
     int32_t _rf_wait_time_ms;

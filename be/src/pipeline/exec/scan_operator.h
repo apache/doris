@@ -66,8 +66,8 @@ class ScanLocalStateBase : public PipelineXLocalState<> {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              _helper(parent->node_id(), parent->runtime_filter_descs(), parent->row_descriptor(),
-                      _conjuncts) {}
+              _helper(parent->node_id(), parent->runtime_filter_descs(), parent->row_descriptor()) {
+    }
     ~ScanLocalStateBase() override = default;
 
     [[nodiscard]] virtual bool should_run_serial() const = 0;

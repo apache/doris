@@ -496,8 +496,8 @@ Status RuntimeState::register_producer_runtime_filter(
     // When RF is published, consumers in both global and local RF mgr will be found.
     RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
             desc, query_options(), producer_filter, parent_profile));
-    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_filter(desc, query_options(),
-                                                                              *producer_filter));
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
+            desc, query_options(), *producer_filter));
     return Status::OK();
 }
 
