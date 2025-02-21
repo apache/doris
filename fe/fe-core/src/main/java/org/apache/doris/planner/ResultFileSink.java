@@ -24,8 +24,6 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -149,56 +147,22 @@ public class ResultFileSink extends DataSink {
      * | TotalRows  | Bigint  |
      * | FileSize   | Bigint  |
      * | URL        | Varchar |
-     * | WriteTime  | Double |
-     * | WriteSpeed | Double |
+     * | WriteTime  | Varchar |
+     * | WriteSpeed | Varchar |
      */
     public static TupleDescriptor constructFileStatusTupleDesc(DescriptorTable descriptorTable) {
         TupleDescriptor resultFileStatusTupleDesc =
                 descriptorTable.createTupleDescriptor("result_file_status");
         resultFileStatusTupleDesc.setIsMaterialized(true);
-        // | FileNumber | Int     |
-        SlotDescriptor fileNumber = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-        fileNumber.setLabel(OutFileClause.FILE_NUMBER);
-        fileNumber.setType(ScalarType.createType(PrimitiveType.INT));
-        fileNumber.setColumn(new Column(OutFileClause.FILE_NUMBER, ScalarType.createType(PrimitiveType.INT)));
-        fileNumber.setIsMaterialized(true);
-        fileNumber.setIsNullable(false);
-        // | TotalRows  | Bigint  |
-        SlotDescriptor totalRows = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-        totalRows.setLabel(OutFileClause.TOTAL_ROWS);
-        totalRows.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        totalRows.setColumn(new Column(OutFileClause.TOTAL_ROWS, ScalarType.createType(PrimitiveType.BIGINT)));
-        totalRows.setIsMaterialized(true);
-        totalRows.setIsNullable(false);
-        // | FileSize   | Bigint  |
-        SlotDescriptor fileSize = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-        fileSize.setLabel(OutFileClause.FILE_SIZE);
-        fileSize.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        fileSize.setColumn(new Column(OutFileClause.FILE_SIZE, ScalarType.createType(PrimitiveType.BIGINT)));
-        fileSize.setIsMaterialized(true);
-        fileSize.setIsNullable(false);
-        // | URL        | Varchar |
-        SlotDescriptor url = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-        url.setLabel(OutFileClause.URL);
-        url.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-        url.setColumn(new Column(OutFileClause.URL, ScalarType.createType(PrimitiveType.VARCHAR)));
-        url.setIsMaterialized(true);
-        url.setIsNullable(false);
-        // | WriteTime   | Double  |
-        SlotDescriptor writeTime = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-        writeTime.setLabel(OutFileClause.WRITE_TIME);
-        writeTime.setType(ScalarType.createType(PrimitiveType.DOUBLE));
-        writeTime.setColumn(new Column(OutFileClause.WRITE_TIME, ScalarType.createType(PrimitiveType.DOUBLE)));
-        writeTime.setIsMaterialized(true);
-        writeTime.setIsNullable(false);
-        // | WriteSpeed   | Double  |
-        SlotDescriptor writeSpeed = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
-        writeSpeed.setLabel(OutFileClause.WRITE_SPEED);
-        writeSpeed.setType(ScalarType.createType(PrimitiveType.DOUBLE));
-        writeSpeed.setColumn(new Column(OutFileClause.WRITE_SPEED, ScalarType.createType(PrimitiveType.DOUBLE)));
-        writeSpeed.setIsMaterialized(true);
-        writeSpeed.setIsNullable(false);
-
+        for (int i = 0; i < OutFileClause.RESULT_COL_NAMES.size(); ++i) {
+            SlotDescriptor slotDescriptor = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
+            slotDescriptor.setLabel(OutFileClause.RESULT_COL_NAMES.get(i));
+            slotDescriptor.setType(OutFileClause.RESULT_COL_TYPES.get(i));
+            slotDescriptor.setColumn(new Column(OutFileClause.RESULT_COL_NAMES.get(i),
+                    OutFileClause.RESULT_COL_TYPES.get(i)));
+            slotDescriptor.setIsMaterialized(true);
+            slotDescriptor.setIsNullable(false);
+        }
         resultFileStatusTupleDesc.computeStatAndMemLayout();
         return resultFileStatusTupleDesc;
     }

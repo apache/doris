@@ -17,6 +17,7 @@
 
 #include "vfile_result_writer.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -39,6 +40,7 @@
 #include "io/hdfs_builder.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
@@ -277,8 +279,8 @@ Status VFileResultWriter::_send_result() {
     // | TotalRows  | Bigint  |
     // | FileSize   | Bigint  |
     // | URL        | Varchar |
-    // | WriteTime  | Double |
-    // | WriteSpeed | Double |
+    // | WriteTime  | Varchar |
+    // | WriteSpeed | Varchar |
     // The type of these field should be consistent with types defined in OutFileClause.java of FE.
     MysqlRowBuffer<> row_buffer;
     row_buffer.push_int(_file_idx);                         // FileNumber
@@ -289,11 +291,16 @@ Status VFileResultWriter::_send_result() {
     std::stringstream ss;
     ss << file_url << "*";
     file_url = ss.str();
-    row_buffer.push_string(file_url.c_str(), file_url.length());  // URL
+    row_buffer.push_string(file_url.c_str(), file_url.length()); // URL
     double write_time = _file_write_timer->value() / nons_to_second;
-    row_buffer.push_double(write_time); // WriteTime
+    std::string formatted_write_time = fmt::format("{:.3f}", write_time);
+    row_buffer.push_string(formatted_write_time.c_str(),
+                           formatted_write_time.length()); // WriteTime
+
     double write_speed = _get_write_speed(_written_data_bytes->value(), _file_write_timer->value());
-    row_buffer.push_double(write_speed); // WriteSpeed
+    std::string formatted_write_speed = fmt::format("{:.2f}", write_speed);
+    row_buffer.push_string(formatted_write_speed.c_str(),
+                           formatted_write_speed.length()); // WriteSpeed
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
@@ -305,8 +312,8 @@ Status VFileResultWriter::_send_result() {
             std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
     attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
     attach_infos.insert(std::make_pair("URL", file_url));
-    attach_infos.insert(std::make_pair("WriteTime", std::to_string(write_time)));
-    attach_infos.insert(std::make_pair("WriteSpeed", std::to_string(write_speed)));
+    attach_infos.insert(std::make_pair("WriteTime", formatted_write_time));
+    attach_infos.insert(std::make_pair("WriteSpeed", formatted_write_speed));
 
     result->result_batch.__set_attached_infos(attach_infos);
     RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(_state, result),
@@ -336,11 +343,13 @@ Status VFileResultWriter::_fill_result_block() {
         column->insert_data(file_url.c_str(), file_url.size());                             \
     } else if (i == 4) {                                                                    \
         double write_time = _file_write_timer->value() / nons_to_second;                    \
-        column->insert_data(reinterpret_cast<const char*>(&write_time), 0);                 \
+        std::string formatted_write_time = fmt::format("{:.3f}", write_time);               \
+        column->insert_data(formatted_write_time.c_str(), formatted_write_time.size());     \
     } else if (i == 5) {                                                                    \
         double write_speed =                                                                \
                 _get_write_speed(_written_data_bytes->value(), _file_write_timer->value()); \
-        column->insert_data(reinterpret_cast<const char*>(&write_speed), 0);                \
+        std::string formatted_write_speed = fmt::format("{:.2f}", write_speed);             \
+        column->insert_data(formatted_write_speed.c_str(), formatted_write_speed.size());   \
     }                                                                                       \
     _output_block->replace_by_position(i, std::move(column));
 #endif
@@ -355,11 +364,6 @@ Status VFileResultWriter::_fill_result_block() {
         case TYPE_BIGINT: {
             auto column = ColumnVector<int64_t>::create();
             INSERT_TO_COLUMN;
-            break;
-        }
-        case TYPE_DOUBLE: {
-            auto column = ColumnVector<double>::create();
-            INSERT_TO_COLUMN
             break;
         }
         case TYPE_VARCHAR:
@@ -415,7 +419,7 @@ double VFileResultWriter::_get_write_speed(int64_t write_bytes, int64_t write_ti
     if (write_time <= 0) {
         return 0;
     }
-    // unit: KB/s
+    // KB / s
     return ((write_bytes * nons_to_second) / (write_time)) / 1024;
 }
 

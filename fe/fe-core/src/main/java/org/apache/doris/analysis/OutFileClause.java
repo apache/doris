@@ -94,8 +94,8 @@ public class OutFileClause {
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
-        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.DOUBLE));
-        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.DOUBLE));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
 
         PARQUET_REPETITION_TYPE_MAP.put("required", TParquetRepetitionType.REQUIRED);
         PARQUET_REPETITION_TYPE_MAP.put("repeated", TParquetRepetitionType.REPEATED);
