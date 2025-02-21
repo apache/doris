@@ -20,7 +20,6 @@
 #include <cstdlib>
 #include <string>
 
-#include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
@@ -73,7 +72,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                                                           _finish_dependency->shared_from_this());
     }
 
-    _runtime_filter_init_timer = ADD_TIMER(profile(), "RuntimeFilterInitTime");
     _build_blocks_memory_usage =
             ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
     _hash_table_memory_usage =
@@ -90,15 +88,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
-    _runtime_filters.resize(p._runtime_filter_descs.size());
-    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
-                                                                &_runtime_filters[i]));
-    }
-
-    _runtime_filter_slots =
-            std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs, runtime_filters());
-
+    _runtime_filter_slots = std::make_shared<RuntimeFilterSlots>(_build_expr_ctxs, profile(),
+                                                                 _should_build_hash_table);
+    RETURN_IF_ERROR(_runtime_filter_slots->init(state, p._runtime_filter_descs));
     return Status::OK();
 }
 
@@ -110,7 +102,8 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 #ifndef NDEBUG
     if (state->fuzzy_disable_runtime_filter_in_be()) {
         if ((_parent->operator_id() + random()) % 2 == 0) {
-            RETURN_IF_ERROR(disable_runtime_filters(state));
+            RETURN_IF_ERROR(
+                    _runtime_filter_slots->skip_runtime_filters_process(state, _finish_dependency));
         }
     }
 #endif
@@ -145,32 +138,13 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() || !_eos ||
-        _runtime_filters_disabled) {
+    if (!_runtime_filter_slots || state->is_cancelled() || !_eos) {
         return Base::close(state, exec_status);
     }
 
     try {
-        if (state->get_task()->wake_up_early()) {
-            // partitial ignore rf to make global rf work or ignore useless rf
-            RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
-            RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
-        } else if (_should_build_hash_table) {
-            auto* block = _shared_state->build_block.get();
-            uint64_t hash_table_size = block ? block->rows() : 0;
-            {
-                SCOPED_TIMER(_runtime_filter_init_timer);
-                RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-                RETURN_IF_ERROR(_runtime_filter_slots->disable_meaningless_filters(state));
-            }
-            if (hash_table_size > 1) {
-                SCOPED_TIMER(_runtime_filter_compute_timer);
-                _runtime_filter_slots->insert(block);
-            }
-        }
-
-        SCOPED_TIMER(_publish_runtime_filter_timer);
-        RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
+        RETURN_IF_ERROR(_runtime_filter_slots->process(state, _shared_state->build_block.get(),
+                                                       _finish_dependency));
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
                                                    p._shared_hashtable_controller &&
@@ -185,33 +159,6 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 _finish_dependency->debug_string(), blocked_by_shared_hash_table_signal);
     }
     return Base::close(state, exec_status);
-}
-
-Status HashJoinBuildSinkLocalState::disable_runtime_filters(RuntimeState* state) {
-    if (_runtime_filters_disabled) {
-        return Status::OK();
-    }
-
-    if (_runtime_filters.empty()) {
-        return Status::OK();
-    }
-
-    if (!_should_build_hash_table) {
-        return Status::OK();
-    }
-
-    if (_runtime_filters.empty()) {
-        return Status::OK();
-    }
-
-    DCHECK(_runtime_filter_slots) << "_runtime_filter_slots should be initialized";
-
-    _runtime_filters_disabled = true;
-    RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
-    RETURN_IF_ERROR(_runtime_filter_slots->disable_all_filters());
-
-    SCOPED_TIMER(_publish_runtime_filter_timer);
-    return _runtime_filter_slots->publish(state, !_should_build_hash_table);
 }
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
@@ -544,11 +491,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 
-        if (!local_state._runtime_filters_disabled) {
-            RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
-                    state, local_state._shared_state->build_block->rows(),
-                    local_state._finish_dependency));
-        }
+        RETURN_IF_ERROR(local_state._runtime_filter_slots->send_filter_size(
+                state, local_state._shared_state->build_block->rows(),
+                local_state._finish_dependency));
 
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));

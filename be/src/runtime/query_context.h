@@ -33,9 +33,9 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -231,6 +231,8 @@ public:
                        ? _query_options.ignore_runtime_filter_error
                        : false;
     }
+
+    const TQueryOptions& query_options() const { return _query_options; }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()

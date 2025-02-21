@@ -38,7 +38,6 @@ VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_stat
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
-    _total_rf_num = _local_state->runtime_filter_num();
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
@@ -223,7 +222,7 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     DCHECK(_applied_rf_num < _total_rf_num);
 
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_local_state->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    RETURN_IF_ERROR(_local_state->_helper.try_append_late_arrival_runtime_filter(&arrived_rf_num));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;

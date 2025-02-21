@@ -19,7 +19,6 @@
 
 #include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
-#include <exprs/runtime_filter.h>
 #include <fmt/format.h>
 #include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/FrontendService.h>
@@ -45,7 +44,6 @@
 #include <cstddef>
 #include <ctime>
 
-#include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
@@ -60,6 +58,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "common/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline_fragment_context.h"
@@ -69,7 +68,6 @@
 #include "runtime/frontend_info.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -79,6 +77,8 @@
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "runtime_filter/role/consumer.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
@@ -1285,8 +1285,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
-    int64_t start_apply = MonotonicMillis();
-
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
@@ -1313,20 +1311,14 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
     SCOPED_ATTACH_TASK(pip_context->get_query_ctx());
     // 1. get the target filters
-    std::vector<std::shared_ptr<IRuntimeFilter>> filters;
-    RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(request->filter_id(), filters));
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
+            runtime_filter_mgr->get_consume_filters(request->filter_id());
 
     // 2. create the filter wrapper to replace or ignore the target filters
     if (!filters.empty()) {
-        UpdateRuntimeFilterParamsV2 params {request, attach_data, filters[0]->column_type()};
-        std::shared_ptr<RuntimePredicateWrapper> filter_wrapper;
-        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
+        RETURN_IF_ERROR(filters[0]->assign_data_into_wrapper(*request, attach_data));
 
-        std::ranges::for_each(filters, [&](auto& filter) {
-            filter->update_filter(
-                    filter_wrapper, request->merge_time(), start_apply,
-                    request->has_local_merge_time() ? request->local_merge_time() : 0);
-        });
+        std::ranges::for_each(filters, [&](auto& filter) { filter->signal(filters[0].get()); });
     }
 
     return Status::OK();

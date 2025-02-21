@@ -56,6 +56,5 @@ public:
 private:
     std::shared_ptr<BloomFilterFuncBase> _filter;
     std::string _expr_name;
-    int _be_exec_version;
 };
 } // namespace doris::vectorized
