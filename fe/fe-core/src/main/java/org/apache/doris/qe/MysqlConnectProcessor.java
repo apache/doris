@@ -186,9 +186,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // nererids
         PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
         if (preparedStatementContext == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            }
+            LOG.warn("No such statement in context, stmtId:{}", stmtId);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
                     "msg: Not supported such prepared statement");
             return;
