@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"

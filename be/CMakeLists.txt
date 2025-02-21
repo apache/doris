@@ -500,6 +500,9 @@ if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
+    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
