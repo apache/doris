@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -31,59 +33,56 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ModifyBrokerClause extends AlterClause {
+/**
+ * BrokerOp
+ */
+public abstract class BrokerOp extends AlterSystemOp {
+    protected Set<Pair<String, Integer>> hostPortPairs;
+    private final ModifyOp op;
+    private final String brokerName;
+    private final List<String> hostPorts;
+
+    /**
+     * ModifyOp
+     */
     public enum ModifyOp {
         OP_ADD,
         OP_DROP,
         OP_DROP_ALL
     }
 
-    private final ModifyOp op;
-    private final String brokerName;
-    private final List<String> hostPorts;
-
-    protected Set<Pair<String, Integer>> hostPortPairs;
-
-    public ModifyBrokerClause(ModifyOp op, String brokerName, List<String> hostPorts) {
+    public BrokerOp(ModifyOp op, String brokerName, List<String> hostPorts) {
         super(AlterOpType.ALTER_OTHER);
         this.op = op;
         this.brokerName = brokerName;
         this.hostPorts = hostPorts;
-    }
-
-    public ModifyBrokerClause(ModifyOp op, String brokerName,
-            List<String> hostPorts, Set<Pair<String, Integer>> hostPortPairs) {
-        super(AlterOpType.ALTER_OTHER);
-        this.op = op;
-        this.brokerName = brokerName;
-        this.hostPorts = hostPorts;
-        this.hostPortPairs = hostPortPairs;
-    }
-
-    public static ModifyBrokerClause createAddBrokerClause(String brokerName, List<String> hostPorts) {
-        return new ModifyBrokerClause(ModifyOp.OP_ADD, brokerName, hostPorts);
-    }
-
-    public static ModifyBrokerClause createDropBrokerClause(String brokerName, List<String> hostPorts) {
-        return new ModifyBrokerClause(ModifyOp.OP_DROP, brokerName, hostPorts);
-    }
-
-    public static ModifyBrokerClause createDropAllBrokerClause(String brokerName) {
-        return new ModifyBrokerClause(ModifyOp.OP_DROP_ALL, brokerName, null);
     }
 
     public ModifyOp getOp() {
         return op;
     }
 
+    public List<String> getHostPorts() {
+        return hostPorts;
+    }
+
+    /**
+     * getBrokerName
+     */
     public String getBrokerName() {
         return brokerName;
     }
 
+    /**
+     * getHostPortPairs
+     */
     public Set<Pair<String, Integer>> getHostPortPairs() {
         return hostPortPairs;
     }
 
+    /**
+     * validateBrokerName
+     */
     private void validateBrokerName() throws AnalysisException {
         if (Strings.isNullOrEmpty(brokerName)) {
             throw new AnalysisException("Broker's name can't be empty.");
@@ -91,7 +90,7 @@ public class ModifyBrokerClause extends AlterClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws UserException {
         validateBrokerName();
 
         if (op != ModifyOp.OP_DROP_ALL) {
