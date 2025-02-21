@@ -193,6 +193,11 @@ public class BackendServiceClient {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
     }
 
+    public Future<InternalService.PDeleteDictionaryResponse> deleteDictionary(
+            InternalService.PDeleteDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).deleteDictionary(request);
+    }
+
     public void shutdown() {
         ConnectivityState state = channel.getState(false);
         LOG.warn("shut down backend service client: {}, channel state: {}", address, state);

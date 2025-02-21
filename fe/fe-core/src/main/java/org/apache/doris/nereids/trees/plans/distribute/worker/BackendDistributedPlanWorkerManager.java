@@ -31,9 +31,11 @@ import org.apache.doris.thrift.TNetworkAddress;
 import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -148,5 +150,22 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     public long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID) {
         TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         return addressToBackendID.get(backend);
+    }
+
+    @Override
+    public List<Long> getAllBackend(boolean needAlive) {
+        ImmutableMap<Long, Backend> backends = this.allClusterBackends.get();
+        List<Long> backendIds = null;
+        if (needAlive) {
+            backendIds = Lists.newArrayList();
+            for (Map.Entry<Long, Backend> entry : backends.entrySet()) {
+                if (entry.getValue().isQueryAvailable()) {
+                    backendIds.add(entry.getKey());
+                }
+            }
+        } else {
+            backendIds = Lists.newArrayList(backends.keySet());
+        }
+        return backendIds;
     }
 }
