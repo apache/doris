@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <sstream>
 
+#include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
@@ -461,6 +462,9 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
     LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_get_conflict_counter << 1;
+        }
         ss << "failed to get delete bitmap update lock key, instance_id=" << instance_id
            << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
         msg = ss.str();
@@ -523,6 +527,9 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_get_conflict_counter << 1;
+        }
         LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
                      << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
         return;
@@ -1374,6 +1381,9 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                 if (!need_commit) return;
                 TxnErrorCode err = txn->commit();
                 if (err != TxnErrorCode::TXN_OK) {
+                    if (err == TxnErrorCode::TXN_CONFLICT) {
+                        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_counter << 1;
+                    }
                     code = cast_as<ErrCategory::COMMIT>(err);
                     ss << "failed to commit job kv, err=" << err;
                     msg = ss.str();
