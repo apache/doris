@@ -414,7 +414,8 @@ private:
 
     bool try_reserve_for_lru(const UInt128Wrapper& hash, QueryFileCacheContextPtr query_context,
                              const CacheContext& context, size_t offset, size_t size,
-                             std::lock_guard<std::mutex>& cache_lock, bool sync_removal = true);
+                             std::lock_guard<std::mutex>& cache_lock,
+                             bool evict_in_advance = false);
 
     bool try_reserve_during_async_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
@@ -423,7 +424,7 @@ private:
 
     bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t offset, int64_t cur_time,
                                       std::lock_guard<std::mutex>& cache_lock,
-                                      bool sync_removal = true);
+                                      bool evict_in_advance = false);
 
     size_t get_available_cache_size(FileCacheType cache_type) const;
 
@@ -468,14 +469,15 @@ private:
                                                        std::vector<FileCacheType> other_cache_types,
                                                        size_t size, int64_t cur_time,
                                                        std::lock_guard<std::mutex>& cache_lock,
-                                                       bool sync_removal);
+                                                       bool evict_in_advance);
 
     bool try_reserve_from_other_queue_by_size(FileCacheType cur_type,
                                               std::vector<FileCacheType> other_cache_types,
                                               size_t size, std::lock_guard<std::mutex>& cache_lock,
-                                              bool sync_removal);
+                                              bool evict_in_advance);
 
-    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
+                     bool evict_in_advance) const;
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
 
@@ -484,7 +486,8 @@ private:
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
-                               std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size);
+                               std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size,
+                               bool evict_in_advance);
 
     // info
     std::string _cache_base_path;
