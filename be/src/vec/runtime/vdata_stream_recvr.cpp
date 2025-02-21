@@ -44,7 +44,7 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 VDataStreamRecvr::SenderQueue::SenderQueue(
-        VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
+        VDataStreamRecvr* parent_recvr, int num_senders,
         std::shared_ptr<pipeline::Dependency> local_channel_dependency)
         : _recvr(parent_recvr),
           _is_cancelled(false),
@@ -311,17 +311,15 @@ void VDataStreamRecvr::SenderQueue::close() {
 
 VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
                                    RuntimeProfile::HighWaterMarkCounter* memory_used_counter,
-                                   RuntimeState* state, const RowDescriptor& row_desc,
-                                   const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                                   int num_senders, bool is_merging, RuntimeProfile* profile,
-                                   size_t data_queue_capacity)
+                                   RuntimeState* state, const TUniqueId& fragment_instance_id,
+                                   PlanNodeId dest_node_id, int num_senders, bool is_merging,
+                                   RuntimeProfile* profile, size_t data_queue_capacity)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
           _memory_used_counter(memory_used_counter),
           _resource_ctx(state->get_query_ctx()->resource_ctx()),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
-          _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),
           _sender_queue_mem_limit(data_queue_capacity),
@@ -342,7 +340,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
-        queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile,
+        queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue,
                                                        _sender_to_local_channel_dependency[i]));
         _sender_queues.push_back(queue);
     }
@@ -486,11 +484,8 @@ void VDataStreamRecvr::close() {
 }
 
 void VDataStreamRecvr::set_sink_dep_always_ready() const {
-    for (auto* sender_queues : sender_queues()) {
-        auto dep = sender_queues->local_channel_dependency();
-        if (dep) {
-            dep->set_always_ready();
-        }
+    for (auto dep : _sender_to_local_channel_dependency) {
+        dep->set_always_ready();
     }
 }
 
