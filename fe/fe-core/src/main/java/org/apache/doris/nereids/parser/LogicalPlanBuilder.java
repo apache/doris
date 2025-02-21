@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.alter.QuotaType;
+import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
@@ -530,6 +531,8 @@ import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
@@ -811,6 +814,7 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.NodeType;
 
 import com.google.common.collect.ImmutableList;
@@ -5833,6 +5837,88 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return new DescribeCommand(tableName, false, partitionNames);
+    }
+
+    @Override
+    public LogicalPlan visitAnalyzeTable(DorisParser.AnalyzeTableContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        List<String> columnNames = null;
+        if (ctx.columns != null) {
+            columnNames = visitIdentifierList(ctx.columns);
+        }
+        Map<String, String> propertiesMap = new HashMap<>();
+        // default values
+        propertiesMap.put(AnalyzeProperties.PROPERTY_SYNC, "false");
+        propertiesMap.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisInfo.AnalysisType.FUNDAMENTALS.toString());
+        for (DorisParser.AnalyzePropertiesContext aps : ctx.analyzeProperties()) {
+            Map<String, String> map = visitAnalyzeProperties(aps);
+            propertiesMap.putAll(map);
+        }
+        propertiesMap.putAll(visitPropertyClause(ctx.propertyClause()));
+        AnalyzeProperties properties = new AnalyzeProperties(propertiesMap);
+        return new AnalyzeTableCommand(tableNameInfo,
+                partitionNamesInfo, columnNames, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAnalyzeDatabase(DorisParser.AnalyzeDatabaseContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 1) {
+            dbName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+        } else {
+            throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+        }
+
+        Map<String, String> propertiesMap = new HashMap<>();
+        // default values
+        propertiesMap.put(AnalyzeProperties.PROPERTY_SYNC, "false");
+        propertiesMap.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisInfo.AnalysisType.FUNDAMENTALS.toString());
+        for (DorisParser.AnalyzePropertiesContext aps : ctx.analyzeProperties()) {
+            Map<String, String> map = visitAnalyzeProperties(aps);
+            propertiesMap.putAll(map);
+        }
+        propertiesMap.putAll(visitPropertyClause(ctx.propertyClause()));
+        AnalyzeProperties properties = new AnalyzeProperties(propertiesMap);
+        return new AnalyzeDatabaseCommand(ctlName, dbName, properties);
+    }
+
+    @Override
+    public Map<String, String> visitAnalyzeProperties(DorisParser.AnalyzePropertiesContext ctx) {
+        Map<String, String> properties = new HashMap<>();
+        if (ctx.SYNC() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_SYNC, "true");
+        } else if (ctx.INCREMENTAL() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_INCREMENTAL, "true");
+        } else if (ctx.FULL() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        } else if (ctx.SQL() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_EXTERNAL_TABLE_USE_SQL, "true");
+        } else if (ctx.HISTOGRAM() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisInfo.AnalysisType.HISTOGRAM.toString());
+        } else if (ctx.SAMPLE() != null) {
+            if (ctx.ROWS() != null) {
+                properties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, ctx.INTEGER_VALUE().getText());
+            } else if (ctx.PERCENT() != null) {
+                properties.put(AnalyzeProperties.PROPERTY_SAMPLE_PERCENT, ctx.INTEGER_VALUE().getText());
+            }
+        } else if (ctx.BUCKETS() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_NUM_BUCKETS, ctx.INTEGER_VALUE().getText());
+        } else if (ctx.PERIOD() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_PERIOD_SECONDS, ctx.INTEGER_VALUE().getText());
+        } else if (ctx.CRON() != null) {
+            properties.put(AnalyzeProperties.PROPERTY_PERIOD_CRON, ctx.STRING_LITERAL().getText());
+        }
+        return properties;
     }
 
     @Override

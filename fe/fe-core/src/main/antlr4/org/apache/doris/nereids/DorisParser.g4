@@ -747,14 +747,14 @@ supportedStatsStatement
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showAnalyze
     | SHOW QUEUED ANALYZE JOBS tableName=multipartIdentifier?
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
+    | ANALYZE DATABASE name=multipartIdentifier
+        (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
+    | ANALYZE TABLE name=multipartIdentifier partitionSpec?
+        columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
     ;
 
 unsupportedStatsStatement
-    : ANALYZE TABLE name=multipartIdentifier partitionSpec?
-        columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
-    | ANALYZE DATABASE name=multipartIdentifier
-        (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
-    | ALTER TABLE name=multipartIdentifier SET STATS
+    : ALTER TABLE name=multipartIdentifier SET STATS
         LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?                  #alterTableStats
     | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
         MODIFY COLUMN columnName=identifier
