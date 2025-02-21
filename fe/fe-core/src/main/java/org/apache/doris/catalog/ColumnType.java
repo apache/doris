@@ -163,10 +163,34 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.STRUCT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.MAP.ordinal()] = true;
+        // We support schema change from complex type which is valid json to variant type or jsonb type.
+        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
     }
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
         return schemaChangeMatrix[lhs.getPrimitiveType().ordinal()][rhs.getPrimitiveType().ordinal()];
+    }
+
+    public static boolean checkComplexValueCanCastToJson(Type complex) {
+        if (complex.isMapType()) {
+            return ((MapType) complex).getKeyType().isVarcharOrStringType();
+        } else if (complex.isArrayType()) {
+            return checkComplexValueCanCastToJson(((ArrayType) complex).getItemType());
+        } else if (complex.isStructType()) {
+            for (StructField sf : ((StructType) complex).getFields()) {
+                if (!checkComplexValueCanCastToJson(sf.getType())) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     // This method defines the char type
@@ -193,6 +217,15 @@ public abstract class ColumnType {
     // to support the schema-change behavior of length growth.
     public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested)
             throws DdlException {
+        // we support complex type which present standard json to variant type or jsonb type.
+        if (other.isJsonbType() || other.isVariantType()) {
+            if (!ColumnType.checkComplexValueCanCastToJson(checkType)) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            } else {
+                return;
+            }
+        }
+
         if (checkType.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;

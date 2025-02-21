@@ -1950,9 +1950,40 @@ private:
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
-            // set variant root column/type to from column/type
             auto variant = ColumnObject::create(true /*always nullable*/);
-            variant->create_root(from_type, col_from->assume_mutable());
+            if (WhichDataType(from_type).is_complex_type()) {
+                // if we convert map or struct to variant, we should convert the map or struct to string first
+                // convert to string, json has been cast as string in schema_util::_parse_variant_columns
+                // set variant root column/type to from column/type
+                auto dst_str = ColumnString::create();
+                dst_str->clear();
+                dst_str->reserve(input_rows_count);
+                auto dst_null_map = ColumnUInt8::create(input_rows_count, 1);
+                auto* __restrict null_map_data = dst_null_map->get_data().data();
+                VectorBufferWriter write_buffer(*dst_str.get());
+                auto from_serde = from_type->get_serde();
+                DataTypeSerDe::FormatOptions options;
+                options.escape_char = '\\';
+                for (size_t i = 0; i < block.rows(); i++) {
+                    // convert to string
+                    Status st = from_serde->serialize_column_to_json(*col_from, i, i + 1,
+                                                                     write_buffer, options);
+                    // if serialized failed, will return null
+                    if (!st.ok()) {
+                        dst_str->insert_default();
+                        continue;
+                    }
+                    write_buffer.commit();
+                    null_map_data[i] = 0;
+                }
+                // then change origin type and column to  string type and column
+                variant->create_root(
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+                        ColumnNullable::create(dst_str->assume_mutable(),
+                                               dst_null_map->assume_mutable()));
+            } else {
+                variant->create_root(from_type, col_from->assume_mutable());
+            }
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
         }
