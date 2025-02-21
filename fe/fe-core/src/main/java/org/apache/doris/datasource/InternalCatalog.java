@@ -2802,7 +2802,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setIsBeingSynced(isBeingSynced);
         if (isBeingSynced) {
             // erase colocate table, storage policy
-            olapTable.ignoreInvaildPropertiesWhenSynced(properties);
+            olapTable.ignoreInvalidPropertiesWhenSynced(properties);
             // remark auto bucket
             if (isAutoBucket) {
                 olapTable.markAutoBucket();
