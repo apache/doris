@@ -2372,9 +2372,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                         return;
                     }
                 }
-                if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id,
-                                                       request->lock_id(), request->initiator(),
-                                                       lock_key, lock_info, current_lock_msg)) {
+                if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id, request->lock_id(),
+                                                       request->initiator(), lock_key, lock_info,
+                                                       current_lock_msg)) {
                     return;
                 }
             } else {
@@ -2452,6 +2452,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         }
 
         err = txn->commit();
+        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock:commit:conflict", &first_retry,
+                                 &err);
         if (err == TxnErrorCode::TXN_OK) {
             break;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
