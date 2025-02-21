@@ -196,6 +196,10 @@ void convert_tmp_rowsets(
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+        if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+            ss << ", likely due to committing too many tablets. "
+                  "Please reduce the number of partitions involved in the load.";
+        }
         msg = ss.str();
         return;
     }
@@ -281,6 +285,10 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+            if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                ss << ", likely due to committing too many tablets. "
+                      "Please reduce the number of partitions involved in the load.";
+            }
             msg = ss.str();
             return;
         }
@@ -454,6 +462,10 @@ void TxnLazyCommitTask::commit() {
                     if (err != TxnErrorCode::TXN_OK) {
                         code_ = cast_as<ErrCategory::COMMIT>(err);
                         ss << "failed to commit kv txn, txn_id=" << txn_id_ << " err=" << err;
+                        if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                            ss << ", likely due to committing too many tablets. "
+                                  "Please reduce the number of partitions involved in the load.";
+                        }
                         msg_ = ss.str();
                         break;
                     }

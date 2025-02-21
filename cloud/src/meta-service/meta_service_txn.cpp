@@ -2491,6 +2491,10 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         }
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to commit kv txn with sub txn, txn_id=" << txn_id << " err=" << err;
+        if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+            ss << ", likely due to committing too many tablets. "
+                  "Please reduce the number of partitions involved in the load.";
+        }
         msg = ss.str();
         return;
     }
