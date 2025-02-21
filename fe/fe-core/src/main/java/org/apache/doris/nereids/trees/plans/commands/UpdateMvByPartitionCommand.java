@@ -99,9 +99,18 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
             Map<TableIf, String> tableWithPartKey) throws UserException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask param for mvName: {}, partitionNames: {}, tableWithPartKey: {}", mv.getName(),
+                    partitionNames, tableWithPartKey);
+        }
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionNames, tableWithPartKey);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask predicates for mvName: {}, partitionNames: {}, predicates: {}", mv.getName(),
+                    partitionNames,
+                    getExpressionsSql(predicates));
+        }
         List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         plan = plan.accept(new PredicateAdder(), new PredicateAddContext(predicates));
@@ -117,6 +126,17 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return new UpdateMvByPartitionCommand(sink);
     }
 
+    private static String getExpressionsSql(Map<TableIf, Set<Expression>> predicates) {
+        StringBuilder builder = new StringBuilder();
+        predicates.forEach((table, expressions) -> {
+            builder.append("Table: " + table.getName());
+            expressions.stream()
+                    .map(Expression::toSql)
+                    .forEach(sql -> builder.append("  Expression SQL: " + sql));
+        });
+        return builder.toString();
+    }
+
     private static List<String> constructPartsForMv(Set<String> partitionNames) {
         return Lists.newArrayList(partitionNames);
     }
@@ -126,6 +146,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         Set<PartitionItem> items = Sets.newHashSet();
         for (String partitionName : partitionNames) {
             PartitionItem partitionItem = mv.getPartitionItemOrAnalysisException(partitionName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask partitionItem for mvName: {}, partitionName: {}, partitionItem: {}", mv.getName(),
+                        partitionName, partitionItem);
+            }
             items.add(partitionItem);
         }
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
@@ -151,6 +175,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask constructPredicates for partitions: {}, colSlot: {}",
+                    partitions, colSlot);
+        }
         Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
@@ -173,6 +201,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     }
 
     private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask convertListPartitionToIn for PartitionItem: {}, col: {}",
+                    item, col);
+        }
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
                 .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
                 .collect(ImmutableList.toImmutableList());
@@ -190,28 +222,60 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         if (predicates.isEmpty()) {
             return BooleanLiteral.of(true);
         }
-        return ExpressionUtils.or(predicates);
+        Expression res = ExpressionUtils.or(predicates);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask convertListPartitionToIn res for PartitionItem: {}, res: {}",
+                    item, res.toSql());
+        }
+        return res;
     }
 
     private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask convertRangePartitionToCompare for PartitionItem: {}, col: {}",
+                    item, col);
+        }
         Range<PartitionKey> range = item.getItems();
         List<Expression> expressions = new ArrayList<>();
         if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
             PartitionKey key = range.lowerEndpoint();
-            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask convertRangePartitionToCompare lowerEndpoint: {}", key);
+            }
+            GreaterThanEqual greaterThanEqual = new GreaterThanEqual(col, convertPartitionKeyToLiteral(key));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask convertRangePartitionToCompare greaterThanEqual: {}", greaterThanEqual.toString());
+            }
+            expressions.add(greaterThanEqual);
         }
         if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
             PartitionKey key = range.upperEndpoint();
-            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask convertRangePartitionToCompare upperEndpoint: {}", key);
+            }
+            LessThan lessThan = new LessThan(col, convertPartitionKeyToLiteral(key));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask convertRangePartitionToCompare lessThan: {}", lessThan.toString());
+            }
+            expressions.add(lessThan);
         }
         if (expressions.isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask convertRangePartitionToCompare expressions is empty");
+            }
             return BooleanLiteral.of(true);
         }
         Expression predicate = ExpressionUtils.and(expressions);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask convertRangePartitionToCompare predicate: {}", predicate.toSql());
+        }
         // The partition without can be the first partition of LESS THAN PARTITIONS
         // The null value can insert into this partition, so we need to add or is null condition
         if (!range.hasLowerBound() || range.lowerEndpoint().isMinValue()) {
             predicate = ExpressionUtils.or(predicate, new IsNull(col));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("MTMVTask convertRangePartitionToCompare isMinValue predicate: {}", predicate.toSql());
+            }
         }
         return predicate;
     }
