@@ -366,23 +366,23 @@ suite("test_window_function") {
                     rows between unbounded preceding and current row)
                     as wj from baseall order by ${k1}, wj"""
 
-    qt_lag_1 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1},${k2}, lag(${k2}) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2;"
+    qt_lag_1 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1},${k2}, lag(${k2}) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2,3;"
     
     test {
         sql"select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, lag(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
         exception ""
     }
     
-    qt_lag_2 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, ${k2}, lag(${k2}, 1) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2;"
+    qt_lag_2 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, ${k2}, lag(${k2}, 1) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2,3;"
     
-    qt_lead_1 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, ${k2}, lead(${k2}) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2;"
+    qt_lead_1 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, ${k2}, lead(${k2}) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2,3;"
     
     test {
         sql"select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, lead(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
         exception ""
     }
     
-    qt_lead_2 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, ${k2}, lead(${k2}, 1) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2;"
+    qt_lead_2 "select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, ${k2}, lead(${k2}, 1) over (partition by ${k1} order by ${k3},${k2}) from baseall order by 1,2,3;"
     
     qt_window_error1"""select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall order by ${k1}"""
     qt_window_error2"""select /*+SET_VAR(parallel_pipeline_task_num=1) */ ${k1}, first_value(${k2}) over (order by ${k3}) from baseall"""
