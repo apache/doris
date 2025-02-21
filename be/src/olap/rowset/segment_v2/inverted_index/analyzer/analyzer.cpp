@@ -28,7 +28,7 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-#include "CLucene/analysis/icu/ICUAnalyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/ICUAnalyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -67,7 +67,7 @@ std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyz
         }
         analyzer = std::move(chinese_analyzer);
     } else if (analyser_type == InvertedIndexParserType::PARSER_ICU) {
-        analyzer = std::make_unique<lucene::analysis::ICUAnalyzer>();
+        analyzer = std::make_unique<ICUAnalyzer>();
         analyzer->initDict(config::inverted_index_dict_path + "/icu");
     } else {
         // default
