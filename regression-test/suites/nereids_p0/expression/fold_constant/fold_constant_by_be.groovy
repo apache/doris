@@ -86,4 +86,11 @@ suite("fold_constant_by_be") {
                 "from table_200_undef_partitions2_keys3_properties4_distributed_by53;")
         notContains("mask")
     }
+
+    sql""" set enable_fold_constant_by_be = true; """
+    explain {
+        sql("select hex(s) from ( select from_base64('wr2JEDVXzL9+2XtRhgIloA==') as s )t;")
+        contains "hex(from_base64('wr2JEDVXzL9+2XtRhgIloA=='))"
+    }
+    qt_sql """ select hex(s) from ( select from_base64('wr2JEDVXzL9+2XtRhgIloA==') as s )t; """
 }
