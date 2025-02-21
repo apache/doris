@@ -870,12 +870,12 @@ public class LoadAction extends RestBaseController {
         String fullDbName = getFullDbName(db);
 
         long loadId = -1;
+        LoadJob loadJob = null;
         try {
 
             String body = HttpUtils.getBody(request);
             JsonMapper mapper = JsonMapper.builder().build();
             JsonNode jsonNode = mapper.readTree(body);
-            LoadJob loadJob = null;
 
             if (jsonNode.hasNonNull("loadId")) {
                 loadId = jsonNode.get("loadId").asLong();
@@ -897,6 +897,10 @@ public class LoadAction extends RestBaseController {
             ingestionLoadJob.updateJobStatus(statusInfo);
         } catch (IOException | MetaNotFoundException | UnauthorizedException e) {
             LOG.warn("cancel ingestion load job failed, db: {}, load id: {}, err: {}", db, loadId, e.getMessage());
+            if (loadJob != null) {
+                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()),
+                        true, true);
+            }
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
