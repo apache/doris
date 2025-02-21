@@ -56,7 +56,7 @@ public class TimeV2LiteralTest {
         Assertions.assertEquals(s, "-00:01:01");
         literal = new TimeV2Literal(-3599000000.0);
         s = literal.getStringValue();
-        Assertions.assertEquals(s, "-00:59:59");
+        Assertions.assertEquals(s, "-00:59:59.000000");
         // contail micro second part
         literal = new TimeV2Literal(TimeV2Type.of(6), "12:12:12.121212");
         s = literal.getStringValue();

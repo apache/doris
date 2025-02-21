@@ -204,6 +204,7 @@ public class TimeV2Literal extends LiteralExpr {
             }
         } else {
             microsecond = 0;
+            this.type = ScalarType.createTimeV2Type(0);
         }
 
         if (checkRange(hour, minute, second, microsecond)) {
