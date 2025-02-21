@@ -29,10 +29,13 @@ namespace doris::vectorized {
 class PaimonReader : public TableFormatReader {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                 const TFileScanRangeParams& params);
+                 RuntimeState* state, const TFileScanRangeParams& params,
+                 const TFileRangeDesc& range);
     ~PaimonReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
+
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
 
 protected:
     struct PaimonProfile {
@@ -42,18 +45,21 @@ protected:
     std::vector<int64_t> _delete_rows;
     RuntimeProfile* _profile;
     PaimonProfile _paimon_profile;
-    virtual void set_delete_rows() = 0;
-
-private:
+    RuntimeState* _state;
+    int64_t _remaining_table_level_row_count;
     const TFileScanRangeParams& _params;
+    const TFileRangeDesc& _range;
+
+    virtual void set_delete_rows() = 0;
 };
 
 class PaimonOrcReader final : public PaimonReader {
 public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                    const TFileScanRangeParams& params)
-            : PaimonReader(std::move(file_format_reader), profile, params) {};
+                    RuntimeState* state, const TFileScanRangeParams& params,
+                    const TFileRangeDesc& range)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range) {};
     ~PaimonOrcReader() final = default;
 
     void set_delete_rows() override {
@@ -66,8 +72,9 @@ class PaimonParquetReader final : public PaimonReader {
 public:
     ENABLE_FACTORY_CREATOR(PaimonParquetReader);
     PaimonParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                        const TFileScanRangeParams& params)
-            : PaimonReader(std::move(file_format_reader), profile, params) {};
+                        RuntimeState* state, const TFileScanRangeParams& params,
+                        const TFileRangeDesc& range)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range) {};
     ~PaimonParquetReader() final = default;
 
     void set_delete_rows() override {

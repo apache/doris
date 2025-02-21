@@ -106,9 +106,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
 
-    private boolean pushDownCount = false;
-    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
-
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
             boolean needCheckColumnPriv,
@@ -187,7 +184,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
         fileDesc.setTblId(source.getTargetTable().getId());
         fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
-        // The hadoop conf should be same with PaimonExternalCatalog.createCatalog()#getConfiguration()
+        // The hadoop conf should be same with
+        // PaimonExternalCatalog.createCatalog()#getConfiguration()
         fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getHadoopProperties());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
@@ -197,6 +195,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             tDeletionFile.setOffset(deletionFile.offset());
             tDeletionFile.setLength(deletionFile.length());
             fileDesc.setDeletionFile(tDeletionFile);
+        }
+        if (paimonSplit.getRowCount().isPresent()) {
+            fileDesc.setRowCount(paimonSplit.getRowCount().get());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
@@ -245,38 +246,34 @@ public class PaimonScanNode extends FileQueryScanNode {
                     splitStat.setType(SplitReadType.NATIVE);
                     splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
-                    if (optDeletionFiles.isPresent()) {
-                        List<DeletionFile> deletionFiles = optDeletionFiles.get();
-                        for (int i = 0; i < rawFiles.size(); i++) {
-                            RawFile file = rawFiles.get(i);
-                            DeletionFile deletionFile = deletionFiles.get(i);
-                            LocationPath locationPath = new LocationPath(file.path(),
-                                    source.getCatalog().getProperties());
-                            try {
-                                List<Split> dorisSplits = FileSplitter.splitFile(
-                                        locationPath,
-                                        getRealFileSplitSize(0),
-                                        null,
-                                        file.length(),
-                                        -1,
-                                        true,
-                                        null,
-                                        PaimonSplit.PaimonSplitCreator.DEFAULT);
-                                for (Split dorisSplit : dorisSplits) {
-                                    // the element in DeletionFiles might be null
-                                    if (deletionFile != null) {
-                                        splitStat.setHasDeletionVector(true);
-                                        ((PaimonSplit) dorisSplit).setDeletionFile(deletionFile);
-                                    }
-                                    splits.add(dorisSplit);
+                    for (int i = 0; i < rawFiles.size(); i++) {
+                        RawFile file = rawFiles.get(i);
+                        LocationPath locationPath = new LocationPath(file.path(),
+                                source.getCatalog().getProperties());
+                        try {
+                            List<Split> dorisSplits = FileSplitter.splitFile(
+                                    locationPath,
+                                    // if applyCountPushdown is true, we can't to split the file
+                                    // becasue the raw file and deletion vector is one-to-one mapping
+                                    getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0),
+                                    null,
+                                    file.length(),
+                                    -1,
+                                    true,
+                                    null,
+                                    PaimonSplit.PaimonSplitCreator.DEFAULT);
+                            for (Split dorisSplit : dorisSplits) {
+                                // try to set deletion file
+                                if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
+                                    ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
+                                    splitStat.setHasDeletionVector(true);
                                 }
-                                ++rawFileSplitNum;
-                            } catch (IOException e) {
-                                throw new UserException("Paimon error to split file: " + e.getMessage(), e);
                             }
+                            splits.addAll(dorisSplits);
+                            ++rawFileSplitNum;
+                        } catch (IOException e) {
+                            throw new UserException("Paimon error to split file: " + e.getMessage(), e);
                         }
-                    } else {
-                        createRawFileSplits(rawFiles, splits, applyCountPushdown ? Long.MAX_VALUE : 0);
                     }
                 } else {
                     if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
@@ -295,31 +292,25 @@ public class PaimonScanNode extends FileQueryScanNode {
             splitStats.add(splitStat);
         }
 
+        // if applyCountPushdown is true, calcute row count for count pushdown
+        if (applyCountPushdown) {
+            // check if all splits dont't have deletion vector or cardinality of every
+            // deletion vector is not null
+            boolean applyTableCountPushdown = paimonSplits.stream().allMatch(s -> !s.deletionFiles().isPresent()
+                    || s.deletionFiles().get().stream().allMatch(dv -> dv.cardinality() != null));
+            if (applyTableCountPushdown) {
+                long totalCount = paimonSplits.stream().mapToLong(s -> s.rowCount()).sum();
+                long deletionVectorCount = paimonSplits.stream().mapToLong(s -> !s.deletionFiles().isPresent()
+                        ? 0
+                        : s.deletionFiles().get().stream().mapToLong(dv -> dv == null ? 0 : dv.cardinality()).sum())
+                        .sum();
+                assignCountToSplits(splits, totalCount -= deletionVectorCount);
+            }
+        }
+
         this.selectedPartitionNum = selectedPartitionValues.size();
         // TODO: get total partition number
         return splits;
-    }
-
-    private void createRawFileSplits(List<RawFile> rawFiles, List<Split> splits, long blockSize) throws UserException {
-        for (RawFile file : rawFiles) {
-            LocationPath locationPath = new LocationPath(file.path(),
-                    source.getCatalog().getProperties());
-            try {
-                splits.addAll(
-                        FileSplitter.splitFile(
-                                locationPath,
-                                getRealFileSplitSize(blockSize),
-                                null,
-                                file.length(),
-                                -1,
-                                true,
-                                null,
-                                PaimonSplit.PaimonSplitCreator.DEFAULT));
-                ++rawFileSplitNum;
-            } catch (IOException e) {
-                throw new UserException("Paimon error to split file: " + e.getMessage(), e);
-            }
-        }
     }
 
     private String getFileFormat(String path) {
@@ -404,5 +395,14 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
         return sb.toString();
+    }
+
+    private void assignCountToSplits(List<Split> splits, long totalCount) {
+        int size = splits.size();
+        long countPerSplit = totalCount / size;
+        for (int i = 0; i < size - 1; i++) {
+            ((PaimonSplit) splits.get(i)).setRowCount(countPerSplit);
+        }
+        ((PaimonSplit) splits.get(size - 1)).setRowCount(countPerSplit + totalCount % size);
     }
 }

@@ -20,19 +20,30 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/deletion_vector.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
-                           RuntimeProfile* profile, const TFileScanRangeParams& params)
-        : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
+                           RuntimeProfile* profile, RuntimeState* state,
+                           const TFileScanRangeParams& params, const TFileRangeDesc& range)
+        : TableFormatReader(std::move(file_format_reader)),
+          _profile(profile),
+          _state(state),
+          _params(params),
+          _range(range) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =
             ADD_CHILD_COUNTER(_profile, "NumDeleteRows", TUnit::UNIT, paimon_profile);
     _paimon_profile.delete_files_read_time =
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
+    if (range.table_format_params.paimon_params.__isset.row_count) {
+        _remaining_table_level_row_count = range.table_format_params.paimon_params.row_count;
+    } else {
+        _remaining_table_level_row_count = -1;
+    }
 }
 
 Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) {
@@ -43,7 +54,10 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
 
     // set push down agg type to NONE because we can not do count push down opt
     // if there are delete files.
-    _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
+    if (!range.table_format_params.paimon_params.__isset.row_count) {
+        _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
+    }
+
     const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
@@ -98,6 +112,26 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         set_delete_rows();
     }
     return Status::OK();
+}
+
+Status PaimonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
+        auto rows = std::min(_remaining_table_level_row_count,
+                             (int64_t)_state->query_options().batch_size);
+        _remaining_table_level_row_count -= rows;
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
+            col->resize(rows);
+        }
+        block->set_columns(std::move(mutate_columns));
+        *read_rows = rows;
+        if (_remaining_table_level_row_count == 0) {
+            *eof = true;
+        }
+
+        return Status::OK();
+    }
+    return _file_format_reader->get_next_block(block, read_rows, eof);
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
