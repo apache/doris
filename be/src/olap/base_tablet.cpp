@@ -690,6 +690,17 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                             tablet_id(), rowset_id.to_string());
                 }
             });
+            DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.inject_sleep", {
+                auto p = dp->param("percent", 0.01);
+                auto sleep_time = dp->param("sleep", 100);
+                std::mt19937 gen {std::random_device {}()};
+                std::bernoulli_distribution inject_fault {p};
+                if (inject_fault(gen)) {
+                    LOG_INFO("injection sleep for {} seconds, tablet_id={}, rowset_id={}",
+                             sleep_time, tablet_id(), rowset_id.to_string());
+                    std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+                }
+            });
 
             RowsetSharedPtr rowset_find;
             Status st = Status::OK();
