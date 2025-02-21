@@ -83,6 +83,37 @@ update_conf_from_configmap()
     done
 }
 
+
+kerberos_config()
+{
+   if [[ -n "$KRB5_PATH" ]]; then
+        KRB5_CONFIG=${KRB5_CONFIG:-"/etc/krb5.conf"}
+
+        if [[ -f "$KRB5_PATH/krb5.conf" ]]; then
+            log_stderr "[info] Creating symlink from $KRB5_PATH/krb5.conf to $KRB5_CONFIG"
+            ln -sfT "$KRB5_PATH/krb5.conf" "$KRB5_CONFIG"
+        else
+            log_stderr "[warning] krb5.conf not found in $KRB5_PATH"
+        fi
+    fi
+
+    if [[ -n "$KEYTAB_PATH" ]]; then
+        if [[ -d "$KEYTAB_PATH" ]]; then
+            keytab_files=($(find "$KEYTAB_PATH" -name "*.keytab"))
+            if [[ ${#keytab_files[@]} -gt 0 ]]; then
+                log_stderr "[info] Found keytab file(s) in $KEYTAB_PATH:"
+                for keytab_file in "${keytab_files[@]}"; do
+                    echo "$keytab_file"
+                done
+            else
+                log_stderr "[warning] No keytab files found in $KEYTAB_PATH"
+            fi
+        else
+            log_stderr "[warning] KEYTAB_PATH $KEYTAB_PATH does not exist or is not a directory"
+        fi
+    fi
+}
+
 # resolve password for root
 resolve_password_from_secret()
 {
@@ -278,6 +309,7 @@ fi
 
 update_conf_from_configmap
 add_default_conf
+kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
