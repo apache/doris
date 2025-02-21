@@ -119,11 +119,13 @@ void TaskScheduler::_do_work(int index) {
                 // decrement_running_task may delete fragment context and will core in some defer
                 // code, because the defer code will access fragment context itself.
                 auto lock_for_context = task->fragment_context()->shared_from_this();
-                auto close = close_task(task, status);
+                bool close = close_task(task, status);
+                task->set_running(false);
                 if (close) {
                     task->fragment_context()->decrement_running_task(task->pipeline_id());
-                    task->set_running(false);
                 }
+            } else {
+                task->set_running(false);
             }
         }};
         task->set_task_queue(&_task_queue);
@@ -133,6 +135,7 @@ void TaskScheduler::_do_work(int index) {
         // Close task if canceled
         if (canceled) {
             status = fragment_ctx->get_query_ctx()->exec_status();
+            DCHECK(!status.ok());
             continue;
         }
         task->set_core_id(index);
