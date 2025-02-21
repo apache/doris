@@ -205,30 +205,6 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
-set(ICU_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-find_library(ICU_UC_LIBRARY NAMES libicuuc.a PATHS ${ICU_ROOT}/lib)
-find_library(ICU_I18N_LIBRARY NAMES libicui18n.a PATHS ${ICU_ROOT}/lib)
-find_library(ICU_DATA_LIBRARY NAMES libicudata.a PATHS ${ICU_ROOT}/lib)
-message("ICU_UC_LIBRARY: " ${ICU_UC_LIBRARY})
-message("ICU_I18N_LIBRARY: " ${ICU_I18N_LIBRARY})
-message("ICU_DATA_LIBRARY: " ${ICU_DATA_LIBRARY})
-if (ICU_UC_LIBRARY AND ICU_I18N_LIBRARY AND ICU_DATA_LIBRARY)
-    add_library(icu INTERFACE IMPORTED)
-    target_link_libraries(icu INTERFACE
-        ${ICU_UC_LIBRARY}
-        ${ICU_I18N_LIBRARY}
-        ${ICU_DATA_LIBRARY}
-    )
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        icu
-    )
-    add_definitions(-DUSE_ICU)
-    message(STATUS "ICU found and linked successfully!")
-else()
-    message(WARNING "ICU not found! Please install ICU first.")
-endif()
-
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
@@ -251,7 +227,7 @@ install(DIRECTORY
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/core/CLucene/analysis/icu/data/uax29
+    ${BASE_DIR}/dict/icu/uax29
     DESTINATION ${OUTPUT_DIR}/dict/icu)
 
 # Check if functions are supported in this platform. All flags will generated
