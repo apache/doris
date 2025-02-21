@@ -51,7 +51,7 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_unique_id(tdesc.col_unique_id),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized || tdesc.need_materialize),
+          _is_materialized(tdesc.isMaterialized && tdesc.need_materialize),
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),

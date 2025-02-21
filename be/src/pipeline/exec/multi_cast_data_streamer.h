@@ -37,16 +37,11 @@ struct MultiCastBlock {
 // code
 class MultiCastDataStreamer {
 public:
-    MultiCastDataStreamer(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count,
-                          bool with_dependencies = false)
-            : _row_desc(row_desc),
-              _profile(pool->add(new RuntimeProfile("MultiCastDataStreamSink"))),
+    MultiCastDataStreamer(ObjectPool* pool, int cast_sender_count)
+            : _profile(pool->add(new RuntimeProfile("MultiCastDataStreamSink"))),
               _cast_sender_count(cast_sender_count) {
         _sender_pos_to_read.resize(cast_sender_count, _multi_cast_blocks.end());
-        if (with_dependencies) {
-            _dependencies.resize(cast_sender_count, nullptr);
-        }
-
+        _dependencies.resize(cast_sender_count, nullptr);
         _peak_mem_usage = ADD_COUNTER(profile(), "PeakMemUsage", TUnit::BYTES);
         _process_rows = ADD_COUNTER(profile(), "ProcessRows", TUnit::UNIT);
     };
@@ -56,8 +51,6 @@ public:
     Status pull(int sender_idx, vectorized::Block* block, bool* eos);
 
     Status push(RuntimeState* state, vectorized::Block* block, bool eos);
-
-    const RowDescriptor& row_desc() { return _row_desc; }
 
     RuntimeProfile* profile() { return _profile; }
 
@@ -71,7 +64,6 @@ private:
     void _block_reading(int sender_idx);
 
     void _copy_block(vectorized::Block* block, int& un_finish_copy);
-    const RowDescriptor& _row_desc;
     RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;

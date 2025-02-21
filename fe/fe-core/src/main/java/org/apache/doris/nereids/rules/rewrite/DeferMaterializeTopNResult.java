@@ -184,6 +184,10 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
             deferredMaterializedExprIds.retainAll(logicalProject.get().getInputSlots().stream()
                     .map(NamedExpression::getExprId).collect(Collectors.toSet()));
         }
+        if (deferredMaterializedExprIds.isEmpty()) {
+            // nothing to deferred materialize
+            return null;
+        }
         LogicalDeferMaterializeOlapScan deferOlapScan = new LogicalDeferMaterializeOlapScan(
                 logicalOlapScan, deferredMaterializedExprIds, columnId);
         Plan root = logicalFilter.map(f -> f.withChildren(deferOlapScan)).orElse(deferOlapScan);

@@ -35,16 +35,18 @@ void WorkloadSchedPolicy::init(int64_t id, std::string name, int version, bool e
     _action_list = std::move(action_list);
     _wg_id_set = wg_id_set;
 
-    _first_action_type = _action_list[0]->get_action_type();
-    if (_first_action_type != WorkloadActionType::MOVE_QUERY_TO_GROUP &&
-        _first_action_type != WorkloadActionType::CANCEL_QUERY) {
-        for (int i = 1; i < _action_list.size(); i++) {
-            WorkloadActionType cur_action_type = _action_list[i]->get_action_type();
-            // one policy can not both contains move and cancel
-            if (cur_action_type == WorkloadActionType::MOVE_QUERY_TO_GROUP ||
-                cur_action_type == WorkloadActionType::CANCEL_QUERY) {
-                _first_action_type = cur_action_type;
-                break;
+    if (!_action_list.empty()) {
+        _first_action_type = _action_list[0]->get_action_type();
+        if (_first_action_type != WorkloadActionType::MOVE_QUERY_TO_GROUP &&
+            _first_action_type != WorkloadActionType::CANCEL_QUERY) {
+            for (int i = 1; i < _action_list.size(); i++) {
+                WorkloadActionType cur_action_type = _action_list[i]->get_action_type();
+                // one policy can not both contains move and cancel
+                if (cur_action_type == WorkloadActionType::MOVE_QUERY_TO_GROUP ||
+                    cur_action_type == WorkloadActionType::CANCEL_QUERY) {
+                    _first_action_type = cur_action_type;
+                    break;
+                }
             }
         }
     }
@@ -70,8 +72,7 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtim
         switch (cond->get_workload_metric_type()) {
         case WorkloadMetricType::QUERY_TIME: {
             val = std::to_string(
-                    MonotonicMillis() -
-                    action_runtime_ctx->resource_ctx->task_controller()->finish_time());
+                    action_runtime_ctx->resource_ctx->task_controller()->running_time());
             break;
         }
         case WorkloadMetricType::SCAN_BYTES: {

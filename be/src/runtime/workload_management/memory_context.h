@@ -83,7 +83,8 @@ public:
 
     int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
     int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
-    int64_t max_peak_memory_bytes() const { return stats_.max_peak_memory_bytes_counter_->value(); }
+    // TODO, use stats_.max_peak_memory_bytes_counter_->value();
+    int64_t max_peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
     int64_t revoke_attempts() const { return stats_.revoke_attempts_counter_->value(); }
     int64_t revoke_wait_time_ms() const { return stats_.revoke_wait_time_ms_counter_->value(); }
     int64_t revoked_bytes() const { return stats_.revoked_bytes_counter_->value(); }

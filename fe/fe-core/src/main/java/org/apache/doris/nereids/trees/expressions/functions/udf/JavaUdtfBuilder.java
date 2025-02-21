@@ -90,4 +90,19 @@ public class JavaUdtfBuilder extends UdfBuilder {
         }
         return Pair.ofSame(udf.withChildren(processedExprs));
     }
+
+    @Override
+    public String parameterDisplayString() {
+        StringBuilder string = new StringBuilder("(");
+        for (int i = 0; i < udf.getArgumentsTypes().size(); ++i) {
+            if (i > 0) {
+                string.append(", ");
+            }
+            string.append(udf.getArgumentsTypes().get(i));
+            if (isVarArgs && i + 1 == udf.getArgumentsTypes().size()) {
+                string.append("...");
+            }
+        }
+        return string.append(")").toString();
+    }
 }

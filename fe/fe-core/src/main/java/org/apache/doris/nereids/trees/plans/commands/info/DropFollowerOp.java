@@ -15,32 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.paimon.types.DataField;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.DropFollowerClause;
+import org.apache.doris.ha.FrontendNodeType;
 
-import java.util.List;
-
-public class PaimonSchema {
-    private final long schemaId;
-    private final List<DataField> fields;
-    private final List<String> partitionKeys;
-
-    public PaimonSchema(long schemaId, List<DataField> fields, List<String> partitionKeys) {
-        this.schemaId = schemaId;
-        this.fields = fields;
-        this.partitionKeys = partitionKeys;
+/**
+ * DropFollowerOp
+ */
+public class DropFollowerOp extends FrontendOp {
+    public DropFollowerOp(String hostPort) {
+        super(hostPort, FrontendNodeType.FOLLOWER);
     }
 
-    public long getSchemaId() {
-        return schemaId;
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ALTER CLUSTER DROP FOLLOWER \"");
+        sb.append(hostPort).append("\"");
+        return sb.toString();
     }
 
-    public List<DataField> getFields() {
-        return fields;
-    }
-
-    public List<String> getPartitionKeys() {
-        return partitionKeys;
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new DropFollowerClause(hostPort, host, port, role);
     }
 }

@@ -272,6 +272,7 @@ struct WhichDataType {
     bool is_struct() const { return idx == TypeIndex::Struct; }
     bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
+    bool is_fixed_length_object() const { return idx == TypeIndex::FixedLengthObject; }
 
     bool is_nothing() const { return idx == TypeIndex::Nothing; }
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
@@ -369,6 +370,11 @@ bool is_fixed_string(const T& data_type) {
 template <typename T>
 bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
+}
+
+template <typename T>
+bool is_fixed_length_object(const T& data_type) {
+    return WhichDataType(data_type).is_fixed_length_object();
 }
 
 inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_type) {

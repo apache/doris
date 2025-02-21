@@ -733,6 +733,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
                 continue;
+                // NOTE: for partial update which doesn't specify the sequence column, we can't use the sequence column value filled in flush phase
+                // as its final value. Otherwise it may cause inconsistency between replicas.
             }
             if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update

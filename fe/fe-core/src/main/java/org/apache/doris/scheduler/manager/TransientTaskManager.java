@@ -63,10 +63,9 @@ public class TransientTaskManager {
     }
 
     public void cancelMemoryTask(Long taskId) throws JobException {
-        try {
-            taskExecutorMap.get(taskId).cancel();
-        } finally {
-            removeMemoryTask(taskId);
+        TransientTaskExecutor transientTaskExecutor = taskExecutorMap.get(taskId);
+        if (transientTaskExecutor != null) {
+            transientTaskExecutor.cancel();
         }
     }
 

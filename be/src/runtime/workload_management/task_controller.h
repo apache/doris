@@ -30,7 +30,10 @@ class TaskController {
     ENABLE_FACTORY_CREATOR(TaskController);
 
 public:
-    TaskController() { task_id_ = TUniqueId(); };
+    TaskController() {
+        task_id_ = TUniqueId();
+        start_time_ = MonotonicMillis();
+    };
     virtual ~TaskController() = default;
 
     bool is_attach_task() { return task_id_ != TUniqueId(); }
@@ -51,10 +54,7 @@ public:
 
     int64_t start_time() const { return start_time_; }
     int64_t finish_time() const { return finish_time_; }
-    Status running_time(int64_t* running_time_msecs) const {
-        *running_time_msecs = finish_time_ - start_time_;
-        return Status::OK();
-    }
+    int64_t running_time() const { return finish_time_ - start_time_; }
     TNetworkAddress fe_addr() { return fe_addr_; }
     TQueryType::type query_type() { return query_type_; }
 

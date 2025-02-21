@@ -71,9 +71,13 @@ ScannerContext::ScannerContext(
           _parallism_of_scan_operator(parallism_of_scan_operator),
           _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
           _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()) {
+    DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
+#ifndef BE_TEST
     _query_id = _state->get_query_ctx()->query_id();
+    _resource_ctx = _state->get_query_ctx()->resource_ctx();
+#endif
     ctx_id = UniqueId::gen_uid().to_string();
     for (auto& scanner : _all_scanners) {
         _pending_scanners.push(scanner);
@@ -81,21 +85,17 @@ ScannerContext::ScannerContext(
     if (limit < 0) {
         limit = -1;
     }
-    _resource_ctx = _state->get_query_ctx()->resource_ctx();
     _dependency = dependency;
-    if (_min_scan_concurrency_of_scan_scheduler == 0) {
-        _min_scan_concurrency_of_scan_scheduler = 2 * config::doris_scanner_thread_pool_thread_num;
-    }
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
 // After init function call, should not access _parent
 Status ScannerContext::init() {
+#ifndef BE_TEST
     _scanner_profile = _local_state->_scanner_profile;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
-#ifndef BE_TEST
     // 3. get thread token
     if (!_state->get_query_ctx()) {
         return Status::InternalError("Query context of {} is not set",
@@ -108,26 +108,13 @@ Status ScannerContext::init() {
         _should_reset_thread_name = false;
     }
 
-#endif
     _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
                                                     thread_token == nullptr ? "False" : "True");
 
-    // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
-    // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
-    // is larger than 10MB.
-    _max_bytes_in_queue = std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
-
-    // Provide more memory for wide tables, increase proportionally by multiples of 300
-    _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
-
-    // TODO: Where is the proper position to place this code?
-    if (_all_scanners.empty()) {
-        _is_finished = true;
-        _set_scanner_done();
-    }
-
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
+
+    // TODO: Maybe need refactor.
     // A query could have remote scan task and local scan task at the same time.
     // So we need to compute the _scanner_scheduler in each scan operator instead of query context.
     SimplifiedScanScheduler* simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
@@ -148,6 +135,24 @@ Status ScannerContext::init() {
             _scanner_scheduler = _scanner_scheduler_global->get_remote_scan_thread_pool();
         }
     }
+#endif
+    // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
+    // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
+    // is larger than 10MB.
+    _max_bytes_in_queue = std::max(_state->scan_queue_mem_limit(), (int64_t)1024 * 1024 * 10);
+
+    // Provide more memory for wide tables, increase proportionally by multiples of 300
+    _max_bytes_in_queue *= _output_tuple_desc->slots().size() / 300 + 1;
+
+    if (_min_scan_concurrency_of_scan_scheduler == 0) {
+        // _scanner_scheduler->get_max_threads() is setted by workload group.
+        _min_scan_concurrency_of_scan_scheduler = 2 * _scanner_scheduler->get_max_threads();
+    }
+
+    if (_all_scanners.empty()) {
+        _is_finished = true;
+        _set_scanner_done();
+    }
 
     // The overall target of our system is to make full utilization of the resources.
     // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
@@ -155,7 +160,6 @@ Status ScannerContext::init() {
     // So that for a single query, we can make sure it could make full utilization of the resource.
     _max_scan_concurrency = _state->num_scanner_threads();
     if (_max_scan_concurrency == 0) {
-        // TODO: Add unit test.
         // Why this is safe:
         /*
             1. If num cpu cores is less than or equal to 24:
@@ -172,11 +176,6 @@ Status ScannerContext::init() {
         */
         _max_scan_concurrency =
                 _min_scan_concurrency_of_scan_scheduler / _parallism_of_scan_operator;
-        // In some rare cases, user may set parallel_pipeline_task_num to 1 handly to make many query could be executed
-        // in parallel. We need to make sure the _max_thread_num is smaller than previous value in this situation.
-        _max_scan_concurrency =
-                std::min(_max_scan_concurrency, config::doris_scanner_thread_pool_thread_num);
-
         _max_scan_concurrency = _max_scan_concurrency == 0 ? 1 : _max_scan_concurrency;
     }
 
@@ -185,7 +184,7 @@ Status ScannerContext::init() {
     // when user not specify scan_thread_num, so we can try downgrade _max_thread_num.
     // becaue we found in a table with 5k columns, column reader may ocuppy too much memory.
     // you can refer https://github.com/apache/doris/issues/35340 for details.
-    int32_t max_column_reader_num = _state->query_options().max_column_reader_num;
+    const int32_t max_column_reader_num = _state->max_column_reader_num();
 
     if (_max_scan_concurrency != 1 && max_column_reader_num > 0) {
         int32_t scan_column_num = _output_tuple_desc->slots().size();
@@ -478,6 +477,15 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
             _min_scan_concurrency_of_scan_scheduler -
             (_scanner_scheduler->get_active_threads() + _scanner_scheduler->get_queue_size());
 
+    // Remaing margin is less than _parallism_of_scan_operator of this ScanNode.
+    if (margin_2 > 0 && margin_2 < _parallism_of_scan_operator) {
+        // Each scan operator will at most one scanner.
+        margin_2 = 1;
+    } else {
+        // The margin is distributed evenly to each scan operator.
+        margin_2 = margin_2 / _parallism_of_scan_operator;
+    }
+
     if (margin_1 <= 0 && margin_2 <= 0) {
         return 0;
     }
@@ -500,6 +508,11 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                            std::unique_lock<std::mutex>& transfer_lock,
                                            std::unique_lock<std::shared_mutex>& scheduler_lock) {
+    if (current_scan_task &&
+        (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos())) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
+    }
+
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
 
     int32_t margin = _get_margin(transfer_lock, scheduler_lock);
@@ -509,12 +522,6 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
         // Be careful with current scan task.
         // We need to add it back to task queue to make sure it could be resubmitted.
         if (current_scan_task) {
-            DCHECK(current_scan_task->cached_blocks.empty());
-            DCHECK(!current_scan_task->is_eos());
-            if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                       "Scanner schduler logical error.");
-            }
             // This usually happens when we should downgrade the concurrency.
             _pending_scanners.push(current_scan_task->scanner);
             VLOG_DEBUG << fmt::format(
@@ -522,6 +529,16 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                     "{}, _num_scheduled_scanners {}",
                     ctx_id, _tasks_queue.size(), _num_scheduled_scanners);
         }
+
+#ifndef NDEBUG
+        // This DCHECK is necessary.
+        // We need to make sure each scan operator could have at least 1 scan tasks.
+        // Or this scan operator will not be re-scheduled.
+        if (!_pending_scanners.empty() && _num_scheduled_scanners == 0 && _tasks_queue.empty()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
+        }
+#endif
+
         return Status::OK();
     }
 
@@ -546,7 +563,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                     if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
                         // This should not happen.
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                               "Scanner schduler logical error.");
+                                               "Scanner scheduler logical error.");
                     }
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
@@ -595,11 +612,9 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (current_scan_task != nullptr) {
-        DCHECK(current_scan_task->cached_blocks.empty());
-        DCHECK(!current_scan_task->is_eos());
         if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
             // This should not happen.
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner schduler logical error.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
         }
         return current_scan_task;
     }

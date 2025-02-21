@@ -195,6 +195,10 @@ public class DynamicPartitionProperty {
         return storagePolicy;
     }
 
+    public void clearStoragePolicy() {
+        storagePolicy = "";
+    }
+
     public String getStorageMedium() {
         return storageMedium;
     }

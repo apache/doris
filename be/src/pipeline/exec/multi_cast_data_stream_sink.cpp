@@ -34,7 +34,7 @@ std::string MultiCastDataStreamSinkLocalState::name_suffix() {
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {
     std::shared_ptr<BasicSharedState> ss =
-            std::make_shared<MultiCastSharedState>(_row_desc, _pool, _cast_sender_count);
+            std::make_shared<MultiCastSharedState>(_pool, _cast_sender_count);
     ss->id = operator_id();
     for (auto& dest : dests_id()) {
         ss->related_op_ids.insert(dest);
@@ -49,12 +49,9 @@ Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, vectorized::B
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0 || eos) {
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-        auto st = local_state._shared_state->multi_cast_data_streamer->push(state, in_block, eos);
-        // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
-        if (st.template is<ErrorCode::END_OF_FILE>()) {
-            return Status::OK();
-        }
-        return st;
+        // push block to multi cast data streamer , it will not return the EOF status.
+        RETURN_IF_ERROR(
+                local_state._shared_state->multi_cast_data_streamer->push(state, in_block, eos));
     }
     return Status::OK();
 }

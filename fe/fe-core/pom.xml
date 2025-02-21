@@ -952,6 +952,12 @@ under the License.
         </dependency>
     </dependencies>
     <repositories>
+        <!-- for hive-catalog-shade -->
+        <repository>
+            <id>central</id>
+            <name>central maven repo https</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </repository>
         <!-- for huawei obs sdk -->
         <repository>
             <id>huawei-obs-sdk</id>

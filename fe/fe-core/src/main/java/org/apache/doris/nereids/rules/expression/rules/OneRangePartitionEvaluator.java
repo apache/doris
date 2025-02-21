@@ -397,19 +397,23 @@ public class OneRangePartitionEvaluator<K>
     @Override
     public EvaluateRangeResult visitAnd(And and, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
-        result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                context.rangeMap,
-                (leftRange, rightRange) -> leftRange.intersect(rightRange));
 
-        result = returnFalseIfExistEmptyRange(result);
-        if (result.result.equals(BooleanLiteral.FALSE)) {
-            return result;
+        EvaluateRangeResult andResult = result.childrenResult.get(0);
+        for (int i = 1; i < andResult.childrenResult.size(); i++) {
+            andResult = mergeRanges(result.result, andResult, result.childrenResult.get(i),
+                    context.rangeMap,
+                    (leftRange, rightRange) -> leftRange.intersect(rightRange));
+        }
+
+        andResult = returnFalseIfExistEmptyRange(andResult);
+        if (andResult.result.equals(BooleanLiteral.FALSE)) {
+            return andResult;
         }
 
         // shrink range and prune the other type: if previous column is literal and equals to the bound
-        result = determinateRangeOfOtherType(result, lowers, true);
-        result = determinateRangeOfOtherType(result, uppers, false);
-        return result;
+        andResult = determinateRangeOfOtherType(andResult, lowers, true);
+        andResult = determinateRangeOfOtherType(andResult, uppers, false);
+        return andResult;
     }
 
     @Override
@@ -417,19 +421,26 @@ public class OneRangePartitionEvaluator<K>
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
         if (result.result.equals(BooleanLiteral.FALSE)) {
             return result;
-        } else if (result.childrenResult.get(0).result.equals(BooleanLiteral.FALSE)) {
-            // false or a<1 -> return range a<1
-            return new EvaluateRangeResult(result.result, result.childrenResult.get(1).columnRanges,
-                    result.childrenResult);
-        } else if (result.childrenResult.get(1).result.equals(BooleanLiteral.FALSE)) {
-            // a<1 or false -> return range a<1
-            return new EvaluateRangeResult(result.result, result.childrenResult.get(0).columnRanges,
-                    result.childrenResult);
         }
-        result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                context.rangeMap,
-                (leftRange, rightRange) -> leftRange.union(rightRange));
-        return returnFalseIfExistEmptyRange(result);
+
+        List<EvaluateRangeResult> nonFalseResults = new ArrayList<>();
+        for (EvaluateRangeResult evaluateRangeResult : result.childrenResult) {
+            if (!evaluateRangeResult.result.equals(BooleanLiteral.FALSE)) {
+                nonFalseResults.add(evaluateRangeResult);
+            }
+        }
+
+        if (nonFalseResults.size() == 1) {
+            return new EvaluateRangeResult(result.result, nonFalseResults.get(0).columnRanges, result.childrenResult);
+        }
+
+        EvaluateRangeResult orResult = nonFalseResults.get(0);
+        for (int i = 1; i < nonFalseResults.size(); i++) {
+            orResult = mergeRanges(result.result, orResult, nonFalseResults.get(i),
+                    context.rangeMap,
+                    (leftRange, rightRange) -> leftRange.union(rightRange));
+        }
+        return returnFalseIfExistEmptyRange(orResult);
     }
 
     @Override

@@ -91,10 +91,10 @@ export DORIS_HOME
 
 # export env variables from fe.conf
 #
-# JAVA_OPTS_FOR_JDK_17
+# JAVA_OPTS
 # LOG_DIR
 # PID_DIR
-export JAVA_OPTS_FOR_JDK_17="-Xmx1024m"
+export JAVA_OPTS="-Xmx1024m"
 export LOG_DIR="${DORIS_HOME}/log"
 PID_DIR="$(
     cd "${curdir}"
@@ -204,7 +204,6 @@ else
 fi
 log "Using Java version ${java_version}"
 log "${final_java_opt}"
-export JAVA_OPTS="${final_java_opt}"
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=

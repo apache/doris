@@ -25,8 +25,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -61,7 +66,12 @@ public class AlterSystemCommand extends Command implements ForwardWithSync {
         }
 
         Preconditions.checkState((alterSystemOp instanceof AddBackendOp
-                || alterSystemOp instanceof DropBackendOp)
+                || alterSystemOp instanceof DropBackendOp
+                || alterSystemOp instanceof DecommissionBackendOp
+                || alterSystemOp instanceof AddObserverOp
+                || alterSystemOp instanceof DropObserverOp
+                || alterSystemOp instanceof AddFollowerOp
+                || alterSystemOp instanceof DropFollowerOp)
         );
 
         alterSystemOp.validate(ctx);
