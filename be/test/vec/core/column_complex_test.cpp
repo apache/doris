@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "gtest/gtest_pred_impl.h"
@@ -66,6 +67,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap = ColumnBitmap::create();
     auto column_hll = ColumnHLL::create();
     auto column_quantile_state = ColumnQuantileState::create();
+    ASSERT_EQ(column_bitmap->byte_size(), 0);
 
     auto column_bitmap_verify = ColumnBitmap::create();
     auto column_hll_verify = ColumnHLL::create();
@@ -79,21 +81,34 @@ TEST(ColumnComplexTest, GetDataAtTest) {
 
     column_bitmap_verify->insert_default();
     column_hll_verify->insert_default();
-    column_quantile_state_verify->insert_default();
+    column_quantile_state_verify->insert_many_defaults(1);
+    ASSERT_EQ(column_bitmap_verify->byte_size(), 80);
+    ASSERT_EQ(column_hll_verify->byte_size(), 64);
+    ASSERT_EQ(column_quantile_state_verify->byte_size(), 64);
+    ASSERT_EQ(column_bitmap_verify->allocated_bytes(), 80);
+    ASSERT_EQ(column_hll_verify->allocated_bytes(), 64);
+    ASSERT_EQ(column_quantile_state_verify->allocated_bytes(), 64);
+    std::cout << "1. test byte_size/allocated_bytes empty success" << std::endl;
+
+    //column_bitmap have reserve 10, but only insert 1, so the capacity is 10
+    ASSERT_TRUE(column_bitmap->has_enough_capacity(*column_bitmap_verify));
+    ASSERT_FALSE(column_hll->has_enough_capacity(*column_hll_verify));
+    ASSERT_FALSE(column_quantile_state->has_enough_capacity(*column_quantile_state_verify));
+    std::cout << "2. test has_enough_capacity success" << std::endl;
 
     ASSERT_EQ(column_bitmap->size(), 1);
     ASSERT_EQ(column_bitmap_verify->size(), 1);
     ASSERT_EQ(column_bitmap->get_data_at(0), column_bitmap_verify->get_data_at(0));
     ASSERT_EQ(column_hll->get_data_at(0), column_hll_verify->get_data_at(0));
     ASSERT_EQ(column_quantile_state->operator[](0), column_quantile_state_verify->operator[](0));
-    std::cout << "test insert/get_data_at empty success" << std::endl;
+    std::cout << "3. test insert_default/insert_value empty success" << std::endl;
 
     std::srand(std::time(nullptr));
     auto lambda_function = []() -> std::tuple<UInt64, double> {
         auto rand_val = random();
         auto uint64_val = UInt64(rand_val % std::numeric_limits<UInt64>::max());
         auto double_val = static_cast<double>(rand_val) / std::numeric_limits<int>::max();
-        std::cout << "val: " << rand_val << " " << rand_val << " " << double_val << std::endl;
+        // std::cout << "val: " << rand_val << " " << rand_val << " " << double_val << std::endl;
         return std::tuple {uint64_val, double_val};
     };
     UInt64 uint64_val = 0;
@@ -125,7 +140,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_hll->get_element(1).to_string(),
               column_hll_verify->get_element(0).to_string());
     ASSERT_EQ(column_quantile_state->get_data_at(1), column_quantile_state_verify->get_data_at(0));
-    std::cout << "test insert/update data success" << std::endl;
+    std::cout << "4. test insert/update/get_element data success" << std::endl;
 
     // insert data from column idx 1
     column_bitmap_verify->insert_from(*column_bitmap, 1);
@@ -140,7 +155,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_quantile_state->operator[](1), column_quantile_state_verify->operator[](1));
     ASSERT_EQ(column_bitmap->operator[](1), column_bitmap_verify->operator[](1));
     ASSERT_EQ(column_hll->operator[](1), column_hll_verify->operator[](1));
-    std::cout << "test insert_from data success" << std::endl;
+    std::cout << "5. test insert_from data success" << std::endl;
 
     Field field1, field2, field3;
     column_bitmap->get(1, field1);
@@ -165,7 +180,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_quantile_state->operator[](1), column_quantile_state_verify->operator[](1));
     ASSERT_EQ(column_bitmap->operator[](1), column_bitmap_verify->operator[](1));
     ASSERT_EQ(column_hll->operator[](1), column_hll_verify->operator[](1));
-    std::cout << "test get/insert data and pop_back success" << std::endl;
+    std::cout << "6. test get/insert data and pop_back success" << std::endl;
 
     std::tie(uint64_val, double_val) = lambda_function();
     // two val in data value
@@ -191,7 +206,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_quantile_state->operator[](2), column_quantile_state_verify->operator[](2));
     ASSERT_EQ(column_bitmap->operator[](2), column_bitmap_verify->operator[](2));
     ASSERT_EQ(column_hll->operator[](2), column_hll_verify->operator[](2));
-    std::cout << "test two val data value and insert_data success" << std::endl;
+    std::cout << "7. test two val data value and insert_data success" << std::endl;
 
     // more val in data value
     for (int range = 1; range < 100; ++range) {
@@ -227,7 +242,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_quantile_state->operator[](3), column_quantile_state_verify->operator[](3));
     ASSERT_EQ(column_bitmap->operator[](3), column_bitmap_verify->operator[](3));
     ASSERT_EQ(column_hll->operator[](3), column_hll_verify->operator[](3));
-    std::cout << "test more val data value and insert_binary_data success" << std::endl;
+    std::cout << "8. test more val data value and insert_binary_data success" << std::endl;
 
     column_bitmap_verify->clear();
     column_hll_verify->clear();
@@ -273,52 +288,249 @@ TEST(ColumnComplexTest, GetDataAtTest) {
         ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify->operator[](i));
         ASSERT_EQ(column_hll->operator[](i), column_hll_verify->operator[](i));
     }
-    std::cout << "test more val data value and insert_many_strings success" << std::endl;
+    std::cout << "9. test more val data value and insert_many_strings success" << std::endl;
 
-    {
-        auto column_bitmap_verify2 = column_bitmap_verify->clone_empty();
-        auto column_hll_verify2 = column_hll_verify->clone_resized(0);
-        auto column_quantile_state_verify2 = column_quantile_state_verify->clone_empty();
-        ASSERT_EQ(column_bitmap_verify2->size(), 0);
-        ASSERT_EQ(column_hll_verify2->size(), 0);
-        ASSERT_EQ(column_quantile_state_verify2->size(), 0);
-        std::string bitmap_buffer, hll_buffer, quantile_state_buffer;
-        std::vector<uint32_t> bitmap_offsets, hll_offsets, quantile_state_offsets;
-        for (int i = 0; i < rows; ++i) {
-            bitmap_buffer.append(bitmap_buffers[i]);
-            hll_buffer.append(hll_buffers[i]);
-            quantile_state_buffer.append(quantile_state_buffers[i]);
-            if (i == 0) {
-                std::cout<<"bitmap_offsets111: "<<bitmap_offsets.size();
-                bitmap_offsets.push_back(bitmap_strings[i].size);
-                hll_offsets.push_back(hll_strings[i].size);
-                quantile_state_offsets.push_back(quantile_state_strings[i].size);
-            } else {
-                std::cout<<"bitmap_offsets22: "<<bitmap_offsets.size();
-                bitmap_offsets.push_back(bitmap_strings[i].size + bitmap_offsets.back());
-                hll_offsets.push_back(hll_strings[i].size + hll_offsets.back());
-                quantile_state_offsets.push_back(quantile_state_strings[i].size +
-                                                 quantile_state_offsets.back());
-            }
-        }
-        column_bitmap_verify2->insert_many_continuous_binary_data(bitmap_buffer.data(),
-                                                                  bitmap_offsets.data(), rows);
-        column_hll_verify2->insert_many_continuous_binary_data(hll_buffer.data(),
-                                                               hll_offsets.data(), rows);
-        column_quantile_state_verify2->insert_many_continuous_binary_data(
-                quantile_state_buffer.data(), quantile_state_offsets.data(), rows);
-        ASSERT_EQ(rows, column_bitmap_verify2->size());
-        ASSERT_EQ(rows, column_hll_verify2->size());
-        ASSERT_EQ(rows, column_quantile_state_verify2->size());
-        for (int i = 0; i < rows; ++i) {
-            ASSERT_EQ(column_quantile_state->operator[](i),
-                      column_quantile_state_verify2->operator[](i));
-            ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify2->operator[](i));
-            ASSERT_EQ(column_hll->operator[](i), column_hll_verify2->operator[](i));
-        }
-        std::cout << "test more val data value and insert_many_continuous_binary_data success"
-                  << std::endl;
+    auto column_bitmap_verify2 = column_bitmap_verify->clone_empty();
+    auto column_hll_verify2 = column_hll_verify->clone_resized(0);
+    auto column_quantile_state_verify2 = column_quantile_state_verify->clone_empty();
+    ASSERT_EQ(column_bitmap_verify2->size(), 0);
+    ASSERT_EQ(column_hll_verify2->size(), 0);
+    ASSERT_EQ(column_quantile_state_verify2->size(), 0);
+    std::string bitmap_buffer, hll_buffer, quantile_state_buffer;
+    //the offset should be more than one value
+    std::vector<uint32_t> bitmap_offsets(rows + 1, 0), hll_offsets(rows + 1, 0),
+            quantile_state_offsets(rows + 1, 0);
+    for (int i = 0; i < rows; ++i) {
+        bitmap_buffer.append(bitmap_strings[i]);
+        hll_buffer.append(hll_buffers[i]);
+        quantile_state_buffer.append(quantile_state_buffers[i]);
+        bitmap_offsets[i + 1] = bitmap_offsets[i] + bitmap_strings[i].size;
+        hll_offsets[i + 1] = hll_offsets[i] + hll_strings[i].size;
+        quantile_state_offsets[i + 1] = quantile_state_offsets[i] + quantile_state_strings[i].size;
     }
+    column_bitmap_verify2->insert_many_continuous_binary_data(bitmap_buffer.data(),
+                                                              bitmap_offsets.data(), rows);
+    column_hll_verify2->insert_many_continuous_binary_data(hll_buffer.data(), hll_offsets.data(),
+                                                           rows);
+    column_quantile_state_verify2->insert_many_continuous_binary_data(
+            quantile_state_buffer.data(), quantile_state_offsets.data(), rows);
+    ASSERT_EQ(rows, column_bitmap_verify2->size());
+    ASSERT_EQ(rows, column_hll_verify2->size());
+    ASSERT_EQ(rows, column_quantile_state_verify2->size());
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_verify2->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify2->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_verify2->operator[](i));
+    }
+    std::cout << "10. test more val data value and insert_many_continuous_binary_data success"
+              << std::endl;
+
+    column_bitmap_verify->resize(rows);
+    column_hll_verify->resize(rows);
+    column_quantile_state_verify->resize(rows);
+    column_bitmap_verify->clear();
+    column_hll_verify->clear();
+    column_quantile_state_verify->clear();
+    column_bitmap_verify->insert_range_from(*column_bitmap, 0, rows);
+    column_hll_verify->insert_range_from(*column_hll, 0, rows);
+    column_quantile_state_verify->insert_range_from(*column_quantile_state, 0, rows);
+    ASSERT_EQ(rows, column_bitmap_verify->size());
+    ASSERT_EQ(rows, column_hll_verify->size());
+    ASSERT_EQ(rows, column_quantile_state_verify->size());
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_verify->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_verify->operator[](i));
+    }
+    std::cout << "11. test more val data value and insert_range_from success" << std::endl;
+
+    column_bitmap_verify->clear();
+    column_hll_verify->clear();
+    column_quantile_state_verify->clear();
+    std::vector<uint32_t> indices;
+    for (int i = 0; i < rows; ++i) {
+        indices.push_back(i);
+    }
+    column_bitmap_verify->insert_indices_from(*column_bitmap, indices.data(),
+                                              indices.data() + rows);
+    column_hll_verify->insert_indices_from(*column_hll, indices.data(), indices.data() + rows);
+    column_quantile_state_verify->insert_indices_from(*column_quantile_state, indices.data(),
+                                                      indices.data() + rows);
+    ASSERT_EQ(rows, column_bitmap_verify->size());
+    ASSERT_EQ(rows, column_hll_verify->size());
+    ASSERT_EQ(rows, column_quantile_state_verify->size());
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_verify->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_verify->operator[](i));
+    }
+    std::cout << "12. test more val data value and insert_indices_from success" << std::endl;
+
+    column_bitmap->insert_default();
+    column_hll->insert_default();
+    column_quantile_state->insert_default();
+    column_bitmap_verify->insert_many_from(*column_bitmap, rows, 1);
+    column_hll_verify->insert_many_from(*column_hll, rows, 1);
+    column_quantile_state_verify->insert_many_from(*column_quantile_state, rows, 1);
+    rows = rows + 1;
+    ASSERT_EQ(rows, column_bitmap_verify->size());
+    ASSERT_EQ(rows, column_hll_verify->size());
+    ASSERT_EQ(rows, column_quantile_state_verify->size());
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_verify->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_verify->operator[](i));
+    }
+    std::cout << "13. test more val data value and insert_many_from success" << std::endl;
+
+    column_bitmap->replace_column_data(*column_bitmap_verify, 0, 4);
+    column_hll->replace_column_data(*column_hll_verify, 0, 4);
+    column_quantile_state->replace_column_data(*column_quantile_state_verify, 0, 4);
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_verify->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_verify->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_verify->operator[](i));
+    }
+    std::cout << "14. test more val data value and replace_column_data success" << std::endl;
+
+    vectorized::IColumn::Filter filter;
+    for (int i = 0; i < rows; i++) {
+        filter.push_back(i % 2);
+    }
+    // filter data 0 1 0 1 0
+    ASSERT_EQ(column_bitmap_verify->clone()->filter(filter), 2);
+    ASSERT_EQ(column_hll_verify->clone()->filter(filter), 2);
+    ASSERT_EQ(column_quantile_state_verify->clone()->filter(filter), 2);
+    auto column_filter_res_bitmap = column_bitmap->filter(filter, 0);
+    auto column_filter_res_hll = column_hll->filter(filter, 0);
+    auto column_filter_res_quantile_state = column_quantile_state->filter(filter, 0);
+
+    ASSERT_EQ(column_filter_res_bitmap->size(), 2);
+    ASSERT_EQ(column_filter_res_hll->size(), 2);
+    ASSERT_EQ(column_filter_res_quantile_state->size(), 2);
+    for (int i = 0, j = 0; i < rows; ++i) {
+        if (i % 2) {
+            ASSERT_EQ(column_quantile_state->operator[](i),
+                      column_filter_res_quantile_state->operator[](j));
+            ASSERT_EQ(column_bitmap->operator[](i), column_filter_res_bitmap->operator[](j));
+            ASSERT_EQ(column_hll->operator[](i), column_filter_res_hll->operator[](j));
+            j++;
+        }
+    }
+
+    filter.clear();
+    filter.resize_fill(rows, 1);
+    // filter data 1 1 1 1 1
+    ASSERT_EQ(column_bitmap_verify->clone()->filter(filter), rows);
+    ASSERT_EQ(column_hll_verify->clone()->filter(filter), rows);
+    ASSERT_EQ(column_quantile_state_verify->clone()->filter(filter), rows);
+    column_filter_res_bitmap = column_bitmap->filter(filter, 0);
+    column_filter_res_hll = column_hll->filter(filter, 0);
+    column_filter_res_quantile_state = column_quantile_state->filter(filter, 0);
+    ASSERT_EQ(column_filter_res_bitmap->size(), rows);
+    ASSERT_EQ(column_filter_res_hll->size(), rows);
+    ASSERT_EQ(column_filter_res_quantile_state->size(), rows);
+    for (int i = 0, j = 0; i < rows; ++i) {
+        if (i % 2) {
+            ASSERT_EQ(column_quantile_state->operator[](i),
+                      column_filter_res_quantile_state->operator[](j));
+            ASSERT_EQ(column_bitmap->operator[](i), column_filter_res_bitmap->operator[](j));
+            ASSERT_EQ(column_hll->operator[](i), column_filter_res_hll->operator[](j));
+            j++;
+        }
+    }
+
+    filter.clear();
+    filter.resize_fill(rows, 0);
+    // filter data 0 0 0 0 0
+    ASSERT_EQ(column_bitmap_verify->clone()->filter(filter), 0);
+    ASSERT_EQ(column_hll_verify->clone()->filter(filter), 0);
+    ASSERT_EQ(column_quantile_state_verify->clone()->filter(filter), 0);
+    column_filter_res_bitmap = column_bitmap->filter(filter, 0);
+    column_filter_res_hll = column_hll->filter(filter, 0);
+    column_filter_res_quantile_state = column_quantile_state->filter(filter, 0);
+    ASSERT_EQ(column_filter_res_bitmap->size(), 0);
+    ASSERT_EQ(column_filter_res_hll->size(), 0);
+    ASSERT_EQ(column_filter_res_quantile_state->size(), 0);
+    std::cout << "15. test more val data value and filter success" << std::endl;
+
+    IColumn::Permutation perm {4, 3, 2, 1, 0};
+    auto column_bitmap_perm = column_bitmap->permute(perm, rows);
+    auto column_hll_perm = column_hll->permute(perm, rows);
+    auto column_quantile_state_perm = column_quantile_state->permute(perm, rows);
+    ASSERT_EQ(column_bitmap_perm->size(), 5);
+    ASSERT_EQ(column_hll_perm->size(), 5);
+    ASSERT_EQ(column_quantile_state_perm->size(), 5);
+    for (int i = 0, j = 4; i < rows; ++i, --j) {
+        ASSERT_EQ(column_quantile_state->operator[](i), column_quantile_state_perm->operator[](j));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_perm->operator[](j));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_perm->operator[](j));
+    }
+
+    IColumn::Permutation perm2 {0, 1, 2, 3, 4};
+    auto column_bitmap_perm2 = column_bitmap->permute(perm, rows);
+    auto column_hll_perm2 = column_hll->permute(perm, rows);
+    auto column_quantile_state_perm2 = column_quantile_state->permute(perm, rows);
+    ASSERT_EQ(column_bitmap_perm2->size(), 5);
+    ASSERT_EQ(column_hll_perm2->size(), 5);
+    ASSERT_EQ(column_quantile_state_perm2->size(), 5);
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i), column_quantile_state_perm->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_perm->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_perm->operator[](i));
+    }
+
+    IColumn::Permutation perm3 {4, 2, 0, 1, 3};
+    std::vector<int> permute_idx {2, 3, 1, 4, 0};
+    auto column_bitmap_perm3 = column_bitmap->permute(perm, rows);
+    auto column_hll_perm3 = column_hll->permute(perm, rows);
+    auto column_quantile_state_perm3 = column_quantile_state->permute(perm, rows);
+    ASSERT_EQ(column_bitmap_perm3->size(), 5);
+    ASSERT_EQ(column_hll_perm3->size(), 5);
+    ASSERT_EQ(column_quantile_state_perm3->size(), 5);
+    for (int i = 0; i < rows; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_perm3->operator[](permute_idx[i]));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_perm3->operator[](permute_idx[i]));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_perm3->operator[](permute_idx[i]));
+    }
+    std::cout << "16. test more val data value and permute success" << std::endl;
+
+    IColumn::Offsets offsets {1, 2, 3, 4, 5};
+    auto column_bitmap_replicate = column_bitmap->replicate(offsets);
+    auto column_hll_replicate = column_hll->replicate(offsets);
+    auto column_quantile_state_replicate = column_quantile_state->replicate(offsets);
+    ASSERT_EQ(column_bitmap_replicate->size(), 5);
+    ASSERT_EQ(column_hll_replicate->size(), 5);
+    ASSERT_EQ(column_quantile_state_replicate->size(), 5);
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](i),
+                  column_quantile_state_replicate->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_replicate->operator[](i));
+        ASSERT_EQ(column_hll->operator[](i), column_hll_replicate->operator[](i));
+    }
+
+    IColumn::Offsets offsets2 {2, 4, 6, 8, 10};
+    std::vector<int> res_idx {0, 0, 1, 1, 2, 2, 3, 3, 4, 4};
+    auto column_bitmap_replicate2 = column_bitmap->replicate(offsets2);
+    auto column_hll_replicate2 = column_hll->replicate(offsets2);
+    auto column_quantile_state_replicate2 = column_quantile_state->replicate(offsets2);
+    ASSERT_EQ(column_bitmap_replicate2->size(), 10);
+    ASSERT_EQ(column_hll_replicate2->size(), 10);
+    ASSERT_EQ(column_quantile_state_replicate2->size(), 10);
+    ASSERT_EQ(column_quantile_state->size(), 5);
+    for (int i = 0; i < 10; ++i) {
+        ASSERT_EQ(column_quantile_state->operator[](res_idx[i]),
+                  column_quantile_state_replicate2->operator[](i));
+        ASSERT_EQ(column_bitmap->operator[](res_idx[i]), column_bitmap_replicate2->operator[](i));
+        ASSERT_EQ(column_hll->operator[](res_idx[i]), column_hll_replicate2->operator[](i));
+    }
+    std::cout << "17. test more val data value and replicate success" << std::endl;
 }
 
 class ColumnBitmapTest : public testing::Test {
