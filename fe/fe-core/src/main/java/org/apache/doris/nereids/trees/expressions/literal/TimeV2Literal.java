@@ -229,7 +229,7 @@ public class TimeV2Literal extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.TimeV2Literal((double) getValue());
+        return new org.apache.doris.analysis.TimeV2Literal(getStringValue());
     }
 
     @Override

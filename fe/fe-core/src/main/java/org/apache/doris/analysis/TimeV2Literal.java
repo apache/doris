@@ -196,6 +196,7 @@ public class TimeV2Literal extends LiteralExpr {
                 sb.append('0');
             }
 
+            this.type = ScalarType.createTimeV2Type(len);
             try {
                 microsecond = Integer.parseInt(sb.toString());
             } catch (NumberFormatException e) {
