@@ -88,8 +88,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
-    _runtime_filter_slots = std::make_shared<RuntimeFilterSlots>(_build_expr_ctxs, profile(),
-                                                                 _should_build_hash_table);
+    _runtime_filter_slots = std::make_shared<RuntimeFilterSlots>(
+            _build_expr_ctxs, profile(), _should_build_hash_table, p._is_broadcast_join);
     RETURN_IF_ERROR(_runtime_filter_slots->init(state, p._runtime_filter_descs));
     return Status::OK();
 }
@@ -102,8 +102,7 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
 #ifndef NDEBUG
     if (state->fuzzy_disable_runtime_filter_in_be()) {
         if ((_parent->operator_id() + random()) % 2 == 0) {
-            RETURN_IF_ERROR(
-                    _runtime_filter_slots->skip_runtime_filters_process(state, _finish_dependency));
+            _runtime_filter_slots->skip_runtime_filters();
         }
     }
 #endif
@@ -144,7 +143,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
     try {
         RETURN_IF_ERROR(_runtime_filter_slots->process(state, _shared_state->build_block.get(),
-                                                       _finish_dependency));
+                                                       _finish_dependency,
+                                                       p._shared_hash_table_context));
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
                                                    p._shared_hashtable_controller &&
@@ -508,7 +508,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             _shared_hash_table_context->block = local_state._shared_state->build_block;
             _shared_hash_table_context->build_indexes_null =
                     local_state._shared_state->build_indexes_null;
-            local_state._runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
         }
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
@@ -523,9 +522,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         if (!_shared_hash_table_context->status.ok()) {
             return _shared_hash_table_context->status;
         }
-
-        RETURN_IF_ERROR(local_state._runtime_filter_slots->copy_from_shared_context(
-                _shared_hash_table_context));
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",

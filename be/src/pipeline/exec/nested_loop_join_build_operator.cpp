@@ -42,7 +42,7 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     }
 
     _runtime_filter_slots =
-            std::make_shared<RuntimeFilterSlotsCross>(_filter_src_expr_ctxs, profile(), true);
+            std::make_shared<RuntimeFilterSlotsCross>(_filter_src_expr_ctxs, profile());
     RETURN_IF_ERROR(_runtime_filter_slots->init(state, p._runtime_filter_descs));
     return Status::OK();
 }

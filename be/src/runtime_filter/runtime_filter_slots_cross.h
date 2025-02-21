@@ -33,8 +33,8 @@ namespace doris {
 class RuntimeFilterSlotsCross : public RuntimeFilterSlots {
 public:
     RuntimeFilterSlotsCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                            RuntimeProfile* profile, bool should_build_hash_table)
-            : RuntimeFilterSlots(build_expr_ctxs, profile, should_build_hash_table) {}
+                            RuntimeProfile* profile)
+            : RuntimeFilterSlots(build_expr_ctxs, profile, true, false) {}
 
     Status process(RuntimeState* state, vectorized::Blocks& blocks) {
         for (auto& block : blocks) {

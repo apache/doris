@@ -24,37 +24,41 @@
 
 namespace doris {
 
-Status RuntimeFilterSlots::send_filter_size(
-        RuntimeState* state, uint64_t hash_table_size,
-        std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
-    if (_skip_runtime_filters_process) {
-        return Status::OK();
+Status RuntimeFilterSlots::init(RuntimeState* state,
+                                const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+    _runtime_filters.resize(runtime_filter_descs.size());
+    std::unordered_map<int, RuntimeFilterProducer*> id_to_in_filter;
+    for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(
+                runtime_filter_descs[i], &_runtime_filters[i], _profile.get()));
+        if (runtime_filter_descs[i].type == TRuntimeFilterType::IN) {
+            id_to_in_filter.insert({runtime_filter_descs[i].expr_order, _runtime_filters[i].get()});
+        } else if (runtime_filter_descs[i].type == TRuntimeFilterType::IN_OR_BLOOM &&
+                   !id_to_in_filter.contains(runtime_filter_descs[i].expr_order)) {
+            id_to_in_filter.insert({runtime_filter_descs[i].expr_order, _runtime_filters[i].get()});
+        }
     }
-
-    dependency->add(); // add count at start to avoid dependency ready multiple times
-    Defer defer {[&]() { dependency->sub(); }}; // remove the initial external add
-    for (auto runtime_filter : _runtime_filters) {
-        RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size, dependency));
+    for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
+        if (id_to_in_filter.contains(_runtime_filters[i]->expr_order()) &&
+            _runtime_filters[i].get() != id_to_in_filter[_runtime_filters[i]->expr_order()]) {
+            RuntimeFilterProducer::Callback callback =
+                    [&, filter = _runtime_filters[i].get()]() -> void {
+                filter->set_wrapper_state_and_ready_to_publish(
+                        RuntimeFilterWrapper::State::DISABLED, "exist in_filter");
+            };
+            id_to_in_filter[_runtime_filters[i]->expr_order()]->with_callback(callback);
+        }
     }
     return Status::OK();
 }
 
-/**
-    Disable meaningless filters, such as filters:
-        RF1: col1 in (1, 3, 5)
-        RF2: col1 min: 1, max: 5
-    We consider RF2 is meaningless, because RF1 has already filtered out all values that RF2 can filter.
-*/
-Status RuntimeFilterSlots::_disable_meaningless_filters(RuntimeState* state) {
-    // process ignore duplicate IN_FILTER
-    std::unordered_set<int> has_in_filter;
-    for (auto filter : _runtime_filters) {
-        filter->disable_meaningless_filters(has_in_filter, true);
-    }
-
-    // process ignore filter when it has IN_FILTER on same expr
-    for (auto filter : _runtime_filters) {
-        filter->disable_meaningless_filters(has_in_filter, false);
+Status RuntimeFilterSlots::send_filter_size(
+        RuntimeState* state, uint64_t hash_table_size,
+        std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
+    // TODO: dependency is not needed if `_skip_runtime_filters_process` is true
+    for (auto runtime_filter : _runtime_filters) {
+        RETURN_IF_ERROR(runtime_filter->send_size(
+                state, _skip_runtime_filters_process ? 0 : hash_table_size, dependency));
     }
     return Status::OK();
 }
@@ -62,7 +66,7 @@ Status RuntimeFilterSlots::_disable_meaningless_filters(RuntimeState* state) {
 Status RuntimeFilterSlots::_init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
     // process IN_OR_BLOOM_FILTER's real type
     for (auto filter : _runtime_filters) {
-        RETURN_IF_ERROR(filter->init_with_size(local_hash_table_size));
+        RETURN_IF_ERROR(filter->init(local_hash_table_size));
     }
     return Status::OK();
 }
@@ -70,51 +74,51 @@ Status RuntimeFilterSlots::_init_filters(RuntimeState* state, uint64_t local_has
 void RuntimeFilterSlots::_insert(const vectorized::Block* block, size_t start) {
     SCOPED_TIMER(_runtime_filter_compute_timer);
     for (auto& filter : _runtime_filters) {
+        if (!filter->impl()->is_valid()) {
+            // Skip building if ignored or disabled.
+            continue;
+        }
         int result_column_id =
                 _build_expr_context[filter->expr_order()]->get_last_result_column_id();
         const auto& column = block->get_by_position(result_column_id).column;
-        filter->insert_batch(column, start);
+        filter->insert(column, start);
     }
 }
 
 Status RuntimeFilterSlots::process(
         RuntimeState* state, const vectorized::Block* block,
-        std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency) {
-    if (_skip_runtime_filters_process) {
-        return Status::OK();
-    }
-
-    auto wrapper_state = RuntimeFilterWrapper::State::READY;
-    if (state->get_task()->wake_up_early()) {
-        // partitial ignore rf to make global rf work
+        std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
+        vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
+    auto wrapper_state = _skip_runtime_filters_process ? RuntimeFilterWrapper::State::DISABLED
+                                                       : RuntimeFilterWrapper::State::READY;
+    if (state->get_task()->wake_up_early() && !_skip_runtime_filters_process) {
+        // Runtime filter is ignored partially which has no effect on correctness.
         wrapper_state = RuntimeFilterWrapper::State::IGNORED;
-    } else if (_should_build_hash_table) {
+    } else if (_should_build_hash_table && !_skip_runtime_filters_process) {
+        // Hash table is completed and runtime filter has a global size now.
         uint64_t hash_table_size = block ? block->rows() : 0;
-        {
-            RETURN_IF_ERROR(_init_filters(state, hash_table_size));
-            RETURN_IF_ERROR(_disable_meaningless_filters(state));
-        }
+        RETURN_IF_ERROR(_init_filters(state, hash_table_size));
         if (hash_table_size > 1) {
             _insert(block, 1);
         }
     }
 
     for (auto filter : _runtime_filters) {
-        filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
+        if (shared_hash_table_ctx && _should_build_hash_table) {
+            filter->copy_to_shared_context(shared_hash_table_ctx);
+        } else if (shared_hash_table_ctx) {
+            filter->copy_from_shared_context(shared_hash_table_ctx);
+        }
+        if (_should_build_hash_table) {
+            filter->set_wrapper_state_and_ready_to_publish(
+                    wrapper_state, _skip_runtime_filters_process ? "skip all rf process" : "");
+        } else {
+            filter->set_state(RuntimeFilterProducer::State::READY_TO_PUBLISH);
+        }
     }
 
     RETURN_IF_ERROR(_publish(state));
     return Status::OK();
 }
 
-Status RuntimeFilterSlots::skip_runtime_filters_process(
-        RuntimeState* state, std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency) {
-    RETURN_IF_ERROR(send_filter_size(state, 0, finish_dependency));
-    for (auto filter : _runtime_filters) {
-        filter->disable_and_ready_to_publish("skip all rf process");
-    }
-    RETURN_IF_ERROR(_publish(state));
-    _skip_runtime_filters_process = true;
-    return Status::OK();
-}
 } // namespace doris
