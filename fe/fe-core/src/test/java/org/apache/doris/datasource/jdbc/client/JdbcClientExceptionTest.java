@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.jdbc;
-
-import org.apache.doris.datasource.jdbc.client.JdbcClientException;
+package org.apache.doris.datasource.jdbc.client;
 
 import  org.junit.Assert;
 import org.junit.Test;
