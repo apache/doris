@@ -24,6 +24,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_scanner_helper.h"
 #include "pipeline/task_scheduler.h"
@@ -320,13 +321,13 @@ void WorkloadGroupMgr::handle_paused_queries() {
     bool has_query_exceed_process_memlimit = false;
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
+        auto query_count = queries_list.size();
         const auto& wg = it->first;
 
-        LOG_EVERY_T(INFO, 120) << "Paused queries count: " << queries_list.size();
-
-        bool is_low_watermark = false;
-        bool is_high_watermark = false;
-        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
+        if (query_count != 0) {
+            LOG_EVERY_T(INFO, 1) << "Paused queries count of wg " << wg->name() << ": "
+                                 << query_count;
+        }
 
         bool has_changed_hard_limit = false;
         int64_t flushed_memtable_bytes = 0;
@@ -358,6 +359,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     ++query_it;
                     continue;
                 } else {
+                    VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                               << " remove from paused list";
                     query_it = queries_list.erase(query_it);
                     continue;
                 }
@@ -430,6 +433,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         ++query_it;
                         continue;
                     } else {
+                        VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                   << " remove from paused list";
                         query_it = queries_list.erase(query_it);
                         continue;
                     }
@@ -453,6 +458,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 // If wg's memlimit not exceed, but process memory exceed, it means cache or other metadata
                 // used too much memory. Should clean all cache here.
                 // 1. Check cache used, if cache is larger than > 0, then just return and wait for it to 0 to release some memory.
+                // if config::disable_memory_gc == true, will deadlock
                 if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted >
                             0.05 &&
                     doris::GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted >
@@ -464,7 +470,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                  "capacity "
                                  "to 0 now";
                 }
-                if (query_it->cache_ratio_ < 0.05) {
+                if ((!config::disable_memory_gc && query_it->cache_ratio_ < 0.05) ||
+                    config::disable_memory_gc) {
                     // 1. Check if could revoke some memory from memtable
                     if (flushed_memtable_bytes <= 0) {
                         flushed_memtable_bytes =
@@ -482,6 +489,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         if (revoked_size > 0) {
                             has_revoked_from_other_group = true;
                             query_ctx->set_memory_sufficient(true);
+                            VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                       << " is resumed after revoke memory from other group.";
                             query_it = queries_list.erase(query_it);
                             // Do not care if the revoked_size > reserve size, and try to run again.
                             continue;
@@ -490,6 +499,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                     query_ctx, query_it->reserve_size_, query_it->elapsed_time(),
                                     query_ctx->paused_reason());
                             if (spill_res) {
+                                VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                           << " remove from paused list";
                                 query_it = queries_list.erase(query_it);
                                 continue;
                             } else {
@@ -501,6 +512,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         // If any query is cancelled during process limit stage, should resume other query and
                         // do not do any check now.
                         query_ctx->set_memory_sufficient(true);
+                        VLOG_DEBUG << "Query: " << print_id(query_ctx->query_id())
+                                   << " remove from paused list";
                         query_it = queries_list.erase(query_it);
                         continue;
                     }
@@ -517,6 +530,10 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 ++query_it;
             }
         }
+
+        bool is_low_watermark = false;
+        bool is_high_watermark = false;
+        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
         // Not need waiting flush memtable and below low watermark disable load buffer limit
         if (flushed_memtable_bytes <= 0 && !is_low_watermark) {
             wg->enable_write_buffer_limit(false);

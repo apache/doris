@@ -39,11 +39,6 @@ public:
     Status init(int64_t process_mem_limit);
 
     void handle_workload_group_memtable_flush(WorkloadGroupPtr wg);
-    // check if the total mem consumption exceeds limit.
-    // If yes, it will flush memtable to try to reduce memory consumption.
-    // Every write operation will call this API to check if need flush memtable OR hang
-    // when memory is not available.
-    void handle_memtable_flush(WorkloadGroupPtr wg);
 
     int64_t flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush_bytes);
 
@@ -59,6 +54,12 @@ public:
     int64_t mem_usage() const { return _mem_usage; }
 
 private:
+    // check if the total mem consumption exceeds limit.
+    // If yes, it will flush memtable to try to reduce memory consumption.
+    // Every write operation will call this API to check if need flush memtable OR hang
+    // when memory is not available.
+    void _handle_memtable_flush(WorkloadGroupPtr wg);
+
     static inline int64_t _sys_avail_mem_less_than_warning_water_mark();
     static inline int64_t _process_used_mem_more_than_soft_mem_limit();
 

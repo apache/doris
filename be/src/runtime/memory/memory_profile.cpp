@@ -262,9 +262,6 @@ void MemoryProfile::refresh_memory_overview_profile() {
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
     // 6 refresh additional tracker printed when memory exceeds limit.
-    COUNTER_SET(
-            _load_all_memtables_usage_counter,
-            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->peak_consumption());
     COUNTER_SET(_load_all_memtables_usage_counter,
                 ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
 

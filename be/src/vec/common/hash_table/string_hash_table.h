@@ -650,7 +650,7 @@ public:
     size_t get_buffer_size_in_bytes() const {
         return m0.get_buffer_size_in_bytes() + m1.get_buffer_size_in_bytes() +
                m2.get_buffer_size_in_bytes() + m3.get_buffer_size_in_bytes() +
-               ms.get_buffer_size_in_bytes();
+               m4.get_buffer_size_in_bytes() + ms.get_buffer_size_in_bytes();
     }
 
     class iterator : public iterator_base<iterator, false> {

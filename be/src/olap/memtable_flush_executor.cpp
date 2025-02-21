@@ -32,6 +32,7 @@
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
+#include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 
@@ -171,7 +172,7 @@ Status FlushToken::_try_reserve_memory(QueryThreadContext query_thread_context, 
 
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
-                  << ", memsize: " << memtable->memory_usage()
+                  << ", memsize: " << PrettyPrinter::print_bytes(memtable->memory_usage())
                   << ", rows: " << memtable->stat().raw_rows;
     memtable->update_mem_type(MemType::FLUSH);
     int64_t duration_ns;
@@ -180,14 +181,17 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable->tablet_id();
 
-    DEFER_RELEASE_RESERVED();
-
-    auto reserve_size = memtable->get_flush_reserve_memory_size();
-    RETURN_IF_ERROR(_try_reserve_memory(memtable->query_thread_context(), reserve_size));
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 memtable->query_thread_context().query_mem_tracker->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
+
+        // thread mem tracker is switched to write tracker, so we need to reserve memory
+        // after the switch, the memory will be reserved in the write tracker
+        DEFER_RELEASE_RESERVED();
+
+        auto reserve_size = memtable->get_flush_reserve_memory_size();
+        RETURN_IF_ERROR(_try_reserve_memory(memtable->query_thread_context(), reserve_size));
 
         Defer defer {[&]() {
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
@@ -201,7 +205,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
-                  << ", flushsize: " << *flush_size;
+                  << ", flushsize: " << PrettyPrinter::print_bytes(*flush_size);
     return Status::OK();
 }
 
@@ -248,11 +252,14 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
         return;
     }
 
-    VLOG_CRITICAL << "flush memtable wait time:" << flush_wait_time_ns
-                  << "(ns), flush memtable cost: " << timer.elapsed_time()
-                  << "(ns), running count: " << _stats.flush_running_count
+    VLOG_CRITICAL << "flush memtable wait time: "
+                  << PrettyPrinter::print(flush_wait_time_ns, TUnit::TIME_NS)
+                  << ", flush memtable cost: "
+                  << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                  << ", running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
-                  << ", mem size: " << memory_usage << ", disk size: " << flush_size;
+                  << ", mem size: " << PrettyPrinter::print_bytes(memory_usage)
+                  << ", disk size: " << PrettyPrinter::print_bytes(flush_size);
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_size_bytes += memtable_ptr->memory_usage();

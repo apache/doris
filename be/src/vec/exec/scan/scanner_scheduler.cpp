@@ -200,7 +200,8 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
             "{}, revocable mem size: {}, failed: {}",
             print_id(state->query_id()), PrettyPrinter::print_bytes(reserve_size),
             local_state->get_name(), local_state->parent()->node_id(), state->task_id(),
-            PrettyPrinter::print_bytes(pipeline_task->get_revocable_size()), st.to_string());
+            PrettyPrinter::print_bytes(pipeline_task->sink()->revocable_mem_size(state)),
+            st.to_string());
     // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
     if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
         debug_msg += fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
