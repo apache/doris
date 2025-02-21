@@ -20,12 +20,12 @@
 4	4_1
 
 -- !7 --
-6	Jean	26
-8	Razor	18
-7	Diluc	30
 1	Paimon	5
 4	Venti	25
 5	Kaeya	28
+6	Jean	26
+7	Diluc	30
+8	Razor	18
 9	Mona	19
 10	Barbara	16
 
@@ -56,14 +56,14 @@
 4	4_1
 
 -- !7 --
+1	Paimon	5
 4	Venti	25
 5	Kaeya	28
-8	Razor	18
-1	Paimon	5
-7	Diluc	30
 6	Jean	26
-10	Barbara	16
+7	Diluc	30
+8	Razor	18
 9	Mona	19
+10	Barbara	16
 
 -- !8 --
 8

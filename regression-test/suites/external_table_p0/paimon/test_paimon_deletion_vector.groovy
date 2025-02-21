@@ -42,9 +42,9 @@ suite("test_paimon_deletion_vector", "p0,external,doris,external_docker,external
             qt_2 """select count(*) from deletion_vector_parquet;"""
             qt_3 """select count(*) from deletion_vector_orc where id > 2;"""
             qt_4 """select count(*) from deletion_vector_parquet where id > 2;"""
-            qt_5 """select * from deletion_vector_orc where id > 2;"""
-            qt_6 """select * from deletion_vector_parquet where id > 2;"""
-            qt_7 """select * from deletion_vector_table_1_0;"""
+            qt_5 """select * from deletion_vector_orc where id > 2 order by id;"""
+            qt_6 """select * from deletion_vector_parquet where id > 2 order by id;"""
+            qt_7 """select * from deletion_vector_table_1_0 order by id;"""
             qt_8 """select count(*) from deletion_vector_table_1_0;"""
             qt_9 """select count(*) from deletion_vector_table_1_0 where id > 2;"""
         }
