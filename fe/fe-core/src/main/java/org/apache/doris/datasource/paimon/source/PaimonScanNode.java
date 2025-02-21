@@ -302,7 +302,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 long totalCount = paimonSplits.stream().mapToLong(s -> s.rowCount()).sum();
                 long deletionVectorCount = paimonSplits.stream().mapToLong(s -> !s.deletionFiles().isPresent()
                         ? 0
-                        : s.deletionFiles().get().stream().mapToLong(dv -> dv.cardinality()).sum()).sum();
+                        : s.deletionFiles().get().stream().mapToLong(dv -> dv == null ? 0 : dv.cardinality()).sum())
+                        .sum();
                 assignCountToSplits(splits, totalCount -= deletionVectorCount);
             }
         }
