@@ -20,6 +20,7 @@
 #include <brpc/server.h>
 #include <brpc/uri.h>
 #include <bvar/bvar.h>
+#include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -56,12 +57,10 @@
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 
-bvar::LatencyRecorder write_latency("file_cache_microbench_append");
-bvar::LatencyRecorder read_latency("file_cache_microbench_read_at");
-
 const std::string HIDDEN_PREFIX = "test_file_cache_microbench/";
+// Just 10^9.
+static constexpr auto NS = 1000000000UL;
 
-// 添加gflags定义
 DEFINE_int32(port, 8888, "Http Port of this server");
 
 // 添加一个数据生成器类
@@ -104,117 +103,6 @@ private:
     size_t _generated_size;
     const size_t _buffer_size;
     std::string _buffer;
-};
-
-// IOPS 统计器
-class IopsStats {
-public:
-    IopsStats() : _start_time(std::chrono::steady_clock::now()), _last_update_time(_start_time) {}
-
-    void record_operation() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto now = std::chrono::steady_clock::now();
-        _op_times.push_back(now);
-
-        // 只保留最近1秒内的操作记录
-        auto one_second_ago = now - std::chrono::seconds(1);
-        while (!_op_times.empty() && _op_times.front() < one_second_ago) {
-            _op_times.pop_front();
-        }
-
-        // 计算当前IOPS（最近1秒内的操作数）
-        _current_iops = _op_times.size();
-
-        // 更新峰值IOPS
-        if (_current_iops > _peak_iops) {
-            _peak_iops = _current_iops;
-        }
-
-        // 每秒更新一次显示
-        if (now - _last_update_time >= std::chrono::seconds(1)) {
-            _last_update_time = now;
-        }
-    }
-
-    double get_current_iops() const {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto now = std::chrono::steady_clock::now();
-        // 如果最后一次操作距离现在超过1秒，返回0
-        if (_op_times.empty() || (now - _op_times.back() > std::chrono::seconds(1))) {
-            return 0.0;
-        }
-        return _current_iops;
-    }
-
-    double get_peak_iops() const {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _peak_iops;
-    }
-
-    void reset() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _start_time = std::chrono::steady_clock::now();
-        _last_update_time = _start_time;
-        _op_times.clear();
-        _current_iops = 0;
-        _peak_iops = 0;
-    }
-
-private:
-    mutable std::mutex _mutex;
-    std::chrono::steady_clock::time_point _start_time;
-    std::chrono::steady_clock::time_point _last_update_time;
-    std::deque<std::chrono::steady_clock::time_point> _op_times; // 记录每个操作的时间点
-    double _current_iops = 0;
-    double _peak_iops = 0;
-};
-
-// IOPS Rate Limiter implementation
-class IopsRateLimiter {
-public:
-    IopsRateLimiter(int iops_limit)
-            : _iops_limit(iops_limit), _tokens(0), _last_update(std::chrono::steady_clock::now()) {}
-
-    void acquire() {
-        if (_iops_limit <= 0) return;
-
-        std::unique_lock<std::mutex> lock(_mutex);
-
-        while (true) {
-            // 更新令牌桶
-            auto now = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(now - _last_update)
-                                    .count();
-            double new_tokens = (duration / 1e9) * _iops_limit;
-            _tokens = std::min(_iops_limit * 1.0, _tokens + new_tokens);
-            _last_update = now;
-
-            if (_tokens >= 1.0) {
-                _tokens -= 1.0;
-                break;
-            }
-
-            // 计算需要等待的时间
-            double tokens_needed = 1.0 - _tokens;
-            int64_t wait_ns = static_cast<int64_t>((tokens_needed / _iops_limit) * 1e9);
-            auto wait_time = now + std::chrono::nanoseconds(wait_ns);
-
-            _cv.wait_until(lock, wait_time);
-        }
-    }
-
-    void set_iops_limit(int iops_limit) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _iops_limit = iops_limit;
-        _cv.notify_all(); // 通知所有等待的线程重新检查限制
-    }
-
-private:
-    std::mutex _mutex;
-    std::condition_variable _cv; // 添加条件变量
-    std::atomic<int> _iops_limit;
-    double _tokens;
-    std::chrono::steady_clock::time_point _last_update;
 };
 
 // 定义一个结构体来存储文件信息
@@ -270,21 +158,21 @@ private:
 // 创建一个全局的 S3FileRecords 实例
 S3FileRecords s3_file_records;
 
-// IOPS-controlled S3 file writer
-class IopsControlledS3FileWriter {
+class MircobenchS3FileWriter {
 public:
-    IopsControlledS3FileWriter(std::shared_ptr<doris::io::ObjClientHolder> client,
-                               const std::string& bucket, const std::string& key,
-                               const doris::io::FileWriterOptions* options,
-                               std::shared_ptr<IopsRateLimiter> rate_limiter,
-                               std::shared_ptr<IopsStats> stats)
-            : _writer(client, bucket, key, options), _rate_limiter(rate_limiter), _stats(stats) {}
+    MircobenchS3FileWriter(std::shared_ptr<doris::io::ObjClientHolder> client,
+                           const std::string& bucket, const std::string& key,
+                           const doris::io::FileWriterOptions* options,
+                           std::shared_ptr<doris::S3RateLimiterHolder> rate_limiter)
+            : _writer(client, bucket, key, options), _rate_limiter(rate_limiter) {}
 
-    doris::Status appendv(const doris::Slice* slices, size_t slices_size) {
-        _rate_limiter->acquire();
-        _stats->record_operation();
+    doris::Status appendv(const doris::Slice* slices, size_t slices_size,
+                          const std::shared_ptr<bvar::LatencyRecorder>& write_bvar) {
+        if (_rate_limiter) {
+            _rate_limiter->add(1);
+        }
         using namespace doris;
-        SCOPED_BVAR_LATENCY(write_latency)
+        SCOPED_BVAR_LATENCY(*write_bvar)
         return _writer.appendv(slices, slices_size);
     }
 
@@ -292,24 +180,23 @@ public:
 
 private:
     doris::io::S3FileWriter _writer;
-    std::shared_ptr<IopsRateLimiter> _rate_limiter;
-    std::shared_ptr<IopsStats> _stats;
+    std::shared_ptr<doris::S3RateLimiterHolder> _rate_limiter;
 };
 
-// IOPS-controlled file reader
-class IopsControlledFileReader {
+class MicrobenchFileReader {
 public:
-    IopsControlledFileReader(std::shared_ptr<doris::io::FileReader> base_reader,
-                             std::shared_ptr<IopsRateLimiter> rate_limiter,
-                             std::shared_ptr<IopsStats> stats)
-            : _base_reader(std::move(base_reader)), _rate_limiter(rate_limiter), _stats(stats) {}
+    MicrobenchFileReader(std::shared_ptr<doris::io::FileReader> base_reader,
+                         std::shared_ptr<doris::S3RateLimiterHolder> rate_limiter)
+            : _base_reader(std::move(base_reader)), _rate_limiter(rate_limiter) {}
 
     doris::Status read_at(size_t offset, const doris::Slice& result, size_t* bytes_read,
-                          const doris::io::IOContext* io_ctx) {
-        _rate_limiter->acquire();
-        _stats->record_operation();
+                          const doris::io::IOContext* io_ctx,
+                          std::shared_ptr<bvar::LatencyRecorder> read_bvar) {
+        if (_rate_limiter) {
+            _rate_limiter->add(1); // 消耗一个令牌
+        }
         using namespace doris;
-        SCOPED_BVAR_LATENCY(read_latency)
+        SCOPED_BVAR_LATENCY(*read_bvar)
         return _base_reader->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -319,11 +206,9 @@ public:
 
 private:
     std::shared_ptr<doris::io::FileReader> _base_reader;
-    std::shared_ptr<IopsRateLimiter> _rate_limiter;
-    std::shared_ptr<IopsStats> _stats;
+    std::shared_ptr<doris::S3RateLimiterHolder> _rate_limiter;
 };
 
-// 线程池实现
 class ThreadPool {
 public:
     ThreadPool(size_t num_threads) : stop(false) {
@@ -380,7 +265,6 @@ private:
     bool stop;
 };
 
-// 添加一个文件完成状态跟踪器
 class FileCompletionTracker {
 public:
     void mark_completed(const std::string& key) {
@@ -400,7 +284,7 @@ public:
 
 private:
     std::mutex _mutex;
-    std::condition_variable _cv; // 添加条件变量
+    std::condition_variable _cv;
     std::unordered_set<std::string> _completed_files;
 };
 
@@ -519,26 +403,36 @@ struct JobConfig {
             config.write_batch_size = doris::config::s3_write_buffer_size;
         }
 
-        // such as [0, 100)
-        const rapidjson::Value& read_offset_array = d["read_offset"];
-        if (!read_offset_array.IsArray() || read_offset_array.Size() != 2) {
-            throw std::runtime_error("Invalid read_offset format, expected array of size 2");
-        }
-        config.read_offset_left = read_offset_array[0].GetInt64();
-        config.read_offset_right = read_offset_array[1].GetInt64();
-        if (config.read_offset_left >= config.read_offset_right) {
-            throw std::runtime_error("read_offset_left must be less than read_offset_right");
+        if (config.read_iops > 0) {
+            // such as [0, 100)
+            const rapidjson::Value& read_offset_array = d["read_offset"];
+            if (!read_offset_array.IsArray() || read_offset_array.Size() != 2) {
+                throw std::runtime_error("Invalid read_offset format, expected array of size 2");
+            }
+            config.read_offset_left = read_offset_array[0].GetInt64();
+            config.read_offset_right = read_offset_array[1].GetInt64();
+            if (config.read_offset_left >= config.read_offset_right) {
+                throw std::runtime_error("read_offset_left must be less than read_offset_right");
+            }
+
+            // such as [100, 500) or [-200, -10)
+            const rapidjson::Value& read_length_array = d["read_length"];
+            if (!read_length_array.IsArray() || read_length_array.Size() != 2) {
+                throw std::runtime_error("Invalid read_length format, expected array of size 2");
+            }
+            config.read_length_left = read_length_array[0].GetInt64();
+            config.read_length_right = read_length_array[1].GetInt64();
+            if (config.read_length_left >= config.read_length_right) {
+                throw std::runtime_error("read_length_left must be less than read_length_right");
+            }
         }
 
-        // such as [100, 500) or [-200, -10)
-        const rapidjson::Value& read_length_array = d["read_length"];
-        if (!read_length_array.IsArray() || read_length_array.Size() != 2) {
-            throw std::runtime_error("Invalid read_length format, expected array of size 2");
+        // 添加更多参数验证
+        if (config.num_threads > 10000) {
+            throw std::runtime_error("num_threads cannot exceed 10000");
         }
-        config.read_length_left = read_length_array[0].GetInt64();
-        config.read_length_right = read_length_array[1].GetInt64();
-        if (config.read_length_left >= config.read_length_right) {
-            throw std::runtime_error("read_length_left must be less than read_length_right");
+        if (config.size_bytes_perfile <= 0) {
+            throw std::runtime_error("size_bytes_perfile must be positive");
         }
 
         return config;
@@ -552,17 +446,15 @@ struct JobConfig {
     }
 
     std::string to_string() const {
-        std::stringstream ss;
-        ss << "size_bytes_perfile: " << size_bytes_perfile << ", write_iops: " << write_iops
-           << ", read_iops: " << read_iops << ", num_threads: " << num_threads
-           << ", num_files: " << num_files << ", file_prefix: " << HIDDEN_PREFIX + file_prefix
-           << ", write_file_cache: " << write_file_cache
-           << ", more than write_batch_size: " << write_batch_size << ", read repeat: " << repeat
-           << ", ttl expiration: " << expiration << ", cache_type: " << cache_type
-           << " will append data to s3 writer, read_offset: [" << read_offset_left << " , "
-           << read_offset_right << "), read_length: [" << read_length_left << " , "
-           << read_length_right << ")";
-        return ss.str();
+        return fmt::format(
+                "size_bytes_perfile: {}, write_iops: {}, read_iops: {}, num_threads: {}, "
+                "num_files: {}, file_prefix: {}, write_file_cache: {}, write_batch_size: {}, "
+                "repeat: {}, expiration: {}, cache_type: {}, read_offset: [{}, {}), "
+                "read_length: [{}, {})",
+                size_bytes_perfile, write_iops, read_iops, num_threads, num_files,
+                HIDDEN_PREFIX + file_prefix, write_file_cache, write_batch_size, repeat, expiration,
+                cache_type, read_offset_left, read_offset_right, read_length_left,
+                read_length_right);
     }
 };
 
@@ -579,13 +471,13 @@ struct Job {
     std::chrono::system_clock::time_point start_time;
     std::chrono::system_clock::time_point end_time;
 
+    std::shared_ptr<doris::S3RateLimiterHolder> write_limiter;
+    std::shared_ptr<doris::S3RateLimiterHolder> read_limiter;
+
     // Job执行结果统计
     struct Statistics {
-        double peak_write_iops;
-        double peak_read_iops;
         std::string total_write_time;
         std::string total_read_time;
-
         // struct FileCacheStatistics
         int64_t num_local_io_total = 0;
         int64_t num_remote_io_total = 0;
@@ -605,18 +497,25 @@ struct Job {
     } stats;
 
     // 记录与作业相关的文件信息
-    std::vector<FileInfo> file_records; // 记录文件信息
+    std::vector<FileInfo> file_records;
 
     // 添加 completion_tracker
     std::shared_ptr<FileCompletionTracker> completion_tracker;
+
+    std::shared_ptr<bvar::LatencyRecorder> write_latency;
+    std::shared_ptr<bvar::Adder<int64_t>> write_rate_limit_s;
+    std::shared_ptr<bvar::LatencyRecorder> read_latency;
+    std::shared_ptr<bvar::Adder<int64_t>> read_rate_limit_s;
 
     // 默认构造函数
     Job()
             : job_id(""),
               config(),
               status(JobStatus::PENDING),
-              create_time(std::chrono::system_clock::now()),
-              completion_tracker(std::make_shared<FileCompletionTracker>()) {}
+              create_time(std::chrono::system_clock::now()) {
+        init_latency_recorders("");
+        completion_tracker = std::make_shared<FileCompletionTracker>();
+    }
 
     // 带参数的构造函数
     Job(const std::string& id, const JobConfig& cfg)
@@ -624,10 +523,56 @@ struct Job {
               config(cfg),
               status(JobStatus::PENDING),
               create_time(std::chrono::system_clock::now()) {
+        init_latency_recorders(id);
         if (config.write_iops && config.read_iops) {
             completion_tracker = std::make_shared<FileCompletionTracker>();
         } else {
             completion_tracker = nullptr;
+        }
+        init_limiters(cfg);
+    }
+
+private:
+    void init_latency_recorders(const std::string& id) {
+        if (config.write_iops > 0) {
+            write_latency =
+                    std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_append_" + id);
+            write_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
+                    "file_cache_microbench_append_rate_limit_ns_" + id);
+        }
+        if (config.read_iops > 0) {
+            read_latency =
+                    std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_read_at_" + id);
+            read_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
+                    "file_cache_microbench_read_rate_limit_ns_" + id);
+        }
+    }
+
+    void init_limiters(const JobConfig& cfg) {
+        if (cfg.write_iops > 0) {
+            write_limiter = std::make_shared<doris::S3RateLimiterHolder>(
+                    doris::S3RateLimitType::PUT,
+                    cfg.write_iops, // max_speed (IOPS)
+                    cfg.write_iops, // max_burst
+                    0,              // no limit
+                    [this](int64_t wait_time_ns) {
+                        if (wait_time_ns > 0) {
+                            *write_rate_limit_s << wait_time_ns / NS;
+                        }
+                    });
+        }
+
+        if (cfg.read_iops > 0) {
+            read_limiter = std::make_shared<doris::S3RateLimiterHolder>(
+                    doris::S3RateLimitType::GET,
+                    cfg.read_iops, // max_speed (IOPS)
+                    cfg.read_iops, // max_burst
+                    0,             // no limit
+                    [this](int64_t wait_time_ns) {
+                        if (wait_time_ns > 0) {
+                            *read_rate_limit_s << wait_time_ns / NS;
+                        }
+                    });
         }
     }
 };
@@ -635,36 +580,43 @@ struct Job {
 // Job管理器
 class JobManager {
 public:
-    JobManager() : _next_job_id(0), _job_executor_pool(4) {} // 创建4个线程的执行池
+    JobManager() : _next_job_id(0), _job_executor_pool(std::thread::hardware_concurrency()) {}
+
+    ~JobManager() {
+        try {
+            stop();
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error stopping JobManager: " << e.what();
+        }
+    }
 
     std::string submit_job(const JobConfig& config) {
         try {
             std::lock_guard<std::mutex> lock(_mutex);
             std::string job_id = "job_" + std::to_string(std::time(nullptr)) + "_" +
                                  std::to_string(_next_job_id++);
-            _jobs.emplace(job_id, Job(job_id, config));
+            _jobs[job_id] = std::make_shared<Job>(job_id, config);
 
-            // 将作业提交到执行线程池
             _job_executor_pool.enqueue([this, job_id]() {
                 try {
                     {
                         std::lock_guard<std::mutex> lock(_mutex);
-                        _jobs[job_id].status = JobStatus::RUNNING;
-                        _jobs[job_id].start_time = std::chrono::system_clock::now();
+                        _jobs[job_id]->status = JobStatus::RUNNING;
+                        _jobs[job_id]->start_time = std::chrono::system_clock::now();
                     }
 
                     execute_job(job_id);
 
                     {
                         std::lock_guard<std::mutex> lock(_mutex);
-                        _jobs[job_id].status = JobStatus::COMPLETED;
-                        _jobs[job_id].end_time = std::chrono::system_clock::now();
+                        _jobs[job_id]->status = JobStatus::COMPLETED;
+                        _jobs[job_id]->end_time = std::chrono::system_clock::now();
                     }
                 } catch (const std::exception& e) {
                     std::lock_guard<std::mutex> lock(_mutex);
-                    _jobs[job_id].status = JobStatus::FAILED;
-                    _jobs[job_id].error_message = e.what();
-                    _jobs[job_id].end_time = std::chrono::system_clock::now();
+                    _jobs[job_id]->status = JobStatus::FAILED;
+                    _jobs[job_id]->error_message = e.what();
+                    _jobs[job_id]->end_time = std::chrono::system_clock::now();
                     LOG(ERROR) << "Job " << job_id << " failed: " << e.what();
                 }
             });
@@ -677,22 +629,22 @@ public:
         }
     }
 
-    Job get_job_status(const std::string& job_id) {
+    const Job& get_job_status(const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
         if (it != _jobs.end()) {
-            return it->second;
+            return *(it->second);
         }
         throw std::runtime_error("Job not found");
     }
 
-    std::vector<Job> list_jobs() {
+    std::vector<std::shared_ptr<Job>> list_jobs() {
         std::lock_guard<std::mutex> lock(_mutex);
-        std::vector<Job> result;
+        std::vector<std::shared_ptr<Job>> job_list;
         for (const auto& pair : _jobs) {
-            result.push_back(pair.second);
+            job_list.push_back(pair.second);
         }
-        return result;
+        return job_list;
     }
 
     void start() {
@@ -705,62 +657,72 @@ public:
     }
 
     void record_file_info(const std::string& key, size_t data_size, const std::string& job_id) {
-        std::lock_guard<std::mutex> lock(_mutex); // 确保线程安全
+        std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
         if (it != _jobs.end()) {
             FileInfo file_info = {key, data_size, job_id};
-            it->second.file_records.push_back(file_info); // 更新找到的作业的文件记录
-
-            // 将 FileInfo 添加到 s3_file_records 中
+            it->second->file_records.push_back(file_info);
             s3_file_records.add_file_info(job_id, file_info);
         } else {
-            LOG(ERROR) << "Job ID not found: " << job_id; // 记录错误信息
+            LOG(ERROR) << "Job ID not found: " << job_id;
         }
     }
 
     void execute_job(const std::string& job_id) {
-        Job& job = _jobs[job_id];
-        JobConfig config = job.config;
-        LOG(INFO) << "begin to Run " << job_id << " job config: " << config.to_string();
-
-        // 生成多个key
-        std::vector<std::string> keys;
-        keys.reserve(config.num_files);
-
-        std::string rewrite_job_id = job_id;
-        // Job Read the previously job uploaded files
-        if (config.read_iops != 0 && config.write_iops == 0) {
-            // 当 read_iops != 0 && write_iops == 0 时，表示读取之前写入的文件
-            std::string old_job_id =
-                    s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
-            if (old_job_id == "") {
-                std::string err_msg =
-                        "Can't find previously job uploaded files, Please make sure read "
-                        "files exist in obj or It is also possible that you have restarted "
-                        "the file_cache_microbench program, job_id = " +
-                        job_id;
-                LOG(WARNING) << err_msg;
-                throw std::runtime_error(err_msg);
+        try {
+            std::shared_ptr<Job> job_ptr = _jobs.at(job_id);
+            if (!job_ptr) {
+                throw std::runtime_error("Job not found");
             }
-            rewrite_job_id = old_job_id;
-        }
+            Job& job = *job_ptr;
+            JobConfig config = job.config;
+            LOG(INFO) << "begin to Run " << job_id << " job config: " << config.to_string();
 
-        // 继续生成 keys
-        for (int i = 0; i < config.num_files; ++i) {
-            keys.push_back(HIDDEN_PREFIX + config.file_prefix + "/" + rewrite_job_id + "_" +
-                           std::to_string(i));
-        }
+            // 生成多个key
+            std::vector<std::string> keys;
+            keys.reserve(config.num_files);
 
-        if (config.write_iops) {
-            // 执行写操作
-            execute_write_tasks(keys, job, config);
-        }
+            std::string rewrite_job_id = job_id;
+            // Job Read the previously job uploaded files
+            if (config.read_iops != 0 && config.write_iops == 0) {
+                // 当 read_iops != 0 && write_iops == 0 时，表示读取之前写入的文件
+                std::string old_job_id =
+                        s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
+                if (old_job_id == "") {
+                    std::string err_msg =
+                            "Can't find previously job uploaded files, Please make sure read "
+                            "files exist in obj or It is also possible that you have restarted "
+                            "the file_cache_microbench program, job_id = " +
+                            job_id;
+                    LOG(WARNING) << err_msg;
+                    throw std::runtime_error(err_msg);
+                }
+                rewrite_job_id = old_job_id;
+            }
 
-        if (config.read_iops) {
-            // 执行读操作
-            execute_read_tasks(keys, job, config);
+            // 继续生成 keys
+            for (int i = 0; i < config.num_files; ++i) {
+                keys.push_back(HIDDEN_PREFIX + config.file_prefix + "/" + rewrite_job_id + "_" +
+                               std::to_string(i));
+            }
+
+            if (config.write_iops) {
+                // 执行写操作
+                execute_write_tasks(keys, job, config);
+            }
+
+            if (config.read_iops) {
+                // 执行读操作
+                execute_read_tasks(keys, job, config);
+            }
+            LOG(INFO) << "finish to Run " << job_id;
+        } catch (const std::out_of_range& e) {
+            LOG(ERROR) << "Job not found: " << job_id << ": " << e.what();
+            throw;
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error executing job " << job_id << ": " << e.what();
+            throw;
         }
-        LOG(INFO) << "finish to Run " << job_id;
     }
 
 private:
@@ -788,24 +750,17 @@ private:
             throw std::runtime_error("Failed to initialize S3 client: " + init_status.to_string());
         }
 
-        // 创建速率限制器和统计器
-        std::vector<std::shared_ptr<IopsRateLimiter>> write_limiters;
-        write_limiters.reserve(config.num_files);
-        for (int i = 0; i < config.num_files; ++i) {
-            write_limiters.push_back(std::make_shared<IopsRateLimiter>(config.write_iops));
-        }
-        auto write_stats = std::make_shared<IopsStats>();
-
         std::atomic<int> completed_writes(0);
         std::vector<std::future<void>> write_futures;
+        write_futures.reserve(keys.size());
         ThreadPool write_pool(config.num_threads);
 
         // 启动写入任务
-        doris::MonotonicStopWatch write_stopwatch; // 添加写入任务计时器
+        doris::MonotonicStopWatch write_stopwatch;
         write_stopwatch.start();
         for (int i = 0; i < keys.size(); ++i) {
             const auto& key = keys[i];
-            write_futures.push_back(write_pool.enqueue([&, key, i]() {
+            write_futures.push_back(write_pool.enqueue([&, key]() {
                 try {
                     DataGenerator data_generator(config.size_bytes_perfile);
                     doris::io::FileWriterOptions options;
@@ -813,9 +768,9 @@ private:
                         options.file_cache_expiration = config.expiration;
                     }
                     options.write_file_cache = config.write_file_cache;
-                    auto writer = std::make_unique<IopsControlledS3FileWriter>(
-                            client, doris::config::test_s3_bucket, key, &options, write_limiters[i],
-                            write_stats);
+                    auto writer = std::make_unique<MircobenchS3FileWriter>(
+                            client, doris::config::test_s3_bucket, key, &options,
+                            job.write_limiter);
 
                     std::vector<doris::Slice> slices;
                     slices.reserve(4);
@@ -829,7 +784,8 @@ private:
 
                         if (accumulated_size >= config.write_batch_size ||
                             !data_generator.has_more()) {
-                            doris::Status status = writer->appendv(slices.data(), slices.size());
+                            doris::Status status = writer->appendv(slices.data(), slices.size(),
+                                                                   job.write_latency);
                             if (!status.ok()) {
                                 throw std::runtime_error("Write error for key " + key + ": " +
                                                          status.to_string());
@@ -864,7 +820,6 @@ private:
         double total_write_time_seconds = write_stopwatch.elapsed_time() / 1e9; // 纳秒转秒
         job.stats.total_write_time =
                 std::to_string(total_write_time_seconds) + " seconds"; // 保存为字符串
-        job.stats.peak_write_iops = write_stats->get_peak_iops();
         LOG(INFO) << "Total write time: " << job.stats.total_write_time << " seconds";
 
         // 记录写入的文件信息
@@ -875,6 +830,10 @@ private:
     }
 
     void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
+        LOG(INFO) << "Starting read tasks for job " << job.job_id << ", num_keys=" << keys.size()
+                  << ", read_iops=" << config.read_iops;
+        auto start_time = std::chrono::steady_clock::now();
+
         int64_t exist_job_perfile_size = s3_file_records.get_exist_job_perfile_size_by_prefix(
                 HIDDEN_PREFIX + config.file_prefix);
         std::vector<std::future<void>> read_futures;
@@ -891,12 +850,6 @@ private:
             // do nothing
         }
         ThreadPool read_pool(config.num_threads);
-        std::vector<std::shared_ptr<IopsRateLimiter>> read_limiters;
-        read_limiters.reserve(config.num_files);
-        auto read_stats = std::make_shared<IopsStats>();
-        for (int i = 0; i < config.num_files; ++i) {
-            read_limiters.push_back(std::make_shared<IopsRateLimiter>(config.read_iops));
-        }
         std::atomic<int> completed_reads(0);
         doris::MonotonicStopWatch read_stopwatch; // 添加读取任务计时器
 
@@ -906,7 +859,7 @@ private:
         read_stopwatch.start();
         for (int i = 0; i < keys.size(); ++i) {
             const auto& key = keys[i];
-            read_futures.push_back(read_pool.enqueue([&, key, i]() {
+            read_futures.push_back(read_pool.enqueue([&, key]() {
                 try {
                     if (job.completion_tracker) {
                         job.completion_tracker->wait_for_completion(key); // 等待文件完成
@@ -947,8 +900,8 @@ private:
                             continue;
                         }
 
-                        auto reader = std::make_unique<IopsControlledFileReader>(
-                                status_or_reader.value(), read_limiters[i], read_stats);
+                        auto reader = std::make_unique<MicrobenchFileReader>(
+                                status_or_reader.value(), job.read_limiter);
 
                         for (int i = 0; i < config.repeat; i++) {
                             size_t read_offset = 0;
@@ -1017,7 +970,7 @@ private:
 
                                 doris::Status read_status =
                                         reader->read_at(read_offset + block_offset, read_slice,
-                                                        &bytes_read, &io_ctx);
+                                                        &bytes_read, &io_ctx, job.read_latency);
                                 if (!read_status.ok()) {
                                     read_success = false;
                                     if (++read_retry_count >= max_read_retries) {
@@ -1077,7 +1030,6 @@ private:
         double total_read_time_seconds = read_stopwatch.elapsed_time() / 1e9; // 纳秒转秒
         job.stats.total_read_time =
                 std::to_string(total_read_time_seconds) + " seconds"; // 保存为字符串
-        job.stats.peak_read_iops = read_stats->get_peak_iops();
         LOG(INFO) << "Total read time: " << job.stats.total_read_time << " seconds";
 
         // 更新作业统计信息
@@ -1097,11 +1049,17 @@ private:
         job.stats.lock_wait_timer = total_stats.lock_wait_timer;
         job.stats.get_timer = total_stats.lock_wait_timer;
         job.stats.set_timer = total_stats.lock_wait_timer;
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration =
+                std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        LOG(INFO) << "Completed read tasks for job " << job.job_id
+                  << ", duration=" << duration.count() << "ms";
     }
 
     std::mutex _mutex;
     std::atomic<int> _next_job_id;
-    std::map<std::string, Job> _jobs;
+    std::map<std::string, std::shared_ptr<Job>> _jobs;
     ThreadPool _job_executor_pool; // 专门用于执行作业的线程池
     std::shared_ptr<FileCompletionTracker> completion_tracker; // 共享的完成跟踪器
 };
@@ -1153,7 +1111,7 @@ public:
         }
 
         try {
-            Job job = _job_manager.get_job_status(job_id);
+            const Job& job = _job_manager.get_job_status(job_id);
 
             // 构建JSON响应
             rapidjson::Document d;
@@ -1172,8 +1130,6 @@ public:
 
             // 添加统计信息
             rapidjson::Value stats(rapidjson::kObjectType);
-            stats.AddMember("peak_write_iops", job.stats.peak_write_iops, allocator);
-            stats.AddMember("peak_read_iops", job.stats.peak_read_iops, allocator);
             stats.AddMember("total_write_time",
                             rapidjson::Value(job.stats.total_write_time.c_str(), allocator),
                             allocator);
@@ -1258,7 +1214,7 @@ public:
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
-        std::vector<Job> jobs = _job_manager.list_jobs();
+        std::vector<std::shared_ptr<Job>> jobs = _job_manager.list_jobs();
 
         // 构建JSON响应
         rapidjson::Document d;
@@ -1268,9 +1224,10 @@ public:
         rapidjson::Value jobs_array(rapidjson::kArrayType);
         for (const auto& job : jobs) {
             rapidjson::Value job_obj(rapidjson::kObjectType);
-            job_obj.AddMember("job_id", rapidjson::Value(job.job_id.c_str(), allocator), allocator);
+            job_obj.AddMember("job_id", rapidjson::Value(job->job_id.c_str(), allocator),
+                              allocator);
             job_obj.AddMember("status",
-                              rapidjson::Value(get_status_string(job.status).c_str(), allocator),
+                              rapidjson::Value(get_status_string(job->status).c_str(), allocator),
                               allocator);
             jobs_array.PushBack(job_obj, allocator);
         }
@@ -1340,13 +1297,11 @@ public:
 
         LOG(INFO) << "Starting HTTP server on port " << FLAGS_port;
 
-        // 添加HTTP服务
         if (server.AddService(&http_svc, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
             LOG(ERROR) << "Failed to add http service";
             return;
         }
 
-        // 启动服务器
         brpc::ServerOptions options;
         if (server.Start(FLAGS_port, &options) != 0) {
             LOG(ERROR) << "Failed to start HttpServer";
