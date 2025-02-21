@@ -199,13 +199,6 @@ extPgPort = 5432
 extPgUser = "****"
 extPgPassword = "***********"
 
-// elasticsearch external test config for bigdata
-enableExternalEsTest = false
-extEsHost = "***********"
-extEsPort = 9200
-extEsUser = "*******"
-extEsPassword = "***********"
-
 // minio external test config
 enableExternalMinioTest = false
 extMinioHost = "***.**.**.**"
