@@ -28,8 +28,10 @@ suite("test_replace_mtmv","mtmv") {
     sql """drop table if exists `${tableName2}`"""
     sql """drop materialized view if exists ${mvName1};"""
     sql """drop materialized view if exists ${mvName2};"""
-    String querySql1 = "SELECT * FROM ${tableName1}";
-    String querySql2 = "SELECT * FROM ${tableName2}";
+    String querySql1 = "SELECT k1,k2 FROM ${tableName1}";
+    String rewriteSql1 = "SELECT k1 FROM ${tableName1}";
+    String querySql2 = "SELECT k3,k4 FROM ${tableName2}";
+    String rewriteSql2 = "SELECT k3 FROM ${tableName2}";
     sql """
         CREATE TABLE ${tableName1}
         (
@@ -81,7 +83,7 @@ suite("test_replace_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName1)
 
     order_qt_mv1 "SELECT * FROM ${mvName1}"
-    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName1}")
+    mv_rewrite_success_without_check_chosen("""${rewriteSql1}""", "${mvName1}")
 
     sql """
         insert into ${tableName2} values(2,2);
@@ -92,7 +94,7 @@ suite("test_replace_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName2)
 
     order_qt_mv2 "SELECT * FROM ${mvName2}"
-    mv_rewrite_success_without_check_chosen("""${querySql2}""", "${mvName2}")
+    mv_rewrite_success_without_check_chosen("""${rewriteSql2}""", "${mvName2}")
     test {
           sql """
               alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${tableName1};
@@ -134,8 +136,8 @@ suite("test_replace_mtmv","mtmv") {
 
     order_qt_mv2_refresh "SELECT * FROM ${mvName2}"
 
-    mv_rewrite_success_without_check_chosen("""${querySql1}""", "${mvName2}")
-    mv_rewrite_success_without_check_chosen("""${querySql2}""", "${mvName1}")
+    mv_rewrite_success_without_check_chosen("""${rewriteSql1}""", "${mvName2}")
+    mv_rewrite_success_without_check_chosen("""${rewriteSql2}""", "${mvName1}")
 
     sql """
         alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${mvName2} PROPERTIES('swap' = 'false');
