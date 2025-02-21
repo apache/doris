@@ -187,14 +187,19 @@ public:
     ColumnPtr filter(const IColumn::Filter& filter, ssize_t result_size_hint) const override {
         column_match_filter_size(size(), filter.size());
         auto res = create(_item_size);
-        res->resize(result_size_hint);
-
-        for (size_t i = 0, pos = 0; i < filter.size(); i++) {
+        size_t column_size = size();
+        if (result_size_hint > 0) {
+            res->reserve(result_size_hint);
+        }
+        res->resize(column_size);
+        size_t pos = 0;
+        for (size_t i = 0; i < filter.size(); i++) {
             if (filter[i]) {
                 memcpy(&res->_data[pos * _item_size], &_data[i * _item_size], _item_size);
                 pos++;
             }
         }
+        res->resize(pos);
         return res;
     }
 
