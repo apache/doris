@@ -202,7 +202,7 @@ Status VectorizedFnCall::_execute_with_check(doris::vectorized::VExprContext* co
     if (block->get_by_position(*result_column_id).column->use_count() > 1) {
         return Status::InternalError(
                 " function : {}  result column should a unique column  , use count : {} , debug "
-                "info : ",
+                "info : {}",
                 _function_name, block->get_by_position(*result_column_id).column->use_count(),
                 debug_string());
     }
