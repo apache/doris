@@ -266,7 +266,7 @@ public class Auth implements Writable {
     }
 
     // ==== Global ====
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+    protected boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -282,7 +282,7 @@ public class Auth implements Writable {
     }
 
     // ==== Catalog ====
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    protected boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
@@ -305,7 +305,7 @@ public class Auth implements Writable {
     }
 
     // ==== Database ====
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+    protected boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
@@ -329,7 +329,7 @@ public class Auth implements Writable {
     }
 
     // ==== Table ====
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+    protected boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
@@ -353,7 +353,7 @@ public class Auth implements Writable {
     // ==== Column ====
     // The reason why this method throws an exception instead of returning a boolean is to
     // indicate which col does not have permission
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
+    protected void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         Set<Role> roles = getRolesByUserWithLdap(currentUser);
         for (String col : cols) {
@@ -376,7 +376,7 @@ public class Auth implements Writable {
     }
 
     // ==== Resource ====
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+    protected boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -392,7 +392,7 @@ public class Auth implements Writable {
     }
 
     // ==== Storage Vault ====
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+    protected boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -408,7 +408,7 @@ public class Auth implements Writable {
     }
 
     // ==== Workload Group ====
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+    protected boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         readLock();
         try {
             // currently stream load not support ip based auth, so normal should not auth temporary
@@ -430,7 +430,7 @@ public class Auth implements Writable {
     }
 
     // ==== cloud ====
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
+    protected boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
             PrivPredicate wanted, ResourceTypeEnum type) {
         readLock();
         try {
