@@ -136,6 +136,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -182,6 +184,7 @@ import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
+import org.apache.doris.planner.MaterializeNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
@@ -2443,6 +2446,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return inputPlanFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalLazyMaterialize(PhysicalLazyMaterialize<? extends Plan> materialize,
+            PlanTranslatorContext context) {
+        PlanFragment inputPlanFragment = materialize.child(0).accept(this, context);
+        TupleDescriptor materializeTupleDesc = generateTupleDesc(materialize.getOutput(), null, context);
+        MaterializeNode materializeNode = new MaterializeNode(context.nextPlanNodeId(), materializeTupleDesc,
+                inputPlanFragment.getPlanRoot());
+        inputPlanFragment.addPlanRoot(materializeNode);
+        return inputPlanFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan,
+            PlanTranslatorContext context) {
+        PlanFragment planFragment = visitPhysicalOlapScan(lazyScan.getScan(), context);
+        TupleDescriptor outputTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getScan().getTable(), context);
+        planFragment.getPlanRoot().setOutputTupleDesc(outputTuple);
+        return planFragment;
     }
 
     /* ********************************************************************************************

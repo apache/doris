@@ -107,7 +107,6 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeOlapScan lazyScan = new PhysicalLazyMaterializeOlapScan(scan,
                     context.rowIdSlot, context.lazySlots);
-            System.out.println(lazyScan.getOutput());
             return lazyScan;
         } else {
             // should not hit here
