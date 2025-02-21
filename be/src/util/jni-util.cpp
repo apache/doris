@@ -96,9 +96,11 @@ const std::string GetKerb5ConfPath() {
     return "-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path;
 }
 
-[[maybe_unused]] void CheckJniEnv() {
+[[maybe_unused]] void SetEnvIfNecessary() {
     const std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
+    libhdfs_opts += fmt::format(" {} ", GetKerb5ConfPath());
+    setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
     LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
 }
 
@@ -263,7 +265,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     }
 #else
     // the hadoop libhdfs will do all the stuff
-    CheckJniEnv();
+    SetEnvIfNecessary();
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;
