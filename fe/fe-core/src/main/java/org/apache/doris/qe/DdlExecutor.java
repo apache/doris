@@ -563,7 +563,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof AdminCleanTrashStmt
                 || ddlStmt instanceof AdminRebalanceDiskStmt
                 || ddlStmt instanceof AdminCancelRebalanceDiskStmt
-                || ddlStmt instanceof AlterResourceStmt
                 || ddlStmt instanceof AlterPolicyStmt
                 || ddlStmt instanceof CancelAlterSystemStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
