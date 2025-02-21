@@ -78,7 +78,7 @@ protected:
 private:
     Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                        int* result_column_id, ColumnNumbers& args);
-    Status _execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+    Status _execute_with_check(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                     int* result_column_id, ColumnNumbers& args);
 };
 

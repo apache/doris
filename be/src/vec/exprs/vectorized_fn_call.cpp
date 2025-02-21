@@ -21,6 +21,7 @@
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Types_types.h>
 
+#include <algorithm>
 #include <ostream>
 
 #include "common/config.h"
@@ -190,24 +191,20 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     return Status::OK();
 }
 
-Status VectorizedFnCall::_execute(doris::vectorized::VExprContext* context,
-                                  doris::vectorized::Block* block, int* result_column_id,
-                                  ColumnNumbers& args) {
+Status VectorizedFnCall::_execute_with_check(doris::vectorized::VExprContext* context,
+                                             doris::vectorized::Block* block, int* result_column_id,
+                                             ColumnNumbers& args) {
     auto st = _do_execute(context, block, result_column_id, args);
     if (!st.ok()) {
         return st;
     }
 
-    // check input/output column
-    if (is_column_const(*block->get_by_position(*result_column_id).column)) {
-        if (!std::ranges::all_of(args, [&](uint32_t arg) {
-                return is_column_const(*block->get_by_position(arg).column);
-            })) {
-            return Status::InternalError(
-                    "VectorizedFnCall::execute: input column is not all const while output column "
-                    "is const , function name = {}",
-                    _function_name);
-        }
+    if (block->get_by_position(*result_column_id).column->use_count() > 1) {
+        return Status::InternalError(
+                " function : {}  result column should a unique column  , use count : {} , debug "
+                "info : ",
+                _function_name, block->get_by_position(*result_column_id).column->use_count(),
+                debug_string());
     }
 
     return Status::OK();
@@ -216,13 +213,13 @@ Status VectorizedFnCall::_execute(doris::vectorized::VExprContext* context,
 Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
                                                 int* result_column_id, ColumnNumbers& args) {
-    return _execute(context, block, result_column_id, args);
+    return _execute_with_check(context, block, result_column_id, args);
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
     ColumnNumbers arguments;
-    return _execute(context, block, result_column_id, arguments);
+    return _execute_with_check(context, block, result_column_id, arguments);
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
