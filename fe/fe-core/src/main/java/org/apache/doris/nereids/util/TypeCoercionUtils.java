@@ -99,7 +99,6 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -1672,9 +1671,6 @@ public class TypeCoercionUtils {
 
         // time-like vs all other type
         if (t1.isTimeLikeType() && t2.isTimeLikeType()) {
-            if (t1.isTimeType() && t2.isTimeType()) {
-                return Optional.of(TimeType.INSTANCE);
-            }
             return Optional.of(TimeV2Type.INSTANCE);
         }
         if (t1.isTimeLikeType() || t2.isTimeLikeType()) {
