@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -29,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -212,6 +214,16 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    // Record used table and partition names map, if the table key not in the tableUsedPartitionNameMap
+    // but query use, it means query all partition for this table
+    // if the table key is in the map and the value is empty partition which means query no parition from
+    // this table
+    // todo what would happen if related table appear more then once
+    private final Map<BaseTableInfo, Set<String>> tableUsedPartitionNameMap = new HashMap<>();
+
+    // Record mtmv and valid partitions map because this is time-consuming behavior
+    private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -772,5 +784,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public Map<BaseTableInfo, Set<String>> getTableUsedPartitionNameMap() {
+        return tableUsedPartitionNameMap;
+    }
+
+    public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
+        return mvCanRewritePartitionsMap;
     }
 }

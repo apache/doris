@@ -15,36 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.jobs.executor;
+
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
+
+import java.util.List;
 
 /**
- * optimize plan process has some phase, such as analyze, rewrite, optimize, generate physical plan
- * and so on, this hook give a chance to do something in the planning process.
- * For example: after analyze plan when query or explain, we should generate materialization context.
+ * Collect partitions where query used
  */
-public interface PlannerHook {
-
-    /**
-     * the hook before analyze
-     */
-    default void beforeAnalyze(NereidsPlanner planner) {
+public class TablePartitionCollector extends AbstractBatchJobExecutor {
+    public TablePartitionCollector(CascadesContext cascadesContext) {
+        super(cascadesContext);
     }
 
-    /**
-     * the hook after analyze
-     */
-    default void afterAnalyze(NereidsPlanner planner) {
+    @Override
+    public List<RewriteJob> getJobs() {
+        return buildCollectorJobs();
     }
 
-    /**
-     * the hook before rewrite
-     */
-    default void beforeRewrite(NereidsPlanner planner) {
-    }
-
-    /**
-     * the hook after rewrite
-     */
-    default void afterRewrite(NereidsPlanner planner) {
+    private static List<RewriteJob> buildCollectorJobs() {
+        return jobs(
+                custom(RuleType.COLLECT_PARTITIONS, QueryPartitionCollector::new)
+        );
     }
 }
