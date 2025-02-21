@@ -19,17 +19,14 @@
 
 #include "pipeline/dependency.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
-    auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
-    std::string id_name = " (dst id : ";
-    for (auto& sink : sinks) {
-        id_name += std::to_string(sink.dest_node_id) + ",";
-    }
-    id_name += ")";
-    return id_name;
+    auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);
+    return fmt::format(operator_name_suffix, parent->operator_id());
 }
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {

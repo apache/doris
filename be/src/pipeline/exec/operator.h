@@ -60,6 +60,12 @@ using Operators = std::vector<OperatorPtr>;
 
 using DataSinkOperatorPtr = std::shared_ptr<DataSinkOperatorXBase>;
 
+// This suffix will be added back to the name of sink operator
+// when we creating runtime profile.
+const std::string exchange_sink_name_suffix = "(dest_id={})";
+
+const std::string operator_name_suffix = "(id={})";
+
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;

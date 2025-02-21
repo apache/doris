@@ -56,13 +56,13 @@ export default function QueryProfile(params: any) {
                         setProfile('');
                         res.data.column_names.push('Action');
                         res.data.rows = res.data.rows.map((row) => {
-                            row['Sql Statement'] = (
+                            row['SqlStatement'] = (
                                 <div style={{ maxWidth: 700 }}>
                                     <SyntaxHighlighter
                                         language="sql"
                                         style={docco}
                                     >
-                                        {row['Sql Statement']}
+                                        {row['SqlStatement']}
                                     </SyntaxHighlighter>
                                 </div>
                             );
@@ -71,7 +71,7 @@ export default function QueryProfile(params: any) {
                                     size="small"
                                     onClick={() => {
                                         queryProfile<any>({
-                                            path: row['Profile ID'],
+                                            path: row['ProfileID'],
                                         }).then((profileDetailRes) => {
                                             if (
                                                 profileDetailRes &&
@@ -84,7 +84,7 @@ export default function QueryProfile(params: any) {
                                                 ) {
                                                     download(
                                                         profileDetailRes.data,
-                                                        row['Profile ID']
+                                                        row['ProfileID']
                                                     );
                                                 }
                                             }
@@ -190,7 +190,9 @@ export default function QueryProfile(params: any) {
             {profile ? (
                 <div
                     ref={container}
-                    style={{ background: '#f9f9f9', padding: '20px' }}
+                    style={{ background: '#f9f9f9', padding: '20px', whiteSpace: 'pre-wrap',
+                             fontFamily: 'Menlo, Monaco, \'Courier New\', monospace'
+                             }}
                 >
                     {/* {profile} */}
                 </div>
