@@ -114,6 +114,7 @@ const std::string GetKerb5ConfPath() {
     libhdfs_opts += fmt::format("{} ", GetKerb5ConfPath());
 
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
+    LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
 }
 
 // Only used on non-x86 platform
