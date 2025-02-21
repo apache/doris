@@ -149,6 +149,8 @@ public final class MetricRepo {
 
     public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
 
+    public static Histogram HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY;
+
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -559,6 +561,9 @@ public final class MetricRepo {
 
         HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
+
+        HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_delete_bitmap_update_lock", "latency", "ms"));
 
         // init system metrics
         initSystemMetrics();
