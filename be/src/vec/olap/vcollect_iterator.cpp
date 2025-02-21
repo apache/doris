@@ -386,11 +386,11 @@ Status VCollectIterator::_topn_next(Block* block) {
                 if (mutable_block.rows() > _topn_limit * 2) {
                     VLOG_DEBUG << "topn debug start  shrink mutable_block from "
                                << mutable_block.rows() << " rows";
-                    Block tmp_block = mutable_block.to_block();
+                    Block tmp_block = std::move(mutable_block).to_block();
                     clone_block = tmp_block.clone_empty();
                     mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
-                    for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
-                        mutable_block.add_row(&tmp_block, *it);
+                    for (unsigned long sorted_row_po : sorted_row_pos) {
+                        mutable_block.add_row(&tmp_block, sorted_row_po);
                     }
 
                     sorted_row_pos.clear();
@@ -428,7 +428,7 @@ Status VCollectIterator::_topn_next(Block* block) {
     VLOG_DEBUG << "topn debug result _topn_limit=" << _topn_limit
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
-    *block = mutable_block.to_block();
+    *block = std::move(mutable_block).to_block();
     // append a column to indicate scanner filter_block is already done
     auto filtered_datatype = std::make_shared<DataTypeUInt8>();
     auto filtered_column = filtered_datatype->create_column_const(block->rows(), (uint8_t)1);
