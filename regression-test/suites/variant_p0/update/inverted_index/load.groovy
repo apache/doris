@@ -45,8 +45,9 @@ suite("update_test_index_load", "p0") {
         }
     }
 
-
-    def create_table_load_data = {create_table_name->
+     
+    def create_table_load_data = {create_table_name, format->
+        sql """ set disable_inverted_index_v1_for_variant = false """
         sql "DROP TABLE IF EXISTS ${create_table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${create_table_name} (
@@ -55,23 +56,51 @@ suite("update_test_index_load", "p0") {
                 INDEX idx(v) USING INVERTED PROPERTIES("parser"="standard")
             )
             DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 6
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "0");
+            DISTRIBUTED BY HASH(k) BUCKETS 10
+            properties(
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "bloom_filter_columns" = "v",
+            "inverted_index_storage_format" = ${format}
+            );
         """
 
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 3; i++) {
            load_json_data.call(create_table_name, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
         }
-        sql """set enable_match_without_inverted_index = false""" 
-        sql """ set inverted_index_skip_threshold = 0 """
-        qt_sql """ select count() from ${create_table_name} """
-        qt_sql """ select count() from ${create_table_name} where cast (v['repo']['name'] as string) match 'github'"""
-        qt_sql """ select count() from ${create_table_name} where cast (v['actor']['id'] as int) > 1575592 """
-        qt_sql """ select count() from ${create_table_name} where cast (v['actor']['id'] as int) > 1575592 and  cast (v['repo']['name'] as string) match 'github'"""
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+            sql """set enable_match_without_inverted_index = false""" 
+            sql """ set inverted_index_skip_threshold = 0 """
+            sql """ set enable_inverted_index_query = true """ 
+            qt_sql """ select count() from ${create_table_name} """
+            qt_sql """ select count() from ${create_table_name} where cast (v['repo']['name'] as string) match 'github'"""
+            qt_sql """ select count() from ${create_table_name} where cast (v['actor']['id'] as int) > 1575592 """
+            qt_sql """ select count() from ${create_table_name} where cast (v['actor']['id'] as int) > 1575592 and  cast (v['repo']['name'] as string) match 'github'"""
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+        }
+        
+
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
+            sql """ set enable_inverted_index_query = false """ 
+            // number
+            qt_sql1 """ select count() from ${create_table_name} where cast(v['repo']['id'] as int) in (0, 1, 2, 3, 4, 5); """
+
+            // string
+            qt_sql2 """ select count() from ${create_table_name} where cast(v['repo']['name'] as text) = "xxxx"; """
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("bloom_filter_must_filter_data")
+        }
     }
 
-    create_table_load_data.call("test_update_index_sc")
-    create_table_load_data.call("test_update_index_sc2")
-    create_table_load_data.call("test_update_index_compact")
-    create_table_load_data.call("test_update_index_compact2")
+    create_table_load_data.call("test_update_index_sc_v1", "V1")
+    create_table_load_data.call("test_update_index_sc_v2", "V2")
+    create_table_load_data.call("test_update_index_sc2_v1", "V1")
+    create_table_load_data.call("test_update_index_sc2_v2", "V2")
+    create_table_load_data.call("test_update_index_compact_v1", "V1")
+    create_table_load_data.call("test_update_index_compact_v2", "V2")
+    create_table_load_data.call("test_update_index_compact2_v1", "V1")
+    create_table_load_data.call("test_update_index_compact2_v2", "V2")
 }

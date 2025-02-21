@@ -72,7 +72,6 @@ private:
     Status _get_subcolumn_paths_from_stats(std::set<std::string>& paths);
 
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
-                                 const TabletColumn& parent_column,
                                  const TabletSchemaSPtr& tablet_schema);
     Status _process_root_column(vectorized::ColumnObject* ptr,
                                 vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
