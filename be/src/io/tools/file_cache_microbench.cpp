@@ -45,6 +45,8 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gflags/gflags.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/s3_file_system.h"
@@ -56,6 +58,13 @@
 #include "util/bvar_helper.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
+#include "util/string_util.h"
+
+using doris::io::FileCacheFactory;
+using doris::io::BlockFileCache;
+
+bvar::LatencyRecorder microbench_write_latency("file_cache_microbench_append");
+bvar::LatencyRecorder microbench_read_latency("file_cache_microbench_read_at");
 
 const std::string HIDDEN_PREFIX = "test_file_cache_microbench/";
 // Just 10^9.
@@ -172,7 +181,10 @@ public:
             _rate_limiter->add(1);
         }
         using namespace doris;
-        SCOPED_BVAR_LATENCY(*write_bvar)
+        if (write_bvar) {
+            SCOPED_BVAR_LATENCY(*write_bvar)
+        }
+        SCOPED_BVAR_LATENCY(microbench_write_latency);
         return _writer.appendv(slices, slices_size);
     }
 
@@ -196,7 +208,10 @@ public:
             _rate_limiter->add(1); // 消耗一个令牌
         }
         using namespace doris;
-        SCOPED_BVAR_LATENCY(*read_bvar)
+        if (read_bvar) {
+            SCOPED_BVAR_LATENCY(*read_bvar)
+        }
+        SCOPED_BVAR_LATENCY(microbench_write_latency);
         return _base_reader->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -327,6 +342,14 @@ std::string get_usage(const std::string& progname) {
       GET /get_help
         Get this help information.
 
+      GET /file_cache_clear
+        Clear the file cache with the following query parameters:
+        {
+          "sync": <true|false>,                // Whether to synchronize the cache clear operation
+          "segment_path": "<path>"             // Optional path of the segment to clear from the cache
+        }
+        If "segment_path" is not provided, all caches will be cleared based on the "sync" parameter.
+
     Notes:
       - Ensure that the S3 configuration is set correctly in the environment.
       - The program will create and read files in the specified S3 bucket.
@@ -352,6 +375,7 @@ struct JobConfig {
     int64_t read_length_left;
     int64_t read_length_right;
     bool write_file_cache = true;
+    bool bvar_enable = false;
 
     // 从JSON解析配置
     static JobConfig from_json(const std::string& json_str) {
@@ -364,66 +388,123 @@ struct JobConfig {
             throw std::runtime_error("JSON parse error json args=" + json_str);
         }
         validate(d);
-        if (d.HasMember("write_file_cache") && d["write_file_cache"].GetBool() == false) {
-            config.write_file_cache = false;
-        }
-        config.num_files = d["num_files"].GetInt();
-        if (config.num_files == 0) {
-            config.num_files = 1;
-        }
-        config.size_bytes_perfile = d["size_bytes_perfile"].GetInt64();
-        config.write_iops = d["write_iops"].GetInt();
-        config.read_iops = d["read_iops"].GetInt();
-        config.num_threads = d["num_threads"].GetInt();
-        if (config.num_threads == 0) {
-            config.num_threads = 200;
-        }
-        config.file_prefix = d["file_prefix"].GetString();
 
-        if (!d.HasMember("cache_type")) {
-            config.cache_type = "NORMAL";
+        // 检查并设置 write_file_cache
+        if (d.HasMember("write_file_cache") && d["write_file_cache"].IsBool()) {
+            config.write_file_cache = d["write_file_cache"].GetBool();
         } else {
-            config.cache_type = d["cache_type"].IsString() ? d["cache_type"].GetString() : "NORMAL";
+            config.write_file_cache = true; // 默认值
         }
 
+        // 检查并设置 bvar_enable
+        if (d.HasMember("bvar_enable") && d["bvar_enable"].IsBool()) {
+            config.bvar_enable = d["bvar_enable"].GetBool();
+        } else {
+            config.bvar_enable = false; // 默认值
+        }
+
+        // 检查并设置 num_files
+        if (d.HasMember("num_files") && d["num_files"].IsInt()) {
+            config.num_files = d["num_files"].GetInt();
+        } else {
+            config.num_files = 1; // 默认值
+        }
+
+        // 检查并设置 size_bytes_perfile
+        if (d.HasMember("size_bytes_perfile") && d["size_bytes_perfile"].IsInt64()) {
+            config.size_bytes_perfile = d["size_bytes_perfile"].GetInt64();
+            if (config.size_bytes_perfile <= 0) {
+                throw std::runtime_error("size_bytes_perfile must be positive");
+            }
+        } else {
+            config.size_bytes_perfile = 1024 * 1024; // 默认值
+        }
+
+        // 检查并设置 write_iops
+        if (d.HasMember("write_iops") && d["write_iops"].IsInt()) {
+            config.write_iops = d["write_iops"].GetInt();
+        }
+
+        // 检查并设置 read_iops
+        if (d.HasMember("read_iops") && d["read_iops"].IsInt()) {
+            config.read_iops = d["read_iops"].GetInt();
+        }
+
+        // 检查并设置 num_threads
+        if (d.HasMember("num_threads") && d["num_threads"].IsInt()) {
+            config.num_threads = d["num_threads"].GetInt();
+            if (config.num_threads <= 0 || config.num_threads > 10000) {
+                throw std::runtime_error("num_threads must be between 1 and 10000");
+            }
+        } else {
+            config.num_threads = 200; // 默认值
+        }
+
+        // 检查并设置 file_prefix
+        if (d.HasMember("file_prefix") && d["file_prefix"].IsString()) {
+            config.file_prefix = d["file_prefix"].GetString();
+        } else {
+            throw std::runtime_error("file_prefix is required and must be a string");
+        }
+
+        // 检查并设置 cache_type
+        if (d.HasMember("cache_type") && d["cache_type"].IsString()) {
+            config.cache_type = d["cache_type"].GetString();
+        } else {
+            config.cache_type = "NORMAL"; // 默认值
+        }
+
+        // 检查 TTL 类型的缓存
         if (config.cache_type == "TTL") {
-            if (!d.HasMember("expiration")) {
-                throw std::runtime_error("expiration is required when cache type eq TTL");
+            if (!d.HasMember("expiration") || !d["expiration"].IsInt64()) {
+                throw std::runtime_error(
+                        "expiration is required and must be an integer when cache type is TTL");
             }
             config.expiration = d["expiration"].GetInt64();
             if (config.expiration <= 0) {
-                throw std::runtime_error("expiration <= 0 when cache type eq TTL");
+                throw std::runtime_error("expiration must be positive when cache type is TTL");
             }
         }
 
-        config.repeat = d["repeat"].GetInt64();
-
-        config.write_batch_size = d["write_batch_size"].GetInt64();
-        if (config.write_batch_size == 0) {
-            config.write_batch_size = doris::config::s3_write_buffer_size;
+        // 检查并设置 repeat
+        if (d.HasMember("repeat") && d["repeat"].IsInt64()) {
+            config.repeat = d["repeat"].GetInt64();
         }
 
+        // 检查并设置 write_batch_size
+        if (d.HasMember("write_batch_size") && d["write_batch_size"].IsInt64()) {
+            config.write_batch_size = d["write_batch_size"].GetInt64();
+        } else {
+            config.write_batch_size = doris::config::s3_write_buffer_size; // 默认值
+        }
+
+        // 检查并设置 read_offset
         if (config.read_iops > 0) {
-            // such as [0, 100)
-            const rapidjson::Value& read_offset_array = d["read_offset"];
-            if (!read_offset_array.IsArray() || read_offset_array.Size() != 2) {
+            if (d.HasMember("read_offset") && d["read_offset"].IsArray() &&
+                d["read_offset"].Size() == 2) {
+                const rapidjson::Value& read_offset_array = d["read_offset"];
+                config.read_offset_left = read_offset_array[0].GetInt64();
+                config.read_offset_right = read_offset_array[1].GetInt64();
+                if (config.read_offset_left >= config.read_offset_right) {
+                    throw std::runtime_error(
+                            "read_offset_left must be less than read_offset_right");
+                }
+            } else {
                 throw std::runtime_error("Invalid read_offset format, expected array of size 2");
             }
-            config.read_offset_left = read_offset_array[0].GetInt64();
-            config.read_offset_right = read_offset_array[1].GetInt64();
-            if (config.read_offset_left >= config.read_offset_right) {
-                throw std::runtime_error("read_offset_left must be less than read_offset_right");
-            }
 
-            // such as [100, 500) or [-200, -10)
-            const rapidjson::Value& read_length_array = d["read_length"];
-            if (!read_length_array.IsArray() || read_length_array.Size() != 2) {
+            // 检查并设置 read_length
+            if (d.HasMember("read_length") && d["read_length"].IsArray() &&
+                d["read_length"].Size() == 2) {
+                const rapidjson::Value& read_length_array = d["read_length"];
+                config.read_length_left = read_length_array[0].GetInt64();
+                config.read_length_right = read_length_array[1].GetInt64();
+                if (config.read_length_left >= config.read_length_right) {
+                    throw std::runtime_error(
+                            "read_length_left must be less than read_length_right");
+                }
+            } else {
                 throw std::runtime_error("Invalid read_length format, expected array of size 2");
-            }
-            config.read_length_left = read_length_array[0].GetInt64();
-            config.read_length_right = read_length_array[1].GetInt64();
-            if (config.read_length_left >= config.read_length_right) {
-                throw std::runtime_error("read_length_left must be less than read_length_right");
             }
         }
 
@@ -535,16 +616,20 @@ struct Job {
 private:
     void init_latency_recorders(const std::string& id) {
         if (config.write_iops > 0) {
-            write_latency =
-                    std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_append_" + id);
-            write_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
-                    "file_cache_microbench_append_rate_limit_ns_" + id);
+            if (config.bvar_enable) {
+                write_latency = std::make_shared<bvar::LatencyRecorder>(
+                        "file_cache_microbench_append_" + id);
+                write_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
+                        "file_cache_microbench_append_rate_limit_ns_" + id);
+            }
         }
         if (config.read_iops > 0) {
-            read_latency =
-                    std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_read_at_" + id);
-            read_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
-                    "file_cache_microbench_read_rate_limit_ns_" + id);
+            if (config.bvar_enable) {
+                read_latency = std::make_shared<bvar::LatencyRecorder>(
+                        "file_cache_microbench_read_at_" + id);
+                read_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
+                        "file_cache_microbench_read_rate_limit_ns_" + id);
+            }
         }
     }
 
@@ -1264,6 +1349,27 @@ public:
 
         // 返回帮助信息
         cntl->response_attachment().append(help_info);
+    }
+
+    void file_cache_clear(google::protobuf::RpcController* cntl_base,
+                          const microbench::HttpRequest* request,
+                          microbench::HttpResponse* response, google::protobuf::Closure* done) {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        const std::string* sync_str = cntl->http_request().uri().GetQuery("sync");
+        const std::string* segment_path = cntl->http_request().uri().GetQuery("segment_path");
+
+        LOG(INFO) << "Received file cache clear request, sync=" << (sync_str ? *sync_str : "")
+                  << ", segment_path=" << (segment_path ? *segment_path : "");
+        if (segment_path == nullptr) {
+            FileCacheFactory::instance()->clear_file_caches(doris::to_lower(*sync_str) == "true");
+        } else {
+            doris::io::UInt128Wrapper hash = doris::io::BlockFileCache::hash(*segment_path);
+            doris::io::BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
+            cache->remove_if_cached(hash);
+        }
+
+        cntl->response_attachment().append(R"({"status": "OK"})");
     }
 
 private:
