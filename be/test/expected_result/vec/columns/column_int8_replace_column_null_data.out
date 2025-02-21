@@ -1,0 +1,1 @@
+column: Int8 with nullmap: 1 with ptr: 7;0;0;1;0;0;0;0

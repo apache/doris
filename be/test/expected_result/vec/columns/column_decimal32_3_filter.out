@@ -1,0 +1,3 @@
+column: Decimal32 with all filtered with ptr: 0
+column: Decimal32 with no filtered with ptr: 6;87654.210;0.001;99999.999;-87654.210;-0.001;-99999.999
+column: Decimal32 with invalid filtered with ptr: 6;87654.210;0.001;99999.999;-87654.210;-0.001;-99999.999
