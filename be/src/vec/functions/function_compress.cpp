@@ -185,7 +185,8 @@ public:
             col_data.resize(col_data.size() + length.value);
             uncompressed_slice = Slice(col_data.data() + idx, length.value);
 
-            Slice compressed_data(data.data + compressed_str_length, data.size - compressed_str_length);
+            Slice compressed_data(data.data + compressed_str_length,
+                                  data.size - compressed_str_length);
             auto st = compression_codec->decompress(compressed_data, &uncompressed_slice);
 
             if (!st.ok()) {                                      // is not a legal compressed string
