@@ -216,6 +216,8 @@ public class LoadingTaskPlanner {
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeout() : timeoutS;
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode,
                 txnTimeout);
+        LOG.info("[xxx LoadingTaskPlanner] isPartialUpdate={}, partialUpdateInputColumns={}, column size={}",
+                isPartialUpdate, partialUpdateInputColumns, partialUpdateInputColumns.size());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
 
         olapTableSink.complete(analyzer);
