@@ -68,13 +68,15 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {
-            List<Slot> tableOutputs = Lists.newArrayList(scan.getOutput());
-            tableOutputs.removeAll(lazySlots);
             output = ImmutableList.<Slot>builder()
-                    .addAll(tableOutputs)
+                    .addAll(scan.getOperativeSlots())
                     .add(rowId).build();
         }
         return output;
+    }
+
+    public PhysicalOlapScan getScan() {
+        return scan;
     }
 
     @Override

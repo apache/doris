@@ -229,4 +229,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 groupExpression, getLogicalProperties(), getPhysicalProperties(), statistics,
                 tableSample, operativeSlots);
     }
+
+    @Override
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
+    }
 }
