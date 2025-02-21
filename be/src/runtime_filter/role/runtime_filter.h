@@ -22,8 +22,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime_filter/runtime_filter_definitions.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "runtime_filter/utils.h"
-#include "runtime_filter/wrapper/wrapper.h"
 
 namespace doris {
 class RuntimeFilterWrapper;

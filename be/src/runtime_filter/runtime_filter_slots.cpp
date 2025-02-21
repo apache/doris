@@ -19,7 +19,7 @@
 
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/role/producer.h"
-#include "runtime_filter/wrapper/wrapper.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "util/defer_op.h"
 
 namespace doris {

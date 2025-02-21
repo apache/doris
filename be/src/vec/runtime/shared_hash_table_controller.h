@@ -27,7 +27,7 @@
 
 #include "common/status.h"
 #include "runtime_filter/runtime_filter_definitions.h"
-#include "runtime_filter/wrapper/wrapper.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h"
 
 namespace doris {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/wrapper/wrapper.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 
 #include "exprs/create_predicate_function.h"
 #include "vec/exprs/vbitmap_predicate.h"
@@ -243,7 +243,7 @@ Status RuntimeFilterWrapper::init_bloom_filter(const size_t runtime_size) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "init_bloom_filter meet invalid input type {}",
                         int(_filter_type));
     }
-    return _bloom_filter_func->init_with_runtime_size(runtime_size);
+    return _bloom_filter_func->init_with_fixed_length(runtime_size);
 }
 
 void RuntimeFilterWrapper::insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -366,7 +366,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                 _hybrid_set->insert(other->_hybrid_set.get());
                 if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
                     // case2: use default size to init bf
-                    RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length());
+                    RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(0));
                     RETURN_IF_ERROR(change_to_bloom_filter());
                 }
             } else {
