@@ -207,6 +207,7 @@ elif [[ "${java_version}" -gt 8 ]]; then
 fi
 log "using java version ${java_version}"
 log "${final_java_opt}"
+export JAVA_OPTS="${final_java_opt}"
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=
