@@ -67,6 +67,7 @@ struct RuntimeFilterParamsContext {
     static RuntimeFilterParamsContext* create(QueryContext* query_ctx);
 
     QueryContext* get_query_ctx() const { return _query_ctx; }
+    RuntimeState* get_runtime_state() const { return _state; }
     void set_state(RuntimeState* state) { _state = state; }
     RuntimeFilterMgr* global_runtime_filter_mgr();
     RuntimeFilterMgr* local_runtime_filter_mgr();

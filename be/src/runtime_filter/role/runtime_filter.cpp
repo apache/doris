@@ -128,7 +128,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 }
 
 std::string RuntimeFilter::_debug_string() const {
-    return fmt::format("{}, mode: {}", _wrapper->debug_string(),
+    return fmt::format("{}, mode: {}", _wrapper ? _wrapper->debug_string() : "<null wrapper>",
                        _has_local_target ? "LOCAL" : "GLOBAL");
 }
 

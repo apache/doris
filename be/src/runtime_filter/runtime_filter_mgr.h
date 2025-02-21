@@ -100,7 +100,8 @@ public:
 
     Status register_local_merger_filter(const TRuntimeFilterDesc& desc,
                                         const TQueryOptions& options,
-                                        std::shared_ptr<RuntimeFilterProducer> producer_filter);
+                                        std::shared_ptr<RuntimeFilterProducer> producer_filter,
+                                        RuntimeProfile* parent_profile);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
 
