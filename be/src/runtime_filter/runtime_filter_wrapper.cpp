@@ -103,7 +103,10 @@ Status RuntimeFilterWrapper::init(const size_t real_size) {
     if (get_real_type() == RuntimeFilterType::IN_FILTER && real_size > _max_in_num) {
         set_state(RuntimeFilterWrapper::State::DISABLED, "reach max in num");
     }
-    return _bloom_filter_func->init_with_runtime_size(real_size);
+    if (_bloom_filter_func) {
+        RETURN_IF_ERROR(_bloom_filter_func->init_with_runtime_size(real_size));
+    }
+    return Status::OK();
 }
 
 void RuntimeFilterWrapper::_insert(BloomFilterFuncBase* bloom_filter) const {
