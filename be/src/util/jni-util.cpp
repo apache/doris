@@ -97,7 +97,7 @@ const std::string GetKerb5ConfPath() {
 }
 
 [[maybe_unused]] void SetEnvIfNecessary() {
-    const std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
+    std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
     libhdfs_opts += fmt::format(" {} ", GetKerb5ConfPath());
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
