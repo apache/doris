@@ -44,6 +44,7 @@ class ParallelScannerBuilder {
 public:
     ParallelScannerBuilder(pipeline::OlapScanLocalState* parent,
                            const std::vector<TabletWithVersion>& tablets,
+                           std::vector<TabletReader::ReadSource>& read_sources,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
                            int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
@@ -54,7 +55,8 @@ public:
               _is_dup_mow_key(is_dup_mow_key),
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
-              _key_ranges(key_ranges.cbegin(), key_ranges.cend()) {}
+              _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
+              _read_sources(read_sources) {}
 
     Status build_scanners(std::list<VScannerSPtr>& scanners);
 
@@ -93,6 +95,7 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
     std::unordered_map<int64_t, TabletReader::ReadSource> _all_read_sources;
+    std::vector<TabletReader::ReadSource>& _read_sources;
 };
 
 } // namespace doris

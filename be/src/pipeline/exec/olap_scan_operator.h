@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 
@@ -50,6 +51,7 @@ public:
                            std::to_string(_parent->node_id()),
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
+    Status hold_tablets();
 
 private:
     friend class vectorized::NewOlapScanner;
@@ -97,6 +99,7 @@ private:
     std::set<int32_t> _maybe_read_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
+    std::unique_ptr<RuntimeProfile> _index_filter_profile;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
@@ -214,6 +217,8 @@ private:
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     std::mutex _profile_mtx;
+    std::vector<TabletWithVersion> _tablets;
+    std::vector<TabletReader::ReadSource> _read_sources;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -221,6 +226,7 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
+    Status hold_tablets(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;

@@ -115,6 +115,11 @@ public:
                                                            : _query_options.mem_limit / 20;
     }
 
+    int32_t max_column_reader_num() const {
+        return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
+                                                            : 20000;
+    }
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -137,10 +142,18 @@ public:
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
-    double scanner_scale_up_ratio() const {
-        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
-                                                             : 0;
+    int min_scan_concurrency_of_scan_scheduler() const {
+        return _query_options.__isset.min_scan_scheduler_concurrency
+                       ? _query_options.min_scan_scheduler_concurrency
+                       : 0;
     }
+
+    int min_scan_concurrency_of_scanner() const {
+        return _query_options.__isset.min_scanner_concurrency
+                       ? _query_options.min_scanner_concurrency
+                       : 1;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -207,8 +220,8 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    [[nodiscard]] bool is_cancelled() const;
-    Status cancel_reason() const;
+    [[nodiscard]] MOCK_FUNCTION bool is_cancelled() const;
+    MOCK_FUNCTION Status cancel_reason() const;
     void cancel(const Status& reason) {
         if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
@@ -357,6 +370,10 @@ public:
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    }
+
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
     }
 
     bool trim_tailing_spaces_for_external_table_query() const {
@@ -574,7 +591,7 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
-    bool enable_shared_exchange_sink_buffer() const {
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
     }

@@ -41,6 +41,7 @@
 #include "exprs/function_filter.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
@@ -422,9 +423,6 @@ Status NewOlapScanner::_init_variant_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        if (!slot->need_materialize()) {
-            continue;
-        }
         if (slot->type().is_variant_type()) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
@@ -443,9 +441,6 @@ Status NewOlapScanner::_init_variant_columns() {
 Status NewOlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
-            continue;
-        }
-        if (!slot->need_materialize()) {
             continue;
         }
 
@@ -634,6 +629,11 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+
+    InvertedIndexProfileReporter inverted_index_profile;
+    inverted_index_profile.update(local_state->_index_filter_profile.get(),
+                                  &stats.inverted_index_stats);
+
     if (config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
@@ -692,12 +692,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_compressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
-    if (_query_statistics) {
-        _query_statistics->add_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
-        _query_statistics->add_scan_bytes_from_remote_storage(
-                stats.file_cache_stats.bytes_read_from_remote);
-    }
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            stats.file_cache_stats.bytes_read_from_local);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            stats.file_cache_stats.bytes_read_from_remote);
 }
 
 } // namespace doris::vectorized

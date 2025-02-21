@@ -72,7 +72,7 @@ Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {
 Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
              bool ignore_trivial_slot) {
     for (auto* const slot_desc : slots) {
-        if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+        if (ignore_trivial_slot && !slot_desc->is_materialized()) {
             continue;
         }
         auto column_ptr = slot_desc->get_empty_mutable_column();
@@ -80,6 +80,15 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
                                      slot_desc->col_name()));
     }
+}
+
+Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
+             bool ignore_trivial_slot) {
+    std::vector<SlotDescriptor*> slot_ptrs(slots.size());
+    for (size_t i = 0; i < slots.size(); ++i) {
+        slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
+    }
+    *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
 }
 
 Status Block::deserialize(const PBlock& pblock) {
@@ -147,7 +156,7 @@ void Block::initialize_index_by_name() {
 void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
     if (position > data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
 
@@ -164,7 +173,7 @@ void Block::insert(size_t position, const ColumnWithTypeAndName& elem) {
 void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
     if (position > data.size()) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "invalid input position, position={}, data.size{}, names={}", position,
+                        "invalid input position, position={}, data.size={}, names={}", position,
                         data.size(), dump_names());
     }
 
@@ -997,7 +1006,7 @@ MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int
                            bool ignore_trivial_slot) {
     for (auto* const tuple_desc : tuple_descs) {
         for (auto* const slot_desc : tuple_desc->slots()) {
-            if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+            if (ignore_trivial_slot && !slot_desc->is_materialized()) {
                 continue;
             }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());

@@ -103,6 +103,7 @@ constexpr char S3_TOKEN[] = "AWS_TOKEN";
 constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONN_SIZE";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
+constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
 auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
     return [&](int64_t ns) {
@@ -272,7 +273,9 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             "s3_client_factory::create",
             std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
-    aws_config.endpointOverride = s3_conf.endpoint;
+    if (s3_conf.need_override_endpoint) {
+        aws_config.endpointOverride = s3_conf.endpoint;
+    }
     aws_config.region = s3_conf.region;
     std::string ca_cert = get_valid_ca_cert_path();
     if ("" != _ca_cert_file_path) {
@@ -349,6 +352,9 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
     if (auto it = properties.find(S3_ENDPOINT); it != properties.end()) {
         s3_conf->client_conf.endpoint = it->second;
+    }
+    if (auto it = properties.find(S3_NEED_OVERRIDE_ENDPOINT); it != properties.end()) {
+        s3_conf->client_conf.need_override_endpoint = (it->second == "true");
     }
     if (auto it = properties.find(S3_REGION); it != properties.end()) {
         s3_conf->client_conf.region = it->second;
