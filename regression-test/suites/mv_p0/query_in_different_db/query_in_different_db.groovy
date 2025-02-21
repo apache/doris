@@ -62,8 +62,8 @@ suite ("query_in_different_db") {
     """
 
     // query with index should success
-    qt_select_with_index "select * from ${db}.d_table index mv_in_${db}"
+    order_qt_select_with_index "select * from ${db}.d_table index mv_in_${db}"
 
     mv_rewrite_success("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from ${db}.d_table group by abs(k1)+k2+1", "mv_in_${db}")
-    qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from ${db}.d_table group by abs(k1)+k2+1;"
+    order_qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from ${db}.d_table group by abs(k1)+k2+1;"
 }
