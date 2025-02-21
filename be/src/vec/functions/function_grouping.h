@@ -52,6 +52,10 @@ public:
         return std::make_shared<DataTypeInt64>();
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& src_column = block.get_by_position(arguments[0]);

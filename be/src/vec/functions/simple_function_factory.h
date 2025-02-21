@@ -20,10 +20,13 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -135,6 +138,12 @@ public:
                 key_str.append(type->get_family_name());
             }
         }
+        auto impl = std::static_pointer_cast<FunctionBuilderImpl>(ptr());
+        if (impl->has_return_type_in_signature()) {
+            auto ret_type = impl->get_return_type_impl(types);
+            key_str.append(remove_nullable(ret_type)->get_family_name());
+        }
+
         function_creators[key_str] = ptr;
     }
 
@@ -159,18 +168,22 @@ public:
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
                                  const DataTypePtr& return_type, const FunctionAttr& attr = {},
                                  int be_version = BeExecVersionManager::get_newest_version()) {
-        std::string key_str = name;
+        // the origin name is non alias name, and not include return type and argument type
+        std::string origin_name = name;
 
         if (function_alias.contains(name)) {
-            key_str = function_alias[name];
+            origin_name = function_alias[name];
         }
 
         if (attr.enable_decimal256) {
-            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
-                key_str == "array_cum_sum") {
-                key_str += DECIMAL256_FUNCTION_SUFFIX;
+            if (origin_name == "array_sum" || origin_name == "array_avg" ||
+                origin_name == "array_product" || origin_name == "array_cum_sum") {
+                origin_name += DECIMAL256_FUNCTION_SUFFIX;
             }
         }
+
+        // key_str is origin name + argument type name (override get_variadic_argument_types) + return type name
+        std::string key_str = origin_name;
 
         temporary_function_update(be_version, key_str);
 
@@ -184,17 +197,21 @@ public:
                                        : arg.type->get_family_name());
             }
         }
+        key_str.append(remove_nullable(return_type)->get_family_name());
 
+        // find key_str first, if not found, maybe the function has_return_type_in_signature() is false
+        // so we need find without return type and variadic arguments
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
-            iter = function_creators.find(name);
+            iter = function_creators.find(origin_name);
             if (iter == function_creators.end()) {
                 LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
                 return nullptr;
             }
         }
 
+        // build will check expect return type is equal function return type
         return iter->second()->build(arguments, return_type);
     }
 
