@@ -794,6 +794,10 @@ public class IngestionLoadJob extends LoadJob {
                 // cast to bitmap when the target column type is bitmap
                 srcSlotDesc.setType(ScalarType.createType(PrimitiveType.BITMAP));
                 srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.BITMAP));
+            } else if (column.getDataType() == PrimitiveType.HLL) {
+                // cast to hll when the target column type is hll
+                srcSlotDesc.setType(ScalarType.createType(PrimitiveType.HLL));
+                srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.HLL));
             } else {
                 srcSlotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
