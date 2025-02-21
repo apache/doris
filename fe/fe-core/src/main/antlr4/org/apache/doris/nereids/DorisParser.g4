@@ -263,11 +263,15 @@ supportedAlterStatement
     | ALTER SYSTEM (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
             (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBackendClause
     | ALTER SYSTEM DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
-              (COMMA hostPorts+=STRING_LITERAL)*                                            #decommissionBackendClause
+            (COMMA hostPorts+=STRING_LITERAL)*                                              #decommissionBackendClause
     | ALTER SYSTEM ADD OBSERVER hostPort=STRING_LITERAL                                     #addObserverClause
     | ALTER SYSTEM DROP OBSERVER hostPort=STRING_LITERAL                                    #dropObserverClause
     | ALTER SYSTEM ADD FOLLOWER hostPort=STRING_LITERAL                                     #addFollowerClause
     | ALTER SYSTEM DROP FOLLOWER hostPort=STRING_LITERAL                                    #dropFollowerClause
+    | ALTER SYSTEM ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+            (COMMA hostPorts+=STRING_LITERAL)*                                              #addBrokerClause
+    | ALTER SYSTEM DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+            (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBrokerClause
 
     ;
 
@@ -659,11 +663,7 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #addBrokerClause
-    | DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBrokerClause
-    | DROP ALL BROKER name=identifierOrText                                         #dropAllBrokerClause
+    : DROP ALL BROKER name=identifierOrText                                         #dropAllBrokerClause
     | SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
     | MODIFY BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*
