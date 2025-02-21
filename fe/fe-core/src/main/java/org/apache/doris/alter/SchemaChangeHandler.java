@@ -38,6 +38,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -627,9 +628,15 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered
+                    col.checkSchemaChangeAllowed(modColumn);
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
-                        col.checkSchemaChangeAllowed(modColumn);
+                        ColumnType.checkSupportSchemaChangeForCharType(col.getType(), modColumn.getType());
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    }
+                    if (columnPos == null && col.getDataType().isComplexType()
+                            && modColumn.getDataType().isComplexType()) {
+                        ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType(), true);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (col.isClusterKey()) {
