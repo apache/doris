@@ -88,15 +88,12 @@ bool close_task(PipelineTask* task, Status exec_status) {
                                     print_id(task->query_context()->query_id()),
                                     exec_status.to_string());
     }
-    // decrement_running_task may delete fragment context and will core in some defer
-    // code, because the defer code will access fragment context itself.
-    auto lock_for_context = task->fragment_context()->shared_from_this();
     Status status = task->close(exec_status);
     if (!status.ok()) {
         task->fragment_context()->cancel(status);
     }
     task->finalize();
-    return task->fragment_context()->decrement_running_task(task->pipeline_id());
+    return true;
 }
 
 void TaskScheduler::_do_work(int index) {
@@ -114,11 +111,19 @@ void TaskScheduler::_do_work(int index) {
         }
         task->log_detail_if_need();
         task->set_running(true);
-        bool fragment_is_finished = false;
+        bool eos = false;
+        auto status = Status::OK();
         Defer task_running_defer {[&]() {
             // If fragment is finished, fragment context will be de-constructed with all tasks in it.
-            if (!fragment_is_finished) {
-                task->set_running(false);
+            if (eos || !status.ok()) {
+                // decrement_running_task may delete fragment context and will core in some defer
+                // code, because the defer code will access fragment context itself.
+                auto lock_for_context = task->fragment_context()->shared_from_this();
+                auto close = close_task(task, status);
+                if (close) {
+                    task->fragment_context()->decrement_running_task(task->pipeline_id());
+                    task->set_running(false);
+                }
             }
         }};
         task->set_task_queue(&_task_queue);
@@ -127,12 +132,9 @@ void TaskScheduler::_do_work(int index) {
 
         // Close task if canceled
         if (canceled) {
-            fragment_is_finished = close_task(task, fragment_ctx->get_query_ctx()->exec_status());
+            status = fragment_ctx->get_query_ctx()->exec_status();
             continue;
         }
-
-        bool eos = false;
-        auto status = Status::OK();
         task->set_core_id(index);
 
         // Main logics of execution
@@ -155,10 +157,6 @@ void TaskScheduler::_do_work(int index) {
                 } else { status = task->execute(&eos); },
                 status);
         fragment_ctx->trigger_report_if_necessary();
-
-        if (eos || !status.ok()) {
-            fragment_is_finished = close_task(task, status);
-        }
     }
 }
 
