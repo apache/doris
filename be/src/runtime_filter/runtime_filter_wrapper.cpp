@@ -215,26 +215,16 @@ Status RuntimeFilterWrapper::change_to_bloom_filter() {
     if (_filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         return Status::InternalError("Can not change to bloom filter, {}", debug_string());
     }
-    BloomFilterFuncBase* bf = _bloom_filter_func.get();
 
-    if (bf != nullptr) {
-        insert_to_bloom_filter(bf);
-    } else if (_hybrid_set != nullptr && _hybrid_set->size() != 0) {
+    if (_bloom_filter_func->get_size() != 0) {
+        _bloom_filter_func->insert_set(_hybrid_set);
+    } else if (_hybrid_set != nullptr && _hybrid_set->size() > 0) {
         return Status::InternalError("change to bloom filter need empty set, {}", debug_string());
     }
 
-    // release in filter
+    // release in filter to change real type to bloom
     _hybrid_set.reset();
     return Status::OK();
-}
-
-void RuntimeFilterWrapper::batch_assign(
-        const PInFilter& filter,
-        void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set, PColumnValue&)) {
-    for (int i = 0; i < filter.values_size(); ++i) {
-        PColumnValue column = filter.values(i);
-        assign_func(_hybrid_set, column);
-    }
 }
 
 Status RuntimeFilterWrapper::init_bloom_filter(const size_t runtime_size) {
@@ -246,21 +236,8 @@ Status RuntimeFilterWrapper::init_bloom_filter(const size_t runtime_size) {
     return _bloom_filter_func->init_with_fixed_length(runtime_size);
 }
 
-void RuntimeFilterWrapper::insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
-    if (_hybrid_set->size() > 0) {
-        auto* it = _hybrid_set->begin();
-        while (it->has_next()) {
-            bloom_filter->insert(it->get_value());
-            it->next();
-        }
-    }
-    if (_hybrid_set->contain_null()) {
-        bloom_filter->set_contain_null_and_null_aware();
-    }
-}
-
-void RuntimeFilterWrapper::insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
-    switch (_filter_type) {
+void RuntimeFilterWrapper::insert_batch(const vectorized::ColumnPtr& column, size_t start) {
+    switch (get_real_type()) {
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set->insert_fixed_len(column, start);
         break;
@@ -275,22 +252,18 @@ void RuntimeFilterWrapper::insert_fixed_len(const vectorized::ColumnPtr& column,
         _bloom_filter_func->insert_fixed_len(column, start);
         break;
     }
-    case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-        if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-            _bloom_filter_func->insert_fixed_len(column, start);
-        } else {
-            _hybrid_set->insert_fixed_len(column, start);
-        }
+    case RuntimeFilterType::BITMAP_FILTER: {
+        _bitmap_filter_insert_batch(column, start);
         break;
-    }
     default:
         DCHECK(false);
         break;
     }
+    }
 }
 
-void RuntimeFilterWrapper::bitmap_filter_insert_batch(const vectorized::ColumnPtr column,
-                                                      size_t start) {
+void RuntimeFilterWrapper::_bitmap_filter_insert_batch(const vectorized::ColumnPtr column,
+                                                       size_t start) {
     std::vector<const BitmapValue*> bitmaps;
     if (column->is_nullable()) {
         const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
@@ -377,7 +350,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         } else {
             if (other_filter_type == RuntimeFilterType::IN_FILTER) {
                 // case2: insert data to global filter
-                other->insert_to_bloom_filter(_bloom_filter_func.get());
+                _bloom_filter_func->insert_set(other->_hybrid_set);
             } else {
                 // case1&case2: all input bf must has same size
                 RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
@@ -401,6 +374,15 @@ Status RuntimeFilterWrapper::assign(const PInFilter& in_filter, bool contain_nul
         _hybrid_set->set_null_aware(true);
         _hybrid_set->insert((const void*)nullptr);
     }
+
+    auto batch_assign = [this](const PInFilter& filter,
+                               void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
+                                                   PColumnValue&)) {
+        for (int i = 0; i < filter.values_size(); ++i) {
+            PColumnValue column = filter.values(i);
+            assign_func(_hybrid_set, column);
+        }
+    };
 
     switch (_column_return_type) {
     case TYPE_BOOLEAN: {

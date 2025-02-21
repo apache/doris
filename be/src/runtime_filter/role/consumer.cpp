@@ -26,8 +26,8 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     _set_state(State::APPLIED);
 
     if (_wrapper->get_state() != RuntimeFilterWrapper::State::READY) {
-        DCHECK(_wrapper->get_state() == RuntimeFilterWrapper::State::DISABLED ||
-               _wrapper->get_state() == RuntimeFilterWrapper::State::IGNORED);
+        _wrapper->check_state(
+                {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
         return Status::OK();
     }
 
@@ -59,12 +59,12 @@ Status RuntimeFilterConsumer::acquire_expr(std::list<vectorized::VExprContextSPt
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-    _check_state({State::NOT_READY, State::TIMEOUT});
-    _set_state(State::READY);
     _wrapper = other->_wrapper;
     _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
                           RuntimeFilterWrapper::State::IGNORED,
                           RuntimeFilterWrapper::State::READY});
+    _check_state({State::NOT_READY, State::TIMEOUT});
+    _set_state(State::READY);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
             timer->call_ready();

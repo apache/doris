@@ -27,11 +27,6 @@ public:
 
     void set_null_aware(bool null_aware) { _null_aware = null_aware; }
 
-    void set_contain_null_and_null_aware() {
-        _contain_null = true;
-        _null_aware = true;
-    }
-
 protected:
     bool _contain_null = false;
     bool _null_aware = false;

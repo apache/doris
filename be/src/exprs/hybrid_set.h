@@ -369,8 +369,6 @@ public:
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
-    ContainerType* get_inner_set() { return &_set; }
-
     void set_pb(PInFilter* filter, auto f) {
         for (auto v : _set) {
             f(filter->add_values(), v);
@@ -536,8 +534,6 @@ public:
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
-
-    ContainerType* get_inner_set() { return &_set; }
 
     void set_pb(PInFilter* filter, auto f) {
         for (const auto& v : _set) {
@@ -710,8 +706,6 @@ public:
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
-
-    ContainerType* get_inner_set() { return &_set; }
 
     void to_pb(PInFilter* filter) override {
         throw Exception(ErrorCode::INTERNAL_ERROR, "StringValueSet do not support to_pb");

@@ -53,19 +53,7 @@ public:
 
     Status init_bloom_filter(const size_t runtime_size);
 
-    void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const;
-
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start);
-
-    void insert_batch(const vectorized::ColumnPtr& column, size_t start) {
-        if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
-            bitmap_filter_insert_batch(column, start);
-        } else {
-            insert_fixed_len(column, start);
-        }
-    }
-
-    void bitmap_filter_insert_batch(const vectorized::ColumnPtr column, size_t start);
+    void insert_batch(const vectorized::ColumnPtr& column, size_t start);
 
     RuntimeFilterType get_real_type() const {
         if (_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
@@ -99,10 +87,6 @@ public:
     PrimitiveType column_type() { return _column_return_type; }
 
     bool contain_null() const;
-
-    void batch_assign(const PInFilter& filter,
-                      void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
-                                          PColumnValue&));
 
     friend class RuntimeFilter;
 
@@ -184,11 +168,10 @@ public:
         }
     }
 
-    void _to_protobuf(PInFilter* filter);
-
-    void _to_protobuf(PMinMaxFilter* filter);
-
 private:
+    void _bitmap_filter_insert_batch(const vectorized::ColumnPtr column, size_t start);
+    void _to_protobuf(PInFilter* filter);
+    void _to_protobuf(PMinMaxFilter* filter);
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;

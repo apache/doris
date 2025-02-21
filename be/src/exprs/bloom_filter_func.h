@@ -19,7 +19,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "exprs/bloom_filter_func_adaptor.h"
+#include "exprs/bloom_filter_func_impl.h"
 #include "exprs/filter_base.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "vec/columns/column_dictionary.h"
@@ -71,40 +71,37 @@ public:
         _bloom_filter_alloced = _bloom_filter_length;
         _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
         RETURN_IF_ERROR(_bloom_filter->init(_bloom_filter_length));
-        _inited = true;
         return Status::OK();
     }
 
-    Status merge(BloomFilterFuncBase* bloomfilter_func) {
-        if (bloomfilter_func == nullptr) {
+    Status merge(BloomFilterFuncBase* other) {
+        if (other == nullptr) {
             return Status::InternalError("bloomfilter_func is nullptr");
         }
-        if (bloomfilter_func->_bloom_filter == nullptr) {
-            return Status::InternalError(
-                    "bloomfilter_func->_bloom_filter is nullptr, bloomfilter_func->inited: {}",
-                    bloomfilter_func->_inited);
+        if (other->_bloom_filter == nullptr) {
+            return Status::InternalError("other->_bloom_filter is nullptr");
         }
         // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
         // call for `merge` function. So we just reuse this bloom filter, and we don't need to
         // allocate memory again.
-        if (!_inited) {
+        if (!_bloom_filter_alloced) {
             if (_bloom_filter != nullptr) {
-                return Status::InternalError("_bloom_filter must is nullptr, inited: {}", _inited);
+                return Status::InternalError("_bloom_filter must is nullptr");
             }
-            light_copy(bloomfilter_func);
+            light_copy(other);
             return Status::OK();
         }
-        auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+        if (_bloom_filter_alloced != other->_bloom_filter_alloced) {
             return Status::InternalError(
                     "bloom filter size not the same: already allocated bytes {}, expected "
                     "allocated bytes {}",
-                    _bloom_filter_alloced, other_func->_bloom_filter_alloced);
+                    _bloom_filter_alloced, other->_bloom_filter_alloced);
         }
-        if (other_func->contain_null()) {
-            _bloom_filter->set_contain_null_and_null_aware();
+        if (other->contain_null()) {
+            _bloom_filter->set_null_aware(true);
+            _bloom_filter->set_contain_null();
         }
-        return _bloom_filter->merge(other_func->_bloom_filter.get());
+        return _bloom_filter->merge(other->_bloom_filter.get());
     }
 
     Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size,
@@ -118,7 +115,6 @@ public:
         }
 
         _bloom_filter_alloced = data_size;
-        _inited = true;
         return _bloom_filter->init(data, data_size);
     }
 
@@ -129,13 +125,10 @@ public:
 
     bool contain_null() const {
         if (!_bloom_filter) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr, inited: {}",
-                            _inited);
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr");
         }
         return _bloom_filter->contain_null();
     }
-
-    void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 
@@ -143,11 +136,10 @@ public:
         auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
-        _inited = other_func->_inited;
         _enable_fixed_len_to_uint32_v2 = other_func->_enable_fixed_len_to_uint32_v2;
     }
 
-    virtual void insert(const void* data) = 0;
+    virtual void insert_set(std::shared_ptr<HybridSetBase> set) = 0;
 
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
 
@@ -168,10 +160,8 @@ private:
     }
 
 protected:
-    // bloom filter size
-    int32_t _bloom_filter_alloced;
+    int32_t _bloom_filter_alloced = 0;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
-    bool _inited = false;
     int64_t _bloom_filter_length;
     int64_t _runtime_bloom_filter_min_size;
     int64_t _runtime_bloom_filter_max_size;
@@ -183,16 +173,15 @@ protected:
 template <PrimitiveType type>
 class BloomFilterFunc final : public BloomFilterFuncBase {
 public:
-    BloomFilterFunc() : BloomFilterFuncBase() {}
-
-    ~BloomFilterFunc() override = default;
-
-    void insert(const void* data) override {
-        DCHECK(_bloom_filter != nullptr);
+    void insert_set(std::shared_ptr<HybridSetBase> set) override {
         if (_enable_fixed_len_to_uint32_v2) {
-            OpV2::insert(*_bloom_filter, data);
+            OpV2::insert_set(*_bloom_filter, set);
         } else {
-            Op::insert(*_bloom_filter, data);
+            Op::insert_set(*_bloom_filter, set);
+        }
+        if (set->contain_null()) {
+            _bloom_filter->set_null_aware(true);
+            _bloom_filter->set_contain_null();
         }
     }
 
