@@ -1164,31 +1164,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         break;
     }
     case TFileType::FILE_STREAM: {
-        // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
-        // Need to read all the data before performing JSON parsing
-        uint64_t buffer_size = 1024 * 1024;
-        std::vector<uint8_t> buf(buffer_size);
-
-        uint64_t cur_size = 0;
-        while (true) {
-            RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
-                                    ->read_one_message(file_buf, read_size));
-
-            if (*read_size == 0) {
-                break;
-            } else {
-                if (cur_size + (*read_size) > buf.size()) {
-                    buffer_size = 2 * (cur_size + (*read_size));
-                    buf.resize(buffer_size);
-                }
-                memcpy(buf.data() + cur_size, file_buf->get(), *read_size);
-                cur_size += *read_size;
-            }
-        }
-
-        file_buf->reset(new uint8_t[cur_size]);
-        memcpy(file_buf->get(), buf.data(), cur_size);
-        *read_size = cur_size;
+        RETURN_IF_ERROR(_read_one_message_from_pipe(file_buf, read_size));
         break;
     }
     default: {
@@ -1197,6 +1173,43 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
     }
     return Status::OK();
 }
+
+Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf,
+                                                  size_t* read_size) {
+    auto* stream_load_pipe = dynamic_cast<io::StreamLoadPipe*>(_file_reader.get());
+
+    // With the total length known, the complete data can now be retrieved
+    if (stream_load_pipe->total_length() != -1) {
+        return stream_load_pipe->read_one_message(file_buf, read_size);
+    }
+
+    // The total_length is -1, which means that the data arrives in a stream and the length is unknown.
+    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+    // Need to read all the data before performing JSON parsing.
+    uint64_t buffer_size = 1024 * 1024;
+    std::vector<uint8_t> buf(buffer_size);
+
+    uint64_t cur_size = 0;
+    while (true) {
+        RETURN_IF_ERROR(stream_load_pipe->read_one_message(file_buf, read_size));
+        if (*read_size == 0) {
+            break;
+        } else {
+            if (cur_size + (*read_size) > buf.size()) {
+                buffer_size = 2 * (cur_size + (*read_size));
+                buf.resize(buffer_size);
+            }
+            memcpy(buf.data() + cur_size, file_buf->get(), *read_size);
+            cur_size += *read_size;
+        }
+    }
+
+    file_buf->reset(new uint8_t[cur_size]);
+    memcpy(file_buf->get(), buf.data(), cur_size);
+    *read_size = cur_size;
+    return Status::OK();
+}
+
 // ---------SIMDJSON----------
 // simdjson, replace none simdjson function if it is ready
 Status NewJsonReader::_simdjson_init_reader() {
