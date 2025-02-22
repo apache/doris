@@ -297,7 +297,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // check if all splits dont't have deletion vector or cardinality of every
             // deletion vector is not null
             boolean applyTableCountPushdown = paimonSplits.stream().allMatch(s -> !s.deletionFiles().isPresent()
-                    || s.deletionFiles().get().stream().allMatch(dv -> dv.cardinality() != null));
+                    || s.deletionFiles().get().stream().allMatch(dv -> dv == null || dv.cardinality() != null));
             if (applyTableCountPushdown) {
                 long totalCount = paimonSplits.stream().mapToLong(s -> s.rowCount()).sum();
                 long deletionVectorCount = paimonSplits.stream().mapToLong(s -> !s.deletionFiles().isPresent()
