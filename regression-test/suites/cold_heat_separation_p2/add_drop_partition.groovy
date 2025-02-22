@@ -271,7 +271,7 @@ suite("add_drop_partition") {
     DROP TABLE ${tableName}
     """
 
-    sql """
+    try_sql """
     drop storage policy add_policy;
     """
 

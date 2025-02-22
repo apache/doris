@@ -267,7 +267,7 @@ suite("add_drop_partition_by_hdfs") {
     DROP TABLE ${tableName}
     """
 
-    sql """
+    try_sql """
     drop storage policy add_policy;
     """
 
