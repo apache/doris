@@ -108,8 +108,8 @@ Status ScannerContext::init() {
         _should_reset_thread_name = false;
     }
 
-    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                    thread_token == nullptr ? "False" : "True");
+    _local_state->operator_custom_profile()->add_info_string(
+            "UseSpecificThreadToken", thread_token == nullptr ? "False" : "True");
 
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);

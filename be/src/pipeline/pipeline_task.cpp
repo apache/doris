@@ -106,14 +106,14 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     }
 
     _scan_ranges = scan_range;
-    auto* parent_profile = _state->get_sink_local_state()->profile();
+    auto* parent_profile = _state->get_sink_local_state()->operator_profile();
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
                              _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
-        parent_profile = _state->get_local_state(op->operator_id())->profile();
+        parent_profile = _state->get_local_state(op->operator_id())->operator_custom_profile();
     }
     {
         std::vector<Dependency*> filter_dependencies;
@@ -172,8 +172,7 @@ Status PipelineTask::_extract_dependencies() {
 }
 
 void PipelineTask::_init_profile() {
-    _task_profile =
-            std::make_unique<RuntimeProfile>(fmt::format("PipelineTask (index={})", _index));
+    _task_profile = std::make_unique<RuntimeProfile>(fmt::format("PipelineTask(index={})", _index));
     _parent_profile->add_child(_task_profile.get(), true, nullptr);
     _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
 
@@ -182,7 +181,6 @@ void PipelineTask::_init_profile() {
     _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
     _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
-    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
@@ -411,7 +409,6 @@ Status PipelineTask::execute(bool* eos) {
                 _root->set_low_memory_mode(_state);
             }
             DEFER_RELEASE_RESERVED();
-            _get_block_counter->update(1);
             const auto reserve_size = _root->get_reserve_mem_size(_state);
             _root->reset_reserve_mem_size(_state);
 

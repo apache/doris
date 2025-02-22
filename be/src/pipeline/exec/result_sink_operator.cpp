@@ -41,10 +41,10 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _fetch_row_id_timer = ADD_TIMER(profile(), "FetchRowIdTime");
-    _write_data_timer = ADD_TIMER(profile(), "WriteDataTime");
-    static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
+    _fetch_row_id_timer = ADD_TIMER(operator_custom_profile(), "FetchRowIdTime");
+    _write_data_timer = ADD_TIMER(operator_custom_profile(), "WriteDataTime");
+    _wait_for_dependency_timer =
+            ADD_TIMER_WITH_LEVEL(operator_common_profile(), wait_for_dependency_timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
 
     auto& p = _parent->cast<ResultSinkOperatorX>();
@@ -79,16 +79,16 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     case TResultSinkType::MYSQL_PROTOCAL: {
         if (state->mysql_row_binary_format()) {
             _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
-                    _sender.get(), _output_vexpr_ctxs, _profile));
+                    _sender.get(), _output_vexpr_ctxs, operator_custom_profile()));
         } else {
             _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
-                    _sender.get(), _output_vexpr_ctxs, _profile));
+                    _sender.get(), _output_vexpr_ctxs, operator_custom_profile()));
         }
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
-                _sender.get(), _output_vexpr_ctxs, _profile));
+                _sender.get(), _output_vexpr_ctxs, operator_custom_profile()));
         break;
     }
     default:

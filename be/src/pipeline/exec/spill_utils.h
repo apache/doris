@@ -34,6 +34,7 @@
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "vec/runtime/partitioner.h"
+#include "exec/operator.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -82,7 +83,7 @@ protected:
               _shared_state_holder(shared_state),
               _spill_exec_func(std::move(spill_exec_func)),
               _spill_fin_cb(std::move(spill_fin_cb)) {
-        _exec_timer = profile->get_counter("ExecTime");
+        _exec_timer = _state->get_sink_local_state()->operator_common_profile()->get_counter("ExecTime");
         _spill_total_timer = profile->get_counter("SpillTotalTime");
 
         if (is_write) {

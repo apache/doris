@@ -58,7 +58,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
 
     _should_build_hash_table = true;
-    profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
+    operator_custom_profile()->add_info_string("BroadcastJoin",
+                                               std::to_string(p._is_broadcast_join));
     if (p._is_broadcast_join) {
         if (state->enable_share_hash_table_for_broadcast_join()) {
             _should_build_hash_table = info.task_idx == 0;
@@ -68,9 +69,11 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             }
         }
     }
-    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
-    profile()->add_info_string("ShareHashTableEnabled",
-                               std::to_string(state->enable_share_hash_table_for_broadcast_join()));
+    operator_custom_profile()->add_info_string("BuildShareHashTable",
+                                               std::to_string(_should_build_hash_table));
+    operator_custom_profile()->add_info_string(
+            "ShareHashTableEnabled",
+            std::to_string(state->enable_share_hash_table_for_broadcast_join()));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
@@ -79,18 +82,19 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                                                           _finish_dependency->shared_from_this());
     }
 
-    _runtime_filter_init_timer = ADD_TIMER(profile(), "RuntimeFilterInitTime");
-    _build_blocks_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
-    _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
-    _build_arena_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildKeyArena", TUnit::BYTES, 1);
+    _runtime_filter_init_timer = ADD_TIMER(operator_custom_profile(), "RuntimeFilterInitTime");
+    _build_blocks_memory_usage = ADD_COUNTER_WITH_LEVEL(operator_custom_profile(),
+                                                        "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
+    _hash_table_memory_usage = ADD_COUNTER_WITH_LEVEL(operator_custom_profile(),
+                                                      "MemoryUsageHashTable", TUnit::BYTES, 1);
+    _build_arena_memory_usage = ADD_COUNTER_WITH_LEVEL(operator_custom_profile(),
+                                                       "MemoryUsageBuildKeyArena", TUnit::BYTES, 1);
 
     // Build phase
-    auto* record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
-    _build_table_timer = ADD_TIMER(profile(), "BuildHashTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(profile(), "MergeBuildBlockTime");
+    auto* record_profile =
+            _should_build_hash_table ? operator_custom_profile() : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(operator_custom_profile(), "BuildHashTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(operator_custom_profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
 
@@ -686,7 +690,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         RETURN_IF_ERROR(local_state._runtime_filter_slots->copy_from_shared_context(
                 _shared_hash_table_context));
 
-        local_state.profile()->add_info_string(
+        local_state.operator_custom_profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(
                         _shared_hashtable_controller->get_builder_fragment_instance_id(node_id())));

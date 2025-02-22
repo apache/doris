@@ -148,8 +148,8 @@ public:
                             std::vector<vectorized::AggregateDataPtr>& values,
                             const vectorized::AggregateDataPtr null_key_data, bool is_last) {
         vectorized::SpillStreamSPtr spill_stream;
-        auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
-                                                        Base::profile(), spill_stream);
+        auto status = spill_partition->get_spill_stream(
+                state, Base::_parent->node_id(), Base::operator_custom_profile(), spill_stream);
         RETURN_IF_ERROR(status);
 
         status = to_block(context, keys, values, null_key_data);
