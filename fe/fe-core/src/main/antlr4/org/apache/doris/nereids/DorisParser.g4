@@ -261,7 +261,11 @@ supportedAlterStatement
             (COMMA hostPorts+=STRING_LITERAL)*                                              #addBrokerClause
     | ALTER SYSTEM DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
             (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBrokerClause
-
+    | ALTER SYSTEM MODIFY BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #modifyBackendClause
+    | ALTER SYSTEM MODIFY (FRONTEND | BACKEND) hostPort=STRING_LITERAL
+        HOSTNAME hostName=STRING_LITERAL                                                    #modifyFrontendOrBackendHostNameClause
     ;
 
 supportedDropStatement
@@ -650,11 +654,6 @@ unsupportedAlterStatement
 
 alterSystemClause
     : SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
-    | MODIFY BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*
-        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #modifyBackendClause
-    | MODIFY (FRONTEND | BACKEND) hostPort=STRING_LITERAL
-        HOSTNAME hostName=STRING_LITERAL                                            #modifyFrontendOrBackendHostNameClause
     ;
 
 dropRollupClause
