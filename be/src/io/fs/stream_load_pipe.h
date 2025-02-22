@@ -85,6 +85,8 @@ public:
 
     size_t current_capacity();
 
+    int64_t total_length() const { return _total_length; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
