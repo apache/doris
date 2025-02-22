@@ -112,4 +112,21 @@ suite("test_aggregate_percentile_no_cast") {
     SELECT ARG0,PERCENTILE(NULLABLE(ARG0),1) OVER(ORDER BY t.ARG0 ROWS BETWEEN  CURRENT ROW  AND  UNBOUNDED FOLLOWING ) as a,PERCENTILE(NULLABLE(ARG0),0.9999) OVER(ORDER BY t.ARG0 ROWS BETWEEN  CURRENT ROW  AND  UNBOUNDED FOLLOWING ) as b,PERCENTILE(NULLABLE(ARG0),0) OVER(ORDER BY t.ARG0 ROWS BETWEEN  CURRENT ROW  AND  UNBOUNDED FOLLOWING ) as c,PERCENTILE(NULLABLE(ARG0),0.0001) OVER(ORDER BY t.ARG0 ROWS BETWEEN  CURRENT ROW  AND  UNBOUNDED FOLLOWING ) as d FROM (SELECT TEMPDATA . data, TABLE0.ARG0 FROM TEMPDATA CROSS JOIN (SELECT data AS ARG0
  FROM TINYINTDATA_NOT_EMPTY_NOT_NULLABLE ) AS TABLE0) t  GROUP BY ARG0 order by ARG0;
     """
+    sql "DROP TABLE IF EXISTS percentile_test_db2"
+    sql """
+        CREATE TABLE IF NOT EXISTS percentile_test_db2 (
+            id int,
+	          level double
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        ) 
+        """
+    explain {
+        sql("""select percentile_array(level,[0.5,0.55,0.805])from percentile_test_db2;""")
+        notContains("cast")
+    }
+    sql "INSERT INTO percentile_test_db2 values(1,10.1), (2,8.2), (2,114.3) ,(3,10.4) ,(5,29.5) ,(6,101.6)"
+    qt_select "select percentile_array(level,[0.5,0.55,0.805])from percentile_test_db2;"
 }
