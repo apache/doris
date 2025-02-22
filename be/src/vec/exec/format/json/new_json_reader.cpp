@@ -1178,12 +1178,10 @@ Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* fi
                                                   size_t* read_size) {
     auto* stream_load_pipe = dynamic_cast<io::StreamLoadPipe*>(_file_reader.get());
 
-    // With the total length known, the complete data can now be retrieved
-    if (stream_load_pipe->total_length() != -1) {
+    if (!stream_load_pipe->is_chunked_transfer()) {
         return stream_load_pipe->read_one_message(file_buf, read_size);
     }
 
-    // The total_length is -1, which means that the data arrives in a stream and the length is unknown.
     // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
     // Need to read all the data before performing JSON parsing.
     uint64_t buffer_size = 1024 * 1024;
