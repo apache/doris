@@ -142,7 +142,7 @@ suite("test_compress_uncompress") {
         SELECT
             k0,
             COMPRESS(text_col) AS comp1,
-            binary_col AS comp2,
+            binary_col AS comp2
         FROM test_compression
         ORDER BY k0;
     """
