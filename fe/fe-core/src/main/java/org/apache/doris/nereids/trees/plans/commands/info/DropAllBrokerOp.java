@@ -25,7 +25,7 @@ import org.apache.doris.analysis.ModifyBrokerClause;
  */
 public class DropAllBrokerOp extends BrokerOp {
     public DropAllBrokerOp(String brokerName) {
-        super(ModifyOp.OP_ADD, brokerName, null);
+        super(ModifyOp.OP_DROP_ALL, brokerName, null);
     }
 
     @Override
