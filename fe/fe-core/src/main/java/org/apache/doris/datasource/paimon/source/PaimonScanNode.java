@@ -199,6 +199,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (paimonSplit.getRowCount().isPresent()) {
             fileDesc.setRowCount(paimonSplit.getRowCount().get());
         }
+        if (paimonSplit.getRowCount().isPresent()) {
+            tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
+        }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }

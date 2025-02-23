@@ -48,9 +48,8 @@ public:
               _params(params),
               _range(range),
               _io_ctx(io_ctx) {
-        // TODO: change this
-        if (range.table_format_params.paimon_params.__isset.row_count) {
-            _table_level_row_count = range.table_format_params.paimon_params.row_count;
+        if (range.table_format_params.__isset.table_level_row_count) {
+            _table_level_row_count = range.table_format_params.table_level_row_count;
         } else {
             _table_level_row_count = -1;
         }
