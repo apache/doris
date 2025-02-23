@@ -910,6 +910,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return new MTMVMaxTimestampSnapshot(maxPartition.getPartitionName(getPartitionColumns()), maxVersionTime);
     }
 
+    @Override
+    public long getNewestUpdateTime() {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(getDbName(), getName(),
+                getPartitionColumnTypes());
+        List<HivePartition> partitionList = cache.getAllPartitionsWithCache(getDbName(), getName(),
+                Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
+        if (CollectionUtils.isEmpty(partitionList)) {
+            return 0;
+        }
+        return partitionList.stream().mapToLong(HivePartition::getLastModifiedTime).max().orElse(0);
+    }
+
     private Long getPartitionIdByNameOrAnalysisException(String partitionName,
             HiveMetaStoreCache.HivePartitionValues hivePartitionValues)
             throws AnalysisException {

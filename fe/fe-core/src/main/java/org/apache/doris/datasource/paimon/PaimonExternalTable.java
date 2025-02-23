@@ -204,6 +204,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
+    public long getNewestUpdateTime() {
+        return getPaimonSnapshotCacheValue().getPartitionInfo().getNameToPartition().values().stream()
+                .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
+    }
+
+    @Override
     public boolean isPartitionColumnAllowNull() {
         // Paimon will write to the 'null' partition regardless of whether it is' null or 'null'.
         // The logic is inconsistent with Doris' empty partition logic, so it needs to return false.

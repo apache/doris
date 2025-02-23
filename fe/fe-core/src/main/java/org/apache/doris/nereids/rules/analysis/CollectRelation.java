@@ -26,6 +26,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext.TableFrom;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -176,9 +177,15 @@ public class CollectRelation implements AnalysisRuleFactory {
                 }
             }
         }
+
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(), nameParts);
-        TableIf table = cascadesContext.getConnectContext().getStatementContext()
+        TableIf table;
+        if (cascadesContext.getRewritePlan() instanceof UnboundDictionarySink) {
+            table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
+        } else {
+            table = cascadesContext.getConnectContext().getStatementContext()
                 .getAndCacheTable(tableQualifier, tableFrom);
+        }
         LOG.info("collect table {} from {}", nameParts, tableFrom);
         if (tableFrom == TableFrom.QUERY) {
             collectMTMVCandidates(table, cascadesContext);
