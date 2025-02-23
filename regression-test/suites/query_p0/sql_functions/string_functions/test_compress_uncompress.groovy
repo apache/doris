@@ -137,7 +137,7 @@ suite("test_compress_uncompress") {
         LIMIT 1;
     """
 
-	// Test 12: 多个 COMPRESS 调用，直接从表中对 text_col 字段进行多次 COMPRESS
+	// Test 12: Multiple COMPRESS calls that COMPRESS the text_col field multiple times directly from the table
     order_qt_compress_multiple_calls_from_table """
         SELECT
             k0,
@@ -147,7 +147,7 @@ suite("test_compress_uncompress") {
         ORDER BY k0;
     """
 
-    // Test 13: 多个 COMPRESS 与 UNCOMPRESS 调用，直接从表中对 text_col 字段先 COMPRESS 再 UNCOMPRESS
+	// Test 13: multiple COMPRESS and UNCOMPRESS calls
     order_qt_compress_uncompress_multiple_calls_from_table """
         SELECT
             k0,
