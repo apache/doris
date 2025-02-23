@@ -17,13 +17,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
-#include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -38,12 +39,45 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class TableFormatReader : public GenericReader {
 public:
-    TableFormatReader(std::unique_ptr<GenericReader> file_format_reader)
-            : _file_format_reader(std::move(file_format_reader)) {}
-    ~TableFormatReader() override = default;
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
-        return _file_format_reader->get_next_block(block, read_rows, eof);
+    TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
+                      RuntimeProfile* profile, const TFileScanRangeParams& params,
+                      const TFileRangeDesc& range, io::IOContext* io_ctx)
+            : _file_format_reader(std::move(file_format_reader)),
+              _state(state),
+              _profile(profile),
+              _params(params),
+              _range(range),
+              _io_ctx(io_ctx) {
+        // TODO: change this
+        if (range.table_format_params.paimon_params.__isset.row_count) {
+            _table_level_row_count = range.table_format_params.paimon_params.row_count;
+        } else {
+            _table_level_row_count = -1;
+        }
     }
+    ~TableFormatReader() override = default;
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) final {
+        if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count >= 0) {
+            auto rows =
+                    std::min(_table_level_row_count, (int64_t)_state->query_options().batch_size);
+            _table_level_row_count -= rows;
+            auto mutate_columns = block->mutate_columns();
+            for (auto& col : mutate_columns) {
+                col->resize(rows);
+            }
+            block->set_columns(std::move(mutate_columns));
+            *read_rows = rows;
+            if (_table_level_row_count == 0) {
+                *eof = true;
+            }
+
+            return Status::OK();
+        }
+        return get_next_block_inner(block, read_rows, eof);
+    }
+
+    virtual Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) = 0;
+
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override {
         return _file_format_reader->get_columns(name_to_type, missing_cols);
@@ -63,11 +97,17 @@ public:
 
     bool fill_all_columns() const override { return _file_format_reader->fill_all_columns(); }
 
-    virtual Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) = 0;
+    virtual Status init_row_filters() = 0;
 
 protected:
-    std::string _table_format;                          // hudi, iceberg
+    std::string _table_format;                          // hudi, iceberg, paimon
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
+    RuntimeState* _state = nullptr;                     // for query options
+    RuntimeProfile* _profile = nullptr;
+    const TFileScanRangeParams& _params;
+    const TFileRangeDesc& _range;
+    io::IOContext* _io_ctx = nullptr;
+    int64_t _table_level_row_count = -1; // for optimization of count(*) push down
     void _collect_profile_before_close() override {
         if (_file_format_reader != nullptr) {
             _file_format_reader->collect_profile_before_close();
