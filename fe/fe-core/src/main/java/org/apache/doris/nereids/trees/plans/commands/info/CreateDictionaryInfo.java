@@ -178,6 +178,9 @@ public class CreateDictionaryInfo {
         if (columns.stream().filter(c -> !c.isKey()).count() < 1) {
             throw new DdlException("Need at least one value column");
         }
+        if (getLayout() == LayoutType.IP_TRIE && columns.stream().filter(c -> c.isKey()).count() != 1) {
+            throw new DdlException("IP_TRIE layout requires exactly one key column");
+        }
 
         // Validate each dictionary column exists in source table and set its type
         for (DictionaryColumnDefinition columnDef : columns) {

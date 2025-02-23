@@ -140,6 +140,21 @@ suite("test_ddl") {
         properties("replication_num" = "1");
     """
 
+    // test IP_TRIE layout requires exactly one key column
+    test {
+        sql """
+        create dictionary dic_null using nullable_table
+        (
+            k1 KEY,
+            k2 KEY,
+            v1 VALUE,
+            v2 VALUE
+        )LAYOUT(IP_TRIE)
+        properties('data_lifetime'='600');
+        """
+        exception "IP_TRIE layout requires exactly one key column"
+    }
+
     // test right nullable
     sql """
     create dictionary dic_not_null using nullable_table
