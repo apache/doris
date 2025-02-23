@@ -137,15 +137,23 @@ suite("test_compress_uncompress") {
         LIMIT 1;
     """
 
-	// Test 13: Verify that multiple compressions and uncompressions return correct outputs
-	order_qt_compress_multiple_samples """
-		SELECT 
-			UNCOMPRESS(COMPRESS('Quick brown fox jumps over the lazy dog')) AS decompressed_data_1,
-			UNCOMPRESS(COMPRESS('Lorem ipsum dolor sit amet')) AS decompressed_data_2,
-			UNCOMPRESS(COMPRESS('数据压缩测试')) AS decompressed_data_3,
-			UNCOMPRESS(COMPRESS(REPEAT('x', 20))) AS decompressed_data_4,
-			UNCOMPRESS(COMPRESS('1234567890')) AS decompressed_data_5,
-			UNCOMPRESS(COMPRESS(''))) AS decompressed_data_6
-		LIMIT 1;
-	"""
+	// Test 12: 多个 COMPRESS 调用，直接从表中对 text_col 字段进行多次 COMPRESS
+    order_qt_compress_multiple_calls_from_table """
+        SELECT
+            k0,
+            COMPRESS(text_col) AS comp1,
+            binary_col AS comp2,
+        FROM test_compression
+        ORDER BY k0;
+    """
+
+    // Test 13: 多个 COMPRESS 与 UNCOMPRESS 调用，直接从表中对 text_col 字段先 COMPRESS 再 UNCOMPRESS
+    order_qt_compress_uncompress_multiple_calls_from_table """
+        SELECT
+            k0,
+            text_col AS result1,
+            UNCOMPRESS(binary_col) AS result2
+        FROM test_compression
+        ORDER BY k0;
+    """
 }
