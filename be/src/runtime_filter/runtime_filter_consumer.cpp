@@ -98,6 +98,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         type_desc.__set_is_nullable(false);
         TExprNode node;
         node.__set_type(type_desc);
+        // NULL_AWARE_IN_PRED predicate will do not push down to olap
         node.__set_node_type(null_aware ? TExprNodeType::NULL_AWARE_IN_PRED
                                         : TExprNodeType::IN_PRED);
         node.in_predicate.__set_is_not_in(false);
@@ -122,6 +123,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
                                        _wrapper->minmax_func()->get_min(), min_literal));
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
+        DCHECK(null_aware == false) << "only min predicate do not support null aware";
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id()));
@@ -138,6 +140,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
                                        _wrapper->minmax_func()->get_max(), max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
+        DCHECK(null_aware == false) << "only max predicate do not support null aware";
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id()));
@@ -206,6 +209,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_wrapper->bitmap_filter_func());
         bitmap_pred->add_child(probe_ctx->root());
+        DCHECK(null_aware == false) << "bitmap predicate do not support null aware";
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
                 node, bitmap_pred, 0, null_aware, _wrapper->filter_id());
         container.push_back(wrapper);
