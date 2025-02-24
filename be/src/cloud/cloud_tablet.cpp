@@ -977,16 +977,25 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     // but it may be used in the future.
 }
 
-void CloudTablet::check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) {
+Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
+                                              DeleteBitmap* expected_delete_bitmap) {
     DeleteBitmapPtr cached_delete_bitmap;
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     Status st = engine.txn_delete_bitmap_cache().get_delete_bitmap(
             txn_id, tablet_id(), &cached_delete_bitmap, nullptr, nullptr);
     if (st.ok()) {
-        CHECK_EQ(expected_delete_bitmap->cardinality(), cached_delete_bitmap->cardinality())
-                << fmt::format("delete bitmap cache check failed, txn_id={}, tablet_id={}", txn_id,
-                               tablet_id());
+        bool res = (expected_delete_bitmap->cardinality() == cached_delete_bitmap->cardinality());
+        auto msg = fmt::format(
+                "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
+                "txn_id={}, tablet_id={}",
+                expected_delete_bitmap->cardinality(), cached_delete_bitmap->cardinality(), txn_id,
+                tablet_id());
+        if (!res) {
+            DCHECK(res) << msg;
+            return Status::InternalError<false>(msg);
+        }
     }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

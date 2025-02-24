@@ -213,7 +213,7 @@ public:
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
-    void check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
+    Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
