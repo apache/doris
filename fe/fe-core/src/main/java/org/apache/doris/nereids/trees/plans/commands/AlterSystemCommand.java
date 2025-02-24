@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
@@ -74,6 +75,7 @@ public class AlterSystemCommand extends Command implements ForwardWithSync {
                 || alterSystemOp instanceof DropObserverOp
                 || alterSystemOp instanceof AddFollowerOp
                 || alterSystemOp instanceof DropFollowerOp
+                || alterSystemOp instanceof DropAllBrokerOp
                 || alterSystemOp instanceof AddBrokerOp
                 || alterSystemOp instanceof DropBrokerOp)
         );

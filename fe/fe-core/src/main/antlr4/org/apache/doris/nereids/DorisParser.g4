@@ -256,6 +256,7 @@ supportedAlterStatement
     | ALTER SYSTEM DROP OBSERVER hostPort=STRING_LITERAL                                    #dropObserverClause
     | ALTER SYSTEM ADD FOLLOWER hostPort=STRING_LITERAL                                     #addFollowerClause
     | ALTER SYSTEM DROP FOLLOWER hostPort=STRING_LITERAL                                    #dropFollowerClause
+    | ALTER SYSTEM DROP ALL BROKER name=identifierOrText                                    #dropAllBrokerClause
     | ALTER SYSTEM ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
             (COMMA hostPorts+=STRING_LITERAL)*                                              #addBrokerClause
     | ALTER SYSTEM DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
@@ -648,8 +649,7 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : DROP ALL BROKER name=identifierOrText                                         #dropAllBrokerClause
-    | SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
+    : SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
     | MODIFY BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #modifyBackendClause

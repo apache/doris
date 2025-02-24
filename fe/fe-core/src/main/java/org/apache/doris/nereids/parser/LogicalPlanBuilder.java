@@ -143,6 +143,7 @@ import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
+import org.apache.doris.nereids.DorisParser.DropAllBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
@@ -693,6 +694,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
+import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
@@ -5737,6 +5739,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String stateKey = ctx.stateKey == null ? null : stripQuotes(ctx.stateKey.getText());
         String stateValue = ctx.stateValue == null ? null : stripQuotes(ctx.stateValue.getText());
         return new ShowAnalyzeCommand(tableName, jobId, stateKey, stateValue, isAuto);
+    }
+
+    @Override
+    public LogicalPlan visitDropAllBrokerClause(DropAllBrokerClauseContext ctx) {
+        String brokerName = stripQuotes(ctx.name.getText());
+        AlterSystemOp alterSystemOp = new DropAllBrokerOp(brokerName);
+        return new AlterSystemCommand(alterSystemOp);
     }
 
     @Override
