@@ -320,7 +320,7 @@ Status BlockSerializer::_serialize_block(PBlock* dest, size_t num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
-        if (_parent->state()->get_query_ctx()->low_memory_mode()) {
+        if (_parent->state()->low_memory_mode()) {
             reset_block();
         } else {
             block.clear_column_data();

@@ -434,7 +434,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         }
                         idx++;
                     }
-                    if (moved || state->get_query_ctx()->low_memory_mode()) {
+                    if (moved || state->low_memory_mode()) {
                         local_state._serializer.reset_block();
                     } else {
                         cur_block.clear_column_data();

@@ -141,7 +141,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    if (state->get_query_ctx()->low_memory_mode()) {
+    if (state->low_memory_mode()) {
         set_low_memory_mode(state);
     }
     RETURN_IF_ERROR(local_state._exchanger->sink(
