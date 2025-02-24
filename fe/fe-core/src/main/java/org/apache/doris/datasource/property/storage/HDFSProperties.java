@@ -82,12 +82,7 @@ public class HDFSProperties extends StorageProperties {
         if (Strings.isNullOrEmpty(configFile)) {
             return;
         }
-        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
-        if (allProps.isEmpty()) {
-            throw new IllegalArgumentException("HDFS config file is not empty"
-                    + ", but load config params from file is empty.");
-        }
-
+        loadConfigFromFile(getResourceConfigPropName());
     }
 
     public void toHadoopConfiguration(Configuration conf) {
