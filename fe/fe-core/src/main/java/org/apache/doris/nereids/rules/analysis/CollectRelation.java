@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -196,7 +198,15 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
-        if (cascadesContext.getConnectContext().getSessionVariable().enableMaterializedViewRewrite) {
+        boolean shouldCollect = false;
+        for (PlannerHook plannerHook : cascadesContext.getStatementContext().getPlannerHooks()) {
+            // only collect when InitMaterializationContextHook exists in planner hooks
+            if (plannerHook instanceof InitMaterializationContextHook) {
+                shouldCollect = true;
+                break;
+            }
+        }
+        if (shouldCollect) {
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
                     .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
             if (LOG.isDebugEnabled()) {
