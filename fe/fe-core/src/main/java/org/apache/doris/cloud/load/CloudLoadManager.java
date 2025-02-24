@@ -17,11 +17,16 @@
 
 package org.apache.doris.cloud.load;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CopyStmt;
+import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
+import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -39,6 +44,7 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -104,6 +110,46 @@ public class CloudLoadManager extends LoadManager {
                     stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName());
             loadJob.setJobProperties(stmt.getProperties());
             loadJob.checkAndSetDataSourceInfo(database, stmt.getDataDescriptions());
+            loadJob.setTimeout(ConnectContext.get().getExecTimeout());
+            createLoadJob(loadJob);
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        } finally {
+            super.writeUnlock();
+        }
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+
+        // The job must be submitted after edit log.
+        // It guarantees that load job has not been changed before edit log.
+        loadJobScheduler.submitJob(loadJob);
+        return loadJob;
+    }
+
+    // execute for Nereids
+    public LoadJob createLoadJobFromCommand(String dbName, String labelName, BrokerDesc brokerDesc,
+                                            OriginStatement originStmt, UserIdentity userInfo, String stageId,
+                                            StageType stageType, String stagePrefix, long sizeLimit, String pattern,
+                                            RemoteBase.ObjectInfo objectInfo, Boolean isForce, String userName,
+                                            Map<String, String> properties,
+                                            List<DataDescription> dataDescriptions) throws DdlException {
+        Database database = super.checkDb(dbName);
+        long dbId = database.getId();
+        BrokerLoadJob loadJob = null;
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStartCurrentCluster();
+
+        writeLock();
+        try {
+            long unfinishedCopyJobNum = unprotectedGetUnfinishedCopyJobNum();
+            if (unfinishedCopyJobNum >= Config.cluster_max_waiting_copy_jobs) {
+                throw new DdlException(
+                    "There are more than " + unfinishedCopyJobNum + " unfinished copy jobs, please retry later.");
+            }
+            loadJob = new CopyJob(dbId, labelName, ConnectContext.get().queryId(),
+                brokerDesc, originStmt, userInfo, stageId,
+                stageType, stagePrefix, sizeLimit, pattern,
+                objectInfo, isForce, userName);
+            loadJob.setJobProperties(properties);
+            loadJob.checkAndSetDataSourceInfo(database, dataDescriptions);
             loadJob.setTimeout(ConnectContext.get().getExecTimeout());
             createLoadJob(loadJob);
         } catch (MetaNotFoundException e) {
