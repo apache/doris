@@ -477,15 +477,6 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
             _min_scan_concurrency_of_scan_scheduler -
             (_scanner_scheduler->get_active_threads() + _scanner_scheduler->get_queue_size());
 
-    // Remaing margin is less than _parallism_of_scan_operator of this ScanNode.
-    if (margin_2 > 0 && margin_2 < _parallism_of_scan_operator) {
-        // Each scan operator will at most one scanner.
-        margin_2 = 1;
-    } else {
-        // The margin is distributed evenly to each scan operator.
-        margin_2 = margin_2 / _parallism_of_scan_operator;
-    }
-
     if (margin_1 <= 0 && margin_2 <= 0) {
         return 0;
     }
