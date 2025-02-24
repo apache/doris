@@ -92,6 +92,9 @@ void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
 Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -99,11 +102,17 @@ Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int6
     IPv6Value ipv6_value(data);
     std::string ipv6_str = ipv6_value.to_string();
     bw.write(ipv6_str.c_str(), ipv6_str.length());
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
 Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     auto& column_data = reinterpret_cast<ColumnIPv6&>(column);
     ReadBuffer rb(slice.data, slice.size);
     IPv6 val = 0;
@@ -176,6 +185,8 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
                                        std::string(raw_data, raw_data_len).c_str());
             }
             col_data.emplace_back(ipv6_val);
+        } else {
+            col_data.emplace_back(0);
         }
     }
 }
