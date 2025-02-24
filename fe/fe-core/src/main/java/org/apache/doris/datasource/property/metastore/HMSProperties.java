@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.options.Options;
 
@@ -91,20 +92,31 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     private void checkHiveConfResourcesConfig() {
-       loadConfigFromFile(getResourceConfigPropName());
+        loadConfigFromFile(getResourceConfigPropName());
     }
 
-    public void toPaimonOptionsAndConf(Options options) {
+    public void toPaimonOptionsAndConf(Options options, Configuration conf) {
         options.set("uri", hiveMetastoreUri);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(options::set);
-        //fixme
+        allProps.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            allProps.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            allProps.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            allProps.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+        }
     }
 
     public void toIcebergHiveCatalogProperties(Map<String, String> catalogProps) {
         catalogProps.put("uri", hiveMetastoreUri);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(catalogProps::put);
+        allProps.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            allProps.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            allProps.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            allProps.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+        }
     }
 
     protected Map<String, String> loadConfigFromFile(String resourceConfig) {
