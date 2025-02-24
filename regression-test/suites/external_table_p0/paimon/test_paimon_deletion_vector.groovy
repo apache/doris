@@ -49,9 +49,47 @@ suite("test_paimon_deletion_vector", "p0,external,doris,external_docker,external
             qt_9 """select count(*) from deletion_vector_table_1_0 where id > 2;"""
         }
 
+        def test_table_count_push_down = { String force ->
+            sql """ set force_jni_scanner=${force} """
+            explain {
+                sql("select count(*) from deletion_vector_orc;")
+                contains "pushdown agg=COUNT (-1)"
+            }
+            explain {
+                sql("select count(*) from deletion_vector_parquet;")
+                contains "pushdown agg=COUNT (-1)"
+            }
+            explain {
+                sql("select count(*) from deletion_vector_table_1_0;")
+                contains "pushdown agg=COUNT (8)"
+            }
+        }
+
+        def test_not_table_count_push_down = { String force ->
+            sql """ set enable_count_push_down_for_external_table=false; """
+            sql """ set force_jni_scanner=${force} """
+            explain {
+                sql("select count(*) from deletion_vector_orc;")
+                contains "pushdown agg=NONE"
+            }
+            explain {
+                sql("select count(*) from deletion_vector_parquet;")
+                contains "pushdown agg=NONE"
+            }
+            explain {
+                sql("select count(*) from deletion_vector_table_1_0;")
+                contains "pushdown agg=NONE"
+            }
+        }
+
         test_cases("false")
         test_cases("true")
+        test_table_count_push_down("false")
+        test_table_count_push_down("true")
+        test_not_table_count_push_down("false")
+        test_not_table_count_push_down("true")
     } finally {
+        sql """ set enable_count_push_down_for_external_table=true; """
         sql """set force_jni_scanner=false"""
     }
 
