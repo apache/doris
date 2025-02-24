@@ -51,7 +51,7 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
         delete_bitmap_lock_expiration_seconds : 10,
         calculate_delete_bitmap_task_timeout_seconds : 2,
         mow_calculate_delete_bitmap_retry_times : 3,
-        enable_schema_change_retry_in_cloud_mode : false // for test
+        enable_schema_change_retry_in_cloud_mode : false // turn off to shorten the test's time consumption
     ]
 
     setFeConfigTemporary(customFeConfig) {
@@ -129,7 +129,7 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
             sql "insert into ${table1} values(11,11,11);"
             qt_sql "select * from ${table1} order by k1;"
             Thread.sleep(1000)
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.inject_sleep", [percent: "1.0", sleep: "15"])
+            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.inject_sleep", [percent: "1.0", sleep: "20"])
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block")
 
             def t1 = Thread.start {
