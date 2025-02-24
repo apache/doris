@@ -100,10 +100,15 @@ public class MTMVRefreshPartitionSnapshot {
     }
 
     private void compatiblePartitions(MTMV mtmv) throws AnalysisException {
+        MTMVRelatedTableIf relatedTableIf = mtmv.getMvPartitionInfo().getRelatedTable();
+        // Only olapTable has historical data issues that require compatibility
+        if (!(relatedTableIf instanceof OlapTable)) {
+            return;
+        }
         if (!checkHasDataWithoutPartitionId()) {
             return;
         }
-        OlapTable relatedTable = (OlapTable) mtmv.getMvPartitionInfo().getRelatedTable();
+        OlapTable relatedTable = (OlapTable) relatedTableIf;
         for (Entry<String, MTMVSnapshotIf> entry : partitions.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {

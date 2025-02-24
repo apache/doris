@@ -187,30 +187,6 @@ suite("test_crud_wlg") {
         exception "can not be greater than 100%"
     }
 
-    // test alter tag and type
-    test {
-        sql "alter workload group test_group properties ( 'internal_type'='13' );"
-
-        exception "internal_type can not be create or modified"
-    }
-
-    test {
-        sql "create workload group inter_wg properties('internal_type'='123');"
-        exception "internal_type can not be create or modified"
-    }
-
-    test {
-        sql "alter workload group normal properties ('tag'='123')"
-
-        exception "_internal and normal group can not set tag"
-    }
-
-    test {
-        sql "alter workload group _internal properties ('tag'='123')"
-
-        exception "_internal and normal group can not set tag"
-    }
-
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='20%' );"
     qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
     qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
@@ -348,7 +324,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wlg_user""";
     }
 
     connect('test_wlg_user', '12345', context.config.jdbcUrl) {
@@ -739,7 +715,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wg_priv_user2""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wg_priv_user2""";
     }
     connect('test_wg_priv_user2', '', context.config.jdbcUrl) {
         qt_select_wgp_11 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "

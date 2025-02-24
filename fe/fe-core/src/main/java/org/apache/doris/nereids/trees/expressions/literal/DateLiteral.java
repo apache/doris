@@ -42,7 +42,7 @@ import java.util.function.UnaryOperator;
 /**
  * Date literal in Nereids.
  */
-public class DateLiteral extends Literal {
+public class DateLiteral extends Literal implements ComparableLiteral {
     public static final String JAVA_DATE_FORMAT = "yyyy-MM-dd";
 
     public static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
@@ -456,6 +456,30 @@ public class DateLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATE);
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof DateLiteral) {
+            int cmp = Long.compare(getValue(), ((DateLiteral) other).getValue());
+            if (cmp != 0) {
+                return cmp;
+            }
+
+            long thisMicrosecond = this instanceof DateTimeV2Literal ? ((DateTimeV2Literal) this).getMicroSecond() : 0L;
+            long otherMicrosecond = other instanceof DateTimeV2Literal
+                    ? ((DateTimeV2Literal) other).getMicroSecond() : 0L;
+            return Long.compare(thisMicrosecond, otherMicrosecond);
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     public long getYear() {

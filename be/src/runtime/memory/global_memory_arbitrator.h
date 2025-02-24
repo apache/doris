@@ -90,7 +90,7 @@ public:
     }
 
     static bool try_reserve_process_memory(int64_t bytes);
-    static void release_process_reserved_memory(int64_t bytes);
+    static void shrink_process_reserved(int64_t bytes);
 
     static inline int64_t process_reserved_memory() {
         return _process_reserved_memory.load(std::memory_order_relaxed);
@@ -161,6 +161,8 @@ public:
                            PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
                                                 TUnit::BYTES));
     }
+
+    static void refresh_memory_bvar();
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.

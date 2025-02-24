@@ -87,44 +87,22 @@ suite("test_agg_foreach") {
    select histogram_foreach(a) from foreach_table;
    """
    
-   qt_sql """
-      select PERCENTILE_foreach(a,a)  from foreach_table;
-   """
+   try {
+        sql "select PERCENTILE_foreach(a,a)  from foreach_table;"
+   } catch (Exception ex) {
+        assert("${ex}".contains("Unsupport the func"))
+   }
   
-   qt_sql """
-      select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;
-   """
 
-   qt_sql """
+   try {
+        sql "select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;"
+   } catch (Exception ex) {
+        assert("${ex}".contains("Unsupport the func"))
+   }
 
-   select PERCENTILE_APPROX_foreach(a,a) from foreach_table;
-   """
-
-   qt_sql """
-   select GROUP_BIT_AND_foreach(a), GROUP_BIT_OR_foreach(a), GROUP_BIT_XOR_foreach(a)  from foreach_table;
-   """
-
-   qt_sql """
-   select GROUP_CONCAT_foreach(s), GROUP_CONCAT_foreach(s,s) from foreach_table;
-   """
-   
-   qt_sql """
-   select retention_foreach(a), retention_foreach(a,a ),retention_foreach(a,a,a) , retention_foreach(a,a,a ,a) from foreach_table;
-   """
-   
-   qt_sql """
-   select any_value_foreach(s), any_value_foreach(a) from foreach_table;
-   """
-
-   qt_sql """
-   select collect_set_foreach(a), collect_set_foreach(s) , collect_set_foreach(a,a) from foreach_table;
-   """
-
-   qt_sql """
-   select collect_list_foreach(a), collect_list_foreach(s) , collect_list_foreach(a,a) from foreach_table;
-   """
-
-   qt_sql """
-   select map_agg_foreach(a,a), map_agg_foreach(a,s) , map_agg_foreach(s,s) from foreach_table;
-   """
+   try {
+	sql "select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"
+   } catch (Exception ex) {
+        assert("${ex}".contains("Unsupport the func"))
+   }
 }

@@ -33,8 +33,8 @@
 
 #include "gutil/strings/split.h" // for string split
 #include "gutil/strtoint.h"      //  for atoi64
+#include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
-#include "util/mem_info.h"
 #include "util/perf_counters.h"
 
 namespace doris {
@@ -490,44 +490,44 @@ void SystemMetrics::update_allocator_metrics() {
     LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
     _memory_metrics->memory_jemalloc_allocated_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.allocated"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.allocated"));
     _memory_metrics->memory_jemalloc_active_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.active"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.active"));
     _memory_metrics->memory_jemalloc_metadata_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.metadata"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.metadata"));
     _memory_metrics->memory_jemalloc_resident_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.resident"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.resident"));
     _memory_metrics->memory_jemalloc_mapped_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.mapped"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.mapped"));
     _memory_metrics->memory_jemalloc_retained_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.retained"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.retained"));
     _memory_metrics->memory_jemalloc_tcache_bytes->set_value(
-            MemInfo::get_je_all_arena_metrics("tcache_bytes"));
+            JemallocControl::get_je_all_arena_metrics("tcache_bytes"));
     _memory_metrics->memory_jemalloc_pactive_num->set_value(
-            MemInfo::get_je_all_arena_metrics("pactive"));
+            JemallocControl::get_je_all_arena_metrics("pactive"));
     _memory_metrics->memory_jemalloc_pdirty_num->set_value(
-            MemInfo::get_je_all_arena_metrics("pdirty"));
+            JemallocControl::get_je_all_arena_metrics("pdirty"));
     _memory_metrics->memory_jemalloc_pmuzzy_num->set_value(
-            MemInfo::get_je_all_arena_metrics("pmuzzy"));
+            JemallocControl::get_je_all_arena_metrics("pmuzzy"));
     _memory_metrics->memory_jemalloc_dirty_purged_num->set_value(
-            MemInfo::get_je_all_arena_metrics("dirty_purged"));
+            JemallocControl::get_je_all_arena_metrics("dirty_purged"));
     _memory_metrics->memory_jemalloc_muzzy_purged_num->set_value(
-            MemInfo::get_je_all_arena_metrics("muzzy_purged"));
+            JemallocControl::get_je_all_arena_metrics("muzzy_purged"));
 #else
     _memory_metrics->memory_tcmalloc_allocated_bytes->set_value(
-            MemInfo::get_tc_metrics("generic.total_physical_bytes"));
+            JemallocControl::get_tc_metrics("generic.total_physical_bytes"));
     _memory_metrics->memory_tcmalloc_total_thread_cache_bytes->set_value(
-            MemInfo::allocator_cache_mem());
+            JemallocControl::je_cache_bytes());
     _memory_metrics->memory_tcmalloc_central_cache_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.central_cache_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.central_cache_free_bytes"));
     _memory_metrics->memory_tcmalloc_transfer_cache_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.transfer_cache_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.transfer_cache_free_bytes"));
     _memory_metrics->memory_tcmalloc_thread_cache_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.thread_cache_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.thread_cache_free_bytes"));
     _memory_metrics->memory_tcmalloc_pageheap_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.pageheap_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.pageheap_free_bytes"));
     _memory_metrics->memory_tcmalloc_pageheap_unmapped_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"));
 #endif
 }
 

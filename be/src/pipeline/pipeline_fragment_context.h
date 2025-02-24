@@ -100,7 +100,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline(PipelineId pipeline_id);
+    void decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
 
@@ -275,8 +275,7 @@ private:
             _op_id_to_le_state;
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
-    // UniqueId -> runtime mgr
-    std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
+    std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 
     //Here are two types of runtime states:
     //    - _runtime state is at the Fragment level.

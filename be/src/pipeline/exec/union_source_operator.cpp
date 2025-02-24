@@ -49,11 +49,9 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
-    }
-
-    if (p.get_child_count() == 0) {
         _dependency->set_ready();
     }
+
     return Status::OK();
 }
 

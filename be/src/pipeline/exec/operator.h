@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
@@ -83,6 +84,8 @@ struct LocalSinkStateInfo {
 class OperatorBase {
 public:
     explicit OperatorBase() : _child(nullptr), _is_closed(false) {}
+    explicit OperatorBase(bool is_serial_operator)
+            : _child(nullptr), _is_closed(false), _is_serial_operator(is_serial_operator) {}
     virtual ~OperatorBase() = default;
 
     virtual bool is_sink() const { return false; }
@@ -186,8 +189,6 @@ public:
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
-    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
-
 protected:
     friend class OperatorXBase;
     template <typename LocalStateType>
@@ -197,8 +198,6 @@ protected:
     int64_t _num_rows_returned {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -353,8 +352,6 @@ public:
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
 
-    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
-
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
@@ -378,8 +375,6 @@ protected:
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -431,9 +426,17 @@ class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+    DataSinkOperatorXBase(const int operator_id, const TPlanNode& tnode, const int dest_id)
+            : OperatorBase(tnode.__isset.is_serial_operator && tnode.is_serial_operator),
+              _operator_id(operator_id),
+              _node_id(tnode.node_id),
+              _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
             : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
+#endif
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -523,9 +526,6 @@ protected:
     int _nereids_id = -1;
     std::vector<int> _dests_id;
     std::string _name;
-
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 template <typename LocalStateType>
@@ -533,9 +533,14 @@ class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
     DataSinkOperatorX(const int id, const int node_id, const int source_id)
             : DataSinkOperatorXBase(id, node_id, source_id) {}
+    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int source_id)
+            : DataSinkOperatorXBase(id, tnode, source_id) {}
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorX() = default;
+#endif
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -592,7 +597,7 @@ class OperatorXBase : public OperatorBase {
 public:
     OperatorXBase(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                   const DescriptorTbl& descs)
-            : OperatorBase(),
+            : OperatorBase(tnode.__isset.is_serial_operator && tnode.is_serial_operator),
               _operator_id(operator_id),
               _node_id(tnode.node_id),
               _type(tnode.node_type),
@@ -623,6 +628,10 @@ public:
               _node_id(node_id),
               _pool(pool),
               _limit(-1) {}
+
+#ifdef BE_TEST
+    OperatorXBase() : _operator_id(-1), _node_id(0), _limit(-1) {};
+#endif
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         throw Exception(Status::FatalError("should not reach here!"));
@@ -636,6 +645,8 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
 
+    // Tablets should be hold before open phase.
+    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status open(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -765,6 +776,11 @@ public:
             : OperatorXBase(pool, tnode, operator_id, descs) {}
     OperatorX(ObjectPool* pool, int node_id, int operator_id)
             : OperatorXBase(pool, node_id, operator_id) {};
+
+#ifdef BE_TEST
+    OperatorX() = default;
+#endif
+
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
@@ -783,6 +799,11 @@ public:
     StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+
+#ifdef BE_TEST
+    StreamingOperatorX() = default;
+#endif
+
     virtual ~StreamingOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;

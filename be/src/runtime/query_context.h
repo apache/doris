@@ -33,9 +33,9 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -75,15 +75,76 @@ const std::string toString(QuerySource query_source);
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
-class QueryContext {
+class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
+    class QueryTaskController : public TaskController {
+        ENABLE_FACTORY_CREATOR(QueryTaskController);
+
+    public:
+        static std::unique_ptr<TaskController> create(QueryContext* query_ctx);
+
+        bool is_cancelled() const override;
+        Status cancel(const Status& reason, int fragment_id);
+        Status cancel(const Status& reason) override { return cancel(reason, -1); }
+
+    private:
+        QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx)
+                : query_ctx_(query_ctx) {}
+
+        const std::weak_ptr<QueryContext> query_ctx_;
+    };
+
+    class QueryMemoryContext : public MemoryContext {
+        ENABLE_FACTORY_CREATOR(QueryMemoryContext);
+
+    public:
+        static std::unique_ptr<MemoryContext> create();
+
+        int64_t revokable_bytes() override {
+            // TODO
+            return 0;
+        }
+
+        bool ready_do_revoke() override {
+            // TODO
+            return true;
+        }
+
+        Status revoke(int64_t bytes) override {
+            // TODO
+            return Status::OK();
+        }
+
+        Status enter_arbitration(Status reason) override {
+            // TODO, pause the pipeline
+            return Status::OK();
+        }
+
+        Status leave_arbitration(Status reason) override {
+            // TODO, start pipeline
+            return Status::OK();
+        }
+
+    private:
+        QueryMemoryContext() = default;
+    };
+
+    static std::shared_ptr<QueryContext> create(TUniqueId query_id, ExecEnv* exec_env,
+                                                const TQueryOptions& query_options,
+                                                TNetworkAddress coord_addr, bool is_nereids,
+                                                TNetworkAddress current_connect_fe,
+                                                QuerySource query_type);
+
+    // use QueryContext::create, cannot be made private because of ENABLE_FACTORY_CREATOR::create_shared.
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
                  TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
                  QuerySource query_type);
 
     ~QueryContext();
+
+    void init_query_task_controller();
 
     ExecEnv* exec_env() { return _exec_env; }
 
@@ -138,7 +199,7 @@ public:
         }
     }
 
-    void set_workload_group(WorkloadGroupPtr& tg);
+    void set_workload_group(WorkloadGroupPtr& wg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -186,16 +247,6 @@ public:
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
-    void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
-
-    std::shared_ptr<QueryStatistics> get_query_statistics();
-
-    void register_memory_statistics();
-
-    void register_cpu_statistics();
-
-    std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
-
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
     ThreadPool* get_memtable_flush_pool();
@@ -209,7 +260,10 @@ public:
 
     bool is_nereids() const { return _is_nereids; }
 
-    WorkloadGroupPtr workload_group() const { return _workload_group; }
+    WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
+        return _resource_ctx->memory_context()->mem_tracker();
+    }
 
     void inc_running_big_mem_op_num() {
         _running_big_mem_op_num.fetch_add(1, std::memory_order_relaxed);
@@ -232,20 +286,14 @@ public:
     TQueryGlobals query_globals;
 
     ObjectPool obj_pool;
-    // MemTracker that is shared by all fragment instances running on this host.
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
+
+    std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
     std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
-
-    void update_cpu_time(int64_t delta_cpu_time) {
-        if (_workload_group != nullptr) {
-            _workload_group->update_cpu_time(delta_cpu_time);
-        }
-    }
 
     void add_using_brpc_stub(const TNetworkAddress& network_address,
                              std::shared_ptr<PBackendService_Stub> brpc_stub) {
@@ -274,6 +322,7 @@ private:
     int64_t _bytes_limit = 0;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -282,12 +331,12 @@ private:
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
     std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
+    void _init_resource_context();
     void _init_query_mem_tracker();
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
-    WorkloadGroupPtr _workload_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -301,7 +350,6 @@ private:
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
-    std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
