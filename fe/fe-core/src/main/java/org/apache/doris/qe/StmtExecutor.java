@@ -573,6 +573,11 @@ public class StmtExecutor {
         UUID uuid;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        // If the query is an `outfile` statement,
+        // we execute it only once to avoid exporting redundant data.
+        if (parsedStmt instanceof Queriable) {
+            retryTime = ((Queriable) parsedStmt).hasOutFileClause() ? 1 : retryTime;
+        }
         for (int i = 1; i <= retryTime; i++) {
             try {
                 execute(queryId);
