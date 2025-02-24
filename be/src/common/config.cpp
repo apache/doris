@@ -1426,6 +1426,10 @@ DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(prune_delete_sign_when_base_compaction, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
