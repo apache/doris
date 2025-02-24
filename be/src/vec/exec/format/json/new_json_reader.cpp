@@ -1164,6 +1164,11 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         break;
     }
     case TFileType::FILE_STREAM: {
+        DBUG_EXECUTE_IF("json_reader_error", {
+            RETURN_IF_ERROR((dynamic_cast<io::StreamLoadPipe*>(_file_reader.get()))
+                                    ->read_one_message(file_buf, read_size));
+            return Status::OK();
+        })
         RETURN_IF_ERROR(_read_one_message_from_pipe(file_buf, read_size));
         break;
     }
@@ -1401,7 +1406,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row) {
+        if (*is_empty_row || *eof) {
             return Status::OK();
         }
 
@@ -1976,6 +1981,12 @@ Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_c
         }
         return Status::DataQualityError(fmt::to_string(error_msg));
     };
+
+    DBUG_EXECUTE_IF("json_reader_error", {
+        *error = simdjson::error_code::TAPE_ERROR;
+        *_scanner_eof = true;
+    })
+
     if (*error != simdjson::error_code::SUCCESS) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. code: {}, error info: {}",
