@@ -808,6 +808,81 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
+    void test_array_all_null(int64_t rowset_id, int seg_id, Field* field) {
+        EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
+        int index_id = 26034;
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
+        auto fs = io::global_local_filesystem();
+
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(index_id);
+        index_meta_pb->set_index_name("index_inverted_arr_all_null");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(0);
+
+        TabletIndex idx_meta;
+        idx_meta.init_from_pb(*index_meta_pb.get());
+        io::Path path(index_path_prefix);
+        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
+                                                    index_file_writer.get(), &idx_meta),
+                  Status::OK());
+
+        // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
+        vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeString>());
+        vectorized::DataTypePtr array_type =
+                std::make_shared<vectorized::DataTypeArray>(inner_string_type);
+        // To support outer array null values, wrap it in a Nullable type
+        vectorized::DataTypePtr final_type =
+                std::make_shared<vectorized::DataTypeNullable>(array_type);
+
+        vectorized::MutableColumnPtr col = final_type->create_column();
+        col->insert(vectorized::Null());
+        col->insert(vectorized::Null());
+
+        vectorized::ColumnPtr column_array = std::move(col);
+        vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+
+        vectorized::Block block;
+        block.insert(type_and_name);
+
+        TabletSchemaSPtr tablet_schema = create_schema_with_array();
+        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        convertor.set_source_content(&block, 0, block.rows());
+
+        auto [st, accessor] = convertor.convert_column_data(0);
+        EXPECT_EQ(st, Status::OK());
+        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
+        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
+        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
+        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
+        const auto* null_map = accessor->get_nullmap();
+
+        auto field_size = field->get_sub_field(0)->size();
+        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
+                                                       offsets_ptr, block.rows());
+        EXPECT_EQ(st, Status::OK());
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        EXPECT_EQ(st, Status::OK());
+
+        EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
+        EXPECT_EQ(index_file_writer->close(), Status::OK());
+
+        std::vector<int> expected_null_bitmap = {0, 1};
+        ExpectedDocMap expected {};
+        check_terms_stats(index_path_prefix, &expected, expected_null_bitmap,
+                          InvertedIndexStorageFormatPB::V1, &idx_meta);
+    }
+
     void test_array_numeric(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         RowsetId rowset_id_obj;
@@ -1017,6 +1092,7 @@ TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
     Field* field = FieldFactory::create(arrayTabletColumn);
     test_null_write(2, 0, field);
     test_null_write_v2(3, 0, field);
+    test_array_all_null(4, 0, field);
     delete field;
 }
 
@@ -1031,7 +1107,7 @@ TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_multi_block_write(4, 0, field);
+    test_multi_block_write(5, 0, field);
     delete field;
 }
 
@@ -1046,7 +1122,7 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_array_numeric(5, 0, field);
+    test_array_numeric(6, 0, field);
     delete field;
 }
 } // namespace doris::segment_v2
