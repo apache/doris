@@ -24,6 +24,7 @@
 #include <iterator>
 #include <random>
 
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1573,6 +1574,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     int64_t lock_id = txn_info->is_txn_load ? txn_info->lock_id : -1;
     RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap,
                                              transient_rs_writer.get(), cur_rowset_ids, lock_id));
+
+    // defensive check, check that the delete bitmap cache we wrote is correct
+    self->check_delete_bitmap_cache(txn_id, delete_bitmap.get());
+
     LOG(INFO) << "[Publish] construct delete bitmap tablet: " << self->tablet_id()
               << ", rowset_ids to add: " << rowset_ids_to_add.size()
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
