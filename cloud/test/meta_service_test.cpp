@@ -4791,9 +4791,9 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
     // case 10: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
-    /*sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
+    sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
-        if (first_retry) {
+        if (*first_retry) {
             *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_CONFLICT;
         } else {
             *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_OK;
@@ -4808,7 +4808,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     sp->clear_all_call_backs();
     sp->clear_trace();
-    sp->disable_processing();*/
+    sp->disable_processing();
 
     remove_delete_bitmap_lock(meta_service.get(), 1);
     remove_delete_bitmap_lock(meta_service.get(), 2);
@@ -5133,6 +5133,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapWithBigKeys) {
 
 TEST(MetaServiceTest, UpdateDeleteBitmap) {
     auto meta_service = get_meta_service();
+    remove_delete_bitmap_lock(meta_service.get(), 112);
 
     // get delete bitmap update lock
     brpc::Controller cntl;
@@ -5431,6 +5432,96 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
         ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), large_value);
     }
 
+    RemoveDeleteBitmapUpdateLockRequest remove_lock_req;
+    RemoveDeleteBitmapUpdateLockResponse remove_lock_res;
+    remove_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+    remove_lock_req.set_table_id(112);
+    remove_lock_req.set_lock_id(888);
+    remove_lock_req.set_initiator(-1);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+            &remove_lock_res, nullptr);
+    ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
+
+    {
+        // case: compaction update delete bitmap
+        get_lock_req.set_lock_id(-1);
+        get_lock_req.set_initiator(800);
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
+                &get_lock_res, nullptr);
+        ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+        // update delete bitmap
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        update_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
+        update_delete_bitmap_req.set_table_id(112);
+        update_delete_bitmap_req.set_partition_id(123);
+        update_delete_bitmap_req.set_lock_id(-1);
+        update_delete_bitmap_req.set_initiator(800);
+        update_delete_bitmap_req.set_tablet_id(333);
+        update_delete_bitmap_req.add_rowset_ids("123");
+        update_delete_bitmap_req.add_segment_ids(0);
+        update_delete_bitmap_req.add_versions(2);
+        update_delete_bitmap_req.add_segment_delete_bitmaps("compaction0");
+        meta_service->update_delete_bitmap(
+                reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+        // remove lock
+        remove_lock_req.set_lock_id(-1);
+        remove_lock_req.set_initiator(800);
+        meta_service->remove_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+                &remove_lock_res, nullptr);
+        ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
+
+        // case: compaction update delete bitmap with lock expired
+        get_lock_req.set_lock_id(-1);
+        get_lock_req.set_initiator(800);
+        get_lock_req.set_expiration(1);
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
+                &get_lock_res, nullptr);
+        ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+        // load get lock
+        sleep(2);
+        get_lock_req.set_lock_id(100);
+        get_lock_req.set_initiator(-1);
+        get_lock_req.set_expiration(1);
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
+                &get_lock_res, nullptr);
+        ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+        // compaction update delete bitmap
+        meta_service->update_delete_bitmap(
+                reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+
+        // case: compaction2 get lock
+        sleep(2);
+        get_lock_req.set_lock_id(-1);
+        get_lock_req.set_initiator(810);
+        get_lock_req.set_expiration(1);
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
+                &get_lock_res, nullptr);
+        ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+        // compaction1 update delete bitmap
+        meta_service->update_delete_bitmap(
+                reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                &update_delete_bitmap_req, &update_delete_bitmap_res, nullptr);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        // remove compaction2 lock
+        remove_lock_req.set_lock_id(-1);
+        remove_lock_req.set_initiator(810);
+        meta_service->remove_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_lock_req,
+                &remove_lock_res, nullptr);
+        ASSERT_EQ(remove_lock_res.status().code(), MetaServiceCode::OK);
+    }
+
     {
         //compaction update delete bitmap without lock
         UpdateDeleteBitmapRequest update_delete_bitmap_req;
@@ -5474,6 +5565,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
         ASSERT_EQ(get_delete_bitmap_res.versions(0), 2);
         ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), large_value);
     }
+
+    remove_delete_bitmap_lock(meta_service.get(), 112);
 }
 
 TEST(MetaServiceTest, UpdateDeleteBitmapWithException) {

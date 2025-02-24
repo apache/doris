@@ -152,13 +152,13 @@ void insert_rowsets(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t p
 }
 
 MetaServiceCode get_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id,
-                                       int64_t lock_id, int64_t initor) {
+                                       int64_t lock_id, int64_t initor, int64_t expiration = 5) {
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id("test_cloud_unique_id");
     req.set_table_id(table_id);
-    req.set_expiration(5);
+    req.set_expiration(expiration);
     req.set_lock_id(lock_id);
     req.set_initiator(initor);
     meta_service->get_delete_bitmap_update_lock(
@@ -1357,6 +1357,17 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
     res_code = remove_delete_bitmap_lock(meta_service.get(), 2, 123, -1);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     clear_rowsets(6);
+
+    // commit compaction job with lock expired
+    test_start_compaction_job(2, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 12345, 1);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    sleep(2);
+    test_commit_compaction_job(2, 2, 3, 5, TabletCompactionJobPB::BASE);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), 2, -1, 12345);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    clear_rowsets(5);
 }
 
 TEST(MetaServiceJobTest, SchemaChangeJobTest) {
