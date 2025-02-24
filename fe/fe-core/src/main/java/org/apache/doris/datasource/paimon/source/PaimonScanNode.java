@@ -327,7 +327,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
 
             if (applyTableCountPushdown) {
-                assignCountToSplits(splits, totalCount - deletionVectorCount);
+                long tableLevelRowCount = totalCount - deletionVectorCount;
+                setPushDownCount(tableLevelRowCount);
+                assignCountToSplits(splits, tableLevelRowCount);
             }
         }
 

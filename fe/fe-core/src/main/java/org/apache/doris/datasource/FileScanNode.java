@@ -61,6 +61,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
+    protected long tableLevelRowCount = -1;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -82,11 +83,12 @@ public abstract class FileScanNode extends ExternalScanNode {
         super.toThrift(planNode);
     }
 
-    public long getPushDownCount() {
-        // 1. Do not use `0`: If the number of entries in the table is 0,
-        //                    it is unclear whether optimization has been performed.
-        // 2. Do not use `null` or `-`: This makes it easier for the program to parse the `explain` data.
-        return -1;
+    protected void setPushDownCount(long count) {
+        tableLevelRowCount = count;
+    }
+
+    private long getPushDownCount() {
+        return tableLevelRowCount;
     }
 
     @Override

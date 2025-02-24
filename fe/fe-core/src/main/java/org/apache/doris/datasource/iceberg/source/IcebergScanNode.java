@@ -336,6 +336,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 } else {
                     pushDownCountSplits = Collections.singletonList(splits.get(0));
                 }
+                setPushDownCount(countFromSnapshot);
                 assignCountToSplits(pushDownCountSplits, countFromSnapshot);
                 return pushDownCountSplits;
             }
@@ -474,11 +475,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void toThrift(TPlanNode planNode) {
         super.toThrift(planNode);
-    }
-
-    @Override
-    public long getPushDownCount() {
-        return getCountFromSnapshot();
     }
 
     @Override
