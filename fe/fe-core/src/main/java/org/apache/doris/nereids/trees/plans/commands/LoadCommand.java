@@ -241,8 +241,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         tvfLogicalPlan = new LogicalProject<>(selectLists, tvfLogicalPlan);
         checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, selectLists);
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
-                && properties.getOrDefault("partial_columns", "false").equalsIgnoreCase("true");
-        LOG.info("[xxx completeQueryPlan] properties={}, isPartialUpdate={}", properties, isPartialUpdate);
+                && sinkCols.size() < olapTable.getColumns().size();
         return UnboundTableSinkCreator.createUnboundTableSink(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
                 false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
     }

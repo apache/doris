@@ -37,12 +37,57 @@ suite("test_partial_update_s3_load", "p0") {
     sql "sync;"
     qt_sql "select * from ${tableName} order by k1;"
 
+
     def label = "test_pu" + UUID.randomUUID().toString().replace("-", "_")
     logger.info("test_primary_key_partial_update, label: $label")
+    // 1,99
+    // 4,88
+    sql """
+    LOAD LABEL $label (
+        DATA INFILE("s3://${getS3BucketName()}/regression/unqiue_with_mow_p0/partial_update/row_s3_1.csv")
+        INTO TABLE ${tableName}
+        COLUMNS TERMINATED BY ","
+        (k1,c4)
+    ) WITH S3 (
+        "AWS_ACCESS_KEY" = "${getS3AK()}",
+        "AWS_SECRET_KEY" = "${getS3SK()}",
+        "AWS_ENDPOINT" = "${getS3Endpoint()}",
+        "AWS_REGION" = "${getS3Region()}",
+        "provider" = "${getS3Provider()}"
+    );
+    """
+    waitForBrokerLoadDone(label)
+    qt_sql "select * from ${tableName} order by k1;"
 
+
+    label = "test_pu" + UUID.randomUUID().toString().replace("-", "_")
+    logger.info("test_primary_key_partial_update, label: $label")
+    // 3,333
+    // 5,555
+    sql """
+    LOAD LABEL $label (
+        DATA INFILE("s3://${getS3BucketName()}/regression/unqiue_with_mow_p0/partial_update/row_s3_2.csv")
+        INTO TABLE ${tableName}
+        COLUMNS TERMINATED BY ","
+        (k1,c1)
+    ) WITH S3 (
+        "AWS_ACCESS_KEY" = "${getS3AK()}",
+        "AWS_SECRET_KEY" = "${getS3SK()}",
+        "AWS_ENDPOINT" = "${getS3Endpoint()}",
+        "AWS_REGION" = "${getS3Region()}",
+        "provider" = "${getS3Provider()}"
+    ) properties(
+        "partial_columns" = "false"
+    );
+    """
+    waitForBrokerLoadDone(label)
+    qt_sql "select * from ${tableName} order by k1;"
+
+
+    label = "test_pu" + UUID.randomUUID().toString().replace("-", "_")
+    logger.info("test_primary_key_partial_update, label: $label")
     // 1,123,876
     // 2,345,678
-
     sql """
     LOAD LABEL $label (
         DATA INFILE("s3://${getS3BucketName()}/regression/unqiue_with_mow_p0/partial_update/pu_s3.csv")
@@ -60,8 +105,6 @@ suite("test_partial_update_s3_load", "p0") {
         "partial_columns" = "true"
     );
     """
-
     waitForBrokerLoadDone(label)
-
     qt_sql "select * from ${tableName} order by k1;"
 }
