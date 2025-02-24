@@ -53,6 +53,7 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
     // String driver_url = "mysql-connector-java-5.1.49.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "test_jdbc_catalog_ddl";
+        String temp_db = "test_jdbc_catalog_ddl_tmp_db"
 
         for (String useMetaCache : ["true", "false"]) {
             sql """drop catalog if exists ${catalog_name} """
@@ -92,22 +93,26 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
             }
 
             // create a database in mysql
-            sql """CALL EXECUTE_STMT("${catalog_name}",  "drop database if exists temp_database")"""
-            sql """CALL EXECUTE_STMT("${catalog_name}",  "create database temp_database")"""
-            sql """CALL EXECUTE_STMT("${catalog_name}",  "drop table if exists temp_database.temp_table")"""
-            sql """CALL EXECUTE_STMT("${catalog_name}",  "create table temp_database.temp_table (k1 int)")"""
-            sql """CALL EXECUTE_STMT("${catalog_name}",  "insert into temp_database.temp_table values(12345)")"""
+            sql """CALL EXECUTE_STMT("${catalog_name}",  "drop database if exists ${test_jdbc_catalog_ddl_tmp_db}")"""
+            sql """CALL EXECUTE_STMT("${catalog_name}",  "create database ${test_jdbc_catalog_ddl_tmp_db}")"""
+            sql """CALL EXECUTE_STMT("${catalog_name}",  "drop table if exists ${test_jdbc_catalog_ddl_tmp_db}.temp_table")"""
+            sql """CALL EXECUTE_STMT("${catalog_name}",  "create table ${test_jdbc_catalog_ddl_tmp_db}.temp_table (k1 int)")"""
+            sql """CALL EXECUTE_STMT("${catalog_name}",  "insert into ${test_jdbc_catalog_ddl_tmp_db}.temp_table values(12345)")"""
 
             if (useMetaCache.equals("false")) {
-                sql """refresh catalog ${catalog_name}"""
+                // if use_meta_cache is false, there is a bug that refresh catalog is not able to see newly created database.
+                // but `alter catalog` can uninitialize entire catalog and get newly created database.
+                // so here we use `alter catalog` to let this case pass,
+                // no plan to fix it, because in new Doris version, use_meta_cache is true
+                sql """ALTER CATALOG `${catalog_name}` SET PROPERTIES ('password'='123456')"""
                 wait_db_sync("${catalog_name}")
             }
-            sql "use ${catalog_name}.temp_database"
+            sql "use ${catalog_name}.${test_jdbc_catalog_ddl_tmp_db}"
             if (useMetaCache.equals("false")) {
-                wait_table_sync("temp_database")
+                wait_table_sync("${catalog_name}.${test_jdbc_catalog_ddl_tmp_db}")
             }
             qt_sql01 """select * from temp_table"""
-            sql """CALL EXECUTE_STMT("${catalog_name}",  "drop database if exists temp_database")"""
+            sql """CALL EXECUTE_STMT("${catalog_name}",  "drop database if exists ${test_jdbc_catalog_ddl_tmp_db}")"""
         }
     }
 }
