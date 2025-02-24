@@ -38,6 +38,18 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
             }
         }
     }
+
+    def wait_table_sync = { String db ->
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+            try {
+                def res = sql "show tables from ${db}"
+                return res.size() > 0;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+    }
     // String driver_url = "mysql-connector-java-5.1.49.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "test_jdbc_catalog_ddl";
@@ -91,6 +103,9 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
                 wait_db_sync("${catalog_name}")
             }
             sql "use ${catalog_name}.temp_database"
+            if (useMetaCache.equals("false")) {
+                wait_table_sync("temp_database")
+            }
             qt_sql01 """select * from temp_table"""
             sql """CALL EXECUTE_STMT("${catalog_name}",  "drop database if exists temp_database")"""
         }
