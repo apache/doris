@@ -90,5 +90,40 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
             GetDebugPoint().clearDebugPointsForAllBEs()
         }
 
+
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("get_delete_bitmap_update_lock.inject_fail", [percent: "1.0"])
+
+            test {
+                sql "insert into ${table1} values(5,5,5);"
+                exception "injection error when get get_delete_bitmap_update_lock"
+            }
+
+            qt_sql "select * from ${table1} order by k1;"
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            GetDebugPoint().clearDebugPointsForAllBEs()
+        }
+
+
+        try {
+            // 3 * 2s < 10s
+            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.inject_sleep", [percent: "1.0", sleep: "10"])
+
+            test {
+                sql "insert into ${table1} values(4,4,4);"
+                exception "Failed to calculate delete bitmap. Timeout."
+            }
+
+            qt_sql "select * from ${table1} order by k1;"
+
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            GetDebugPoint().clearDebugPointsForAllBEs()
+        }
     }
 }
