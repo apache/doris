@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"

@@ -53,6 +53,8 @@ struct FileMapping {
     FileMappingType type;
     std::string value;
 
+    FileMapping(FileMappingType t, std::string v) : type(t), value(std::move(v)) {};
+
     FileMapping(int64_t tablet_id, RowsetId rowset_id, uint32_t segment_id)
             : type(FileMappingType::DORIS_FORMAT) {
         value.resize(sizeof(tablet_id) + sizeof(rowset_id) + sizeof(segment_id));
@@ -97,7 +99,7 @@ public:
     }
 
     uint32 get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
-        DCHECK(!mapping);
+        DCHECK(mapping.get() != nullptr);
         std::unique_lock lock(_mtx);
         auto it = _mapping_to_id.find(mapping->value);
         if (it != _mapping_to_id.end()) {
