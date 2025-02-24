@@ -71,10 +71,10 @@ public:
                            const TabletIndex* index_meta = nullptr) {
         std::string file_str;
         if (format == InvertedIndexStorageFormatPB::V1) {
-            file_str = InvertedIndexDescriptor::get_index_file_path_v1(index_prefix,
+            file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix,
                                                                        index_meta->index_id(), "");
         } else if (format == InvertedIndexStorageFormatPB::V2) {
-            file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
+            file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix);
         }
         std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
                 io::global_local_filesystem(), index_prefix, format);
@@ -208,7 +208,7 @@ public:
                 local_segment_path(kTestDir, rowset_id, seg_id))};
         int index_id = 26033;
         std::string index_path =
-                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
+                InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -376,7 +376,7 @@ public:
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
         int index_id = 26033;
-        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        std::string index_path = InvertedIndexDescriptor::get_index_file_name(index_path_prefix);
         auto fs = io::global_local_filesystem();
 
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -494,7 +494,7 @@ public:
                 local_segment_path(kTestDir, rowset_id, seg_id))};
         int index_id = 26033;
         std::string index_path =
-                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
+                InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -608,7 +608,7 @@ public:
                 local_segment_path(kTestDir, rowset_id, seg_id))};
         int index_id = 26033;
         std::string index_path =
-                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
+                InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -805,7 +805,7 @@ public:
                 local_segment_path(kTestDir, rowset_id, seg_id))};
         int index_id = 26033;
         std::string index_path =
-                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
+                InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
 
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
