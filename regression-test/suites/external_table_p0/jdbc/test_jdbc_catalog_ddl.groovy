@@ -91,7 +91,14 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
                 wait_db_sync("${catalog_name}")
             }
             sql "use ${catalog_name}.temp_database"
-            qt_sql01 """select * from temp_table"""
+            try {
+                qt_sql01 """select * from temp_table"""
+            } catch (Exception e) {
+                println("Query failed, printing all tables in temp_database:")
+                def tables = sql """show tables from temp_database"""
+                println("Tables in temp_database: " + tables)
+                throw e
+            }
             sql """CALL EXECUTE_STMT("${catalog_name}",  "drop database if exists temp_database")"""
         }
     }
