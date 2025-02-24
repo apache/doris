@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <memory>
+#include <random>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
