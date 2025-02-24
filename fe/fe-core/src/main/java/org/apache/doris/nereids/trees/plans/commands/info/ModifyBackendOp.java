@@ -15,52 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.SystemInfoService.HostInfo;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ModifyBackendClause extends BackendClause {
-    protected Map<String, String> properties;
-    protected Map<String, String> analyzedProperties = Maps.newHashMap();
-    @Getter
+/**
+ * ModifyBackendOp
+ */
+public class ModifyBackendOp extends BackendOp {
+    private Map<String, String> properties;
+    private Map<String, String> analyzedProperties = Maps.newHashMap();
     private Map<String, String> tagMap = null;
     private Boolean isQueryDisabled = null;
     private Boolean isLoadDisabled = null;
 
-    public ModifyBackendClause(List<String> hostPorts, Map<String, String> properties) {
+    public ModifyBackendOp(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.properties = properties;
-    }
-
-    public ModifyBackendClause(List<String> ids, List<HostInfo> hostPorts,
-            Map<String, String> properties, Map<String, String> tagMap,
-            Map<String, String> analyzedProperties,
-            Boolean isLoadDisabled, Boolean isQueryDisabled) {
-        super(ImmutableList.of());
-        this.ids = ids;
-        this.hostInfos = hostPorts;
-        this.properties = properties;
-        this.tagMap = tagMap;
-        this.analyzedProperties = analyzedProperties;
-        this.isLoadDisabled = isLoadDisabled;
-        this.isQueryDisabled = isQueryDisabled;
+        this.properties = new HashMap<>(properties);
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        super.analyze(analyzer);
+    public void validate(ConnectContext ctx) throws AnalysisException {
+        super.validate(ctx);
         tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
         isQueryDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
                 PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);
@@ -92,14 +81,6 @@ public class ModifyBackendClause extends BackendClause {
         }
     }
 
-    public Boolean isQueryDisabled() {
-        return isQueryDisabled;
-    }
-
-    public Boolean isLoadDisabled() {
-        return isLoadDisabled;
-    }
-
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
@@ -120,5 +101,11 @@ public class ModifyBackendClause extends BackendClause {
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() {
+        return new ModifyBackendClause(ids, hostInfos, properties, tagMap,
+                analyzedProperties, isLoadDisabled, isQueryDisabled);
     }
 }

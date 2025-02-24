@@ -53,5 +53,5 @@ public abstract class AlterSystemOp {
     public void validate(ConnectContext ctx) throws UserException {
     }
 
-    public abstract AlterClause translateToLegacyAlterClause();
+    public abstract AlterClause translateToLegacyAlterClause() throws UserException;
 }
