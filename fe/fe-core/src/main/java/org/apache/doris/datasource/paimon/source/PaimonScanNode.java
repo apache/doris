@@ -299,15 +299,35 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (applyCountPushdown) {
             // check if all splits dont't have deletion vector or cardinality of every
             // deletion vector is not null
-            boolean applyTableCountPushdown = paimonSplits.stream().allMatch(s -> !s.deletionFiles().isPresent()
-                    || s.deletionFiles().get().stream().allMatch(dv -> dv == null || dv.cardinality() != null));
+            boolean applyTableCountPushdown = true;
+            long totalCount = 0;
+            long deletionVectorCount = 0;
+
+            for (org.apache.paimon.table.source.Split s : paimonSplits) {
+                totalCount += s.rowCount();
+
+                Optional<List<DeletionFile>> deletionFiles = s.deletionFiles();
+                if (deletionFiles.isPresent()) {
+                    for (DeletionFile dv : deletionFiles.get()) {
+                        if (dv != null) {
+                            Long cardinality = dv.cardinality();
+                            if (cardinality == null) {
+                                applyTableCountPushdown = false;
+                                break;
+                            } else {
+                                deletionVectorCount += cardinality;
+                            }
+                        }
+                    }
+                }
+
+                if (!applyTableCountPushdown) {
+                    break;
+                }
+            }
+
             if (applyTableCountPushdown) {
-                long totalCount = paimonSplits.stream().mapToLong(s -> s.rowCount()).sum();
-                long deletionVectorCount = paimonSplits.stream().mapToLong(s -> !s.deletionFiles().isPresent()
-                        ? 0
-                        : s.deletionFiles().get().stream().mapToLong(dv -> dv == null ? 0 : dv.cardinality()).sum())
-                        .sum();
-                assignCountToSplits(splits, totalCount -= deletionVectorCount);
+                assignCountToSplits(splits, totalCount - deletionVectorCount);
             }
         }
 
