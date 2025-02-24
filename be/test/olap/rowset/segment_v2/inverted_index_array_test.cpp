@@ -942,6 +942,79 @@ public:
         }
     }
 
+    void test_array_all_null(std::string_view rowset_id, int seg_id, Field* field) {
+        EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        int index_id = 26034;
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
+        auto fs = io::global_local_filesystem();
+
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(index_id);
+        index_meta_pb->set_index_name("index_inverted_arr_all_null");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(0);
+
+        TabletIndex idx_meta;
+        idx_meta.init_from_pb(*index_meta_pb.get());
+        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                fs, index_path_prefix, std::string {rowset_id}, seg_id,
+                InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
+                                                    index_file_writer.get(), &idx_meta),
+                  Status::OK());
+
+        // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
+        vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
+                std::make_shared<vectorized::DataTypeString>());
+        vectorized::DataTypePtr array_type =
+                std::make_shared<vectorized::DataTypeArray>(inner_string_type);
+        // To support outer array null values, wrap it in a Nullable type
+        vectorized::DataTypePtr final_type =
+                std::make_shared<vectorized::DataTypeNullable>(array_type);
+
+        vectorized::MutableColumnPtr col = final_type->create_column();
+        col->insert(vectorized::Null());
+        col->insert(vectorized::Null());
+
+        vectorized::ColumnPtr column_array = std::move(col);
+        vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
+
+        vectorized::Block block;
+        block.insert(type_and_name);
+
+        TabletSchemaSPtr tablet_schema = create_schema_with_array();
+        vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+        convertor.set_source_content(&block, 0, block.rows());
+
+        auto [st, accessor] = convertor.convert_column_data(0);
+        EXPECT_EQ(st, Status::OK());
+        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
+        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
+        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
+        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
+        const auto* null_map = accessor->get_nullmap();
+
+        auto field_size = field->get_sub_field(0)->size();
+        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
+                                                       offsets_ptr, block.rows());
+        EXPECT_EQ(st, Status::OK());
+        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        EXPECT_EQ(st, Status::OK());
+
+        EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
+        EXPECT_EQ(index_file_writer->close(), Status::OK());
+
+        std::vector<int> expected_null_bitmap = {0, 1};
+        ExpectedDocMap expected {};
+        check_terms_stats(index_path_prefix, &expected, expected_null_bitmap,
+                          InvertedIndexStorageFormatPB::V1, &idx_meta);
+    }
+
 private:
     static void build_slices(vectorized::PaddedPODArray<Slice>& slices,
                              const vectorized::ColumnPtr& column_array, size_t num_strings) {
@@ -1006,6 +1079,7 @@ TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
     Field* field = FieldFactory::create(arrayTabletColumn);
     test_null_write("complex_null", 0, field);
     test_null_write_v2("complex_null_v2", 0, field);
+    test_array_all_null("complex_null_all_null", 0, field);
     delete field;
 }
 

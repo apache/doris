@@ -612,17 +612,14 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
         const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
         // total number length
-        auto element_cnt = size_t((unsigned long)(*data_ptr));
         auto offset_data = *(data_ptr + 1);
         const auto* offsets_ptr = (const uint8_t*)offset_data;
         try {
-            if (element_cnt > 0) {
-                auto data = *(data_ptr + 2);
-                auto nested_null_map = *(data_ptr + 3);
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
-            }
+            auto data = *(data_ptr + 2);
+            auto nested_null_map = *(data_ptr + 3);
+            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                    field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
                 _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
             })
