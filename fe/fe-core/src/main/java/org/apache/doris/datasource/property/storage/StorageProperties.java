@@ -34,10 +34,16 @@ public class StorageProperties extends ConnectionProperties {
     public static final String FS_S3_SUPPORT = "fs.s3.support";
     public static final String FS_GCS_SUPPORT = "fs.gcs.support";
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
+    public static final String FS_OSS_SUPPORT = "fs.oss.support";
+    public static final String FS_OBS_SUPPORT = "fs.obs.support";
+    public static final String FS_COS_SUPPORT = "fs.cos.support";
 
     public enum Type {
         HDFS,
         S3,
+        OSS,
+        OBS,
+        COS,
         UNKNOWN
     }
 
@@ -65,6 +71,18 @@ public class StorageProperties extends ConnectionProperties {
 
         if (isFsSupport(origProps, FS_S3_SUPPORT) || S3Properties.guessIsMe(origProps)) {
             storageProperties.add(new S3Properties(origProps));
+        }
+        // FIXME: This logic directly checks for FS types (OSS, OBS, COS) here, which is intrusive.
+        // We should refactor this so that the plugins themselves provide a method to check if they are supported,
+        // thus decoupling the logic and making the system more extensible.
+        if (isFsSupport(origProps, FS_OSS_SUPPORT)) {
+            storageProperties.add(new OSSProperties(origProps));
+        }
+        if (isFsSupport(origProps, FS_OBS_SUPPORT)) {
+            storageProperties.add(new OBSProperties(origProps));
+        }
+        if (isFsSupport(origProps, FS_COS_SUPPORT)) {
+            storageProperties.add(new COSProperties(origProps));
         }
 
         if (isFsSupport(origProps, FS_GCS_SUPPORT)) {

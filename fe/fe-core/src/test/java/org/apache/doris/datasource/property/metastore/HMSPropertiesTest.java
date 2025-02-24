@@ -41,7 +41,7 @@ public class HMSPropertiesTest {
     @Test
     public void testHiveConfDirExist() {
         URL hiveFileUrl = HMSPropertiesTest.class.getClassLoader().getResource("plugins");
-        Config.hive_config_dir = hiveFileUrl.getPath().toString();
+        Config.hadoop_config_dir = hiveFileUrl.getPath().toString();
         Map<String, String> params = new HashMap<>();
         params.put("hive.conf.resources", "hive-conf/hive1/hive-site.xml");
         params.put("metastore.type", "hms");

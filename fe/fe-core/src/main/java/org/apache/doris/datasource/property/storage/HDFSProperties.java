@@ -63,11 +63,12 @@ public class HDFSProperties extends StorageProperties {
 
     @Override
     protected String getResourceConfigPropName() {
-        return "hdfs.resource_config";
+        return "hadoop.config.resources";
     }
 
     protected void checkRequiredProperties() {
         super.checkRequiredProperties();
+        checkConfigFileIsValid(hadoopConfigResources);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
             if (Strings.isNullOrEmpty(hdfsKerberosPrincipal)
                     || Strings.isNullOrEmpty(hdfsKerberosKeytab)) {
@@ -77,6 +78,18 @@ public class HDFSProperties extends StorageProperties {
         }
     }
 
+    private void checkConfigFileIsValid(String configFile) {
+        if (Strings.isNullOrEmpty(configFile)) {
+            return;
+        }
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        if (allProps.isEmpty()) {
+            throw new IllegalArgumentException("HDFS config file is not empty"
+                    + ", but load config params from file is empty.");
+        }
+
+    }
+
     public void toHadoopConfiguration(Configuration conf) {
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(conf::set);
@@ -84,6 +97,9 @@ public class HDFSProperties extends StorageProperties {
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
             conf.set("hdfs.authentication.kerberos.principal", hdfsKerberosPrincipal);
             conf.set("hdfs.authentication.kerberos.keytab", hdfsKerberosKeytab);
+        }
+        if (!Strings.isNullOrEmpty(hadoopUsername)) {
+            conf.set("hadoop.username", hadoopUsername);
         }
     }
 }

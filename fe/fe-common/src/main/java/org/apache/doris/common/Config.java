@@ -3036,12 +3036,6 @@ public class Config extends ConfigBase {
             "The default directory for storing hadoop conf configuration files."})
     public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
 
-    @ConfField(description = {
-            "存放 hive conf 配置文件的默认目录。",
-            "The default directory for storing hive conf configuration files."})
-    public static String hive_config_dir = EnvUtils.getDorisHome() + "/plugins/hive_conf/";
-
-
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

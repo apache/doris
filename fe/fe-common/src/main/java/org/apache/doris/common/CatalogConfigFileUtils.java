@@ -86,6 +86,6 @@ public class CatalogConfigFileUtils {
      *                                  configuration files do not exist or are not regular files.
      */
     public static HiveConf loadHiveConfFromHiveConfDir(String resourcesPath) {
-        return loadConfigFromDir(resourcesPath, Config.hive_config_dir, HiveConf::addResource);
+        return loadConfigFromDir(resourcesPath, Config.hadoop_config_dir, HiveConf::addResource);
     }
 }

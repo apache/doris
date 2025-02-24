@@ -46,6 +46,7 @@ public class HMSProperties extends MetastoreProperties {
             required = false,
             description = "The conf resources of the hive metastore.")
     private String hiveConfResourcesConfig = "";
+
     @ConnectorProperty(names = {"hive.metastore.service.principal"},
             required = false,
             description = "The service principal of the hive metastore.")
@@ -106,6 +107,7 @@ public class HMSProperties extends MetastoreProperties {
         options.set("uri", hiveMetastoreUri);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(options::set);
+        //fixme
     }
 
     public void toIcebergHiveCatalogProperties(Map<String, String> catalogProps) {
