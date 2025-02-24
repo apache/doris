@@ -1021,17 +1021,20 @@ Status SegmentIterator::_init_return_column_iterators() {
 
     for (auto cid : _schema->column_ids()) {
         if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
-            if (auto& id_file_map = _opts.runtime_state->get_id_file_map(); id_file_map) {
-                uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
-                        _opts.tablet_id, _opts.rowset_id, _segment->id()));
-                _column_iterators[cid].reset(new RowIdColumnIteratorV2(
-                        IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id));
-            } else {
-                _column_iterators[cid].reset(
-                        new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
-            }
+            _column_iterators[cid].reset(
+                    new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
+
+        if (_schema->column(cid)->name() == BeConsts::GLOBAL_ROWID_COL) {
+            auto& id_file_map = _opts.runtime_state->get_id_file_map();
+            uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
+                    _opts.tablet_id, _opts.rowset_id, _segment->id()));
+            _column_iterators[cid].reset(new RowIdColumnIteratorV2(
+                    IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id));
+            continue;
+        }
+
         std::set<ColumnId> del_cond_id_set;
         _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
         std::vector<bool> tmp_is_pred_column;

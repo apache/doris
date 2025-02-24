@@ -1221,6 +1221,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     for (auto* slot : slots) {
         _colname_to_slot_id[slot->col_name()] = slot->id();
         _slot_id_to_slot_desc[slot->id()] = slot;
+        if (slot->col_name() == BeConsts::GLOBAL_ROWID_COL) {
+            state->set_id_file_map();
+        }
     }
     for (auto id : topn_filter_source_node_ids) {
         if (!state->get_query_ctx()->has_runtime_predicate(id)) {

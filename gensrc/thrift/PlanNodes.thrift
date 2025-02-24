@@ -982,6 +982,8 @@ struct TMaterializationNode {
     6: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
     // Whether fetch row store
     7: optional list<bool> fetch_row_stores
+    // Whethe to clear id map
+    8: optional bool gc_id_map
 }
 
 struct TPreAggregationNode {

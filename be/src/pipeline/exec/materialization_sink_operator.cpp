@@ -93,6 +93,7 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                 FetchRpcStruct {
                         .stub = std::move(client), .request = multi_get_request, .response = {}});
     }
+    _gc_id_map = tnode.materialization_node.gc_id_map;
     ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
             ->add(tnode.materialization_node.nodes_info.nodes.size());
 
