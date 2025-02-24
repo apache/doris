@@ -120,7 +120,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         int beNum = backends.size();
         test {
             sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/presto-server.keytab";"""
-            rowNum ${beNum}
+            rowNum beNum
         } 
     }
 }
