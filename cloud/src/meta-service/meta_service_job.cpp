@@ -459,7 +459,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
-    LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
+    LOG(INFO) << "get delete bitmap update lock info, table_id=" << table_id
+              << " lock_id=" << lock_id << " initiator=" << lock_initiator
               << " key=" << hex(lock_key) << " err=" << err;
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_CONFLICT) {
@@ -502,7 +503,6 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
             return false;
         }
         MowTabletCompactionPB mow_tablet_compaction;
-        mow_tablet_compaction.SerializeToString(&tablet_compaction_val);
         if (!mow_tablet_compaction.ParseFromString(tablet_compaction_val)) [[unlikely]] {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "failed to parse MowTabletCompactionPB";
@@ -606,7 +606,6 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
         if (lock_info.lock_id() != lock_id) {
             return;
         }
-
         bool found = false;
         auto initiators = lock_info.mutable_initiators();
         for (auto iter = initiators->begin(); iter != initiators->end(); iter++) {

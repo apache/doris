@@ -2295,7 +2295,6 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     bool first_retry = true;
     while (true) {
         response->Clear();
-        RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
