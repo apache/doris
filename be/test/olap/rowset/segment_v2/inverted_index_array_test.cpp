@@ -31,6 +31,8 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
@@ -56,8 +58,7 @@
 using namespace lucene::index;
 using doris::segment_v2::InvertedIndexFileWriter;
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 class InvertedIndexArrayTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
@@ -76,8 +77,9 @@ public:
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix);
         }
+        io::Path path(index_prefix);
         std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_prefix, format);
+                io::global_local_filesystem(), path.parent_path(), path.filename(), format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
         auto result = reader->open(index_meta);
@@ -93,12 +95,12 @@ public:
             }
 
             std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-            const char* null_bitmap_file_name =
+            auto null_bitmap_file_name =
                     InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
-            if (compound_reader->fileExists(null_bitmap_file_name)) {
+            if (compound_reader->fileExists(null_bitmap_file_name.c_str())) {
                 std::unique_ptr<lucene::store::IndexInput> null_bitmap_in;
-                assert(compound_reader->openInput(null_bitmap_file_name, null_bitmap_in, err,
-                                                  4096));
+                assert(compound_reader->openInput(null_bitmap_file_name.c_str(), null_bitmap_in,
+                                                  err, 4096));
                 size_t null_bitmap_size = null_bitmap_in->length();
                 doris::faststring buf;
                 buf.resize(null_bitmap_size);
@@ -169,7 +171,7 @@ public:
         paths.emplace_back(kTestDir, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
         st = tmp_file_dirs->init();
-        if (!st.OK()) {
+        if (!st.ok()) {
             std::cout << "init tmp file dirs error:" << st.to_string() << std::endl;
             return;
         }
@@ -202,10 +204,12 @@ public:
         return tablet_schema;
     }
 
-    void test_non_null_string(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_non_null_string(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
         int index_id = 26033;
         std::string index_path =
                 InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
@@ -221,9 +225,9 @@ public:
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
+        io::Path path(index_path_prefix);
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
@@ -287,26 +291,28 @@ public:
                           &idx_meta);
     }
 
-    void test_string(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_string(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string filename = kTestDir + "/" + testname;
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
+        int index_id = 26033;
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
         auto fs = io::global_local_filesystem();
-
-        io::FileWriterPtr file_writer;
-        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
         index_meta_pb->set_index_type(IndexType::INVERTED);
-        index_meta_pb->set_index_id(26033);
+        index_meta_pb->set_index_id(index_id);
         index_meta_pb->set_index_name("index_inverted_arr1");
         index_meta_pb->clear_col_unique_id();
         index_meta_pb->add_col_unique_id(0);
-
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
+        io::Path path(index_path_prefix);
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, file_writer->path().parent_path(), file_writer->path().filename(),
-                InvertedIndexStorageFormatPB::V1);
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
@@ -371,10 +377,12 @@ public:
                           &idx_meta);
     }
 
-    void test_null_write_v2(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_null_write_v2(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
         int index_id = 26033;
         std::string index_path = InvertedIndexDescriptor::get_index_file_name(index_path_prefix);
         auto fs = io::global_local_filesystem();
@@ -389,13 +397,9 @@ public:
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
-        io::FileWriterPtr file_writer;
-        io::FileWriterOptions opts;
-        Status sts = fs->create_file(index_path, &file_writer, &opts);
-        ASSERT_TRUE(sts.ok());
+        io::Path path(index_path_prefix);
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V2);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
@@ -488,10 +492,12 @@ public:
                           InvertedIndexStorageFormatPB::V2, &idx_meta);
     }
 
-    void test_null_write(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_null_write(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
         int index_id = 26033;
         std::string index_path =
                 InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
@@ -507,9 +513,9 @@ public:
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
+        io::Path path(index_path_prefix);
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
@@ -602,10 +608,12 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
-    void test_multi_block_write(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_multi_block_write(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
         int index_id = 26033;
         std::string index_path =
                 InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
@@ -620,8 +628,9 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
+        io::Path path(index_path_prefix);
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, "multi_block", 0, InvertedIndexStorageFormatPB::V1);
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
@@ -799,10 +808,12 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
-    void test_array_numeric(std::string_view rowset_id, int seg_id, Field* field) {
+    void test_array_numeric(int64_t rowset_id, int seg_id, Field* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
+        RowsetId rowset_id_obj;
+        rowset_id_obj.init(rowset_id);
+        std::string index_path_prefix =
+                BetaRowset::segment_file_path(kTestDir, rowset_id_obj, seg_id);
         int index_id = 26033;
         std::string index_path =
                 InvertedIndexDescriptor::get_index_file_name(index_path_prefix, index_id, "");
@@ -817,9 +828,9 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
+        io::Path path(index_path_prefix);
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
+                fs, path.parent_path(), path.filename(), InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
@@ -902,7 +913,8 @@ public:
         std::vector<int> expected_null_bitmap = {1};
 
         std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V1);
+                io::global_local_filesystem(), path.parent_path(), path.filename(),
+                InvertedIndexStorageFormatPB::V1);
         auto sts = reader->init();
         EXPECT_EQ(sts, Status::OK());
         auto result = reader->open(&idx_meta);
@@ -918,12 +930,12 @@ public:
             }
 
             std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-            const char* null_bitmap_file_name =
+            auto null_bitmap_file_name =
                     InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
-            if (compound_reader->fileExists(null_bitmap_file_name)) {
+            if (compound_reader->fileExists(null_bitmap_file_name.c_str())) {
                 std::unique_ptr<lucene::store::IndexInput> null_bitmap_in;
-                assert(compound_reader->openInput(null_bitmap_file_name, null_bitmap_in, err,
-                                                  4096));
+                assert(compound_reader->openInput(null_bitmap_file_name.c_str(), null_bitmap_in,
+                                                  err, 4096));
                 size_t null_bitmap_size = null_bitmap_in->length();
                 doris::faststring buf;
                 buf.resize(null_bitmap_size);
@@ -987,8 +999,8 @@ TEST_F(InvertedIndexArrayTest, ArrayString) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_string("rowset_id", 0, field);
-    test_non_null_string("rowset_id_non_null", 0, field);
+    test_string(0, 0, field);
+    test_non_null_string(1, 0, field);
     delete field;
 }
 
@@ -1003,8 +1015,8 @@ TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_null_write("complex_null", 0, field);
-    test_null_write_v2("complex_null_v2", 0, field);
+    test_null_write(2, 0, field);
+    test_null_write_v2(3, 0, field);
     delete field;
 }
 
@@ -1019,7 +1031,7 @@ TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_multi_block_write("multi_block", 0, field);
+    test_multi_block_write(4, 0, field);
     delete field;
 }
 
@@ -1034,8 +1046,7 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     arrayTabletColumn.add_sub_column(arraySubColumn);
     Field* field = FieldFactory::create(arrayTabletColumn);
-    test_array_numeric("int_test", 0, field);
+    test_array_numeric(5, 0, field);
     delete field;
 }
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
