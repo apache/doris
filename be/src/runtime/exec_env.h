@@ -303,8 +303,6 @@ public:
     void set_wal_mgr(std::unique_ptr<WalManager>&& wm);
     void clear_wal_mgr();
 
-    void init_file_cache_microbench_env();
-
     void set_write_cooldown_meta_executors();
     static void set_tracking_memory(bool tracking_memory) {
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);

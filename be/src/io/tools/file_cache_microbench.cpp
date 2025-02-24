@@ -54,11 +54,29 @@
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wshadow"
+#endif
+
+#define private public
 #include "runtime/exec_env.h"
+#undef private
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
 #include "util/bvar_helper.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
+#include "util/threadpool.h"
 
 using doris::io::FileCacheFactory;
 using doris::io::BlockFileCache;
@@ -141,9 +159,22 @@ public:
         return -1;
     }
 
-    std::map<std::string, std::vector<FileInfo>> get_all_records() {
+    void get_exist_job_files_by_prefix(const std::string& file_prefix,
+                                       std::vector<std::string>& result, int file_number = -1) {
         std::lock_guard<std::mutex> lock(mutex_);
-        return records_;
+        for (const auto& pair : records_) {
+            const std::vector<FileInfo>& file_infos = pair.second;
+            for (const auto& file_info : file_infos) {
+                if (file_info.filename.compare(0, file_prefix.length(), file_prefix) == 0) {
+                    if (file_number == -1 || result.size() < file_number) {
+                        result.push_back(file_info.filename);
+                    }
+                    if (file_number != -1 && result.size() >= file_number) {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     std::string find_job_id_by_prefix(const std::string& file_prefix) {
@@ -856,6 +887,11 @@ private:
                     auto writer = std::make_unique<MircobenchS3FileWriter>(
                             client, doris::config::test_s3_bucket, key, &options,
                             job.write_limiter);
+                    doris::Defer defer {[&]() {
+                        if (auto status = writer->close(); !status.ok()) {
+                            LOG(ERROR) << "close file writer failed" << status.to_string();
+                        }
+                    }};
 
                     std::vector<doris::Slice> slices;
                     slices.reserve(4);
@@ -879,15 +915,13 @@ private:
                             accumulated_size = 0;
                         }
                     }
-
-                    doris::Status status = writer->close();
-                    if (!status.ok()) {
-                        throw std::runtime_error("Close error for key " + key + ": " +
-                                                 status.to_string());
-                    }
                     if (job.completion_tracker) {
                         job.completion_tracker->mark_completed(key);
                     }
+
+                    // 记录成功写入的文件信息
+                    size_t data_size = config.size_bytes_perfile;
+                    record_file_info(key, data_size, job.job_id);
                     completed_writes++;
                 } catch (const std::exception& e) {
                     LOG(ERROR) << "Write task failed for segment " << key << ": " << e.what();
@@ -906,12 +940,6 @@ private:
         job.stats.total_write_time =
                 std::to_string(total_write_time_seconds) + " seconds"; // 保存为字符串
         LOG(INFO) << "Total write time: " << job.stats.total_write_time << " seconds";
-
-        // 记录写入的文件信息
-        for (const auto& key : keys) {
-            size_t data_size = config.size_bytes_perfile;
-            record_file_info(key, data_size, job.job_id);
-        }
     }
 
     void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
@@ -940,10 +968,22 @@ private:
 
         // 创建 S3 客户端配置
         doris::S3ClientConf s3_conf = create_s3_client_conf(config);
+        std::vector<std::string> read_files;
+        if (exist_job_perfile_size != -1) {
+            // read exist files
+            s3_file_records.get_exist_job_files_by_prefix(HIDDEN_PREFIX + config.file_prefix,
+                                                          read_files, config.num_files);
+        }
+
+        if (read_files.empty()) {
+            // not read exist files
+            read_files = keys;
+        }
+        LOG(INFO) << "job_id = " << job.job_id << " read_files size = " << read_files.size();
 
         read_stopwatch.start();
-        for (int i = 0; i < keys.size(); ++i) {
-            const auto& key = keys[i];
+        for (int i = 0; i < read_files.size(); ++i) {
+            const auto& key = read_files[i];
             read_futures.push_back(read_pool.enqueue([&, key]() {
                 try {
                     if (job.completion_tracker) {
@@ -987,6 +1027,11 @@ private:
 
                         auto reader = std::make_unique<MicrobenchFileReader>(
                                 status_or_reader.value(), job.read_limiter);
+                        doris::Defer defer {[&]() {
+                            if (auto status = reader->close(); !status.ok()) {
+                                LOG(ERROR) << "close file reader failed" << status.to_string();
+                            }
+                        }};
 
                         for (int i = 0; i < config.repeat; i++) {
                             size_t read_offset = 0;
@@ -1422,6 +1467,18 @@ private:
     JobManager& _job_manager;
 };
 
+void init_exec_env() {
+    auto* exec_env = doris::ExecEnv::GetInstance();
+    static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
+                              .set_min_threads(256)
+                              .set_max_threads(512)
+                              .build(&(exec_env->_s3_file_upload_thread_pool)));
+    exec_env->_file_cache_factory = new FileCacheFactory();
+    std::vector<doris::CachePath> cache_paths;
+    exec_env->init_file_cache_factory(cache_paths);
+    exec_env->_file_cache_open_fd_cache = std::make_unique<doris::io::FDCache>();
+}
+
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_minloglevel = google::GLOG_INFO;
@@ -1490,7 +1547,7 @@ int main(int argc, char* argv[]) {
               << " s3_write_buffer_size=" << doris::config::s3_write_buffer_size
               << " enable_flush_file_cache_async=" << doris::config::enable_flush_file_cache_async;
 
-    doris::ExecEnv::GetInstance()->init_file_cache_microbench_env();
+    init_exec_env();
     JobManager job_manager;
     HttpServer http_server(job_manager);
     http_server.start();
