@@ -840,8 +840,4 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
     }
-
-    public int getCatalogNum() {
-        return idToCatalog.size();
-    }
 }

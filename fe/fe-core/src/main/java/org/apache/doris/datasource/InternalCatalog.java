@@ -267,10 +267,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         return Lists.newArrayList(idToDb.keySet());
     }
 
-    public int getDbNum() {
-        return idToDb.size();
-    }
-
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
