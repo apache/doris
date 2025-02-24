@@ -463,6 +463,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         }
     }
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block",
+                    DBUG_BLOCK);
+
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
