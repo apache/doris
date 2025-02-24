@@ -65,7 +65,7 @@ public class PaimonConnectionProperties {
             case HMS:
                 options.set("metastore", "hive");
                 HMSProperties hmsProperties = (HMSProperties) metaProps;
-                //todo we need add all metestore parameters to paimon options?
+                // TODO we need add all metastore parameters to paimon options?
                 hmsProperties.toPaimonOptionsAndConf(options);
                 break;
             case DLF:
