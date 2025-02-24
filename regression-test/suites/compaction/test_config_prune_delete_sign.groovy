@@ -15,11 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.junit.Assert
-import java.util.concurrent.TimeUnit
-import org.awaitility.Awaitility
-
-// test cases to ensure that inject points for mow correctness work as expected
 suite("test_config_prune_delete_sign", "nonConcurrent") {
 
     def inspectRows = { sqlStr ->
@@ -33,7 +28,7 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
     }
 
     def custoBeConfig = [
-        enable_prune_delete_sign_when_base_compaction : true
+        enable_prune_delete_sign_when_base_compaction : false
     ]
 
     setBeConfigTemporary(custoBeConfig) {
@@ -51,33 +46,44 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
                 "disable_auto_compaction" = "true",
                 "replication_num" = "1"); """
 
-        (1..20).each {
+        def getDeleteSignCnt = {
+            sql "set skip_delete_sign=true;"
+            sql "set skip_delete_bitmap=true;"
+            sql "sync"
+            qt_del_cnt "select count() from ${table1} where __DORIS_DELETE_SIGN__=1;"
+            sql "set skip_delete_sign=false;"
+            sql "set skip_delete_bitmap=false;"
+            sql "sync"
+        }
+
+        (1..30).each {
             sql "insert into ${table1} values($it,$it,$it);"
         }
+        trigger_and_wait_compaction(table1, "cumulative")
+
+        sql "delete from ${table1} where k1<=20;"
         sql "sync;"
         qt_sql "select count() from ${table1};"
+        getDeleteSignCnt()
 
-        sql "delete from ${table1} where k<=10;"
-
-        qt_sql "select count() from ${table1};"
-
-        sql "set skip_delete_sign=true;"
-        sql "set skip_delete_bitmap=true;"
-        sql "sync"
-        qt_sql "select count() from ${table1} where __DORIS_DELETE_SIGN__=1;"
-        sql "set skip_delete_sign=false;"
-        sql "set skip_delete_bitmap=false;"
-        sql "sync"
+        (31..60).each {
+            sql "insert into ${table1} values($it,$it,$it);"
+        }
+        trigger_and_wait_compaction(table1, "cumulative")
 
         trigger_and_wait_compaction(table1, "base")
         qt_sql "select count() from ${table1};"
+        getDeleteSignCnt()
 
-        sql "set skip_delete_sign=true;"
-        sql "set skip_delete_bitmap=true;"
-        sql "sync"
-        qt_sql "select count() from ${table1} where __DORIS_DELETE_SIGN__=1;"
-        sql "set skip_delete_sign=false;"
-        sql "set skip_delete_bitmap=false;"
-        sql "sync"
+        def tablets = sql_return_maparray """ show tablets from ${table1}; """
+        logger.info("tablets: ${tablets}")
+        assert 1 == tablets.size()
+        String compactionUrl = tablets[0]["CompactionStatus"]
+        def (code, out, err) = curl("GET", compactionUrl)
+        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+        assert code == 0
+        def tabletJson = parseJson(out.trim())
+        assert tabletJson.rowsets.size() == 1
+        assert tabletJson.rowsets[0].contains("[0-62]")
     }
 }
