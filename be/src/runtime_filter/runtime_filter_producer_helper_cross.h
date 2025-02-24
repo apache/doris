@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <vector>
-
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter.h"
@@ -41,7 +39,7 @@ public:
             RETURN_IF_ERROR(_process_block(&block));
         }
 
-        for (auto filter : _runtime_filters) {
+        for (auto filter : _producers) {
             filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
         }
         return _publish(state);
@@ -49,10 +47,7 @@ public:
 
 private:
     Status _process_block(vectorized::Block* block) {
-        for (int i = 0; i < _runtime_filters.size(); ++i) {
-            auto filter = _runtime_filters[i];
-            const auto& vexpr_ctx = _build_expr_context[i];
-
+        for (const auto& vexpr_ctx : _build_expr_context) {
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
             DCHECK(result_column_id != -1);

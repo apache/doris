@@ -66,7 +66,7 @@ protected:
     Status _publish(RuntimeState* state);
 
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
-    std::vector<std::shared_ptr<RuntimeFilterProducer>> _runtime_filters;
+    std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
     const bool _should_build_hash_table;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;

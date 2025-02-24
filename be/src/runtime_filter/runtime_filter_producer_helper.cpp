@@ -24,10 +24,10 @@ namespace doris {
 
 Status RuntimeFilterProducerHelper::init(
         RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
-    _runtime_filters.resize(runtime_filter_descs.size());
+    _producers.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                runtime_filter_descs[i], &_runtime_filters[i], _profile.get()));
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(runtime_filter_descs[i],
+                                                                &_producers[i], _profile.get()));
     }
     return Status::OK();
 }
@@ -38,8 +38,8 @@ Status RuntimeFilterProducerHelper::send_filter_size(
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
-    for (auto runtime_filter : _runtime_filters) {
-        RETURN_IF_ERROR(runtime_filter->send_size(state, hash_table_size, dependency));
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->send_size(state, hash_table_size, dependency));
     }
     return Status::OK();
 }
@@ -47,7 +47,7 @@ Status RuntimeFilterProducerHelper::send_filter_size(
 Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
                                                   uint64_t local_hash_table_size) {
     // process IN_OR_BLOOM_FILTER's real type
-    for (auto filter : _runtime_filters) {
+    for (const auto& filter : _producers) {
         RETURN_IF_ERROR(filter->init(local_hash_table_size));
     }
     return Status::OK();
@@ -55,7 +55,7 @@ Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
 
 void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
     SCOPED_TIMER(_runtime_filter_compute_timer);
-    for (auto& filter : _runtime_filters) {
+    for (const auto& filter : _producers) {
         if (!filter->impl()->is_valid()) {
             // Skip building if ignored or disabled.
             continue;
@@ -69,7 +69,7 @@ void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t
 
 Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
     SCOPED_TIMER(_publish_runtime_filter_timer);
-    for (auto& filter : _runtime_filters) {
+    for (const auto& filter : _producers) {
         RETURN_IF_ERROR(filter->publish(state, _should_build_hash_table));
     }
     return Status::OK();
@@ -96,7 +96,7 @@ Status RuntimeFilterProducerHelper::process(
         }
     }
 
-    for (auto filter : _runtime_filters) {
+    for (const auto& filter : _producers) {
         if (shared_hash_table_ctx && !wake_up_early) {
             if (_should_build_hash_table) {
                 filter->copy_to_shared_context(shared_hash_table_ctx);
@@ -114,7 +114,7 @@ Status RuntimeFilterProducerHelper::process(
 Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
     RETURN_IF_ERROR(send_filter_size(state, 0, nullptr));
 
-    for (auto filter : _runtime_filters) {
+    for (const auto& filter : _producers) {
         filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
                                                        "skip all rf process");
     }
