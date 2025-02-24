@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -206,6 +207,44 @@ public class PaimonScanNode extends FileQueryScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
+    @VisibleForTesting
+    public static Optional<Long> calcuteTableLevelCount(List<org.apache.paimon.table.source.Split> paimonSplits) {
+        // check if all splits dont't have deletion vector or cardinality of every
+        // deletion vector is not null
+        boolean applyTableCountPushdown = true;
+        long totalCount = 0;
+        long deletionVectorCount = 0;
+
+        for (org.apache.paimon.table.source.Split s : paimonSplits) {
+            totalCount += s.rowCount();
+
+            Optional<List<DeletionFile>> deletionFiles = s.deletionFiles();
+            if (deletionFiles.isPresent()) {
+                for (DeletionFile dv : deletionFiles.get()) {
+                    if (dv != null) {
+                        Long cardinality = dv.cardinality();
+                        if (cardinality == null) {
+                            applyTableCountPushdown = false;
+                            break;
+                        } else {
+                            deletionVectorCount += cardinality;
+                        }
+                    }
+                }
+            }
+
+            if (!applyTableCountPushdown) {
+                break;
+            }
+        }
+
+        if (applyTableCountPushdown) {
+            return Optional.of(totalCount - deletionVectorCount);
+        } else {
+            return Optional.empty();
+        }
+    }
+
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
@@ -297,37 +336,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown) {
-            // check if all splits dont't have deletion vector or cardinality of every
-            // deletion vector is not null
-            boolean applyTableCountPushdown = true;
-            long totalCount = 0;
-            long deletionVectorCount = 0;
-
-            for (org.apache.paimon.table.source.Split s : paimonSplits) {
-                totalCount += s.rowCount();
-
-                Optional<List<DeletionFile>> deletionFiles = s.deletionFiles();
-                if (deletionFiles.isPresent()) {
-                    for (DeletionFile dv : deletionFiles.get()) {
-                        if (dv != null) {
-                            Long cardinality = dv.cardinality();
-                            if (cardinality == null) {
-                                applyTableCountPushdown = false;
-                                break;
-                            } else {
-                                deletionVectorCount += cardinality;
-                            }
-                        }
-                    }
-                }
-
-                if (!applyTableCountPushdown) {
-                    break;
-                }
-            }
-
-            if (applyTableCountPushdown) {
-                long tableLevelRowCount = totalCount - deletionVectorCount;
+            Optional<Long> optTableLevelCount = calcuteTableLevelCount(paimonSplits);
+            if (optTableLevelCount.isPresent()) {
+                long tableLevelRowCount = optTableLevelCount.get();
                 setPushDownCount(tableLevelRowCount);
                 assignCountToSplits(splits, tableLevelRowCount);
             }
