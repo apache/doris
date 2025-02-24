@@ -674,7 +674,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // the instance which is not build hash table, it's should wait the signal of hash table build finished.
         // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
         // return eof will make task marked as wake_up_early
-        if (!_shared_hash_table_context->signaled) {
+        // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
+        if (!_shared_hash_table_context->signaled || state->get_task()->wake_up_early()) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 
