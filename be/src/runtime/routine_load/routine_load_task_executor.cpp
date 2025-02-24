@@ -61,6 +61,7 @@ namespace doris {
 using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_thread_num, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
@@ -78,15 +79,19 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 
 Status RoutineLoadTaskExecutor::init(int64_t process_mem_limit) {
     _load_mem_limit = process_mem_limit * config::load_process_max_memory_limit_percent / 100;
-    return ThreadPoolBuilder("routine_load")
-            .set_min_threads(0)
-            .set_max_threads(config::max_routine_load_thread_pool_size)
-            .set_max_queue_size(config::max_routine_load_thread_pool_size)
-            .build(&_thread_pool);
+    RETURN_IF_ERROR(ThreadPoolBuilder("routine_load")
+                            .set_min_threads(0)
+                            .set_max_threads(config::max_routine_load_thread_pool_size)
+                            .set_max_queue_size(config::max_routine_load_thread_pool_size)
+                            .build(&_thread_pool));
+    REGISTER_HOOK_METRIC(routine_load_thread_num,
+                         [this]() { return _thread_pool->num_active_threads(); });
+    return Status::OK();
 }
 
 void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
+    DEREGISTER_HOOK_METRIC(routine_load_thread_num);
     if (_thread_pool) {
         _thread_pool->shutdown();
     }
