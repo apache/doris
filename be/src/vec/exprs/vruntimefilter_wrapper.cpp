@@ -117,7 +117,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
 
         // bloom filter will handle null aware inside itself
         if (_null_aware && TExprNodeType::BLOOM_PRED != node_type()) {
-            DCHECK_EQ(args.size(), 1);
+            DCHECK_GE(args.size(), 1);
             change_null_to_true(result_column.column, block->get_by_position(args[0]).column);
         }
 
