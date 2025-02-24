@@ -37,11 +37,14 @@
 #include <chrono> // IWYU pragma: keep
 #include <random>
 
+#include "gflags/gflags.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 
 using strings::Substitute;
+
+DEFINE_bool(gen_out, false, "generate expected check data for test");
 
 namespace doris {
 

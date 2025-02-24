@@ -19,11 +19,16 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <random>
+#include <string>
 
 #include "olap/schema.h"
+#include "testutil/test_util.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
@@ -44,6 +49,19 @@
 namespace doris::vectorized {
 
 static bool gen_check_data_in_assert = true;
+
+template <typename T>
+std::string join_ints(const std::vector<T>& nums) {
+    if (nums.empty()) {
+        return "[]";
+    }
+
+    std::ostringstream oss;
+    oss << "[";
+    std::copy(nums.begin(), nums.end() - 1, std::ostream_iterator<T>(oss, ","));
+    oss << nums.back() << "]";
+    return oss.str();
+}
 
 class CommonColumnTest : public ::testing::Test {
 protected:
@@ -122,6 +140,63 @@ protected:
             if (!file) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
                                        filename);
+            }
+
+            std::string line;
+            std::vector<std::vector<std::string>> assert_res;
+            while (std::getline(file, line)) {
+                std::vector<std::string> row;
+                std::stringstream lineStream(line);
+                std::string value;
+                while (std::getline(lineStream, value, ';')) {
+                    row.push_back(value);
+                }
+                assert_res.push_back(row);
+            }
+
+            // we just do check here
+            for (size_t i = 0; i < res.size(); ++i) {
+                for (size_t j = 0; j < res[i].size(); ++j) {
+                    EXPECT_EQ(res[i][j], assert_res[i][j]);
+                }
+            }
+        }
+    }
+    //// this is very helpful function to check data in column against expected results according different function in assert function
+    //// such as run regress tests
+    ////  if FLAGS_gen_out is true, we will generate a file for check data, otherwise we will read the file to check data
+    ////  so the key point is we should how we write assert callback function to check data,
+    ///   and when check data is generated, we should check result to statisfy the semantic of the function
+    static void check_or_generate_res_file(const string& res_file_path,
+                                           std::vector<std::vector<std::string>>& res) {
+        if (FLAGS_gen_out) {
+            std::ofstream res_file(res_file_path);
+            std::cout << "gen check data: " << res.size() << " with file: " << res_file_path
+                      << std::endl;
+            if (!res_file.is_open()) {
+                throw std::ios_base::failure("Failed to open file.");
+            }
+
+            for (const auto& row : res) {
+                for (size_t i = 0; i < row.size(); ++i) {
+                    auto cell = row[i];
+                    res_file << cell;
+                    if (i < row.size() - 1) {
+                        res_file << ";"; // Add semicolon between columns
+                    }
+                }
+                res_file << "\n"; // Newline after each row
+            }
+
+            res_file.close();
+        } else {
+            // we read generate file to check result
+            std::cout << "check data: " << res.size() << " with file: " << res_file_path
+                      << std::endl;
+            std::ifstream file(res_file_path);
+            if (!file) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
+                                       res_file_path);
             }
 
             std::string line;
@@ -228,6 +303,29 @@ public:
         assert_callback(columns, serders);
     }
     ////==================================================================================================================
+
+    void load_columns_data_from_file(MutableColumns& columns, DataTypeSerDeSPtrs serders,
+                                     char col_spliter, std::set<int> idxes,
+                                     const std::string& column_data_file) {
+        ASSERT_EQ(serders.size(), columns.size());
+        // Load column data and expected data from CSV files
+        std::vector<std::vector<std::string>> res;
+        struct stat buff;
+        if (stat(column_data_file.c_str(), &buff) == 0) {
+            if (S_ISREG(buff.st_mode)) {
+                // file
+                load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes);
+            } else if (S_ISDIR(buff.st_mode)) {
+                // dir
+                std::filesystem::path fs_path(column_data_file);
+                for (const auto& entry : std::filesystem::directory_iterator(fs_path)) {
+                    std::string file_path = entry.path().string();
+                    std::cout << "load data from file: " << file_path << std::endl;
+                    load_data_from_csv(serders, columns, file_path, col_spliter, idxes);
+                }
+            }
+        }
+    }
 
     void check_columns(MutableColumns& columns, DataTypeSerDeSPtrs serders, DataTypes dataTypes,
                        char col_spliter, std::set<int> idxes, const std::string& column_data_file,
@@ -1520,15 +1618,16 @@ public:
 
     // Column Hash Interfaces:
     // update_hashes_with_value (size_t, size_t, Hashes &hashes) const : which inner just use xxhash for column data
-    static void assert_update_hashes_with_value_callback(MutableColumns& load_cols,
-                                                         DataTypeSerDeSPtrs serders) {
+    static void assert_update_hashes_with_value_callback(const MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders,
+                                                         const std::string& res_file_path = "") {
         // Create an empty column to verify `update_hashes_with_value` functionality
         // check update_hashes_with_value with different hashes
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
 
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<uint64_t> xx_hash_vals(source_column->size());
             std::cout << "now we are in update_hashes_with_value column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size()
@@ -1536,29 +1635,29 @@ public:
             auto* __restrict xx_hashes = xx_hash_vals.data();
             EXPECT_NO_FATAL_FAILURE(source_column->update_hashes_with_value(xx_hashes));
             // check after update_hashes_with_value: 1 in selector present the load cols data is selected and data should be default value
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(source_column->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
             std::vector<string> data;
+            std::ostringstream oss;
+
             data.push_back("column: " + source_column->get_name() +
-                           " with hashes: " + std::to_string(*xx_hashes) +
-                           " with ptr: " + std::to_string(source_column->size()));
+                           " with hashes: " + join_ints(xx_hash_vals));
             res.push_back(data);
         }
-        check_res_file("update_hashes_with_value", res);
+        check_or_generate_res_file(
+                res_file_path.empty() ? "update_hashes_with_value" : res_file_path, res);
     }
 
     //virtual void
     //update_hashes (size_t, size_t, Hashes &hashes) const
-    static void assert_update_crc_hashes_callback(MutableColumns& load_cols,
+    static void assert_update_crc_hashes_callback(const MutableColumns& load_cols,
                                                   DataTypeSerDeSPtrs serders,
-                                                  std::vector<PrimitiveType> pts) {
+                                                  std::vector<PrimitiveType> pts,
+                                                  const std::string& res_file_path = "") {
         // Create an empty column to verify `update_hashes` functionality
         // check update_hashes with different hashes
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
+            const auto& source_column = load_cols[i];
             std::vector<uint32_t> crc_hash_vals(source_column->size());
             std::cout << "now we are in update_hashes column : " << load_cols[i]->get_name()
                       << " for column size : " << source_column->size() << std::endl;
@@ -1567,14 +1666,13 @@ public:
             // check after update_hashes: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
             ser_col->reserve(source_column->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
             std::vector<string> data;
             data.push_back("column: " + source_column->get_name() +
-                           " with hashes: " + std::to_string(*crc_hash_vals.data()) +
-                           " with ptr: " + std::to_string(source_column->size()));
+                           " with hashes: " + join_ints(crc_hash_vals));
             res.push_back(data);
         }
-        check_res_file("update_crcs_hashes", res);
+        check_or_generate_res_file(res_file_path.empty() ? "update_crcs_hashes" : res_file_path,
+                                   res);
     }
 
     // column size changed calculation:
@@ -1683,11 +1781,92 @@ public:
         EXPECT_EQ(new_col->size(), expect_size);
     }
 
+    // virtual void
+    // update_hash_with_value(size_t n, SipHash& hash)
+    // siphash we still keep siphash for storge layer because we use it in
+    //     EngineChecksumTask::_compute_checksum() and can not to remove it
+    static void assert_update_siphashes_with_value_callback(const MutableColumns& load_cols,
+                                                            DataTypeSerDeSPtrs serders,
+                                                            const std::string& res_file_path = "") {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            SipHash hash;
+            LOG(INFO) << "now we are in update_hashes column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size();
+            for (size_t j = 0; j < source_column->size(); ++j) {
+                source_column->update_hash_with_value(j, hash);
+            }
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash.get64()) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_or_generate_res_file(
+                res_file_path.empty() ? "update_siphashes_hashes" : res_file_path, res);
+    }
+
+    static void assert_update_xxHash_with_value_callback(const MutableColumns& load_cols,
+                                                         DataTypeSerDeSPtrs serders,
+                                                         const std::string& res_file_path = "") {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            uint64_t hash = 0;
+            source_column->update_xxHash_with_value(0, source_column->size(), hash, nullptr);
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_or_generate_res_file(
+                res_file_path.empty() ? "update_xxHash_with_value" : res_file_path, res);
+    }
+
+    static void assert_update_crc_with_value_callback(const MutableColumns& load_cols,
+                                                      DataTypeSerDeSPtrs serders,
+                                                      const std::string& res_file_path = "") {
+        // Create an empty column to verify `update_hashes` functionality
+        // check update_hashes with different hashes
+        std::vector<std::vector<string>> res;
+        auto option = DataTypeSerDe::FormatOptions();
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            const auto& source_column = load_cols[i];
+            uint32_t hash = 0;
+            source_column->update_crc_with_value(0, source_column->size(), hash, nullptr);
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with hashes: " + std::to_string(hash) +
+                           " with ptr: " + std::to_string(source_column->size()));
+            res.push_back(data);
+        }
+        check_or_generate_res_file(
+                res_file_path.empty() ? "update_xxHash_with_value" : res_file_path, res);
+    }
+
     //serialize and deserialize which usually used in AGG function:
     //  serialize_value_into_arena, deserialize_and_insert_from_arena (called by AggregateFunctionDistinctMultipleGenericData, group_array_intersect, nested-types serder like: DataTypeArraySerDe::write_one_cell_to_jsonb)
-    void ser_deserialize_with_arena_impl(MutableColumns& columns, const DataTypes& data_types) {
+    void ser_deserialize_with_arena_impl(const MutableColumns& columns,
+                                         const DataTypes& data_types) {
         size_t rows = columns[0]->size();
-        for (auto& column : columns) {
+        for (const auto& column : columns) {
             if (column->size() > rows) {
                 std::cerr << "Column size mismatch: " << column->size() << " vs " << rows
                           << std::endl;
@@ -1856,7 +2035,7 @@ public:
         check_res_file("filter_by_selector-" + col->get_name(), res);
     }
 
-    void assert_permutations_with_limit(const IColumn::Permutation& lhs,
+    void assert_permutations_with_limit(const IColumn& column, const IColumn::Permutation& lhs,
                                         const IColumn::Permutation& rhs, size_t limit) {
         std::cout << "lhs size: " << lhs.size() << " rhs size: " << rhs.size()
                   << " limit: " << limit << std::endl;
@@ -1865,7 +2044,8 @@ public:
         }
 
         for (size_t i = 0; i < limit; ++i) {
-            ASSERT_EQ(lhs[i], rhs[i]) << "i: " << i << "limit: " << limit;
+            ASSERT_EQ(column.compare_at(lhs[i], rhs[i], column, -1), 0)
+                    << "i: " << i << ", limit: " << limit;
         }
     }
 
@@ -1950,24 +2130,657 @@ public:
         }
 
         // step3. check the permutation result
-        assert_permutations_with_limit(actual_permutation, expected_permutation, limit);
+        assert_permutations_with_limit(column, actual_permutation, expected_permutation, limit);
         std::cout << "assertColumnPermutation done" << std::endl;
     }
 
+    void check_permute(const IColumn& column, const IColumn::Permutation& permutation, size_t limit,
+                       size_t expected_size) {
+        auto res_col = column.permute(permutation, limit);
+        EXPECT_EQ(res_col->size(), expected_size);
+        for (size_t j = 0; j < expected_size; ++j) {
+            EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+        }
+    }
     //  permute()
     //   1/ Key topN set read_orderby_key_reverse = true; SegmentIterator::next_batch will permute the column by the given permutation(which reverse the rows of current segment)
     //  should check rows with the given permutation
-    void assert_permute(MutableColumns& cols, IColumn::Permutation& permutation, size_t num_rows) {
-        std::vector<ColumnPtr> res_permuted;
-        for (auto& col : cols) {
-            res_permuted.emplace_back(col->permute(permutation, num_rows));
+    void assert_permute(MutableColumns& cols, size_t num_rows) {
+        for (const auto& col : cols) {
+            size_t expected_size = num_rows ? std::min(col->size(), num_rows) : col->size();
+            {
+                IColumn::Permutation permutation;
+                stable_get_column_permutation(*col, true, col->size(), -1, permutation);
+                check_permute(*col, permutation, num_rows, expected_size);
+            }
+            {
+                IColumn::Permutation permutation(col->size());
+                std::iota(permutation.begin(), permutation.end(),
+                          IColumn::Permutation::value_type(0));
+                std::random_device rd;
+                std::mt19937 g(rd());
+                std::shuffle(permutation.begin(), permutation.end(), g);
+                check_permute(*col, permutation, num_rows, expected_size);
+            }
         }
-        // check the permutation result for rowsize
-        size_t res_rows = res_permuted[0]->size();
-        for (auto& col : res_permuted) {
-            EXPECT_EQ(col->size(), res_rows);
+    }
+
+    void assert_sort_internal_callback(MutableColumns& cols, size_t num_rows) {
+        for (const auto& col : cols) {
+            size_t num_rows = col->size();
+            for (size_t cursor_rid = 0; cursor_rid < num_rows; ++cursor_rid) {
+                IColumn::Filter filter(num_rows);
+                for (size_t i = 0; i < num_rows; ++i) {
+                    filter[i] = 0;
+                }
+
+                std::vector<uint8_t> cmp_res(num_rows, 0);
+
+                col->compare_internal(cursor_rid, *col, 1, 1, cmp_res, filter.data());
+                for (size_t i = 0; i < num_rows; ++i) {
+                    if (i == cursor_rid) {
+                        EXPECT_EQ(cmp_res[i], 1);
+                    } else {
+                    }
+                }
+            }
+        }
+    }
+};
+auto assert_column_vector_has_enough_capacity_callback = [](auto x,
+                                                            const MutableColumns& load_cols) {
+    for (const auto& source_column : load_cols) {
+        auto src_size = source_column->size();
+        auto assert_col = source_column->clone_empty();
+        ASSERT_FALSE(assert_col->has_enough_capacity(*source_column));
+        assert_col->reserve(src_size);
+        ASSERT_TRUE(assert_col->has_enough_capacity(*source_column));
+    }
+};
+
+auto assert_column_vector_field_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        auto assert_col = source_column->clone_empty();
+        for (size_t i = 0; i != src_size; ++i) {
+            Field f;
+            source_column->get(i, f);
+            assert_col->insert(f);
+        }
+        for (size_t i = 0; i != src_size; ++i) {
+            Field f;
+            assert_col->get(i, f);
+            ASSERT_EQ(f.get<T>(), col_vec_src->get_element(i));
         }
     }
 };
 
+auto assert_column_vector_get_data_at_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        const auto& col_raw_data = col_vec_src->get_data().data();
+        auto src_size = source_column->size();
+        for (size_t i = 0; i != src_size; ++i) {
+            auto str_value = source_column->get_data_at(i).to_string();
+            ASSERT_EQ(str_value, std::string((const char*)(col_raw_data + i), sizeof(T)));
+        }
+    }
+};
+auto assert_column_vector_insert_many_vals_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVector<T>*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> src_data_indices = {0, src_size, src_size - 1, (src_size + 1) >> 1};
+
+        auto test_func = [&](size_t clone_count) {
+            size_t actual_clone_count = std::min(clone_count, src_size);
+            auto target_column = source_column->clone_resized(actual_clone_count);
+            auto* col_vec_target = assert_cast<ColumnVector<T>*>(target_column.get());
+            for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
+                if (*pos >= src_size) {
+                    continue;
+                }
+                for (auto n : insert_vals_count) {
+                    col_vec_target->resize(actual_clone_count);
+                    col_vec_target->insert_many_vals(col_vec_src->get_element(*pos), n);
+                    EXPECT_EQ(col_vec_target->size(), actual_clone_count + n);
+                    size_t i = 0;
+                    for (; i < actual_clone_count; ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                    }
+                    for (; i < col_vec_target->size(); ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(*pos));
+                    }
+                }
+            }
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+
+auto assert_column_vector_insert_from_callback = [](auto x, const MutableColumns& load_cols) {
+    // Create an empty column to verify `insert_from` functionality
+    MutableColumns verify_columns;
+    for (const auto& col : load_cols) {
+        verify_columns.push_back(col->clone_empty());
+    }
+    // Insert data from `load_cols` to `verify_columns` using `insert_from`
+    for (size_t i = 0; i < load_cols.size(); ++i) {
+        const auto& source_column = load_cols[i];
+        auto& target_column = verify_columns[i];
+        for (size_t j = 0; j < source_column->size(); ++j) {
+            target_column->insert_from(*source_column, j);
+        }
+        ASSERT_EQ(target_column->size(), source_column->size());
+        for (size_t j = 0; j < target_column->size(); ++j) {
+            ASSERT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
+        }
+    }
+};
+auto assert_column_vector_insert_data_callback = [](auto x, const MutableColumns& load_cols) {
+    // Create an empty column to verify `insert_from` functionality
+    MutableColumns verify_columns;
+    for (const auto& col : load_cols) {
+        verify_columns.push_back(col->clone_empty());
+    }
+    // Insert data from `load_cols` to `verify_columns` using `insert_from`
+    for (size_t i = 0; i < load_cols.size(); ++i) {
+        const auto& source_column = load_cols[i];
+        auto& target_column = verify_columns[i];
+        for (size_t j = 0; j < source_column->size(); ++j) {
+            const auto data_at = source_column->get_data_at(j);
+            target_column->insert_data(data_at.data, data_at.size);
+        }
+        ASSERT_EQ(target_column->size(), source_column->size());
+        for (size_t j = 0; j < target_column->size(); ++j) {
+            ASSERT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
+        }
+    }
+};
+auto assert_column_vector_insert_many_from_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> src_data_indices = {0, src_size, src_size - 1, (src_size + 1) >> 1};
+
+        auto test_func = [&](size_t clone_count) {
+            size_t actual_clone_count = std::min(clone_count, src_size);
+            auto target_column = source_column->clone_resized(actual_clone_count);
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
+                if (*pos >= src_size) {
+                    continue;
+                }
+                for (auto n : insert_vals_count) {
+                    col_vec_target->resize(actual_clone_count);
+                    col_vec_target->insert_many_from(*source_column, *pos, n);
+                    EXPECT_EQ(col_vec_target->size(), actual_clone_count + n);
+                    size_t i = 0;
+                    for (; i < actual_clone_count; ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                    }
+                    for (; i < col_vec_target->size(); ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(*pos));
+                    }
+                }
+            }
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+
+auto assert_column_vector_insert_indices_from_callback = [](auto x,
+                                                            const MutableColumns& load_cols) {
+    // Test case 1: Empty source column
+    // Test case 2: Empty indices array
+    // Test case 3: Normal case with multiple indices
+    // Select elements in different order
+    // Test case 4: Duplicate indices
+
+    // Insert data from `load_cols` to `verify_columns` using `insert_indices_from`
+    for (const auto& source_column : load_cols) {
+        auto src_size = source_column->size();
+
+        // Test case 1: Empty target column
+        {
+            auto target_column = source_column->clone_empty();
+            std::vector<uint32_t> indices;
+
+            // empty indices array
+            target_column->insert_indices_from(*source_column, indices.data(), indices.data());
+            EXPECT_EQ(target_column->size(), 0);
+        }
+        {
+            auto target_column = source_column->clone_empty();
+            // insert all elements from source column
+            std::vector<uint32_t> indices(src_size);
+            std::iota(indices.begin(), indices.end(), 0);
+            target_column->insert_indices_from(*source_column, indices.data(),
+                                               indices.data() + src_size);
+            EXPECT_EQ(target_column->size(), src_size);
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                EXPECT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
+            }
+        }
+        {
+            // Normal case with random indices
+            auto target_column = source_column->clone_empty();
+            std::vector<uint32_t> indices(src_size);
+            std::iota(indices.begin(), indices.end(), 0);
+            std::random_device rd;
+            std::mt19937 g(rd());
+            std::shuffle(indices.begin(), indices.end(), g);
+            target_column->insert_indices_from(*source_column, indices.data(),
+                                               indices.data() + indices.size());
+            EXPECT_EQ(target_column->size(), indices.size());
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                EXPECT_EQ(target_column->get_data_at(j), source_column->get_data_at(indices[j]));
+            }
+        }
+        {
+            // Normal case with duplicate indices
+            auto target_column = source_column->clone_empty();
+            std::vector<uint32_t> indices = {0, uint32_t(source_column->size() - 1),
+                                             uint32_t((source_column->size() + 1) >> 1),
+                                             uint32_t(source_column->size() - 1), 0};
+            target_column->insert_indices_from(*source_column, indices.data(),
+                                               indices.data() + indices.size());
+            EXPECT_EQ(target_column->size(), indices.size());
+            for (size_t j = 0; j < target_column->size(); ++j) {
+                EXPECT_EQ(target_column->get_data_at(j), source_column->get_data_at(indices[j]));
+            }
+        }
+    }
+};
+
+auto assert_column_vector_insert_range_of_integer_callback = [](auto x,
+                                                                const MutableColumns& load_cols) {
+    using T = decltype(x);
+    MutableColumns verify_columns;
+    for (const auto& col : load_cols) {
+        verify_columns.push_back(col->clone());
+    }
+    for (size_t i = 0; i < load_cols.size(); ++i) {
+        const auto& source_column = load_cols[i];
+        auto& target_column = verify_columns[i];
+        auto src_size = source_column->size();
+        auto* col_vec_target = assert_cast<ColumnVector<T>*>(target_column.get());
+        auto* col_vec_src = assert_cast<ColumnVector<T>*>(source_column.get());
+        T begin {0};
+        T end {11};
+        col_vec_target->insert_range_of_integer(begin, end);
+        size_t j = 0;
+        for (; j < src_size; ++j) {
+            EXPECT_EQ(col_vec_target->get_element(j), col_vec_src->get_element(j));
+        }
+        for (size_t k = 0; j < col_vec_target->size(); ++j, ++k) {
+            EXPECT_EQ(col_vec_target->get_element(j), begin + k);
+        }
+    }
+};
+auto assert_column_vector_insert_many_fix_len_data_callback = [](auto x,
+                                                                 const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> src_data_indices = {0, src_size - 1, (src_size + 1) >> 1};
+
+        auto test_func = [&](size_t clone_count) {
+            size_t actual_clone_count = std::min(clone_count, src_size);
+            auto target_column = source_column->clone_resized(actual_clone_count);
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
+                if (*pos >= src_size) {
+                    continue;
+                }
+                for (auto n : insert_vals_count) {
+                    col_vec_target->resize(actual_clone_count);
+                    size_t actual_insert_count = std::min(n, src_size - *pos);
+                    col_vec_target->insert_many_fix_len_data(source_column->get_data_at(*pos).data,
+                                                             actual_insert_count);
+                    auto target_size = col_vec_target->size();
+                    EXPECT_EQ(target_size, actual_clone_count + actual_insert_count);
+                    size_t i = 0;
+                    for (; i < actual_clone_count; ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                    }
+                    for (size_t j = *pos; i < target_size; ++i, ++j) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j));
+                    }
+                }
+            }
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+auto assert_column_vector_insert_many_raw_data_callback = [](auto x,
+                                                             const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> src_data_indices = {0, src_size - 1, (src_size + 1) >> 1};
+
+        auto test_func = [&](size_t clone_count) {
+            size_t actual_clone_count = std::min(clone_count, src_size);
+            auto target_column = source_column->clone_resized(actual_clone_count);
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
+                if (*pos >= src_size) {
+                    continue;
+                }
+                for (auto n : insert_vals_count) {
+                    col_vec_target->resize(actual_clone_count);
+                    size_t actual_insert_count = std::min(n, src_size - *pos);
+                    col_vec_target->insert_many_raw_data(source_column->get_data_at(*pos).data,
+                                                         actual_insert_count);
+                    auto target_size = col_vec_target->size();
+                    EXPECT_EQ(target_size, actual_clone_count + actual_insert_count);
+                    size_t i = 0;
+                    for (; i < actual_clone_count; ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                    }
+                    for (size_t j = *pos; i < target_size; ++i, ++j) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j));
+                    }
+                }
+            }
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+auto assert_column_vector_insert_default_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> src_data_indices = {0, src_size - 1, (src_size + 1) >> 1};
+
+        auto test_func = [&](size_t clone_count) {
+            size_t actual_clone_count = std::min(clone_count, src_size);
+            auto target_column = source_column->clone_resized(actual_clone_count);
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            col_vec_target->insert_default();
+            auto target_size = col_vec_target->size();
+            EXPECT_EQ(target_size, actual_clone_count + 1);
+            size_t i = 0;
+            for (; i < actual_clone_count; ++i) {
+                EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+            }
+            EXPECT_EQ(col_vec_target->get_element(i), T {});
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+auto assert_column_vector_insert_many_defaults_callback = [](auto x,
+                                                             const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+
+        auto test_func = [&](size_t clone_count) {
+            for (auto n : insert_vals_count) {
+                size_t actual_clone_count = std::min(clone_count, src_size);
+                auto target_column = source_column->clone_resized(actual_clone_count);
+                auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+                col_vec_target->insert_many_defaults(n);
+                auto target_size = col_vec_target->size();
+                EXPECT_EQ(target_size, actual_clone_count + n);
+                size_t i = 0;
+                for (; i < actual_clone_count; ++i) {
+                    EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                }
+                for (; i < target_size; ++i) {
+                    EXPECT_EQ(col_vec_target->get_element(i), T {});
+                }
+            }
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto src_size = source_column->size();
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        const auto& data = col_vec_src->get_data();
+        for (size_t i = 0; i != src_size; ++i) {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        }
+    }
+};
+auto assert_column_vector_get_int64_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto src_size = source_column->size();
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        const auto& data = col_vec_src->get_data();
+        for (size_t i = 0; i != src_size; ++i) {
+            if constexpr (IsDecimalNumber<T>) {
+                EXPECT_EQ(col_vec_src->get_int(i),
+                          (Int64)(data[i].value * col_vec_src->get_scale()));
+            } else {
+                EXPECT_EQ(col_vec_src->get_int(i), (Int64)data[i]);
+            }
+        }
+    }
+};
+auto assert_column_vector_insert_range_from_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> src_data_indices = {0, src_size - 1, (src_size + 1) >> 1};
+
+        auto test_func = [&](size_t clone_count) {
+            size_t actual_clone_count = std::min(clone_count, src_size);
+            auto target_column = source_column->clone_resized(actual_clone_count);
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
+                if (*pos >= src_size) {
+                    continue;
+                }
+                for (auto n : insert_vals_count) {
+                    col_vec_target->resize(actual_clone_count);
+                    size_t actual_insert_count = std::min(n, src_size - *pos);
+                    col_vec_target->insert_range_from(*source_column, *pos, actual_insert_count);
+                    auto target_size = col_vec_target->size();
+                    EXPECT_EQ(target_size, actual_clone_count + actual_insert_count);
+                    size_t i = 0;
+                    for (; i < actual_clone_count; ++i) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                    }
+                    for (size_t j = *pos; i < target_size; ++i, ++j) {
+                        EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j));
+                    }
+                }
+            }
+        };
+        test_func(0);
+        test_func(10);
+    }
+};
+auto assert_column_vector_pop_back_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto src_size = source_column->size();
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        std::vector<size_t> pop_back_count = {0, src_size - 1, (src_size + 1) >> 1};
+        for (auto n : pop_back_count) {
+            auto target_column = source_column->clone();
+            target_column->pop_back(n);
+            EXPECT_EQ(target_column->size(), src_size - n);
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            for (size_t i = 0; i < target_column->size(); ++i) {
+                EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+            }
+        }
+    }
+};
+auto assert_column_vector_filter_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto source_size = source_column->size();
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        IColumn::Filter all_filtered(source_size, 0);
+        IColumn::Filter no_filtered(source_size, 1);
+        IColumn::Filter normal_filter(source_size, 1);
+        normal_filter[0] = 0;
+        normal_filter[source_size - 1] = 0;
+        normal_filter[source_size / 2] = 0;
+        std::vector<IColumn::Filter*> filters = {&all_filtered, &no_filtered, &normal_filter};
+        auto test_func = [&](const IColumn::Filter* filter) {
+            auto target_column = source_column->clone();
+            const auto* filter_data = (const int8_t*)filter->data();
+            auto expected_size = filter->size() - simd::count_zero_num(filter_data, filter->size());
+            auto ptr = target_column->filter(*filter, source_column->size());
+            const auto* col_vec_target_filtered = assert_cast<const ColumnVecType*>(ptr.get());
+            EXPECT_EQ(ptr->size(), expected_size);
+            for (size_t i = 0, find_pos = 0; i < expected_size; ++i, ++find_pos) {
+                find_pos = simd::find_byte(filter_data, find_pos, filter->size(), (int8_t)1);
+                EXPECT_TRUE(find_pos < filter->size());
+                EXPECT_EQ(col_vec_target_filtered->get_element(i),
+                          col_vec_src->get_element(find_pos));
+            }
+        };
+        for (const auto& filter : filters) {
+            test_func(filter);
+        }
+    }
+};
+auto assert_column_vector_replicate_callback = [](auto x, const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    std::vector<size_t> insert_vals_count = {0, 10, 1000};
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        srand((unsigned)time(nullptr));
+        IColumn::Offsets offsets(src_size);
+        IColumn::Offsets counts(src_size);
+        size_t total_size = 0;
+        for (size_t i = 0; i < src_size; ++i) {
+            counts[i] = rand() % 10;
+            total_size += counts[i];
+            offsets[i] = total_size;
+        }
+        auto target_column = source_column->replicate(offsets);
+        const auto* col_vec_target = assert_cast<const ColumnVecType*>(target_column.get());
+        EXPECT_EQ(target_column->size(), total_size);
+        size_t total_idx = 0;
+        for (size_t i = 0; i < src_size; ++i) {
+            for (size_t j = 0; j < counts[i]; ++j) {
+                EXPECT_EQ(col_vec_target->get_element(total_idx++), col_vec_src->get_element(i));
+            }
+        }
+    }
+};
+auto assert_column_vector_replace_column_data_callback = [](auto x,
+                                                            const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<size_t> self_data_indices = {0, src_size - 1};
+        std::vector<size_t> other_data_indices = {src_size - 1, 0};
+
+        auto target_column = source_column->clone();
+        auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+        for (size_t i = 0; i < self_data_indices.size(); ++i) {
+            if (self_data_indices[i] >= src_size || other_data_indices[i] >= src_size) {
+                continue;
+            }
+            target_column->replace_column_data(*source_column, other_data_indices[i],
+                                               self_data_indices[i]);
+        }
+        for (size_t i = 0; i < src_size; ++i) {
+            bool is_replaced = false;
+            for (size_t j = 0; j < self_data_indices.size(); ++j) {
+                if (self_data_indices[j] >= src_size || other_data_indices[j] >= src_size) {
+                    continue;
+                }
+                if (i == self_data_indices[j]) {
+                    EXPECT_EQ(col_vec_target->get_element(i),
+                              col_vec_src->get_element(other_data_indices[j]));
+                    is_replaced = true;
+                    break;
+                }
+            }
+            if (!is_replaced) {
+                EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+            }
+        }
+    }
+};
+auto assert_column_vector_replace_column_null_data_callback = [](auto x,
+                                                                 const MutableColumns& load_cols) {
+    using T = decltype(x);
+    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    for (const auto& source_column : load_cols) {
+        auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+        auto src_size = source_column->size();
+        std::vector<UInt8> null_map(src_size, 0);
+        std::vector<size_t> null_val_indices = {0, src_size - 1, src_size / 2};
+        for (auto n : null_val_indices) {
+            null_map[n] = 1;
+        }
+
+        auto target_column = source_column->clone();
+        auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+        target_column->replace_column_null_data(null_map.data());
+        for (size_t i = 0; i < src_size; ++i) {
+            bool is_replaced = false;
+            for (size_t j = 0; j < null_val_indices.size(); ++j) {
+                if (null_map[i] == 1) {
+                    EXPECT_EQ(col_vec_target->get_element(i), T {});
+                    is_replaced = true;
+                    break;
+                }
+            }
+            if (!is_replaced) {
+                EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+            }
+        }
+    }
+};
+auto assert_column_vector_get_max_row_byte_size_callback = [](auto x,
+                                                              const MutableColumns& load_cols) {
+    using T = decltype(x);
+    for (const auto& source_column : load_cols) {
+        EXPECT_EQ(source_column->get_max_row_byte_size(), sizeof(T));
+    }
+};
 } // namespace doris::vectorized
