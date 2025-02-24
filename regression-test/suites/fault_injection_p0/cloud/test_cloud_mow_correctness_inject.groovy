@@ -47,6 +47,17 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
     sql "sync;"
     qt_sql "select * from ${table1} order by k1;"
 
+    def waitForSC = {
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
+            def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1"
+            assert res.size() == 1
+            if (res[0].State == "FINISHED" || res[0].State == "CANCELLED") {
+                return true;
+            }
+            return false;
+        });
+    }
+
     def customFeConfig = [
         delete_bitmap_lock_expiration_seconds : 10,
         calculate_delete_bitmap_task_timeout_seconds : 2,
@@ -101,17 +112,11 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
             Thread.sleep(200)
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.sleep")
 
-            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
-                def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1"
-                assert res.size() == 1
-                if (res[0].State == "FINISHED" || res[0].State == "CANCELLED") {
-                    return true;
-                }
-                return false;
-            });
+            waitForSC()
 
             def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1"
             assert res[0].State == "CANCELLED"
+            assert res[0].Msg.contains("injection error when get get_delete_bitmap_update_lock")
 
             qt_sql "select * from ${table1} order by k1;"
         } catch(Exception e) {
@@ -123,34 +128,25 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
 
 
         try {
+            // sleep enough time to let sc's delete bitmap lock expired
+            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_process_delete_bitmap.inject_sleep", [percent: "1.0", sleep: "20"])
             GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block")
             sql "alter table ${table1} modify column c2 varchar(100);"
             Thread.sleep(3000)
             sql "insert into ${table1} values(11,11,11);"
             qt_sql "select * from ${table1} order by k1;"
             Thread.sleep(1000)
-            GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::calc_segment_delete_bitmap.inject_sleep", [percent: "1.0", sleep: "20"])
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block")
 
-            def t1 = Thread.start {
-                // wait until sc's delete bitmap expired
-                Thread.sleep(10000)
-                sql "insert into ${table1} values(12,12,12);"
-            }
+            // wait until sc's delete bitmap expired
+            Thread.sleep(10000)
+            sql "insert into ${table1} values(12,12,12);"
 
-            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
-                def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1"
-                assert res.size() == 1
-                if (res[0].State == "FINISHED" || res[0].State == "CANCELLED") {
-                    return true;
-                }
-                return false;
-            });
+            waitForSC()
 
             def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1"
             assert res[0].State == "CANCELLED"
-
-            t1.join()
+            assert res[0].Msg.contains("[DELETE_BITMAP_LOCK_ERROR]lock expired when update delete bitmap")
 
             qt_sql "select * from ${table1} order by k1;"
         } catch(Exception e) {
