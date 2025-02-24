@@ -33,7 +33,6 @@ public class HMSProperties extends MetastoreProperties {
 
     private static final String HIVE_METASTORE_URLS_KEY = "hive.metastore.uris";
     @ConnectorProperty(names = {"hive.metastore.uris"},
-            required = false,
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
 
@@ -77,7 +76,6 @@ public class HMSProperties extends MetastoreProperties {
         super.checkRequiredProperties();
         if (!Strings.isNullOrEmpty(hiveConfResourcesConfig)) {
             checkHiveConfResourcesConfig();
-            return;
         }
         if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
             if (Strings.isNullOrEmpty(hiveMetastoreServicePrincipal)
@@ -93,14 +91,7 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     private void checkHiveConfResourcesConfig() {
-        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
-        if (allProps.isEmpty()) {
-            throw new IllegalArgumentException("Hive conf resources config is not empty"
-                    + ", but load config from file is empty.");
-        }
-        if (Strings.isNullOrEmpty(hiveMetastoreUri) && Strings.isNullOrEmpty(allProps.get(HIVE_METASTORE_URLS_KEY))) {
-            throw new IllegalArgumentException("Hive metastore uris(hive.metastore.urls) is required.");
-        }
+       loadConfigFromFile(getResourceConfigPropName());
     }
 
     public void toPaimonOptionsAndConf(Options options) {
@@ -128,10 +119,4 @@ public class HMSProperties extends MetastoreProperties {
         return confMap;
     }
 
-    private String getHiveMetastoreUri(Map<String, String> configs) {
-        if (Strings.isNullOrEmpty(hiveMetastoreUri)) {
-            return configs.get(HIVE_METASTORE_URLS_KEY);
-        }
-        return hiveMetastoreUri;
-    }
 }
