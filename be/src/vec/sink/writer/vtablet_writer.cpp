@@ -128,6 +128,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                     _has_inc_node = true;
                 }
                 LOG(INFO) << "init new node for instance " << _parent->_sender_id
+                          << ", node id:" << replica_node_id
                           << ", incremantal:" << incremental;
             } else {
                 channel = it->second;
@@ -1014,7 +1015,8 @@ void VNodeChannel::mark_close(bool hang_wait) {
         DCHECK(_pending_blocks.back().second->eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_blocks.size();
+                  << " mark closed, left pending batch size: " << _pending_blocks.size()
+                  << " hang_wait: " << hang_wait;
     }
 
     _eos_is_produced = true;

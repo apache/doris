@@ -188,6 +188,10 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     RETURN_IF_ERROR(rowset_builder()->commit_txn());
 
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
+        LOG(INFO) << "DeltaWriter::commit_txn request slave tablet pull rowset."
+                  << " tablet_id " << _req.tablet_id
+                  << " txn_id " << _req.txn_id
+                  << " node_id " << node_info.id();
         _request_slave_tablet_pull_rowset(node_info);
     }
     return Status::OK();
@@ -197,6 +201,10 @@ bool DeltaWriter::check_slave_replicas_done(
         google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>* success_slave_tablet_node_ids) {
     std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
     if (_unfinished_slave_node.empty()) {
+        LOG(INFO) << "DeltaWriter::check_slave_replicas_done,"
+                  << " tablet_id=" << _req.tablet_id
+                  << " txn_id=" << _req.txn_id
+                  << " _success_slave_node_ids" << _success_slave_node_ids.DebugString();
         success_slave_tablet_node_ids->insert({_req.tablet_id, _success_slave_node_ids});
         return true;
     }
@@ -206,6 +214,10 @@ bool DeltaWriter::check_slave_replicas_done(
 void DeltaWriter::add_finished_slave_replicas(
         google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>* success_slave_tablet_node_ids) {
     std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+    LOG(INFO) << "DeltaWriter::add_finished_slave_replicas,"
+              << "tablet_id=" << _req.tablet_id
+              << " txn_id=" << _req.txn_id
+              << " _success_slave_node_ids" << _success_slave_node_ids.DebugString();
     success_slave_tablet_node_ids->insert({_req.tablet_id, _success_slave_node_ids});
 }
 
@@ -246,6 +258,10 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     _engine.txn_manager()->add_txn_tablet_delta_writer(_req.txn_id, _req.tablet_id, this);
     {
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
+        LOG(INFO) << "DeltaWriter::_request_slave_tablet_pull_rowset,"
+                  << " unfinished slave node insert node_id= " << node_info.id()
+                  << " tablet_id=" << _req.tablet_id
+                  << " txn_id=" << _req.txn_id;
         _unfinished_slave_node.insert(node_info.id());
     }
 
@@ -353,9 +369,13 @@ void DeltaWriter::finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succe
     std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
     if (is_succeed) {
         _success_slave_node_ids.add_slave_node_ids(node_id);
-        VLOG_CRITICAL << "record successful slave replica for txn [" << _req.txn_id
-                      << "], tablet_id=" << _req.tablet_id << ", node_id=" << node_id;
+        LOG(INFO) << "record successful slave replica for txn [" << _req.txn_id
+                  << "], tablet_id=" << _req.tablet_id << ", node_id=" << node_id;
     }
+    LOG(INFO) << "DeltaWriter::finish_slave_tablet_pull_rowset, "
+              << "unfinished slave node erase node_id= " << node_id
+              << " tablet_id=" << _req.tablet_id
+              << " txn_id=" << _req.txn_id;;
     _unfinished_slave_node.erase(node_id);
 }
 
