@@ -141,13 +141,13 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         List<List<Object>> backends = sql "show backends"
         int beNum = backends.size();
         test {
-            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab";"""
-            rowNum ${beNum}
+            def result1 = sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab";"""
+            assertEquals(${beNum}, result1.size())
         } 
 
         test {
-            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@OTHERREALM.COM" and KEYTAB = "${keytab_root_dir}/other-hive-presto-master.keytab";"""
-            rowNum ${beNum}
+            def result2 = sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@OTHERREALM.COM" and KEYTAB = "${keytab_root_dir}/other-hive-presto-master.keytab";"""
+            assertEquals(${beNum}, result2.size())
         }
 
         // sql """drop catalog ${hms_catalog_name};"""
