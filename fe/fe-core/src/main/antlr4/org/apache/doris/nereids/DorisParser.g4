@@ -1429,7 +1429,7 @@ partitionValueList
     ;
 
 partitionValueDef
-    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE | NULL
+    : SUBTRACT? INTEGER_VALUE | STRING_LITERAL | MAXVALUE | NULL
     ;
 
 rollupDefs
