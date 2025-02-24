@@ -72,7 +72,7 @@ public:
         std::string file_str;
         if (format == InvertedIndexStorageFormatPB::V1) {
             file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix,
-                                                                       index_meta->index_id(), "");
+                                                                    index_meta->index_id(), "");
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix);
         }
