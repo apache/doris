@@ -7,6 +7,9 @@
 2	33
 2	44
 
+-- !sql_explode_bug_fix --
+\N
+
 -- !sql_explode_bitmap1 --
 1	1
 1	2
