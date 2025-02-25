@@ -802,7 +802,9 @@ public class Config extends ConfigBase {
             "And this specifies the maximal data retention time. After time, the data will be deleted permanently."})
     public static long catalog_trash_expire_second = 86400L; // 1day
 
-    @ConfField
+    @ConfField(description = {
+            "是否忽略最小擦除延迟，用于 catalog trash 功能",
+            "Whether to ignore minimum erase latency for catalog trash feature"})
     public static boolean catalog_trash_ignore_min_erase_latency = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -857,19 +859,16 @@ public class Config extends ConfigBase {
      *   Because once the balance is turned off, the unstable colocate table may not be restored
      *   Eventually the colocate plan cannot be used when querying.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁用 Colocate 表的自动重定位和均衡功能。如果设置为 true，ColocateTableBalancer 将不会重定位和均衡 Colocate 表",
+            "Whether to disable automatic relocation and balancing of Colocate tables. If set to true, "
+                    + "ColocateTableBalancer will not relocate and balance colocate tables"})
     public static boolean disable_colocate_balance = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁用 group 间的均衡",
             "Whether to disable colocate balance between groups"})
     public static boolean disable_colocate_balance_between_groups = false;
-
-    /**
-     * The default user resource publishing timeout.
-     */
-    @Deprecated
-    @ConfField public static int meta_publish_timeout_ms = 1000;
     
     @ConfField(description = {
         "代理认证功能是否启用",
@@ -902,21 +901,29 @@ public class Config extends ConfigBase {
                     + "while holding database read lock."})
     public static int expr_depth_limit = 3000;
 
-    // Configurations for backup and restore
-    /**
-     * Plugins' path for BACKUP and RESTORE operations. Currently deprecated.
-     */
-    @Deprecated
-    @ConfField public static String backup_plugin_path = "/tools/trans_file_tool/trans_files.sh";
-
     // Configurations for hadoop dpp
     /**
      * The following configurations are not available.
      */
-    @ConfField public static String dpp_hadoop_client_path = "/lib/hadoop-client/hadoop/bin/hadoop";
-    @ConfField public static long dpp_bytes_per_reduce = 100 * 1024 * 1024L; // 100M
-    @ConfField public static String dpp_default_cluster = "palo-dpp";
-    @ConfField public static String dpp_default_config_str = ""
+    @ConfField(description = {
+            "Hadoop 客户端的路径，用于 DPP (Distributed Process Platform) 操作。",
+            "The path to the Hadoop client, used for DPP (Distributed Process Platform) operations."})
+    public static String dpp_hadoop_client_path = "/lib/hadoop-client/hadoop/bin/hadoop";
+
+    @ConfField(description = {
+            "每个 reduce 操作处理的字节数，用于 DPP 操作，默认为 100MB。",
+            "The number of bytes processed per reduce operation for DPP tasks, default is 100MB."})
+    public static long dpp_bytes_per_reduce = 100 * 1024 * 1024L; // 100M
+
+    @ConfField(description = {
+            "DPP 的默认集群名称。",
+            "The default cluster name for DPP operations."})
+    public static String dpp_default_cluster = "palo-dpp";
+
+    @ConfField(description = {
+            "DPP 的默认配置字符串，包含 Hadoop 相关配置。",
+            "The default configuration string for DPP, containing Hadoop-related configurations."})
+    public static String dpp_default_config_str = ""
             + "{"
             + "hadoop_configs : '"
             + "mapred.job.priority=NORMAL;"
@@ -928,7 +935,11 @@ public class Config extends ConfigBase {
             + "dfs.client.authserver.force_stop=true;"
             + "dfs.client.auth.method=0"
             + "'}";
-    @ConfField public static String dpp_config_str = ""
+
+    @ConfField(description = {
+            "DPP 的配置字符串，包含特定集群的 Hadoop 相关配置。",
+            "The configuration string for DPP, containing Hadoop-related configurations for specific clusters."})
+    public static String dpp_config_str = ""
             + "{palo-dpp : {"
             + "hadoop_palo_path : '/dir',"
             + "hadoop_configs : '"
@@ -973,7 +984,9 @@ public class Config extends ConfigBase {
     public static String locale = "zh_CN.UTF-8";
 
     // default timeout of backup job
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "备份作业的默认超时时间，单位为毫秒。",
+            "Default timeout for backup jobs, in milliseconds."})
     public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
 
     /**
@@ -982,9 +995,16 @@ public class Config extends ConfigBase {
      * If both limitations are reached, this storage path can not be chose as tablet balance destination.
      * But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 存储路径的最大容量使用百分比。如果超过此限制，该存储路径不能被选为平衡目标。",
+            "Maximum capacity usage percentage of a Backend storage path. If this limit is exceeded, "
+                    + "the storage path cannot be chosen as a tablet balance destination."})
     public static int storage_high_watermark_usage_percent = 85;
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 存储路径的最小剩余容量，单位为字节。如果剩余空间小于此值，该存储路径不能被选为平衡目标。",
+            "Minimum remaining capacity of a Backend storage path, in bytes. If the remaining space is less than this value, "
+                    + "the storage path cannot be chosen as a tablet balance destination."})
     public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024L; // 2G
 
     /**
@@ -993,30 +1013,36 @@ public class Config extends ConfigBase {
      * 1. load job
      * 2. restore job
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 存储路径的洪水位使用百分比。如果磁盘容量达到此值，导入和恢复作业将被拒绝。",
+            "Flood stage usage percentage of a Backend storage path. If disk capacity reaches this value, "
+                    + "load and restore jobs will be rejected."})
     public static int storage_flood_stage_usage_percent = 95;
-    @ConfField(mutable = true, masterOnly = true)
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 存储路径的洪水位最小剩余容量，单位为字节。如果剩余空间小于此值，导入和恢复作业将被拒绝。",
+            "Flood stage minimum remaining capacity of a Backend storage path, in bytes. "
+                    + "If the remaining space is less than this value, "
+                    + "load and restore jobs will be rejected."})
     public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "Tablet 统计信息更新间隔，单位为秒。所有 FE 将在每个间隔从所有 BE 获取 Tablet 统计信息。",
+            "Update interval of tablet statistics, in seconds. "
+                    + "All frontends will get tablet statistics from all backends at each interval."})
     public static int tablet_stat_update_interval_second = 60;  // 1 min
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Broker 扫描器在一个 Broker 导入作业中可以处理的最大字节数。通常，每个 BE 有一个 Broker 扫描器。",
+            "Maximum bytes a broker scanner can process in one broker load job."
+                    + " Commonly, each Backend has one broker scanner."})
     public static long max_bytes_per_broker_scanner = 500 * 1024 * 1024 * 1024L; // 500G
-
-    /**
-     * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
-     * If exceed this number, load job is not allowed to be submitted.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long max_unfinished_load_job = 1000;
 
     /**
      * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
@@ -1028,14 +1054,20 @@ public class Config extends ConfigBase {
      * If you want to allow fallback to nonlocal replicas when no local replicas available,
      * set enable_local_replica_selection_fallback to true.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "是否启用本地副本选择。如果设置为 true，Planner 将尝试选择与当前 Frontend 在同一主机上的副本，这可能减少网络传输",
+            "Whether to enable local replica selection. If set to true, Planner will try to select "
+                    + "replica of tablet on same host as this Frontend, which may reduce network transmission"})
     public static boolean enable_local_replica_selection = false;
 
     /**
      * Used with enable_local_replica_selection.
      * If the local replicas is not available, fallback to the nonlocal replicas.
      * */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "与 enable_local_replica_selection 配合使用。如果本地副本不可用，是否回退到非本地副本",
+            "Used with enable_local_replica_selection. If the local replicas are not available, "
+                    + "whether to fallback to the nonlocal replicas"})
     public static boolean enable_local_replica_selection_fallback = false;
 
     /**
@@ -1043,7 +1075,10 @@ public class Config extends ConfigBase {
      * A query may retry if we encounter RPC exception and no result has been sent to user.
      * You may reduce this number to avoid Avalanche disaster.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "查询重试次数。如果遇到 RPC 异常且尚未向用户发送结果，查询可能会重试",
+            "The number of query retries. A query may retry if we encounter RPC exception "
+                    + "and no result has been sent to user"})
     public static int max_query_retry_time = 3;
 
     /**
@@ -1051,43 +1086,45 @@ public class Config extends ConfigBase {
      * A query may retry if we encounter RPC exception and no result has been sent to user.
      * You may reduce this number to avoid Avalanche disaster.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "执行器中点查询的重试次数。如果遇到 RPC 异常且尚未向用户发送结果，查询可能会重试",
+            "The number of point query retries in executor. A query may retry if we encounter RPC exception "
+                    + "and no result has been sent to user"})
     public static int max_point_query_retry_time = 2;
 
     /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "catalog 锁的 tryLock 超时配置，单位为毫秒。通常不需要更改，除非您需要测试某些内容",
+            "The tryLock timeout configuration of catalog lock, in milliseconds. "
+                    + "Normally it does not need to change, unless you need to test something"})
     public static long catalog_try_lock_timeout_ms = 5000; // 5 sec
 
-    /**
-     * if this is set to true
-     *    all pending load job will failed when call begin txn api
-     *    all prepare load job will failed when call commit txn api
-     *    all committed load job will waiting to be published
-     */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁用导入作业。如果设置为 true，所有待处理的导入作业在调用 begin txn API 时将失败，"
+                    + "所有准备好的导入作业在调用 commit txn API 时将失败，所有已提交的导入作业将等待发布",
+            "Whether to disable load jobs. If set to true, all pending load jobs will fail when calling begin txn API, "
+                    + "all prepared load jobs will fail when calling commit txn API, "
+                    + "and all committed load jobs will wait to be published"})
     public static boolean disable_load_job = false;
 
     /*
      * One master daemon thread will update database used data quota for db txn manager
      * every db_used_data_quota_update_interval_secs
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "主守护线程更新数据库已用数据配额的间隔，单位为秒",
+            "Interval in seconds for master daemon thread to update database used data quota for db txn manager"})
     public static int db_used_data_quota_update_interval_secs = 300;
-
-    /**
-     * Set to true to disable this kind of load.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean disable_hadoop_load = false;
 
     /**
      * fe will call es api to get es index shard info every es_state_sync_interval_secs
      */
-    @ConfField
+    @ConfField(description = {
+            "FE 调用 ES API 获取 ES 索引分片信息的间隔，单位为秒。",
+            "The interval for FE to call ES API to get ES index shard information, in seconds."})
     public static long es_state_sync_interval_second = 10;
 
     /**
@@ -1097,32 +1134,51 @@ public class Config extends ConfigBase {
      * NORMAL: delay tablet_repair_delay_factor_second * 2;
      * LOW: delay tablet_repair_delay_factor_second * 3;
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "决定修复 tablet 前延迟时间的因子。如果优先级为 VERY_HIGH，立即修复；"
+                    + "HIGH：延迟 tablet_repair_delay_factor_second * 1；"
+                    + "NORMAL：延迟 tablet_repair_delay_factor_second * 2；"
+                    + "LOW：延迟 tablet_repair_delay_factor_second * 3",
+            "The factor of delay time before deciding to repair tablet. "
+                    + "If priority is VERY_HIGH, repair it immediately; "
+                    + "HIGH: delay tablet_repair_delay_factor_second * 1; "
+                    + "NORMAL: delay tablet_repair_delay_factor_second * 2; "
+                    + "LOW: delay tablet_repair_delay_factor_second * 3"})
     public static long tablet_repair_delay_factor_second = 60;
 
     /**
      * clone a tablet, further repair timeout.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "克隆 tablet 进一步修复的超时时间，单位为秒",
+            "Timeout in seconds for further repair when cloning a tablet"})
     public static long tablet_further_repair_timeout_second = 20 * 60;
 
     /**
      * clone a tablet, further repair max times.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "克隆 tablet 进一步修复的最大次数",
+            "Maximum number of attempts for further repair when cloning a tablet"})
     public static int tablet_further_repair_max_times = 5;
 
     /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "如果 tablet 最近加载事务失败，它将获得更高的修复优先级。此配置定义最近的时间范围，单位为秒",
+            "If a tablet's load transaction failed recently, it will get higher priority to repair. "
+                    + "This config defines the time range of 'recently' in seconds"})
     public static long tablet_recent_load_failed_second = 30 * 60;
 
     /**
      * base time for higher tablet scheduler task,
      * set this config value bigger if want the high priority effect last longer.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "高优先级 tablet 调度任务的基础时间，单位为秒。如果希望高优先级效果持续更长时间，可以增大此值",
+            "Base time in seconds for higher tablet scheduler tasks. "
+                    + "Set this value larger if you want the high priority effect to last longer"})
     public static long tablet_schedule_high_priority_second = 30 * 60;
 
     /**
@@ -1130,138 +1186,180 @@ public class Config extends ConfigBase {
      * if publish task in be exceed direct_publish_limit_number,
      * fe will direct publish task
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 中发布版本队列的大小限制。如果 BE 中的发布任务超过此数量，FE 将直接发布任务",
+            "Size limit of publish version queue in BE. If publish tasks in BE exceed this number, "
+                    + "FE will directly publish tasks"})
     public static int publish_version_queued_limit_number = 1000;
 
     /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "tablet 调度器中 HDD 路径的默认槽位数",
+            "The default slot number per path for HDD in tablet scheduler"})
     public static int schedule_slot_num_per_hdd_path = 4;
-
 
     /**
      * the default slot number per path for ssd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "tablet 调度器中 SSD 路径的默认槽位数",
+            "The default slot number per path for SSD in tablet scheduler"})
     public static int schedule_slot_num_per_ssd_path = 8;
 
     /**
      * the default batch size in tablet scheduler for a single schedule.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "tablet 调度器中单次调度的默认批处理大小",
+            "The default batch size in tablet scheduler for a single schedule"})
     public static int schedule_batch_size = 50;
 
     /**
      * tablet health check interval. Do not modify it in production environment.
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "Tablet 健康检查间隔，单位为毫秒。生产环境中不要修改此值。",
+            "Tablet health check interval, in milliseconds. Do not modify it in production environment."})
     public static long tablet_checker_interval_ms = 20 * 1000;
 
     /**
      * tablet scheduled interval. Do not modify it in production environment.
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "Tablet 调度间隔，单位为毫秒。生产环境中不要修改此值。",
+            "Tablet scheduling interval, in milliseconds. Do not modify it in production environment."})
     public static long tablet_schedule_interval_ms = 1000;
-
-    /**
-     * Deprecated after 0.10
-     */
-    @Deprecated
-    @ConfField public static boolean use_new_tablet_scheduler = true;
 
     /**
      * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
      * this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load
      * will be marked.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "集群平衡分数的阈值。如果后端的负载分数比平均分数低 10%，则标记为低负载；如果比平均分数高 10%，则标记为高负载",
+            "The threshold of cluster balance score. If a backend's load score is 10% lower than average score, "
+                    + "this backend will be marked as LOW load; if load score is 10% higher than average score, "
+                    + "HIGH load will be marked"})
     public static double balance_load_score_threshold = 0.1; // 10%
 
-    // if disk usage > balance_load_score_threshold + urgent_disk_usage_extra_threshold
-    // then this disk need schedule quickly
-    // this value could less than 0.
-    @ConfField(mutable = true, masterOnly = true)
-    public static double urgent_balance_disk_usage_extra_threshold = 0.05;
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "紧急磁盘使用率额外阈值。如果磁盘使用率 > balance_load_score_threshold + urgent_disk_usage_extra_threshold，"
+                    + "则该磁盘需要快速调度。此值可以小于 0",
+            "Urgent disk usage extra threshold. If disk usage > balance_load_score_threshold + "
+                    + "urgent_disk_usage_extra_threshold, then this disk needs to be scheduled quickly. "
+                    + "This value could be less than 0"})
+    public static double urgent_disk_usage_extra_threshold = 0.05;
 
-    // when run urgent disk balance, shuffle the top large tablets
-    // range: [ 0 ~ 100 ]
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "运行紧急磁盘平衡时，打乱大 tablet 的百分比。范围：[0 ~ 100]",
+            "When running urgent disk balance, the percentage of top large tablets to shuffle. Range: [0 ~ 100]"})
     public static int urgent_balance_shuffle_large_tablet_percentage = 1;
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "紧急平衡选择大 tablet 的数量阈值",
+            "The threshold number of large tablets to pick during urgent balance"})
     public static double urgent_balance_pick_large_tablet_num_threshold = 1000;
 
     // range: 0 ~ 100
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "紧急平衡选择大磁盘使用率的百分比",
+            "The percentage of disk usage to consider when picking large disks during urgent balance"})
     public static int urgent_balance_pick_large_disk_usage_percentage = 80;
 
     // there's a case, all backend has a high disk, by default, it will not run urgent disk balance.
     // if set this value to true, urgent disk balance will always run,
     // the backends will exchange tablets among themselves.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在没有低负载后端的情况下启用紧急平衡",
+            "Whether to enable urgent balance when there are no low-load backends"})
     public static boolean enable_urgent_balance_no_low_backend = true;
 
     /**
      * if set to true, TabletScheduler will not do balance.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁用集群平衡功能",
+            "Whether to disable cluster balancing"})
     public static boolean disable_balance = false;
 
     /**
      * when be rebalancer idle, then disk balance will occurs.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "BE 重平衡器的空闲时间，单位为秒",
+            "Idle time in seconds for BE rebalancer"})
     public static int be_rebalancer_idle_seconds = 0;
 
     /**
      * if set to true, TabletScheduler will not do disk balance.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁用磁盘平衡功能",
+            "Whether to disable disk balancing"})
     public static boolean disable_disk_balance = false;
 
     // balance order
     // ATTN: a temporary config, may delete later.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否先平衡 BE 节点，然后再平衡磁盘",
+            "Whether to balance BE nodes first, then balance disks"})
     public static boolean balance_be_then_disk = true;
 
     /**
      * if set to false, TabletScheduler will not do disk balance for replica num = 1.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否为单副本启用磁盘平衡",
+            "Whether to enable disk balancing for single replica"})
     public static boolean enable_disk_balance_for_single_replica = false;
 
     // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
     // skip checking.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "最大调度 tablet 数量",
+            "Maximum number of tablets that can be scheduled simultaneously"})
     public static int max_scheduling_tablets = 2000;
 
     // if the number of balancing tablets in TabletScheduler exceed max_balancing_tablets,
     // no more balance check
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "最大平衡 tablet 数量",
+            "Maximum number of tablets that can be balanced simultaneously"})
     public static int max_balancing_tablets = 100;
 
     // Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default.
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "tablet 重平衡器的类型",
+            "The type of tablet rebalancer to use"}, options = {"BeLoad", "Partition"})
     public static String tablet_rebalancer_type = "BeLoad";
 
     // Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared.
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "分区重平衡移动在访问后过期的时间，单位为秒",
+            "Time in seconds after which partition rebalance moves expire after access"})
     public static long partition_rebalance_move_expire_after_access = 600; // 600s
 
     // Valid only if use PartitionRebalancer
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "每次选择时分区重平衡的最大移动数量",
+            "Maximum number of moves per selection for partition rebalancing"})
     public static int partition_rebalance_max_moves_num_per_selection = 10;
 
     // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
-    @ConfField(masterOnly = true, mutable = true)
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "每个路径的平衡槽位数量",
+            "Number of balance slots per path"})
     public static int balance_slot_num_per_path = 1;
 
     // when execute admin set replica status = 'drop', the replica will marked as user drop.
     // will try to drop this replica within time not exceeds manual_drop_replica_valid_second
-    @ConfField(masterOnly = true, mutable = true)
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "手动删除副本的有效时间，单位为秒",
+            "Valid time in seconds for manually dropped replicas"})
     public static long manual_drop_replica_valid_second = 24 * 3600L;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
@@ -1275,7 +1373,9 @@ public class Config extends ConfigBase {
     // 2. task report: 0-1 ms
     // 3. tablet report
     //      10000 replicas: 200ms
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "报告队列的大小",
+            "Size of the report queue"})
     public static int report_queue_size = 100;
 
     // if the number of report task in FE exceed max_report_task_num_per_rpc, then split it to multiple rpc
@@ -1289,18 +1389,25 @@ public class Config extends ConfigBase {
     /**
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
-    @ConfField public static boolean enable_metric_calculator = true;
+    @ConfField(description = {
+            "是否启用指标计算器",
+            "Whether to enable the metric calculator"})
+    public static boolean enable_metric_calculator = true;
 
     /**
      * the max routine load job num, including NEED_SCHEDULED, RUNNING, PAUSE
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "最大例行导入作业数量",
+            "Maximum number of routine load jobs"})
     public static int max_routine_load_job_num = 100;
 
     /**
      * the max concurrent routine load task num of a single routine load job
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "单个例行导入作业的最大并发任务数",
+            "Maximum number of concurrent tasks for a single routine load job"})
     public static int max_routine_load_task_concurrent_num = 256;
 
     /**
@@ -1309,43 +1416,62 @@ public class Config extends ConfigBase {
      * than BE config 'max_routine_load_thread_pool_size'(default 1024),
      * which is the routine load task thread pool max size on BE.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "每个 BE 节点上的最大例行导入任务数。此值应小于 BE 配置中的 'max_routine_load_thread_pool_size'（默认为1024）",
+            "Maximum number of routine load tasks per BE node. This value should be less than "
+                    + "'max_routine_load_thread_pool_size' (default 1024) in BE configuration"})
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
      * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "例行导入任务超时时间的倍数。任务超时时间 = maxBatchIntervalS * routine_load_task_timeout_multiplier",
+            "Multiplier for routine load task timeout. "
+                    + "Task timeout = maxBatchIntervalS * routine_load_task_timeout_multiplier"})
     public static int routine_load_task_timeout_multiplier = 10;
 
     /**
      * routine load task min timeout second.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "例行导入任务的最小超时时间，单位为秒",
+            "Minimum timeout for routine load tasks, in seconds"})
     public static int routine_load_task_min_timeout_sec = 60;
 
     /**
      * the max timeout of get kafka meta.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "获取 Kafka 元数据的最大超时时间，单位为秒",
+            "Maximum timeout for getting Kafka metadata, in seconds"})
     public static int max_get_kafka_meta_timeout_second = 60;
 
     /**
      * The max number of files store in SmallFileMgr
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "SmallFileMgr 中存储的最大文件数量。",
+            "The maximum number of files stored in SmallFileMgr."
+    })
     public static int max_small_file_number = 100;
 
     /**
      * The max size of a single file store in SmallFileMgr
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "SmallFileMgr 中单个文件的最大大小，单位为字节。",
+            "The maximum size of a single file stored in SmallFileMgr, in bytes."
+    })
     public static int max_small_file_size_bytes = 1024 * 1024; // 1MB
 
     /**
      * Save small files
      */
-    @ConfField
+    @ConfField(description = {
+            "用于存储小文件的目录路径。",
+            "The directory path used to store small files."
+    })
     public static String small_file_dir =  EnvUtils.getDorisHome() + "/small_files";
 
     /**
@@ -1375,7 +1501,10 @@ public class Config extends ConfigBase {
     /**
      * If some joural is wrong, and FE can't start, we can use this to skip it.
      */
-    @ConfField(mutable = false)
+    @ConfField(description = {
+            "在 FE 启动时跳过的日志 ID 列表。",
+            "The list of journal IDs to skip during FE startup."
+    })
     public static String[] force_skip_journal_ids = {};
 
     /**
@@ -1451,7 +1580,10 @@ public class Config extends ConfigBase {
     /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
-    @ConfField
+    @ConfField(description = {
+            "Thrift 服务器的类型，默认为 TThreadPoolServer。",
+            "The type of Thrift server, default is TThreadPoolServer."
+    })
     public static String thrift_server_type = "THREAD_POOL";
 
     /**
@@ -1693,7 +1825,7 @@ public class Config extends ConfigBase {
      *
      * WARNING: Once this option is enabled and a restore is performed, the FE version cannot be rolled back.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static boolean restore_job_compressed_serialization = false;
 
     /**
@@ -1701,7 +1833,7 @@ public class Config extends ConfigBase {
      *
      * WARNING: Once this option is enabled and a backup is performed, the FE version cannot be rolled back.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static boolean backup_job_compressed_serialization = false;
 
     /**
@@ -1710,7 +1842,7 @@ public class Config extends ConfigBase {
      * The ccr syncer will depends this config to decide whether to compress the meta and job
      * info of the restore snapshot request.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static boolean enable_restore_snapshot_rpc_compression = true;
 
     /**
@@ -1749,7 +1881,7 @@ public class Config extends ConfigBase {
     /**
      * A internal config, to control the update interval of backup handler. Only used to speed up tests.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static long backup_handler_update_interval_millis = 3000;
 
     /**
@@ -1765,10 +1897,6 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static int partition_info_update_interval_secs = 60;
 
-    @Deprecated
-    @ConfField(masterOnly = true)
-    public static boolean enable_concurrent_update = false;
-
     /**
      * This configuration can only be configured during cluster initialization and cannot be modified during cluster
      * restart and upgrade after initialization is complete.
@@ -1783,14 +1911,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
-    /*
-     * The job scheduling interval of the schema change handler.
-     * The user should not set this parameter.
-     * This parameter is currently only used in the regression test environment to appropriately
-     * reduce the running speed of the schema change job to test the correctness of the system
-     * in the case of multiple tasks in parallel.
-     */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "模式变更处理程序的作业调度间隔，单位为毫秒。用户不应设置此参数。此参数当前仅用于回归测试环境。",
+            "The job scheduling interval of the schema change handler, in milliseconds. "
+                    + "Users should not set this parameter. "
+                    + "This parameter is currently only used in regression testing."})
     public static int default_schema_change_scheduler_interval_millisecond = 500;
 
     /*
@@ -1865,33 +1990,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long min_bytes_indicate_replica_too_large = 2 * 1024 * 1024 * 1024L;
-
-    // statistics
-    /*
-     * the max unfinished statistics job number
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_max_statistics_job_num = 20;
-    /*
-     * the max timeout of a statistics task
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_cbo_statistics_task_timeout_sec = 300;
-    /*
-     * the concurrency of statistics task
-     */
-    @Deprecated
-    @ConfField(masterOnly = true)
-    public static int cbo_concurrency_statistics_task_num = 10;
-    /*
-     * default sample percentage
-     * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_default_sample_percentage = 10;
 
     /*
      * the system automatically checks the time interval for statistics
@@ -1978,24 +2076,21 @@ public class Config extends ConfigBase {
      * The number of async tasks that can be queued. @See TaskDisruptor
      * if consumer is slow, the queue will be full, and the producer will be blocked.
      */
-    @ConfField
+    @ConfField(description = {
+            "异步任务队列的最大大小。",
+            "The maximum size of the async task queue."
+    })
     public static int async_task_queen_size = 1024;
 
     /**
      * The number of threads used to consume async tasks. @See TaskDisruptor
      * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
      */
-    @ConfField
+    @ConfField(description = {
+            "用于处理异步任务的线程数。",
+            "The number of threads used to consume async tasks."
+    })
     public static int async_task_consumer_thread_num = 64;
-
-    /**
-     * When job is finished, it will be saved in job manager for a while.
-     * This configuration is used to control the max saved time.
-     * Default is 3 days.
-     */
-    @Deprecated
-    @ConfField
-    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
@@ -2036,7 +2131,9 @@ public class Config extends ConfigBase {
             "The time interval for FE to obtain BE memory usage at regular intervals in the memory backpressure scenario"})
     public static long get_be_resource_usage_interval_ms = 10000;
 
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "BE RPC 调用的超时时间，单位为毫秒。",
+            "Timeout for Backend RPC calls, in milliseconds."})
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
     /**
@@ -2066,13 +2163,6 @@ public class Config extends ConfigBase {
     public static boolean enable_decimal_conversion = true;
 
     /**
-     * Support complex data type ARRAY.
-     */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_array_type = false;
-
-    /**
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
@@ -2083,13 +2173,13 @@ public class Config extends ConfigBase {
     /**
      * Max data version of backends serialize block.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static int max_be_exec_version = 8;
 
     /**
      * Min data version of backends serialize block.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static int min_be_exec_version = 0;
 
     /**
@@ -2103,30 +2193,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_mtmv = false;
-
-    /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_running_mtmv_scheduler_task_num = 100;
-
-    /* Max pending task num keep in pending poll, otherwise it reject the task submit*/
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_pending_mtmv_scheduler_task_num = 100;
-
-    /* Remove the completed mtmv job after this expired time. */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
-
-    /* Remove the finished mtmv task after this expired time. */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
-
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
     /**
      * If set to true, query on external table will prefer to assign to compute node.
@@ -2212,7 +2278,7 @@ public class Config extends ConfigBase {
      * Heartbeat interval in seconds.
      * Default is 10, which means every 10 seconds, the master will send a heartbeat to all backends.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static int heartbeat_interval_second = 10;
 
     /**
@@ -2237,7 +2303,9 @@ public class Config extends ConfigBase {
     /**
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
-    @ConfField
+    @ConfField(description = {
+            "统计信息收集 SQL 可以同时运行的数量。",
+            "The number of statistics collection SQL that can run simultaneously."})
     public static int statistics_simultaneously_running_task_num = 3;
 
     /**
@@ -2295,28 +2363,40 @@ public class Config extends ConfigBase {
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
      */
-    @ConfField(mutable = false)
+    @ConfField(description = {
+            "加载外部元数据缓存的线程池的最大大小。",
+            "The maximum size of the thread pool for loading external metadata cache."
+    })
     public static int max_external_cache_loader_thread_pool_size = 64;
 
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
      */
-    @ConfField(mutable = false)
+    @ConfField(description = {
+            "外部目录中文件缓存的最大数量。",
+            "The maximum number of file caches in external catalog."
+    })
     public static long max_external_file_cache_num = 10000;
 
     /**
      * Max cache num of external table's schema
      * Decrease this value if FE's memory is small
      */
-    @ConfField(mutable = false)
+    @ConfField(description = {
+            "外部表模式缓存的最大数量。",
+            "The maximum number of schema caches for external tables."
+    })
     public static long max_external_schema_cache_num = 10000;
 
     /**
      * The expiration time of a cache object after last access of it.
      * For external schema cache and hive meta cache.
      */
-    @ConfField(mutable = false)
+    @ConfField(description = {
+            "外部缓存对象在最后一次访问后的过期时间，单位为分钟。",
+            "The expiration time of an external cache object after the last access, in minutes."
+    })
     public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
 
     /**
@@ -2324,19 +2404,28 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, options = {"p0", "daily", "rqg"})
+    @ConfField(mutable = true, options = {"p0", "daily", "rqg"}, description = {
+            "用于设置某些测试类型的会话变量。",
+            "Used to set session variables for certain test types."
+    })
     public static String fuzzy_test_type = "";
 
     /**
      * Set session variables randomly to check more issues in github workflow
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "是否随机设置会话变量以检查更多问题。",
+            "Whether to set session variables randomly to check more issues."
+    })
     public static boolean use_fuzzy_session_variable = false;
 
     /**
      * Set config variables randomly to check more issues in github workflow
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "是否随机设置配置变量以检查更多问题。",
+            "Whether to set config variables randomly to check more issues."
+    })
     public static boolean use_fuzzy_conf = false;
 
     /**
@@ -2351,7 +2440,10 @@ public class Config extends ConfigBase {
     /**
      * NOTE: The storage policy is still under developement.
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "是否启用存储策略功能。",
+            "Whether to enable the storage policy feature."
+    })
     public static boolean enable_storage_policy = true;
 
     /**
@@ -2359,20 +2451,29 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(varType = VariableAnnotation.EXPERIMENTAL)
+    @ConfField(varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "在 k8s 集群环境中启用 FQDN 模式。",
+            "Enable FQDN mode in k8s cluster environment."
+    })
     public static boolean enable_fqdn_mode = false;
 
     /**
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "是否允许解析和执行 Hive 视图的查询。",
+            "Whether to allow parsing and executing queries on Hive views."
+    })
     public static boolean enable_query_hive_views = true;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
      */
-    @ConfField(masterOnly = true)
+    @ConfField(masterOnly = true, description = {
+            "是否启用 HMS 元数据的增量同步。",
+            "Whether to enable incremental synchronization of HMS metadata."
+    })
     public static boolean enable_hms_events_incremental_sync = false;
 
     /**
@@ -2436,39 +2537,39 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, ssl connection needs to authenticate client's certificate.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static boolean ssl_force_client_auth = false;
 
     /**
      * ssl connection needs to authenticate client's certificate store type.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static String ssl_trust_store_type = "PKCS12";
 
     /**
      * Default CA certificate file location for mysql ssl connection.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static String mysql_ssl_default_ca_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/ca_certificate.p12";
 
     /**
      * Default server certificate file location for mysql ssl connection.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static String mysql_ssl_default_server_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/server_certificate.p12";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static String mysql_ssl_default_ca_certificate_password = "doris";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false)
+    @ConfField
     public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
@@ -2702,11 +2803,7 @@ public class Config extends ConfigBase {
             "Maximum number of concurrent automatic statistics collection tasks"})
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
-    @Deprecated
     @ConfField
-    public static final int period_analyze_simultaneously_running_task_num = 1;
-
-    @ConfField(mutable = false)
     public static boolean allow_analyze_statistics_info_polluting_file_cache = true;
 
     @ConfField(description = {
@@ -2869,7 +2966,9 @@ public class Config extends ConfigBase {
     })
     public static int sync_image_timeout_second = 300;
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "发布主题信息的间隔，单位为毫秒。",
+            "The interval for publishing topic information, in milliseconds."})
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
     @ConfField(mutable = true, masterOnly = true, description = {
