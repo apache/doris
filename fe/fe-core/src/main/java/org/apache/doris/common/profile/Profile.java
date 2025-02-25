@@ -86,7 +86,7 @@ public class Profile {
     private SummaryProfile summaryProfile = new SummaryProfile();
     // executionProfiles will be stored to storage as text, when getting profile content, we will read
     // from storage directly.
-    private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
+    List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
@@ -94,7 +94,7 @@ public class Profile {
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
-    private boolean isQueryFinished = false;
+    boolean isQueryFinished = false;
     // when coordinator finishes, it will mark finish time.
     // we will wait for about 5 seconds to see if all profiles have been reported.
     // if not, we will store the profile to storage, and release the memory,
