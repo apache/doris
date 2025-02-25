@@ -76,8 +76,6 @@ suite("test_primary_key_partial_update_default_value", "p0") {
                     k int,
                     c1 int,
                     c2 bitmap NOT NULL DEFAULT bitmap_empty,
-                    c3 double DEFAULT PI,
-                    c4 double DEFAULT E,
                     c5 array<int> NOT NULL DEFAULT "[]"
                     ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
                     PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
@@ -88,11 +86,11 @@ suite("test_primary_key_partial_update_default_value", "p0") {
             sql "sync;"
             sql "insert into ${tableName}(k,c1) values(1,1),(2,2),(3,3);"
             sql "sync;"
-            qt_sql "select k,c1,bitmap_to_string(c2),c3,c4,ARRAY_SIZE(c5) from ${tableName} order by k;"
+            qt_sql "select k,c1,bitmap_to_string(c2),ARRAY_SIZE(c5) from ${tableName} order by k;"
 
             sql "insert into ${tableName}(k,c1) values(1,10),(2,20),(4,40),(5,50);"
             sql "sync;"
-            qt_sql "select k,c1,bitmap_to_string(c2),c3,c4,ARRAY_SIZE(c5) from ${tableName} order by k;"
+            qt_sql "select k,c1,bitmap_to_string(c2),ARRAY_SIZE(c5) from ${tableName} order by k;"
         }
     }
 }

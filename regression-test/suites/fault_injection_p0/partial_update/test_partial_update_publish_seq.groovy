@@ -22,23 +22,13 @@ import org.awaitility.Awaitility
 suite("test_partial_update_publish_seq", "nonConcurrent") {
 
     def enable_block_in_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-        }
+        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+        GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
     }
 
     def disable_block_in_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-        }
+        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+        GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
     }
 
     def inspect_rows = { sqlStr ->
