@@ -76,14 +76,18 @@ bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn&
     static std::set<FieldType> invalid_types = {
             FieldType::OLAP_FIELD_TYPE_DOUBLE,
             FieldType::OLAP_FIELD_TYPE_JSONB,
-            FieldType::OLAP_FIELD_TYPE_ARRAY,
             FieldType::OLAP_FIELD_TYPE_FLOAT,
     };
-    if (column.is_extracted_column() && (invalid_types.contains(column.type()))) {
+    if (invalid_types.contains(column.type())) {
         return false;
     }
     if (column.is_variant_type()) {
         return false;
+    }
+    if (column.is_array_type()) {
+        // only support one level array
+        const auto& subcolumn = column.get_sub_column(0);
+        return !subcolumn.is_array_type() && check_support_inverted_index(subcolumn);
     }
     return true;
 }
