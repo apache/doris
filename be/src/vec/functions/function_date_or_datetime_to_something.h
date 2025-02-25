@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
@@ -88,6 +89,10 @@ public:
         }
 
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<ToDataType>();
     }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }

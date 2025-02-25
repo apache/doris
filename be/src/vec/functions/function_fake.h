@@ -38,6 +38,7 @@ class Block;
 namespace doris::vectorized {
 
 struct UDTFImpl {
+    static bool has_return_type_in_signature() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeUInt8>(); //just fake return uint8
     }
@@ -51,6 +52,10 @@ struct UDTFImpl {
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
+    bool has_return_type_in_signature() const override {
+        return Impl::has_return_type_in_signature();
+    }
+
     static constexpr auto name = "fake";
 
     static FunctionPtr create() { return std::make_shared<FunctionFake>(); }
@@ -70,10 +75,7 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override {
-        if constexpr (std::is_same_v<Impl, UDTFImpl>) {
-            return false;
-        }
-        return true;
+        return !static_cast<bool>(std::is_same_v<Impl, UDTFImpl>);
     }
 
     bool use_default_implementation_for_constants() const override { return false; }
