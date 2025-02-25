@@ -19,9 +19,9 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -106,6 +106,7 @@ public class StatementContext implements Closeable {
     private ConnectContext connectContext;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+    private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -173,7 +174,14 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
-    // tables maybe used by mtmv rewritten in this query
+    // tables maybe used by mtmv rewritten in this query,
+    // this contains mvs which use table in tables and the tables in mvs
+    // such as
+    // mv1 use t1, t2.
+    // mv2 use mv1, t3, t4.
+    // mv3 use t3, t4, t5
+    // if query is: select * from t2 join t5
+    // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
@@ -189,7 +197,10 @@ public class StatementContext implements Closeable {
             = new TreeMap<>(new Pair.PairComparator<>());
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    private final Map<List<String>, TableId> tableIdMapping = new LinkedHashMap<>();
+    // Record all mv's tableId in the query, this is used for struct info bitset prune
+    private final BitSet mvIdBitSet = new BitSet();
+
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
@@ -212,6 +223,10 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    // the duration which materialized view rewrite used, if -1 means this duration is exceeded
+    // if greater than 0 means the duration has used
+    private long materializedViewRewriteDuration = 0L;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -341,6 +356,22 @@ public class StatementContext implements Closeable {
 
     public Stopwatch getStopwatch() {
         return stopwatch;
+    }
+
+    public Stopwatch getMaterializedViewStopwatch() {
+        return materializedViewStopwatch;
+    }
+
+    public long getMaterializedViewRewriteDuration() {
+        return materializedViewRewriteDuration;
+    }
+
+    public void addMaterializedViewRewriteDuration(long millisecond) {
+        materializedViewRewriteDuration = materializedViewRewriteDuration + millisecond;
+    }
+
+    public void materializedViewRewriteDurationExceeded() {
+        materializedViewRewriteDuration = -1;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
@@ -739,14 +770,19 @@ public class StatementContext implements Closeable {
 
     /** Get table id with lazy */
     public TableId getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        TableId tableId = this.tableIdMapping.get(tableIdentifier);
-        if (tableId != null) {
-            return tableId;
+        TableId tableId = this.tableIdMapping.get(tableIf.getFullQualifiers());
+        if (tableId == null) {
+            tableId = StatementScopeIdGenerator.newTableId();
+            this.tableIdMapping.put(tableIf.getFullQualifiers(), tableId);
         }
-        tableId = StatementScopeIdGenerator.newTableId();
-        this.tableIdMapping.put(tableIdentifier, tableId);
+        if (tableIf instanceof MTMV) {
+            this.mvIdBitSet.set(tableId.asInt());
+        }
         return tableId;
+    }
+
+    public BitSet getMvIdBitSet() {
+        return mvIdBitSet;
     }
 
     public Optional<String> getDisableJoinReorderReason() {

@@ -410,6 +410,21 @@ public abstract class MaterializationContext {
         return builder.toString();
     }
 
+    /**
+     * If materialized view rewrite duration is exceeded, make all materializationContexts with reason
+     * materialized view rewrite duration is exceeded
+     * */
+    public static void makeFailWithDurationExceeded(StructInfo queryInfo,
+            List<MaterializationContext> materializationContexts) {
+        for (MaterializationContext context : materializationContexts) {
+            if (context.isSuccess()) {
+                continue;
+            }
+            context.recordFailReason(queryInfo, "materialized view rewrite duration is exceeded",
+                    () -> "materialized view rewrite duration is exceeded");
+        }
+    }
+
     private static String generateIdentifierName(List<String> qualifiers) {
         return String.join(".", qualifiers);
     }
