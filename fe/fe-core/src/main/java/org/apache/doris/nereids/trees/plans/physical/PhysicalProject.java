@@ -105,7 +105,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
         builder.append(getClass().getSimpleName());
-        builder.append(projects.stream().map(Expression::shapeInfo)
+        // the internal project list's order may be unstable, especial for join tables,
+        // so sort the projects to make it stable
+        builder.append(projects.stream().map(Expression::shapeInfo).sorted()
                 .collect(Collectors.joining(", ", "[", "]")));
         return builder.toString();
     }
