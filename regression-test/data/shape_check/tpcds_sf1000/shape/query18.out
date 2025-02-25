@@ -4,39 +4,39 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[item.i_item_id, customer_address.ca_country, customer_address.ca_state, customer_address.ca_county, agg1, agg2, agg3, agg4, agg5, agg6, agg7]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
-------------------PhysicalProject
+------------------PhysicalProject[cast(cast(cs_quantity as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(cs_quantity as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, cast(cast(cs_list_price as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(cs_list_price as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, cast(cast(cs_coupon_amt as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(cs_coupon_amt as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, cast(cast(cs_sales_price as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(cs_sales_price as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, cast(cast(cs_net_profit as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(cs_net_profit as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, cast(cast(c_birth_year as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(c_birth_year as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, cast(cast(cd_dep_count as DECIMALV3(12, 2)) as DECIMALV3(14, 4)) AS `cast(cast(cd_dep_count as DECIMALV3(12, 2)) as DECIMALV3(14, 4))`, item.i_item_id, customer_address.ca_country, customer_address.ca_state, customer_address.ca_county]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF5 i_item_sk->[cs_item_sk]
-----------------------PhysicalProject
+----------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt, catalog_sales.cs_net_profit, cd1.cd_dep_count, customer.c_birth_year, customer_address.ca_county, customer_address.ca_state, customer_address.ca_country]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[cs_sold_date_sk]
---------------------------PhysicalProject
+--------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt, catalog_sales.cs_net_profit, cd1.cd_dep_count, customer.c_birth_year, customer_address.ca_county, customer_address.ca_state, customer_address.ca_country]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk]
-------------------------------PhysicalProject
+------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_bill_customer_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt, catalog_sales.cs_net_profit, cd1.cd_dep_count]
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
-----------------------------------PhysicalProject
+----------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_bill_customer_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt, catalog_sales.cs_net_profit]
 ------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3 RF4 RF5
-----------------------------------PhysicalProject
+----------------------------------PhysicalProject[cd1.cd_demo_sk, cd1.cd_dep_count]
 ------------------------------------filter((cd1.cd_education_status = 'Primary') and (cd1.cd_gender = 'F'))
 --------------------------------------PhysicalOlapScan[customer_demographics]
-------------------------------PhysicalProject
+------------------------------PhysicalProject[customer.c_customer_sk, customer.c_birth_year, customer_address.ca_county, customer_address.ca_state, customer_address.ca_country]
 --------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF1 c_current_cdemo_sk->[cd_demo_sk]
-----------------------------------PhysicalProject
+----------------------------------PhysicalProject[cd2.cd_demo_sk]
 ------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF1
-----------------------------------PhysicalProject
+----------------------------------PhysicalProject[customer.c_customer_sk, customer.c_current_cdemo_sk, customer.c_birth_year, customer_address.ca_county, customer_address.ca_state, customer_address.ca_country]
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
---------------------------------------PhysicalProject
+--------------------------------------PhysicalProject[customer.c_customer_sk, customer.c_current_cdemo_sk, customer.c_current_addr_sk, customer.c_birth_year]
 ----------------------------------------filter(c_birth_month IN (1, 10, 11, 3, 4, 7))
 ------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
---------------------------------------PhysicalProject
+--------------------------------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_county, customer_address.ca_state, customer_address.ca_country]
 ----------------------------------------filter(ca_state IN ('AL', 'CA', 'GA', 'IN', 'MO', 'MT', 'TN'))
 ------------------------------------------PhysicalOlapScan[customer_address]
---------------------------PhysicalProject
+--------------------------PhysicalProject[date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_year = 2001))
 ------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalProject
+----------------------PhysicalProject[item.i_item_sk, item.i_item_id]
 ------------------------PhysicalOlapScan[item]
 

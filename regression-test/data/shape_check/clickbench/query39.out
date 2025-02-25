@@ -7,7 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[hits.URL]
 ----------------filter(( not (IsLink = 0)) and (hits.CounterID = 62) and (hits.EventDate <= '2013-07-31') and (hits.EventDate >= '2013-07-01') and (hits.IsDownload = 0) and (hits.IsRefresh = 0))
 ------------------PhysicalOlapScan[hits]
 

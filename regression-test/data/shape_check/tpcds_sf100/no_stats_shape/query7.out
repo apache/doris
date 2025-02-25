@@ -7,25 +7,25 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[item.i_item_id, store_sales.ss_quantity, cast(ss_sales_price as DECIMALV3(9, 4)) AS `cast(ss_sales_price as DECIMALV3(9, 4))`, cast(ss_list_price as DECIMALV3(9, 4)) AS `cast(ss_list_price as DECIMALV3(9, 4))`, cast(ss_coupon_amt as DECIMALV3(9, 4)) AS `cast(ss_coupon_amt as DECIMALV3(9, 4))`]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF3 p_promo_sk->[ss_promo_sk]
-------------------PhysicalProject
+------------------PhysicalProject[store_sales.ss_promo_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt, item.i_item_id]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
-----------------------PhysicalProject
+----------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_promo_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt, item.i_item_id]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[ss_item_sk]
---------------------------PhysicalProject
+--------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_promo_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[ss_cdemo_sk]
-------------------------------PhysicalProject
+------------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_cdemo_sk, store_sales.ss_promo_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt]
 --------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
-------------------------------PhysicalProject
+------------------------------PhysicalProject[customer_demographics.cd_demo_sk]
 --------------------------------filter((customer_demographics.cd_education_status = 'College') and (customer_demographics.cd_gender = 'F') and (customer_demographics.cd_marital_status = 'W'))
 ----------------------------------PhysicalOlapScan[customer_demographics]
---------------------------PhysicalProject
+--------------------------PhysicalProject[item.i_item_sk, item.i_item_id]
 ----------------------------PhysicalOlapScan[item]
-----------------------PhysicalProject
+----------------------PhysicalProject[date_dim.d_date_sk]
 ------------------------filter((date_dim.d_year = 2001))
 --------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalProject
+------------------PhysicalProject[promotion.p_promo_sk]
 --------------------filter(OR[(promotion.p_channel_email = 'N'),(promotion.p_channel_event = 'N')])
 ----------------------PhysicalOlapScan[promotion]
 

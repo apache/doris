@@ -7,48 +7,48 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[item.i_item_desc, warehouse.w_warehouse_name, d1.d_week_seq, if(p_promo_sk IS NULL, 1, 0) AS `if(p_promo_sk IS NULL, 1, 0)`, if(( not p_promo_sk IS NULL), 1, 0) AS `if(( not p_promo_sk IS NULL), 1, 0)`]
 ----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number)) otherCondition=()
-------------------PhysicalProject
+------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, warehouse.w_warehouse_name, item.i_item_desc, d1.d_week_seq, promotion.p_promo_sk]
 --------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
-----------------------PhysicalProject
+----------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_promo_sk, warehouse.w_warehouse_name, item.i_item_desc, d1.d_week_seq]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=()
---------------------------PhysicalProject
+--------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_promo_sk, inventory.inv_warehouse_sk, item.i_item_desc, d1.d_week_seq]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF6 d_date_sk->[inv_date_sk];RF7 cs_item_sk->[inv_item_sk]
 ------------------------------PhysicalOlapScan[inventory] apply RFs: RF6 RF7
-------------------------------PhysicalProject
+------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, item.i_item_desc, d1.d_week_seq, d2.d_date_sk]
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=()
-----------------------------------PhysicalProject
+----------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, item.i_item_desc, d1.d_week_seq]
 ------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
---------------------------------------PhysicalProject
+--------------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, d1.d_week_seq]
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, INTERVAL 5 DAY)))
-------------------------------------------PhysicalProject
+------------------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_ship_date_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, d1.d_date, d1.d_week_seq]
 --------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
-----------------------------------------------PhysicalProject
+----------------------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, d1.d_date, d1.d_week_seq]
 ------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
---------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity]
 ----------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF0 hd_demo_sk->[cs_bill_hdemo_sk]
-------------------------------------------------------PhysicalProject
+------------------------------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_bill_hdemo_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity]
 --------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
-------------------------------------------------------PhysicalProject
+------------------------------------------------------PhysicalProject[household_demographics.hd_demo_sk]
 --------------------------------------------------------filter((household_demographics.hd_buy_potential = '501-1000'))
 ----------------------------------------------------------PhysicalOlapScan[household_demographics]
---------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalProject[d1.d_date_sk, d1.d_date, d1.d_week_seq]
 ----------------------------------------------------filter((d1.d_year = 2002))
 ------------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------------------PhysicalProject
+----------------------------------------------PhysicalProject[customer_demographics.cd_demo_sk]
 ------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
 --------------------------------------------------PhysicalOlapScan[customer_demographics]
-------------------------------------------PhysicalProject
+------------------------------------------PhysicalProject[d3.d_date_sk, d3.d_date]
 --------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------------PhysicalProject
+--------------------------------------PhysicalProject[item.i_item_sk, item.i_item_desc]
 ----------------------------------------PhysicalOlapScan[item]
-----------------------------------PhysicalProject
+----------------------------------PhysicalProject[d2.d_date_sk, d2.d_week_seq]
 ------------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalProject
+--------------------------PhysicalProject[warehouse.w_warehouse_sk, warehouse.w_warehouse_name]
 ----------------------------PhysicalOlapScan[warehouse]
-----------------------PhysicalProject
+----------------------PhysicalProject[promotion.p_promo_sk]
 ------------------------PhysicalOlapScan[promotion]
-------------------PhysicalProject
+------------------PhysicalProject[catalog_returns.cr_item_sk, catalog_returns.cr_order_number]
 --------------------PhysicalOlapScan[catalog_returns]
 

@@ -7,7 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[date_format(EventTime, '%Y-%m-%d %H:%i:00') AS `M`]
 ----------------filter((hits.CounterID = 62) and (hits.DontCountHits = 0) and (hits.EventDate <= '2013-07-15') and (hits.EventDate >= '2013-07-14') and (hits.IsRefresh = 0))
 ------------------PhysicalOlapScan[hits]
 

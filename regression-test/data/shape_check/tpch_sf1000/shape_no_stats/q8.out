@@ -4,41 +4,41 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[all_nations.o_year, (cast(sum(CASE WHEN (nation = 'BRAZIL') THEN volume ELSE cast(0 as DECIMALV3(31, 4)) END) as DECIMALV3(38, 12)) / sum(volume)) AS `mkt_share`]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[year(o_orderdate) AS `o_year`, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `volume`, n_name AS `nation`, if((n_name = 'BRAZIL'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000) AS `if((n_name = 'BRAZIL'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000)`]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF6 r_regionkey->[n_regionkey]
---------------------PhysicalProject
+--------------------PhysicalProject[lineitem.l_extendedprice, lineitem.l_discount, orders.o_orderdate, n1.n_regionkey, n2.n_name]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = n2.n_nationkey)) otherCondition=() build RFs:RF5 n_nationkey->[s_nationkey]
-------------------------PhysicalProject
+------------------------PhysicalProject[lineitem.l_extendedprice, lineitem.l_discount, supplier.s_nationkey, orders.o_orderdate, n1.n_regionkey]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->[c_nationkey]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[lineitem.l_extendedprice, lineitem.l_discount, supplier.s_nationkey, orders.o_orderdate, customer.c_nationkey]
 ------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF3 c_custkey->[o_custkey]
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[lineitem.l_extendedprice, lineitem.l_discount, supplier.s_nationkey, orders.o_orderdate, orders.o_custkey]
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount, orders.o_orderdate, orders.o_custkey]
 --------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[lineitem.l_partkey, lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount, orders.o_orderdate, orders.o_custkey]
 ------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
---------------------------------------------PhysicalProject
+--------------------------------------------PhysicalProject[lineitem.l_orderkey, lineitem.l_partkey, lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount]
 ----------------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0 RF1 RF2
---------------------------------------------PhysicalProject
+--------------------------------------------PhysicalProject[orders.o_orderkey, orders.o_orderdate, orders.o_custkey]
 ----------------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
 ------------------------------------------------PhysicalOlapScan[orders] apply RFs: RF3
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[part.p_partkey]
 ------------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
 --------------------------------------------PhysicalOlapScan[part]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
 --------------------------------------PhysicalOlapScan[supplier] apply RFs: RF5
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[customer.c_custkey, customer.c_nationkey]
 ----------------------------------PhysicalOlapScan[customer] apply RFs: RF4
-----------------------------PhysicalProject
+----------------------------PhysicalProject[n1.n_nationkey, n1.n_regionkey]
 ------------------------------PhysicalOlapScan[nation] apply RFs: RF6
-------------------------PhysicalProject
+------------------------PhysicalProject[n2.n_nationkey, n2.n_name]
 --------------------------PhysicalOlapScan[nation]
---------------------PhysicalProject
+--------------------PhysicalProject[region.r_regionkey]
 ----------------------filter((region.r_name = 'AMERICA'))
 ------------------------PhysicalOlapScan[region]
 

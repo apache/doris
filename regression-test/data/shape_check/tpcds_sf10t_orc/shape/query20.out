@@ -4,23 +4,23 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[item.i_item_id, item.i_item_desc, item.i_category, item.i_class, item.i_current_price, itemrevenue, (cast((itemrevenue * 100) as DECIMALV3(38, 8)) / sum(itemrevenue) OVER(PARTITION BY i_class)) AS `revenueratio`]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject
+----------------------PhysicalProject[item.i_item_id, item.i_item_desc, item.i_category, item.i_class, item.i_current_price, catalog_sales.cs_ext_sales_price]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
---------------------------PhysicalProject
+--------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_ext_sales_price, item.i_item_id, item.i_item_desc, item.i_current_price, item.i_class, item.i_category]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[cs_item_sk]
-------------------------------PhysicalProject
+------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_sold_date_sk, catalog_sales.cs_ext_sales_price]
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
-------------------------------PhysicalProject
+------------------------------PhysicalProject[item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price, item.i_class, item.i_category]
 --------------------------------filter(i_category IN ('Children', 'Electronics', 'Shoes'))
 ----------------------------------PhysicalOlapScan[item]
---------------------------PhysicalProject
+--------------------------PhysicalProject[date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_date <= '2001-04-13') and (date_dim.d_date >= '2001-03-14'))
 ------------------------------PhysicalOlapScan[date_dim]
 

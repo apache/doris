@@ -4,31 +4,31 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[store_sales.ss_ext_wholesale_cost, store_sales.ss_quantity, cast(ss_ext_wholesale_cost as DECIMALV3(9, 4)) AS `cast(ss_ext_wholesale_cost as DECIMALV3(9, 4))`, cast(ss_ext_sales_price as DECIMALV3(9, 4)) AS `cast(ss_ext_sales_price as DECIMALV3(9, 4))`]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ss_sold_date_sk]
-------------PhysicalProject
+------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_quantity, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=(OR[AND[ca_state IN ('KS', 'MI', 'SD'),(store_sales.ss_net_profit >= 100.00),(store_sales.ss_net_profit <= 200.00)],AND[ca_state IN ('CO', 'MO', 'ND'),(store_sales.ss_net_profit >= 150.00)],AND[ca_state IN ('NH', 'OH', 'TX'),(store_sales.ss_net_profit <= 250.00)]]) build RFs:RF3 ca_address_sk->[ss_addr_sk]
-----------------PhysicalProject
+----------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=(OR[AND[(household_demographics.hd_dep_count = 1),OR[AND[(customer_demographics.cd_marital_status = 'S'),(customer_demographics.cd_education_status = 'College'),(store_sales.ss_sales_price <= 100.00)],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = '4 yr Degree'),(store_sales.ss_sales_price >= 150.00)]]],AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Unknown'),(store_sales.ss_sales_price >= 100.00),(store_sales.ss_sales_price <= 150.00),(household_demographics.hd_dep_count = 3)]]) build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
---------------------PhysicalProject
+--------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit, customer_demographics.cd_marital_status, customer_demographics.cd_education_status]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_demographics.cd_demo_sk = store_sales.ss_cdemo_sk)) otherCondition=() build RFs:RF1 cd_demo_sk->[ss_cdemo_sk]
-------------------------PhysicalProject
+------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_cdemo_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_cdemo_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit]
 ------------------------------filter((store_sales.ss_net_profit <= 300.00) and (store_sales.ss_net_profit >= 50.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
 --------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
-----------------------------PhysicalProject
+----------------------------PhysicalProject[store.s_store_sk]
 ------------------------------PhysicalOlapScan[store]
-------------------------PhysicalProject
+------------------------PhysicalProject[customer_demographics.cd_demo_sk, customer_demographics.cd_marital_status, customer_demographics.cd_education_status]
 --------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'S'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = '4 yr Degree')]] and cd_education_status IN ('4 yr Degree', 'College', 'Unknown') and cd_marital_status IN ('D', 'M', 'S'))
 ----------------------------PhysicalOlapScan[customer_demographics]
---------------------PhysicalProject
+--------------------PhysicalProject[household_demographics.hd_demo_sk, household_demographics.hd_dep_count]
 ----------------------filter(hd_dep_count IN (1, 3))
 ------------------------PhysicalOlapScan[household_demographics]
-----------------PhysicalProject
+----------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_state]
 ------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('CO', 'KS', 'MI', 'MO', 'ND', 'NH', 'OH', 'SD', 'TX'))
 --------------------PhysicalOlapScan[customer_address]
-------------PhysicalProject
+------------PhysicalProject[date_dim.d_date_sk]
 --------------filter((date_dim.d_year = 2001))
 ----------------PhysicalOlapScan[date_dim]
 

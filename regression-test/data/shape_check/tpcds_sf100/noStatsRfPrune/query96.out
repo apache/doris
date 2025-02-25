@@ -6,21 +6,21 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------hashAgg[LOCAL]
-------------PhysicalProject
+------------PhysicalProject[1 AS `1`]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
-----------------PhysicalProject
+----------------PhysicalProject[store_sales.ss_store_sk]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF1 t_time_sk->[ss_sold_time_sk]
---------------------PhysicalProject
+--------------------PhysicalProject[store_sales.ss_sold_time_sk, store_sales.ss_store_sk]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF0 hd_demo_sk->[ss_hdemo_sk]
-------------------------PhysicalProject
+------------------------PhysicalProject[store_sales.ss_sold_time_sk, store_sales.ss_hdemo_sk, store_sales.ss_store_sk]
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
-------------------------PhysicalProject
+------------------------PhysicalProject[household_demographics.hd_demo_sk]
 --------------------------filter((household_demographics.hd_dep_count = 3))
 ----------------------------PhysicalOlapScan[household_demographics]
---------------------PhysicalProject
+--------------------PhysicalProject[time_dim.t_time_sk]
 ----------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
 ------------------------PhysicalOlapScan[time_dim]
-----------------PhysicalProject
+----------------PhysicalProject[store.s_store_sk]
 ------------------filter((store.s_store_name = 'ese'))
 --------------------PhysicalOlapScan[store]
 

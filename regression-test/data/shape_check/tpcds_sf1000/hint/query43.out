@@ -7,16 +7,16 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[store.s_store_name, store.s_store_id, if((d_day_name = 'Monday'), ss_sales_price, NULL) AS `if((d_day_name = 'Monday'), ss_sales_price, NULL)`, if((d_day_name = 'Tuesday'), ss_sales_price, NULL) AS `if((d_day_name = 'Tuesday'), ss_sales_price, NULL)`, if((d_day_name = 'Saturday'), ss_sales_price, NULL) AS `if((d_day_name = 'Saturday'), ss_sales_price, NULL)`, if((d_day_name = 'Sunday'), ss_sales_price, NULL) AS `if((d_day_name = 'Sunday'), ss_sales_price, NULL)`, if((d_day_name = 'Thursday'), ss_sales_price, NULL) AS `if((d_day_name = 'Thursday'), ss_sales_price, NULL)`, if((d_day_name = 'Friday'), ss_sales_price, NULL) AS `if((d_day_name = 'Friday'), ss_sales_price, NULL)`, if((d_day_name = 'Wednesday'), ss_sales_price, NULL) AS `if((d_day_name = 'Wednesday'), ss_sales_price, NULL)`]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
-------------------PhysicalProject
+------------------PhysicalProject[store_sales.ss_store_sk, store_sales.ss_sales_price, date_dim.d_day_name]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-----------------------PhysicalProject
+----------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price]
 ------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-----------------------PhysicalProject
+----------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_day_name]
 ------------------------filter((date_dim.d_year = 2000))
 --------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalProject
+------------------PhysicalProject[store.s_store_sk, store.s_store_id, store.s_store_name]
 --------------------filter((store.s_gmt_offset = -5.00))
 ----------------------PhysicalOlapScan[store]
 

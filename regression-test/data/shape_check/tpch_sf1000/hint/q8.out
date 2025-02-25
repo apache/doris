@@ -4,42 +4,42 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[all_nations.o_year, (cast(sum(CASE WHEN (nation = 'BRAZIL') THEN volume ELSE cast(0 as DECIMALV3(31, 4)) END) as DECIMALV3(38, 12)) / sum(volume)) AS `mkt_share`]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[year(o_orderdate) AS `o_year`, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `volume`, n_name AS `nation`, if((n_name = 'BRAZIL'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000) AS `if((n_name = 'BRAZIL'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000)`]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = n2.n_nationkey)) otherCondition=()
---------------------PhysicalProject
+--------------------PhysicalProject[supplier.s_nationkey, orders.o_orderdate, lineitem.l_extendedprice, lineitem.l_discount]
 ----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
-------------------------PhysicalProject
+------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
 --------------------------PhysicalOlapScan[supplier]
-------------------------PhysicalProject
+------------------------PhysicalProject[orders.o_orderdate, lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount]
 --------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=()
-----------------------------PhysicalProject
+----------------------------PhysicalProject[orders.o_orderdate, orders.o_custkey, lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount]
 ------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[orders.o_orderkey, orders.o_orderdate, orders.o_custkey]
 ----------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
 ------------------------------------PhysicalOlapScan[orders]
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[lineitem.l_orderkey, lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount]
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[lineitem.l_orderkey, lineitem.l_partkey, lineitem.l_suppkey, lineitem.l_extendedprice, lineitem.l_discount]
 --------------------------------------PhysicalOlapScan[lineitem]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[part.p_partkey]
 --------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
 ----------------------------------------PhysicalOlapScan[part]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[customer.c_custkey]
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=()
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[customer.c_custkey, customer.c_nationkey]
 ----------------------------------PhysicalOlapScan[customer]
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[n1.n_nationkey]
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=()
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[n1.n_nationkey, n1.n_regionkey]
 --------------------------------------PhysicalOlapScan[nation]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[region.r_regionkey]
 --------------------------------------filter((region.r_name = 'AMERICA'))
 ----------------------------------------PhysicalOlapScan[region]
---------------------PhysicalProject
+--------------------PhysicalProject[n2.n_nationkey, n2.n_name]
 ----------------------PhysicalOlapScan[nation]
 
 Hint log:

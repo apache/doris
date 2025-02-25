@@ -4,12 +4,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[(lo_extendedprice * lo_discount) AS `(lo_extendedprice * lo_discount)`]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF0 d_datekey->[lo_orderdate]
-------------PhysicalProject
+------------PhysicalProject[lineorder.lo_orderdate, lineorder.lo_extendedprice, lineorder.lo_discount]
 --------------filter((lineorder.lo_discount <= 7) and (lineorder.lo_discount >= 5) and (lineorder.lo_quantity <= 35) and (lineorder.lo_quantity >= 26))
 ----------------PhysicalOlapScan[lineorder] apply RFs: RF0
-------------PhysicalProject
+------------PhysicalProject[dates.d_datekey]
 --------------filter((dates.d_weeknuminyear = 6) and (dates.d_year = 1994))
 ----------------PhysicalOlapScan[dates]
 

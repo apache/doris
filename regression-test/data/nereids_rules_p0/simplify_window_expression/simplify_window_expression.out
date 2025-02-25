@@ -145,21 +145,21 @@
 -- !select_last_value_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[mal_test_simplify_window.a, a AS `c1`, a AS `c2`]
 ------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[mal_test_simplify_window]
 
 -- !select_min_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[mal_test_simplify_window.b, b AS `c1`, b AS `c2`]
 ------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[mal_test_simplify_window]
 
 -- !more_than_pk_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[mal_test_simplify_window.b, cast(b as DOUBLE) AS `c1`, cast(b as DOUBLE) AS `c2`]
 ------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[mal_test_simplify_window]
 
@@ -220,7 +220,7 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[t.b, cast(b as DOUBLE) AS `c1`]
 ----------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[mal_test_simplify_window]
 
@@ -229,10 +229,10 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[t.b, cast(b as BIGINT) AS `c1`, c2 AS `c2`]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalProject
+--------------PhysicalProject[t.b, mal_test_simplify_window.a]
 ----------------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 ------------------PhysicalOlapScan[mal_test_simplify_window]
 
@@ -241,10 +241,10 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[t.b, c2 AS `c2`]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalProject
+--------------PhysicalProject[t.b, mal_test_simplify_window.a]
 ----------------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 ------------------PhysicalOlapScan[mal_test_simplify_window]
 
@@ -259,9 +259,9 @@ PhysicalResultSink
 -- !window_agg_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[mal_test_simplify_window.a, 1 AS `ranking`]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[mal_test_simplify_window.a]
 ----------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[mal_test_simplify_window]
 

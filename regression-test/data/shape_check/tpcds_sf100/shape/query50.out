@@ -7,23 +7,23 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip, if(AND[((sr_returned_date_sk - ss_sold_date_sk) > 30),((sr_returned_date_sk - ss_sold_date_sk) <= 60)], 1, 0) AS `if(AND[((sr_returned_date_sk - ss_sold_date_sk) > 30),((sr_returned_date_sk - ss_sold_date_sk) <= 60)], 1, 0)`, if(((sr_returned_date_sk - ss_sold_date_sk) > 120), 1, 0) AS `if(((sr_returned_date_sk - ss_sold_date_sk) > 120), 1, 0)`, if(((sr_returned_date_sk - ss_sold_date_sk) <= 30), 1, 0) AS `if(((sr_returned_date_sk - ss_sold_date_sk) <= 30), 1, 0)`, if(AND[((sr_returned_date_sk - ss_sold_date_sk) > 60),((sr_returned_date_sk - ss_sold_date_sk) <= 90)], 1, 0) AS `if(AND[((sr_returned_date_sk - ss_sold_date_sk) > 60),((sr_returned_date_sk - ss_sold_date_sk) <= 90)], 1, 0)`, if(AND[((sr_returned_date_sk - ss_sold_date_sk) > 90),((sr_returned_date_sk - ss_sold_date_sk) <= 120)], 1, 0) AS `if(AND[((sr_returned_date_sk - ss_sold_date_sk) > 90),((sr_returned_date_sk - ss_sold_date_sk) <= 120)], 1, 0)`]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF5 s_store_sk->[ss_store_sk]
-------------------PhysicalProject
+------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_returns.sr_returned_date_sk]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ss_sold_date_sk]
-----------------------PhysicalProject
+----------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_returns.sr_returned_date_sk]
 ------------------------hashJoin[INNER_JOIN colocated] hashCondition=((store_sales.ss_customer_sk = store_returns.sr_customer_sk) and (store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF1 sr_ticket_number->[ss_ticket_number];RF2 sr_item_sk->[ss_item_sk];RF3 sr_customer_sk->[ss_customer_sk]
---------------------------PhysicalProject
+--------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_customer_sk, store_sales.ss_store_sk]
 ----------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF4 RF5
---------------------------PhysicalProject
+--------------------------PhysicalProject[store_returns.sr_item_sk, store_returns.sr_ticket_number, store_returns.sr_returned_date_sk, store_returns.sr_customer_sk]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_returned_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[sr_returned_date_sk]
-------------------------------PhysicalProject
+------------------------------PhysicalProject[store_returns.sr_item_sk, store_returns.sr_ticket_number, store_returns.sr_returned_date_sk, store_returns.sr_customer_sk]
 --------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
-------------------------------PhysicalProject
+------------------------------PhysicalProject[d2.d_date_sk]
 --------------------------------filter((d2.d_moy = 8) and (d2.d_year = 2001))
 ----------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalProject
+----------------------PhysicalProject[d1.d_date_sk]
 ------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalProject
+------------------PhysicalProject[store.s_store_sk, store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip]
 --------------------PhysicalOlapScan[store]
 

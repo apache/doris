@@ -10,7 +10,7 @@ PhysicalResultSink
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalPartitionTopN
-------------PhysicalProject
+------------PhysicalProject[push_filter_through_ptopn_tbl.a]
 --------------filter((T.a = 1))
 ----------------PhysicalOlapScan[push_filter_through_ptopn_tbl]
 
@@ -21,7 +21,7 @@ PhysicalResultSink
 -- !shape_2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[T.a, rn]
 ------filter((rn <= 2))
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
@@ -41,12 +41,12 @@ PhysicalResultSink
 -- !4 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[T.a, T.b, rn]
 ------filter((T.b = 2) and (rn <= 2))
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalPartitionTopN
-----------------PhysicalProject
+----------------PhysicalProject[push_filter_through_ptopn_tbl.a, push_filter_through_ptopn_tbl.b, (a + b) AS `(a + b)`]
 ------------------PhysicalOlapScan[push_filter_through_ptopn_tbl]
 

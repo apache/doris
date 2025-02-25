@@ -7,11 +7,11 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[lineitem.l_shipmode, if(AND[( not (o_orderpriority = '1-URGENT')),( not (o_orderpriority = '2-HIGH'))], 1, 0) AS `if(AND[( not (o_orderpriority = '1-URGENT')),( not (o_orderpriority = '2-HIGH'))], 1, 0)`, if(OR[(o_orderpriority = '1-URGENT'),(o_orderpriority = '2-HIGH')], 1, 0) AS `if(OR[(o_orderpriority = '1-URGENT'),(o_orderpriority = '2-HIGH')], 1, 0)`]
 ----------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
-------------------PhysicalProject
+------------------PhysicalProject[orders.o_orderkey, orders.o_orderpriority]
 --------------------PhysicalOlapScan[orders]
-------------------PhysicalProject
+------------------PhysicalProject[lineitem.l_orderkey, lineitem.l_shipmode]
 --------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate) and (lineitem.l_receiptdate < '1995-01-01') and (lineitem.l_receiptdate >= '1994-01-01') and (lineitem.l_shipdate < '1995-01-01') and (lineitem.l_shipdate < lineitem.l_commitdate) and l_shipmode IN ('MAIL', 'SHIP'))
 ----------------------PhysicalOlapScan[lineitem]
 

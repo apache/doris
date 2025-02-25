@@ -4,11 +4,11 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[hits.TraficSourceID, hits.SearchEngineID, hits.AdvEngineID, Src, URL AS `Dst`, PageViews]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[hits.TraficSourceID, hits.SearchEngineID, hits.AdvEngineID, if(AND[(SearchEngineID = 0),(AdvEngineID = 0)], Referer, '') AS `Src`, hits.URL]
 ------------------filter((hits.CounterID = 62) and (hits.EventDate <= '2013-07-31') and (hits.EventDate >= '2013-07-01') and (hits.IsRefresh = 0))
 --------------------PhysicalOlapScan[hits]
 

@@ -7,7 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[lineitem.l_returnflag, lineitem.l_linestatus, lineitem.l_quantity, lineitem.l_extendedprice, cast(l_quantity as DECIMALV3(17, 4)) AS `cast(l_quantity as DECIMALV3(17, 4))`, ((l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) * (1.00 + cast(l_tax as DECIMALV3(16, 2)))) AS `((l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) * (1.00 + cast(l_tax as DECIMALV3(16, 2))))`, cast(l_discount as DECIMALV3(17, 4)) AS `cast(l_discount as DECIMALV3(17, 4))`, cast(l_extendedprice as DECIMALV3(17, 4)) AS `cast(l_extendedprice as DECIMALV3(17, 4))`, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`]
 ----------------filter((lineitem.l_shipdate <= '1998-09-02'))
 ------------------PhysicalOlapScan[lineitem]
 

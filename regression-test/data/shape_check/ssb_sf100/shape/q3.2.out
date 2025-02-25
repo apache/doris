@@ -7,21 +7,21 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[customer.c_city, supplier.s_city, dates.d_year, lineorder.lo_revenue]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
-------------------PhysicalProject
+------------------PhysicalProject[customer.c_city, lineorder.lo_orderdate, lineorder.lo_revenue, supplier.s_city]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
-----------------------PhysicalProject
+----------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_orderdate, lineorder.lo_revenue, supplier.s_city]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
---------------------------PhysicalProject
+--------------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_suppkey, lineorder.lo_orderdate, lineorder.lo_revenue]
 ----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
---------------------------PhysicalProject
+--------------------------PhysicalProject[supplier.s_suppkey, supplier.s_city]
 ----------------------------filter((supplier.s_nation = 'UNITED STATES'))
 ------------------------------PhysicalOlapScan[supplier]
-----------------------PhysicalProject
+----------------------PhysicalProject[customer.c_custkey, customer.c_city]
 ------------------------filter((customer.c_nation = 'UNITED STATES'))
 --------------------------PhysicalOlapScan[customer]
-------------------PhysicalProject
+------------------PhysicalProject[dates.d_datekey, dates.d_year]
 --------------------filter((dates.d_year <= 1997) and (dates.d_year >= 1992))
 ----------------------PhysicalOlapScan[dates]
 

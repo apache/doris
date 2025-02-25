@@ -2,11 +2,11 @@
 -- !select --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[l.LO_ORDERDATE, l.LO_ORDERKEY, l.LO_LINENUMBER, l.LO_CUSTKEY, l.LO_PARTKEY, l.LO_SUPPKEY, l.LO_ORDERPRIORITY, l.LO_SHIPPRIORITY, l.LO_QUANTITY, l.LO_EXTENDEDPRICE, l.LO_ORDTOTALPRICE, l.LO_DISCOUNT, l.LO_REVENUE, l.LO_SUPPLYCOST, l.LO_TAX, l.LO_COMMITDATE, l.LO_SHIPMODE, c.C_NAME, c.C_ADDRESS, c.C_CITY, c.C_NATION, c.C_REGION, c.C_PHONE, c.C_MKTSEGMENT, s.S_NAME, s.S_ADDRESS, s.S_CITY, s.S_NATION, s.S_REGION, s.S_PHONE, p.P_NAME, p.P_MFGR, p.P_CATEGORY, p.P_BRAND, p.P_COLOR, p.P_TYPE, p.P_SIZE, p.P_CONTAINER]
 ------hashJoin[INNER_JOIN broadcast] hashCondition=((s.s_suppkey = l.lo_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[lo_suppkey]
---------PhysicalProject
+--------PhysicalProject[l.lo_orderkey, l.lo_linenumber, l.lo_custkey, l.lo_partkey, l.lo_suppkey, l.lo_orderdate, l.lo_orderpriority, l.lo_shippriority, l.lo_quantity, l.lo_extendedprice, l.lo_ordtotalprice, l.lo_discount, l.lo_revenue, l.lo_supplycost, l.lo_tax, l.lo_commitdate, l.lo_shipmode, c.c_name, c.c_address, c.c_city, c.c_nation, c.c_region, c.c_phone, c.c_mktsegment, part.p_name, part.p_mfgr, part.p_category, part.p_brand, part.p_color, part.p_type, part.p_size, part.p_container]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_custkey = l.lo_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
-------------PhysicalProject
+------------PhysicalProject[lineorder.lo_orderkey, lineorder.lo_linenumber, lineorder.lo_custkey, lineorder.lo_partkey, lineorder.lo_suppkey, lineorder.lo_orderdate, lineorder.lo_orderpriority, lineorder.lo_shippriority, lineorder.lo_quantity, lineorder.lo_extendedprice, lineorder.lo_ordtotalprice, lineorder.lo_discount, lineorder.lo_revenue, lineorder.lo_supplycost, lineorder.lo_tax, lineorder.lo_commitdate, lineorder.lo_shipmode, part.p_name, part.p_mfgr, part.p_category, part.p_brand, part.p_color, part.p_type, part.p_size, part.p_container]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((p.p_partkey = l.lo_partkey)) otherCondition=() build RFs:RF0 p_partkey->[lo_partkey]
 ----------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
 ----------------PhysicalOlapScan[part]

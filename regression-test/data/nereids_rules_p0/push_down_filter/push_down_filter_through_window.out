@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalPartitionTopN
-----------PhysicalProject
+----------PhysicalProject[push_down_multi_column_predicate_through_window_t.id, push_down_multi_column_predicate_through_window_t.value1]
 ------------filter((abs((id + value1)) < 4))
 --------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
 
@@ -19,7 +19,7 @@ PhysicalResultSink
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalPartitionTopN
-----------PhysicalProject
+----------PhysicalProject[push_down_multi_column_predicate_through_window_t.id, push_down_multi_column_predicate_through_window_t.value1]
 ------------filter(OR[(t.id > 1),(t.value1 > 2)])
 --------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
 

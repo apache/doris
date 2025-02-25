@@ -4,16 +4,16 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[1 AS `1`]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((T.l_linenumber = expr_cast(r_regionkey as BIGINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as BIGINT)->[cast(l_linenumber as BIGINT),o_orderkey]
 ------------PhysicalExcept
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
+----------------PhysicalProject[cast(l_linenumber as BIGINT) AS `l_linenumber`]
 ------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
+----------------PhysicalProject[orders.o_orderkey]
 ------------------PhysicalOlapScan[orders] apply RFs: RF0
-------------PhysicalProject
+------------PhysicalProject[cast(r_regionkey as BIGINT) AS `expr_cast(r_regionkey as BIGINT)`]
 --------------PhysicalOlapScan[region]
 
 -- !rf_setop_expr --
@@ -21,16 +21,16 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[1 AS `1`]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as LARGEINT)->[abs(cast(l_linenumber as BIGINT)),abs(o_orderkey)]
-------------PhysicalProject
+------------PhysicalProject[abs(l_linenumber) AS `expr_abs(l_linenumber)`]
 --------------PhysicalExcept
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
+------------------PhysicalProject[cast(l_linenumber as BIGINT) AS `l_linenumber`]
 --------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
+------------------PhysicalProject[orders.o_orderkey]
 --------------------PhysicalOlapScan[orders] apply RFs: RF0
-------------PhysicalProject
+------------PhysicalProject[cast(r_regionkey as LARGEINT) AS `expr_cast(r_regionkey as LARGEINT)`]
 --------------PhysicalOlapScan[region]
 

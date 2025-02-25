@@ -4,34 +4,34 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
+--------PhysicalProject[partsupp.ps_partkey, value]
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
-------------PhysicalProject
+------------PhysicalProject[partsupp.ps_partkey, value, cast(value as DOUBLE) AS `cast(value as DOUBLE)`]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[partsupp.ps_partkey, (ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[s_nationkey]
---------------------PhysicalProject
+--------------------PhysicalProject[partsupp.ps_partkey, partsupp.ps_availqty, partsupp.ps_supplycost, supplier.s_nationkey]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[ps_suppkey]
-------------------------PhysicalProject
+------------------------PhysicalProject[partsupp.ps_partkey, partsupp.ps_suppkey, partsupp.ps_availqty, partsupp.ps_supplycost]
 --------------------------PhysicalOlapScan[partsupp] apply RFs: RF2
-------------------------PhysicalProject
+------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
 --------------------------PhysicalOlapScan[supplier] apply RFs: RF3
---------------------PhysicalProject
+--------------------PhysicalProject[nation.n_nationkey]
 ----------------------filter((nation.n_name = 'GERMANY'))
 ------------------------PhysicalOlapScan[nation]
-------------PhysicalProject
+------------PhysicalProject[cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE) AS `cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE)`]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecGather]
 ------------------hashAgg[LOCAL]
---------------------PhysicalProject
+--------------------PhysicalProject[(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
-------------------------PhysicalProject
+------------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_supplycost, supplier.s_nationkey]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[ps_suppkey]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[partsupp.ps_suppkey, partsupp.ps_availqty, partsupp.ps_supplycost]
 ------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
-----------------------------PhysicalProject
+----------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
 ------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
-------------------------PhysicalProject
+------------------------PhysicalProject[nation.n_nationkey]
 --------------------------filter((nation.n_name = 'GERMANY'))
 ----------------------------PhysicalOlapScan[nation]
 

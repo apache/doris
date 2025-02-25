@@ -7,20 +7,20 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[customer.c_custkey, customer.c_name, customer.c_acctbal, customer.c_phone, nation.n_name, customer.c_address, customer.c_comment, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->[c_nationkey]
-------------------PhysicalProject
+------------------PhysicalProject[customer.c_custkey, customer.c_name, customer.c_address, customer.c_nationkey, customer.c_phone, customer.c_acctbal, customer.c_comment, lineitem.l_extendedprice, lineitem.l_discount]
 --------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
-----------------------PhysicalProject
+----------------------PhysicalProject[lineitem.l_orderkey, lineitem.l_extendedprice, lineitem.l_discount]
 ------------------------filter((lineitem.l_returnflag = 'R'))
 --------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-----------------------PhysicalProject
+----------------------PhysicalProject[customer.c_custkey, customer.c_name, customer.c_address, customer.c_nationkey, customer.c_phone, customer.c_acctbal, customer.c_comment, orders.o_orderkey]
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
---------------------------PhysicalProject
+--------------------------PhysicalProject[orders.o_orderkey, orders.o_custkey]
 ----------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
 ------------------------------PhysicalOlapScan[orders] apply RFs: RF0
---------------------------PhysicalProject
+--------------------------PhysicalProject[customer.c_custkey, customer.c_name, customer.c_address, customer.c_nationkey, customer.c_phone, customer.c_acctbal, customer.c_comment]
 ----------------------------PhysicalOlapScan[customer] apply RFs: RF2
-------------------PhysicalProject
+------------------PhysicalProject[nation.n_nationkey, nation.n_name]
 --------------------PhysicalOlapScan[nation]
 

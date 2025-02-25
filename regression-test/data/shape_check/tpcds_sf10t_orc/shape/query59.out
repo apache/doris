@@ -5,38 +5,38 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------PhysicalProject
+----------PhysicalProject[date_dim.d_week_seq, store_sales.ss_store_sk, if((d_day_name = 'Monday'), ss_sales_price, NULL) AS `if((d_day_name = 'Monday'), ss_sales_price, NULL)`, if((d_day_name = 'Tuesday'), ss_sales_price, NULL) AS `if((d_day_name = 'Tuesday'), ss_sales_price, NULL)`, if((d_day_name = 'Sunday'), ss_sales_price, NULL) AS `if((d_day_name = 'Sunday'), ss_sales_price, NULL)`, if((d_day_name = 'Thursday'), ss_sales_price, NULL) AS `if((d_day_name = 'Thursday'), ss_sales_price, NULL)`, if((d_day_name = 'Wednesday'), ss_sales_price, NULL) AS `if((d_day_name = 'Wednesday'), ss_sales_price, NULL)`, if((d_day_name = 'Saturday'), ss_sales_price, NULL) AS `if((d_day_name = 'Saturday'), ss_sales_price, NULL)`, if((d_day_name = 'Friday'), ss_sales_price, NULL) AS `if((d_day_name = 'Friday'), ss_sales_price, NULL)`]
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
---------------PhysicalProject
+--------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price]
 ----------------PhysicalOlapScan[store_sales] apply RFs: RF0
---------------PhysicalProject
+--------------PhysicalProject[date_dim.d_date_sk, date_dim.d_week_seq, date_dim.d_day_name]
 ----------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
-----------PhysicalProject
+----------PhysicalProject[y.s_store_name1, y.s_store_id1, y.d_week_seq1, (cast(sun_sales1 as DECIMALV3(38, 8)) / sun_sales2) AS `sun_sales1/sun_sales2`, (cast(mon_sales1 as DECIMALV3(38, 8)) / mon_sales2) AS `mon_sales1/mon_sales2`, (cast(tue_sales1 as DECIMALV3(38, 8)) / tue_sales2) AS `tue_sales1/tue_sales2`, (cast(wed_sales1 as DECIMALV3(38, 8)) / wed_sales2) AS `wed_sales1/wed_sales2`, (cast(thu_sales1 as DECIMALV3(38, 8)) / thu_sales2) AS `thu_sales1/thu_sales2`, (cast(fri_sales1 as DECIMALV3(38, 8)) / fri_sales2) AS `fri_sales1/fri_sales2`, (cast(sat_sales1 as DECIMALV3(38, 8)) / sat_sales2) AS `sat_sales1/sat_sales2`]
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
---------------PhysicalProject
+--------------PhysicalProject[s_store_id1, sun_sales1, mon_sales1, tue_sales1, wed_sales1, thu_sales1, fri_sales1, sat_sales1, s_store_name1, d_week_seq1, fri_sales2, sat_sales2, sun_sales2, mon_sales2, tue_sales2, wed_sales2, thu_sales2]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF4 s_store_id2->[s_store_id]
-------------------PhysicalProject
+------------------PhysicalProject[s_store_id1, sun_sales1, mon_sales1, tue_sales1, wed_sales1, thu_sales1, fri_sales1, sat_sales1, cast(d_week_seq1 as BIGINT) AS `expr_cast(d_week_seq1 as BIGINT)`, s_store_name1, d_week_seq1]
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
-----------------------PhysicalProject
+----------------------PhysicalProject[wss.ss_store_sk, d_week_seq AS `d_week_seq1`, sun_sales AS `sun_sales1`, mon_sales AS `mon_sales1`, tue_sales AS `tue_sales1`, wed_sales AS `wed_sales1`, thu_sales AS `thu_sales1`, fri_sales AS `fri_sales1`, sat_sales AS `sat_sales1`]
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF5
-----------------------PhysicalProject
+----------------------PhysicalProject[store.s_store_sk, s_store_id AS `s_store_id1`, s_store_name AS `s_store_name1`]
 ------------------------PhysicalOlapScan[store] apply RFs: RF4
-------------------PhysicalProject
+------------------PhysicalProject[fri_sales2, sat_sales2, (d_week_seq2 - 52) AS `expr_(d_week_seq2 - 52)`, s_store_id2, sun_sales2, mon_sales2, tue_sales2, wed_sales2, thu_sales2]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
-----------------------PhysicalProject
+----------------------PhysicalProject[d_week_seq2, sun_sales2, mon_sales2, tue_sales2, wed_sales2, thu_sales2, fri_sales2, sat_sales2, s_store_id2]
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
---------------------------PhysicalProject
+--------------------------PhysicalProject[wss.ss_store_sk, d_week_seq AS `d_week_seq2`, sun_sales AS `sun_sales2`, mon_sales AS `mon_sales2`, tue_sales AS `tue_sales2`, wed_sales AS `wed_sales2`, thu_sales AS `thu_sales2`, fri_sales AS `fri_sales2`, sat_sales AS `sat_sales2`]
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1 RF2
---------------------------PhysicalProject
+--------------------------PhysicalProject[store.s_store_sk, s_store_id AS `s_store_id2`]
 ----------------------------PhysicalOlapScan[store]
-----------------------PhysicalProject
+----------------------PhysicalProject[d.d_week_seq]
 ------------------------filter((d.d_month_seq <= 1228) and (d.d_month_seq >= 1217))
 --------------------------PhysicalOlapScan[date_dim]
---------------PhysicalProject
+--------------PhysicalProject[d.d_week_seq]
 ----------------filter((d.d_month_seq <= 1216) and (d.d_month_seq >= 1205))
 ------------------PhysicalOlapScan[date_dim]
 

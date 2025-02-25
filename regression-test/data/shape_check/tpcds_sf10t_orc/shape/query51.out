@@ -8,36 +8,36 @@ PhysicalResultSink
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
+----------------PhysicalProject[if(( not item_sk IS NULL), item_sk, item_sk) AS `item_sk`, if(( not d_date IS NULL), d_date, d_date) AS `d_date`, cume_sales AS `web_sales`, cume_sales AS `store_sales`]
 ------------------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((web.d_date = store.d_date) and (web.item_sk = store.item_sk)) otherCondition=()
---------------------PhysicalProject
+--------------------PhysicalProject[item_sk, d_date, cume_sales AS `cume_sales`]
 ----------------------PhysicalWindow
 ------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[ss_item_sk AS `item_sk`, d_date AS `d_date`, sum(ss_sales_price)]
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[store_sales.ss_item_sk, date_dim.d_date, store_sales.ss_sales_price]
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_sold_date_sk, store_sales.ss_sales_price]
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
 ------------------------------------------filter((date_dim.d_month_seq <= 1225) and (date_dim.d_month_seq >= 1214))
 --------------------------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalProject
+--------------------PhysicalProject[item_sk, d_date, cume_sales AS `cume_sales`]
 ----------------------PhysicalWindow
 ------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[ws_item_sk AS `item_sk`, d_date AS `d_date`, sum(ws_sales_price)]
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[web_sales.ws_item_sk, date_dim.d_date, web_sales.ws_sales_price]
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[web_sales.ws_item_sk, web_sales.ws_sold_date_sk, web_sales.ws_sales_price]
 ------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
 ------------------------------------------filter((date_dim.d_month_seq <= 1225) and (date_dim.d_month_seq >= 1214))
 --------------------------------------------PhysicalOlapScan[date_dim]
 

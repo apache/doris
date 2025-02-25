@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[regexp_replace(Referer, '^https?://(?:www.)?([^/]+)/.*$', '\\1') AS `k`, hits.Referer, length(Referer) AS `length(Referer)`]
 ------------------filter(( not (Referer = '')))
 --------------------PhysicalOlapScan[hits]
 

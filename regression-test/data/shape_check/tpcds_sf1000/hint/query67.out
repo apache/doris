@@ -9,25 +9,25 @@ PhysicalResultSink
 ------------PhysicalPartitionTopN
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalPartitionTopN
-------------------PhysicalProject
+------------------PhysicalProject[dw1.i_category, dw1.i_class, dw1.i_brand, dw1.i_product_name, dw1.d_year, dw1.d_qoy, dw1.d_moy, dw1.s_store_id, dw1.sumsales]
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
-----------------------------PhysicalProject
+----------------------------PhysicalProject[coalesce((ss_sales_price * cast(ss_quantity as DECIMALV3(10, 0))), 0.00) AS `coalesce((ss_sales_price * cast(ss_quantity as DECIMALV3(10, 0))), 0.00)`, item.i_category, item.i_class, item.i_brand, item.i_product_name, date_dim.d_year, date_dim.d_qoy, date_dim.d_moy, store.s_store_id]
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy, date_dim.d_qoy, store.s_store_id]
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy, date_dim.d_qoy]
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_sales_price]
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
-----------------------------------------PhysicalProject
+----------------------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_year, date_dim.d_moy, date_dim.d_qoy]
 ------------------------------------------filter((date_dim.d_month_seq <= 1228) and (date_dim.d_month_seq >= 1217))
 --------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalProject
+------------------------------------PhysicalProject[store.s_store_sk, store.s_store_id]
 --------------------------------------PhysicalOlapScan[store]
---------------------------------PhysicalProject
+--------------------------------PhysicalProject[item.i_item_sk, item.i_brand, item.i_class, item.i_category, item.i_product_name]
 ----------------------------------PhysicalOlapScan[item]
 
 Hint log:

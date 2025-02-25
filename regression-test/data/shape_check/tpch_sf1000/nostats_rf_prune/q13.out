@@ -7,13 +7,13 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[c_orders.c_count]
 ----------------hashAgg[LOCAL]
-------------------PhysicalProject
+------------------PhysicalProject[customer.c_custkey, orders.o_orderkey]
 --------------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
-----------------------PhysicalProject
+----------------------PhysicalProject[orders.o_orderkey, orders.o_custkey]
 ------------------------filter(( not (o_comment like '%special%requests%')))
 --------------------------PhysicalOlapScan[orders]
-----------------------PhysicalProject
+----------------------PhysicalProject[customer.c_custkey]
 ------------------------PhysicalOlapScan[customer]
 

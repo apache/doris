@@ -7,34 +7,34 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[channel, col_name, d_year, d_qoy, i_category, ext_sales_price]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=()
-------------------PhysicalProject
+------------------PhysicalProject[ss_sold_date_sk, channel AS `channel`, col_name AS `col_name`, i_category AS `i_category`, ext_sales_price AS `ext_sales_price`]
 --------------------PhysicalUnion
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
+------------------------PhysicalProject['store' AS `channel`, 'ss_hdemo_sk' AS `col_name`, item.i_category, ss_ext_sales_price AS `ext_sales_price`, store_sales.ss_sold_date_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
-----------------------------PhysicalProject
+----------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_ext_sales_price]
 ------------------------------filter(ss_hdemo_sk IS NULL)
 --------------------------------PhysicalOlapScan[store_sales]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[item.i_item_sk, item.i_category]
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
+------------------------PhysicalProject['web' AS `channel`, 'ws_bill_addr_sk' AS `col_name`, item.i_category, ws_ext_sales_price AS `ext_sales_price`, web_sales.ws_sold_date_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
-----------------------------PhysicalProject
+----------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_ext_sales_price]
 ------------------------------filter(ws_bill_addr_sk IS NULL)
 --------------------------------PhysicalOlapScan[web_sales]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[item.i_item_sk, item.i_category]
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
+------------------------PhysicalProject['catalog' AS `channel`, 'cs_warehouse_sk' AS `col_name`, item.i_category, cs_ext_sales_price AS `ext_sales_price`, catalog_sales.cs_sold_date_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
-----------------------------PhysicalProject
+----------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_ext_sales_price]
 ------------------------------filter(cs_warehouse_sk IS NULL)
 --------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------PhysicalProject
+----------------------------PhysicalProject[item.i_item_sk, item.i_category]
 ------------------------------PhysicalOlapScan[item]
-------------------PhysicalProject
+------------------PhysicalProject[date_dim.d_date_sk, d_year AS `d_year`, d_qoy AS `d_qoy`]
 --------------------PhysicalOlapScan[date_dim]
 

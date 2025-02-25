@@ -3,7 +3,7 @@
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t1.c1 > 100))
 ----------PhysicalOlapScan[t1]
 
@@ -11,21 +11,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t1.c1 > 100))
 ----------PhysicalOlapScan[t1]
 
 -- !basic_3 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t1.c1, if((c1 > 100), 10, NULL) AS `if((c1 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t1]
 
 -- !basic_4 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t1.c1 > 100))
 ----------PhysicalOlapScan[t1]
 
@@ -33,21 +33,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t1.c1 > 100))
 ----------PhysicalOlapScan[t1]
 
 -- !basic_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t1.c1, if((c1 > 100), 10, NULL) AS `if((c1 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t1]
 
 -- !basic_2_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t2.c2 > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -55,21 +55,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t2.c2 > 100))
 ----------PhysicalOlapScan[t2]
 
 -- !basic_2_3 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t2.c2, if((c2 > 100), 10, NULL) AS `if((c2 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t2]
 
 -- !basic_2_4 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t2.c2 > 100))
 ----------PhysicalOlapScan[t2]
 
@@ -77,21 +77,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t2.c2 > 100))
 ----------PhysicalOlapScan[t2]
 
 -- !basic_2_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t2.c2, if((c2 > 100), 10, NULL) AS `if((c2 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t2]
 
 -- !basic_3_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t3.c3 > 100))
 ----------PhysicalOlapScan[t3]
 
@@ -99,21 +99,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t3.c3 > 100))
 ----------PhysicalOlapScan[t3]
 
 -- !basic_3_3 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t3.c3, if((c3 > 100), 10, NULL) AS `if((c3 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t3]
 
 -- !basic_3_4 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t3.c3 > 100))
 ----------PhysicalOlapScan[t3]
 
@@ -121,21 +121,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t3.c3 > 100))
 ----------PhysicalOlapScan[t3]
 
 -- !basic_3_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t3.c3, if((c3 > 100), 10, NULL) AS `if((c3 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t3]
 
 -- !basic_4_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t4.c4 > 100))
 ----------PhysicalOlapScan[t4]
 
@@ -143,21 +143,21 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t4.c4 > 100))
 ----------PhysicalOlapScan[t4]
 
 -- !basic_4_4 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t4.c4, if((c4 > 100), 10, NULL) AS `if((c4 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t4]
 
 -- !basic_4_4 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t4.c4 > 100))
 ----------PhysicalOlapScan[t4]
 
@@ -165,14 +165,14 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[1 AS `1`]
 --------filter((t4.c4 > 100))
 ----------PhysicalOlapScan[t4]
 
 -- !basic_4_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject
+----PhysicalProject[t4.c4, if((c4 > 100), 10, NULL) AS `if((c4 > 100), 10, NULL)`]
 ------PhysicalOlapScan[t4]
 
 -- !basic_1 --

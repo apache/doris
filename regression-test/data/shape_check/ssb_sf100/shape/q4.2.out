@@ -7,26 +7,26 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[dates.d_year, supplier.s_nation, part.p_category, (lo_revenue - lo_supplycost) AS `(lo_revenue - lo_supplycost)`]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF3 p_partkey->[lo_partkey]
-------------------PhysicalProject
+------------------PhysicalProject[dates.d_year, lineorder.lo_partkey, lineorder.lo_revenue, lineorder.lo_supplycost, supplier.s_nation]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF2 c_custkey->[lo_custkey]
-----------------------PhysicalProject
+----------------------PhysicalProject[dates.d_year, lineorder.lo_custkey, lineorder.lo_partkey, lineorder.lo_revenue, lineorder.lo_supplycost, supplier.s_nation]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF1 d_datekey->[lo_orderdate]
---------------------------PhysicalProject
+--------------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_partkey, lineorder.lo_orderdate, lineorder.lo_revenue, lineorder.lo_supplycost, supplier.s_nation]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
-------------------------------PhysicalProject
+------------------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_partkey, lineorder.lo_suppkey, lineorder.lo_orderdate, lineorder.lo_revenue, lineorder.lo_supplycost]
 --------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
-------------------------------PhysicalProject
+------------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nation]
 --------------------------------filter((supplier.s_region = 'AMERICA'))
 ----------------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalProject
+--------------------------PhysicalProject[dates.d_datekey, dates.d_year]
 ----------------------------filter(d_year IN (1997, 1998))
 ------------------------------PhysicalOlapScan[dates]
-----------------------PhysicalProject
+----------------------PhysicalProject[customer.c_custkey]
 ------------------------filter((customer.c_region = 'AMERICA'))
 --------------------------PhysicalOlapScan[customer]
-------------------PhysicalProject
+------------------PhysicalProject[part.p_partkey, part.p_category]
 --------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
 ----------------------PhysicalOlapScan[part]
 
