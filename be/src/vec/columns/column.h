@@ -734,6 +734,17 @@ bool check_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
 }
 
+// check_and_get_column_ptr is used to return a ColumnPtr of a specific column type,
+// which will hold ownership. This prevents the occurrence of dangling pointers due to certain situations.
+template <typename ColumnType>
+ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = check_and_get_column<ColumnType>(column.get());
+    if (raw_type_ptr == nullptr) {
+        return nullptr;
+    }
+    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
+}
+
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.
 bool is_column_const(const IColumn& column);
 
