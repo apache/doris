@@ -903,7 +903,7 @@ public class Alter {
     }
 
     public void processAlterSystem(AlterSystemCommand command) throws UserException {
-        systemHandler.processAlter(Collections.singletonList(command), null, null);
+        systemHandler.processForNereids(Collections.singletonList(command), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {

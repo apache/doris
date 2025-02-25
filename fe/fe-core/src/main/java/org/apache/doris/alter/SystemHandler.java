@@ -224,7 +224,7 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
-    public synchronized void processNereids(String rawSql, List<AlterCommand> alterCommands,
+    public synchronized void processForNereids(String rawSql, List<AlterCommand> alterCommands,
                                      Database dummyDb,
                                      OlapTable dummyTbl) throws UserException {
         Preconditions.checkArgument(alterCommands.size() == 1);
@@ -280,10 +280,10 @@ public class SystemHandler extends AlterHandler {
                 Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
             } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BROKER)) {
                 DropBrokerOp op = (DropBrokerOp) alterSystemCommand.getAlterSystemOp();
-                Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
+                Env.getCurrentEnv().getBrokerMgr().dropBrokers(op.getBrokerName(), op.getHostPortPairs());
             } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_ALL_BROKER)) {
                 DropAllBrokerOp op = (DropAllBrokerOp) alterSystemCommand.getAlterSystemOp();
-                Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
+                Env.getCurrentEnv().getBrokerMgr().dropAllBroker(op.getBrokerName());
             } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_BACKEND)) {
                 ModifyBackendOp op = (ModifyBackendOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentSystemInfo().modifyBackends(op);

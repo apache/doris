@@ -1522,7 +1522,7 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     @Override
-    public void processNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
+    public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
                                OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         // TODO: conver alterClauses to alterSystemCommands for mv

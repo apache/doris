@@ -179,7 +179,7 @@ public abstract class AlterHandler extends MasterDaemon {
                                  OlapTable olapTable)
             throws UserException;
 
-    public abstract void processNereids(String rawSql, List<AlterCommand> alterClauses, Database db,
+    public abstract void processForNereids(String rawSql, List<AlterCommand> alterClauses, Database db,
                                  OlapTable olapTable)
             throws UserException;
 
@@ -191,9 +191,9 @@ public abstract class AlterHandler extends MasterDaemon {
         process("", alterClauses, db, olapTable);
     }
 
-    public void processAlter(List<AlterCommand> alterSystemCommands, Database db, OlapTable olapTable)
+    public void processForNereids(List<AlterCommand> alterSystemCommands, Database db, OlapTable olapTable)
             throws UserException {
-        processNereids("", alterSystemCommands, db, olapTable);
+        processForNereids("", alterSystemCommands, db, olapTable);
     }
 
     /*
