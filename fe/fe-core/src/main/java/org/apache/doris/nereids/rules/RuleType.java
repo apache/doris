@@ -377,6 +377,8 @@ public enum RuleType {
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
     COLLECT_COLUMNS(RuleTypeClass.REWRITE),
 
+    OPERATIVE_COLUMN_DERIVE(RuleTypeClass.REWRITE),
+
     // topn opts
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
     // short circuit rule
