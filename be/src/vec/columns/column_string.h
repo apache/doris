@@ -475,7 +475,7 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const IColumn::Filter& filt, size_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;

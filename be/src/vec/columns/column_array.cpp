@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include "vec/columns/column_array.h"
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -478,7 +479,8 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
     }
 }
 
-ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
+ColumnPtr ColumnArray::filter(const Filter& filt, size_t result_size_hint) const {
+    DCHECK_GE(result_size_hint, 0);
     if (typeid_cast<const ColumnUInt8*>(data.get()))
         return filter_number<UInt8>(filt, result_size_hint);
     if (typeid_cast<const ColumnUInt16*>(data.get()))
@@ -692,7 +694,7 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
     if (size == 0) return ColumnArray::create(data);
 
     Filter nested_filt(get_offsets().back());
-    ssize_t nested_result_size_hint = 0;
+    size_t nested_result_size_hint = 0;
     for (size_t i = 0; i < size; ++i) {
         if (filt[i]) {
             memset(&nested_filt[offset_at(i)], 1, size_at(i));
@@ -706,7 +708,7 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
     res->data = data->filter(nested_filt, nested_result_size_hint);
 
     auto& res_offsets = res->get_offsets();
-    if (result_size_hint) res_offsets.reserve(result_size_hint > 0 ? result_size_hint : size);
+    res_offsets.reserve(result_size_hint);
 
     size_t current_offset = 0;
     for (size_t i = 0; i < size; ++i) {

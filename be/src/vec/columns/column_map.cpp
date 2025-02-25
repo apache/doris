@@ -452,7 +452,7 @@ void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t sta
     }
 }
 
-ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const {
+ColumnPtr ColumnMap::filter(const Filter& filt, size_t result_size_hint) const {
     auto k_arr =
             ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
                     ->filter(filt, result_size_hint);

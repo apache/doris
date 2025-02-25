@@ -418,12 +418,10 @@ public:
 
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
-      * If result_size_hint > 0, then makes advance reserve(result_size_hint) for the result column;
-      *  if 0, then don't makes reserve(),
-      *  otherwise (i.e. < 0), makes reserve() using size of source column.
+      * result_size_hint should be greater or equal than zero to reserve memory before for result.
       */
     using Filter = PaddedPODArray<UInt8>;
-    virtual Ptr filter(const Filter& filt, ssize_t result_size_hint) const = 0;
+    virtual Ptr filter(const Filter& filt, size_t result_size_hint) const = 0;
 
     /// This function will modify the original table.
     /// Return rows number after filtered.

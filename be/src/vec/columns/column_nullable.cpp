@@ -350,7 +350,7 @@ void ColumnNullable::pop_back(size_t n) {
     get_null_map_column().pop_back(n);
 }
 
-ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) const {
+ColumnPtr ColumnNullable::filter(const Filter& filt, size_t result_size_hint) const {
     ColumnPtr filtered_data = get_nested_column().filter(filt, result_size_hint);
     ColumnPtr filtered_null_map = get_null_map_column().filter(filt, result_size_hint);
     return ColumnNullable::create(filtered_data, filtered_null_map);

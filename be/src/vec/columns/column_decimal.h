@@ -209,7 +209,7 @@ public:
 
     void clear() override { data.clear(); }
 
-    ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const IColumn::Filter& filt, size_t result_size_hint) const override;
 
     size_t filter(const IColumn::Filter& filter) override;
 

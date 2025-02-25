@@ -374,7 +374,7 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const IColumn::Filter& filt, size_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;

@@ -414,7 +414,7 @@ public:
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
-    ColumnPtr filter(const Filter&, ssize_t) const override;
+    ColumnPtr filter(const Filter&, size_t) const override;
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
 

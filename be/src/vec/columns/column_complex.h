@@ -215,7 +215,7 @@ public:
         return typeid(rhs) == typeid(ColumnComplexType<T>);
     }
 
-    ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const IColumn::Filter& filt, size_t result_size_hint) const override;
 
     size_t filter(const IColumn::Filter& filter) override;
 
@@ -253,8 +253,8 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
 }
 
 template <typename T>
-ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
-                                       ssize_t result_size_hint) const {
+ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt, size_t result_size_hint) const {
+    DCHECK_GE(result_size_hint, 0);
     size_t size = data.size();
     column_match_filter_size(size, filt.size());
 
@@ -263,10 +263,7 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
     }
     auto res = this->create();
     Container& res_data = res->get_data();
-
-    if (result_size_hint) {
-        res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
-    }
+    res_data.reserve(result_size_hint);
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;

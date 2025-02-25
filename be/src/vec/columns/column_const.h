@@ -206,7 +206,7 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
-    ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const Filter& filt, size_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
     ColumnPtr replicate(const Offsets& offsets) const override;

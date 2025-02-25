@@ -393,7 +393,7 @@ public:
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
-                                  ssize_t result_size_hint) const override {
+                                  size_t result_size_hint) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "filter not supported in PredicateColumnType");
         __builtin_unreachable();
