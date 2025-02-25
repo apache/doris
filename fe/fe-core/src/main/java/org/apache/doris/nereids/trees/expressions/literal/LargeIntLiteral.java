@@ -64,7 +64,7 @@ public class LargeIntLiteral extends IntegerLikeLiteral {
     }
 
     @Override
-    protected BigDecimal getBigDecimalValue() {
+    public BigDecimal getBigDecimalValue() {
         return new BigDecimal(value);
     }
 

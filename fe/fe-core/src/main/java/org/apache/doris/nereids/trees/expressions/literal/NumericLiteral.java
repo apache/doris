@@ -68,5 +68,5 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
                 + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
-    protected abstract BigDecimal getBigDecimalValue();
+    public abstract BigDecimal getBigDecimalValue();
 }

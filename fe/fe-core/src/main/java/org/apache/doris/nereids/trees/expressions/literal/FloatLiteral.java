@@ -37,7 +37,7 @@ public class FloatLiteral extends FractionalLiteral {
     }
 
     @Override
-    protected BigDecimal getBigDecimalValue() {
+    public BigDecimal getBigDecimalValue() {
         return new BigDecimal(String.valueOf(value));
     }
 
