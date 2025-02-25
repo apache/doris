@@ -354,7 +354,8 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
-    int64_t generate_row_ranges_ns = 0;
+    int64_t generate_row_ranges_by_keys_ns = 0;
+    int64_t generate_row_ranges_by_column_conditions_ns = 0;
     int64_t generate_row_ranges_by_bf_ns = 0;
     int64_t generate_row_ranges_by_zonemap_ns = 0;
     int64_t generate_row_ranges_by_dict_ns = 0;
