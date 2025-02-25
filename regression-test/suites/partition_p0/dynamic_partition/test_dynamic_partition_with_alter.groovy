@@ -51,7 +51,7 @@ suite("test_dynamic_partition_with_alter") {
 
         test {
             sql "alter table ${tbl} set ('dynamic_partition.time_uint' = 'day')"
-            exception "Invalid dynamic partition properties: dynamic_partition.time_uint"
+            exception "Invalid dynamic partition properties: [dynamic_partition.time_uint]"
         }
     } catch (Exception e) {
         sql "drop table if exists ${tbl}"

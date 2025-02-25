@@ -326,7 +326,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
 
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!PROPERTIES_MAP.containsKey(entry.getKey())) {
-                throw new DdlException(entry.getKey() + " is invalid property");
+                throw new DdlException("[" + entry.getKey() + "] is invalid property");
             }
         }
 
