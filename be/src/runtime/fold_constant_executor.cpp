@@ -77,7 +77,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
 
     TQueryGlobals query_globals = params.query_globals;
     _query_id = params.query_id;
-    LOG(INFO) << "fold_query_id: " << print_id(_query_id);
+    LOG(INFO) << "start fold_query_id: " << print_id(_query_id);
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
@@ -147,6 +147,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
+    LOG(INFO) << "finish fold_query_id: " << print_id(_query_id);
     return Status::OK();
 }
 
