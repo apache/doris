@@ -17,18 +17,23 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.options.Options;
 
 import java.util.Map;
 
 @Slf4j
 public class HMSProperties extends MetastoreProperties {
-    @ConnectorProperty(names = {"hive.metastore.uri"},
+
+    private static final String HIVE_METASTORE_URLS_KEY = "hive.metastore.uris";
+    @ConnectorProperty(names = {"hive.metastore.uris"},
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
 
@@ -36,6 +41,11 @@ public class HMSProperties extends MetastoreProperties {
             required = false,
             description = "The authentication type of the hive metastore.")
     private String hiveMetastoreAuthenticationType = "none";
+
+    @ConnectorProperty(names = {"hive.conf.resources"},
+            required = false,
+            description = "The conf resources of the hive metastore.")
+    private String hiveConfResourcesConfig = "";
 
     @ConnectorProperty(names = {"hive.metastore.service.principal"},
             required = false,
@@ -58,12 +68,16 @@ public class HMSProperties extends MetastoreProperties {
 
     @Override
     protected String getResourceConfigPropName() {
-        return "hive.resource_config";
+        return "hive.conf.resources";
     }
 
     @Override
     protected void checkRequiredProperties() {
+        //fixme need consider load from default config
         super.checkRequiredProperties();
+        if (!Strings.isNullOrEmpty(hiveConfResourcesConfig)) {
+            checkHiveConfResourcesConfig();
+        }
         if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
             if (Strings.isNullOrEmpty(hiveMetastoreServicePrincipal)
                     || Strings.isNullOrEmpty(hiveMetastoreClientPrincipal)
@@ -72,17 +86,24 @@ public class HMSProperties extends MetastoreProperties {
                         + "but service principal, client principal or client keytab is not set.");
             }
         }
+        if (Strings.isNullOrEmpty(hiveMetastoreUri)) {
+            throw new IllegalArgumentException("Hive metastore uri is required.");
+        }
+    }
+
+    private void checkHiveConfResourcesConfig() {
+        loadConfigFromFile(getResourceConfigPropName());
     }
 
     public void toPaimonOptionsAndConf(Options options, Configuration conf) {
         options.set("uri", hiveMetastoreUri);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
-        allProps.forEach(conf::set);
-        conf.set("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        allProps.forEach(options::set);
+        allProps.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
-            conf.set("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
-            conf.set("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
-            conf.set("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+            allProps.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            allProps.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            allProps.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
         }
     }
 
@@ -90,11 +111,24 @@ public class HMSProperties extends MetastoreProperties {
         catalogProps.put("uri", hiveMetastoreUri);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(catalogProps::put);
-        catalogProps.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
-        if ("catalogProps".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
-            catalogProps.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
-            catalogProps.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
-            catalogProps.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+        allProps.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            allProps.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            allProps.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            allProps.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
         }
     }
+
+    protected Map<String, String> loadConfigFromFile(String resourceConfig) {
+        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
+            return Maps.newHashMap();
+        }
+        HiveConf conf = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(origProps.get(resourceConfig));
+        Map<String, String> confMap = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : conf) {
+            confMap.put(entry.getKey(), entry.getValue());
+        }
+        return confMap;
+    }
+
 }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Hadoop core-site configuration -->
+
+    <!-- Specify the URI for the NameNode -->
+    <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://localhost:9000</value>
+    </property>
+
+    <!-- Hadoop temporary directory for intermediate data -->
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/tmp/hadoop</value>
+    </property>
+
+    <!-- Define the Hadoop home directory -->
+    <property>
+        <name>hadoop.home.dir</name>
+        <value>/usr/local/hadoop</value>
+    </property>
+</configuration>

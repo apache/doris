@@ -65,6 +65,11 @@ under the License.
             <artifactId>httpcore</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.roaringbitmap</groupId>
             <artifactId>RoaringBitmap</artifactId>
         </dependency>

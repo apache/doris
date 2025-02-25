@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- HDFS-specific configuration -->
+
+    <!-- Directory for storing HDFS data -->
+    <property>
+        <name>dfs.data.dir</name>
+        <value>/data/hdfs</value>
+    </property>
+
+    <!-- Directory for storing HDFS NameNode data -->
+    <property>
+        <name>dfs.name.dir</name>
+        <value>/data/hdfs/namenode</value>
+    </property>
+
+    <!-- Replication factor for HDFS -->
+    <property>
+        <name>dfs.replication</name>
+        <value>3</value>
+    </property>
+
+    <!-- HDFS block size -->
+    <property>
+        <name>dfs.blocksize</name>
+        <value>134217728</value> <!-- 128 MB -->
+    </property>
+    <property>
+        <name>dfs.nameservices</name>
+        <value>ns1</value>
+    </property>
+</configuration>

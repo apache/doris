@@ -29,27 +29,23 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
-public class S3Properties extends StorageProperties {
+public class S3Properties extends AbstractObjectStorageProperties {
 
-    @ConnectorProperty(names = {"s3.endpoint",
-            "oss.endpoint", "cos.endpoint", "obs.endpoint", "gcs.endpoint", "AWS_ENDPOINT"},
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT"},
             required = false,
             description = "The endpoint of S3.")
     protected String s3Endpoint = "";
 
-    @ConnectorProperty(names = {"s3.region",
-            "oss.region", "cos.region", "obs.region", "gcs.region", "AWS_REGION"},
+    @ConnectorProperty(names = {"s3.region", "AWS_REGION"},
             required = false,
             description = "The region of S3.")
     protected String s3Region = "";
 
-    @ConnectorProperty(names = {"s3.access_key",
-            "oss.access_key", "cos.access_key", "obs.access_key", "gcs.access_key", "AWS_ACCESS_KEY"},
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY"},
             description = "The access key of S3.")
     protected String s3AccessKey = "";
 
-    @ConnectorProperty(names = {"s3.secret_key",
-            "oss.secret_key", "cos.secret_key", "obs.secret_key", "gcs.secret_key", "AWS_SECRET_KEY"},
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY"},
             description = "The secret key of S3.")
     protected String s3SecretKey = "";
 
@@ -124,6 +120,7 @@ public class S3Properties extends StorageProperties {
     private static List<Field> getIdentifyFields() {
         List<Field> fields = Lists.newArrayList();
         try {
+            //todo AliyunDlfProperties should in OSS storage type.
             fields.add(S3Properties.class.getDeclaredField("s3Endpoint"));
             fields.add(AliyunDLFProperties.class.getDeclaredField("dlfEndpoint"));
             fields.add(AliyunDLFProperties.class.getDeclaredField("dlfRegion"));
@@ -156,14 +153,22 @@ public class S3Properties extends StorageProperties {
         catalogProps.put("s3.path-style-access", usePathStyle);
     }
 
-    public void toBackendS3ClientProperties(Map<String, String> s3Props) {
-        s3Props.put("AWS_ENDPOINT", s3Endpoint);
-        s3Props.put("AWS_REGION", s3Region);
-        s3Props.put("AWS_ACCESS_KEY", s3AccessKey);
-        s3Props.put("AWS_SECRET_KEY", s3SecretKey);
-        s3Props.put("AWS_MAX_CONNECTIONS", s3ConnectionMaximum);
-        s3Props.put("AWS_REQUEST_TIMEOUT_MS", s3ConnectionRequestTimeoutS);
-        s3Props.put("AWS_CONNECTION_TIMEOUT_MS", s3ConnectionTimeoutS);
-        s3Props.put("use_path_style", usePathStyle);
+    @Override
+    public void toHadoopConfiguration(Map<String, String> config) {
+        config.put("fs.s3a.access.key", s3AccessKey);  // AWS Access Key
+        config.put("fs.s3a.secret.key", s3SecretKey);  // AWS Secret Key
+        config.put("fs.s3a.endpoint", s3Endpoint);
+        config.put("fs.s3a.region", s3Region);
+        config.put("fs.s3a.connection.maximum", String.valueOf(s3ConnectionMaximum));
+        config.put("fs.s3a.connection.timeout", String.valueOf(s3ConnectionRequestTimeoutS));
+        config.put("fs.s3a.request.timeout", String.valueOf(s3ConnectionTimeoutS));
+        config.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+    }
+
+    @Override
+    public void toNativeS3Configuration(Map<String, String> config) {
+        Map<String, String> awsS3Properties = generateAWSS3Properties(s3Endpoint, s3Region, s3AccessKey, s3SecretKey,
+                s3ConnectionMaximum, s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, usePathStyle);
+        config.putAll(awsS3Properties);
     }
 }
