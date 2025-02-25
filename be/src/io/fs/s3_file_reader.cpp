@@ -102,6 +102,16 @@ Status S3FileReader::close() {
     return Status::OK();
 }
 
+Status S3FileReader::update_size() {
+    auto res = _client->object_file_size(_bucket, _key);
+    if (!res.has_value()) {
+        return Status::InternalError("failed to update file size: {}", res.error());
+    }
+
+    _file_size = res.value();
+    return Status::OK();
+}
+
 Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                   const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
