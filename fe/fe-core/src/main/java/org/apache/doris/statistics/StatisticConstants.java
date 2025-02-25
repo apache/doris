@@ -103,6 +103,10 @@ public class StatisticConstants {
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
 
+    public static final int PARTITION_SAMPLE_COUNT = 30;
+
+    public static final long PARTITION_SAMPLE_ROW_COUNT = 3_000_000_000L;
+
     static {
         SYSTEM_DBS.add(FeConstants.INTERNAL_DB_NAME);
         SYSTEM_DBS.add(InfoSchemaDb.DATABASE_NAME);
