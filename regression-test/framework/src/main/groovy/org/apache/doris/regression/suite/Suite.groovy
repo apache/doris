@@ -2496,18 +2496,19 @@ class Suite implements GroovyInterceptable {
         def js = jsonOutput.toJson(map)
         log.info("get be metric req: ${js} ".toString())
 
-        def ret = 0;
+        def ret = [false, 0]
         metric_api.call(js) {
             respCode, body ->
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
                 for (item : json) {
                     if (item.tags.metric == field) {
-                        ret = item.value
+                        ret[0] = true
+                        ret[1] = item.value
                     }
                 }
         }
-        ret
+        return ret
     }
 
     def add_cluster = { be_unique_id, ip, port, cluster_name, cluster_id ->

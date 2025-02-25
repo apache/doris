@@ -20,6 +20,7 @@ package org.apache.doris.jdbc;
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -92,5 +93,23 @@ public class JdbcDataSource {
         if (cleanupTask == null || cleanupTask.isCancelled()) {
             restartCleanupTask();
         }
+    }
+
+    /**
+     * used for jni metrics
+     * get jdbc scan connection percent
+     * percent = activeConnections * 100 / maximumPoolSize
+     */
+    public static Map<String, String> getConnectionPercent() {
+        Map<String, String> result = new HashMap<>();
+        for (String key : getDataSource().lastAccessTimeMap.keySet()) {
+            HikariDataSource ds = getDataSource().sourcesMap.get(key);
+            int percent = 0;
+            if (ds != null) {
+                percent = ds.getHikariPoolMXBean().getActiveConnections() * 100 / ds.getMaximumPoolSize();
+            }
+            result.put(key.split("jdbc")[0], String.valueOf(percent));
+        }
+        return result;
     }
 }
