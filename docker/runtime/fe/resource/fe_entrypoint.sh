@@ -320,6 +320,33 @@ update_conf_from_configmap()
     add_fqdn_config
 }
 
+kerberos_config()
+{
+   if [[ -n "$KRB5_MOUNT_PATH" ]]; then
+        if [[ -f "$KRB5_MOUNT_PATH/krb5.conf" ]]; then
+            KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+            if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+                log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+                mkdir -p "$KRB5_CONFIG_DIR"
+            fi
+            log_stderr "[info] Creating krb5 symlink from $KRB5_MOUNT_PATH/krb5.conf to $KRB5_CONFIG"
+            ln -sfT "$KRB5_MOUNT_PATH/krb5.conf" "$KRB5_CONFIG"
+        else
+            log_stderr "[warning] krb5.conf not found in $KRB5_MOUNT_PATH"
+        fi
+   fi
+
+   if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+       log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlink"
+       return
+   fi
+
+   if [[ -n "$KEYTAB_MOUNT_PATH" ]]; then
+        log_stderr "[info] Creating keytab symlink from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+        ln -sfT "$KEYTAB_MOUNT_PATH/" "$KEYTAB_FINAL_USED_PATH"
+   fi
+}
+
 # resolve password for root
 resolve_password_from_secret()
 {
@@ -393,6 +420,7 @@ if [[ "x$fe_addrs" == "x" ]]; then
 fi
 
 update_conf_from_configmap
+kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
