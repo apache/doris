@@ -152,3 +152,44 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);
+
+class DorisCheckLogger {
+public:
+    DorisCheckLogger(const char* condition) : condition_(condition) {}
+
+    template <typename T>
+    DorisCheckLogger& operator<<(const T& value) {
+        ss_ << value;
+        return *this;
+    }
+
+    ~DorisCheckLogger() noexcept(false) {
+        std::string message = fmt::format("Check failed: {} {}", condition_, ss_.str());
+
+        throw doris::Exception(doris::ErrorCode::FATAL_ERROR, message);
+    }
+
+private:
+    std::ostringstream ss_;
+    const char* condition_;
+};
+
+#define DORIS_CHECK_OP(op, a, b) \
+    auto&& _a = (a);             \
+    auto&& _b = (b);             \
+    if (_a op _b)                \
+        ;                        \
+    else                         \
+        DorisCheckLogger(#a " " #op " " #b) << " (" << _a << " vs " << _b << ") "
+
+#define DORIS_CHECK(condition) \
+    if (condition)             \
+        ;                      \
+    else                       \
+        DorisCheckLogger(#condition)
+#define DORIS_CHECK_LT(a, b) DORIS_CHECK_OP(<, a, b)
+#define DORIS_CHECK_LE(a, b) DORIS_CHECK_OP(<=, a, b)
+#define DORIS_CHECK_GT(a, b) DORIS_CHECK_OP(>, a, b)
+#define DORIS_CHECK_GE(a, b) DORIS_CHECK_OP(>=, a, b)
+#define DORIS_CHECK_EQ(a, b) DORIS_CHECK_OP(==, a, b)
+#define DORIS_CHECK_NE(a, b) DORIS_CHECK_OP(!=, a, b)

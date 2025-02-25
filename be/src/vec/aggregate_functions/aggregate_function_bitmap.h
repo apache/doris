@@ -200,7 +200,7 @@ public:
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena*) const override {
-        DCHECK(end <= column.size() && begin <= end)
+        DORIS_CHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnBitmap&>(column);
         auto* data = col.get_data().data();
