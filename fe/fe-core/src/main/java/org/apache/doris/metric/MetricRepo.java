@@ -137,6 +137,7 @@ public final class MetricRepo {
 
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_ABNORMAL_JOB_NUMS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
@@ -541,6 +542,9 @@ public final class MetricRepo {
         COUNTER_ROUTINE_LOAD_ERROR_ROWS = new LongCounterMetric("routine_load_error_rows", MetricUnit.ROWS,
                 "total error rows of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ERROR_ROWS);
+        COUNTER_ROUTINE_LOAD_ABNORMAL_JOB_NUMS = new LongCounterMetric("routine_load_abnormal_job_nums",
+                MetricUnit.NOUNIT, "abnormal job nums of routine load");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ABNORMAL_JOB_NUMS);
 
         COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
                 "total hit sql block rule query");
