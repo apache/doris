@@ -345,16 +345,8 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
 
         auto ctx = query_ctx.lock()->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
                                                                    : query_ctx;
-
-        // Frontend may generate multiple targets with the same address. Currently, deduplication is done in be first, and this problem will be fixed in fe in the future
-        std::unordered_set<TNetworkAddress> target_addr;
         std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
         for (auto& target : targets) {
-            if (target_addr.contains(target.target_fragment_instance_addr)) {
-                continue;
-            }
-            target_addr.insert(target.target_fragment_instance_addr);
-
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               DummyBrpcCallback<PPublishFilterResponse>>::
                     create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
