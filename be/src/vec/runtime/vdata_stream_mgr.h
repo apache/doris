@@ -56,9 +56,8 @@ public:
 
     std::shared_ptr<VDataStreamRecvr> create_recvr(
             RuntimeState* state, RuntimeProfile::HighWaterMarkCounter* memory_used_counter,
-            const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-            PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging,
-            size_t data_queue_capacity);
+            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+            RuntimeProfile* profile, bool is_merging, size_t data_queue_capacity);
 
     Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
                       std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock = true);
