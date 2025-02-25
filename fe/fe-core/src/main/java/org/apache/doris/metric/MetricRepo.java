@@ -792,6 +792,8 @@ public final class MetricRepo {
 
         visitor.visitWorkloadGroup();
 
+        visitor.visitStatisticMetric();
+
         return visitor.finish();
     }
 

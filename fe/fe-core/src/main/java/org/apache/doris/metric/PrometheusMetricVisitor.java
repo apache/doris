@@ -26,6 +26,7 @@ import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
+import org.apache.doris.statistics.StatisticsMetricCollector;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
@@ -349,6 +350,46 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             sb.append(tmpSb);
         } catch (Exception e) {
             logger.warn("error happends when get workload group query detail ", e);
+        }
+    }
+
+    @Override
+    public void visitStatisticMetric() {
+        StringBuilder tmpSb = new StringBuilder();
+        try {
+            StatisticsMetricCollector metrics = Env.getCurrentEnv().getStatisticsMetricCollector();
+            String title = "doris_statistics_metric";
+            tmpSb.append(Joiner.on(" ").join(HELP, title, "\n"));
+            tmpSb.append(Joiner.on(" ").join(TYPE, title, "counter\n"));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "unhealthy_table_count", metrics.getUnhealthyTableCount()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "unhealthy_column_count", metrics.getUnhealthyColumnCount()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "unhealthy_table_rate", metrics.getUnhealthyTableRate()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "unhealthy_column_rate", metrics.getUnhealthyColumnRate()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "empty_table_count", metrics.getEmptyTableCount()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "empty_table_column_count", metrics.getEmptyTableColumnCount()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "failed_task_count", metrics.getFailedTaskCount()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "abandoned_invalid_stats_count", metrics.getAbandonedInvalidStatsCount()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "high_priority_queue_length", metrics.getHighPriorityQueueLength()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "mid_priority_queue_length", metrics.getMidPriorityQueueLength()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "low_priority_queue_length", metrics.getLowPriorityQueueLength()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "very_low_priority_queue_length", metrics.getVeryLowPriorityQueueLength()));
+            tmpSb.append(String.format("%s{name=\"%s\"} %s\n",
+                    title, "not_analyzed_table_count", metrics.getNotAnalyzedTableCount()));
+            sb.append(tmpSb);
+        } catch (Exception e) {
+            logger.warn("error happens when get statistics detail ", e);
         }
     }
 }
