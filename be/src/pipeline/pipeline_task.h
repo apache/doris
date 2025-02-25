@@ -132,7 +132,10 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void set_wake_up_early() { _wake_up_early = true; }
+    void set_wake_up_early() {
+        LOG(WARNING) << "******** " << get_stack_trace(0);
+        _wake_up_early = true;
+    }
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
@@ -226,6 +229,7 @@ public:
 
     void stop_if_finished() {
         if (_sink->is_finished(_state)) {
+            set_wake_up_early();
             clear_blocking_state();
         }
     }

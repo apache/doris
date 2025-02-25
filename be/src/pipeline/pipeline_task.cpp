@@ -249,10 +249,6 @@ bool PipelineTask::_is_blocked() {
         }
     });
 
-    if (_wake_up_early) {
-        return false;
-    }
-
     for (auto* spill_dependency : _spill_dependencies) {
         _blocked_dep = spill_dependency->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
@@ -295,6 +291,7 @@ bool PipelineTask::_is_blocked() {
 }
 
 Status PipelineTask::execute(bool* eos) {
+    const auto query_id = _state->query_id();
     if (_eos) {
         *eos = true;
         return Status::OK();
@@ -346,7 +343,6 @@ Status PipelineTask::execute(bool* eos) {
 
     _task_profile->add_info_string("TaskState", "Runnable");
     _task_profile->add_info_string("BlockedByDependency", "");
-    const auto query_id = _state->query_id();
 
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
@@ -387,6 +383,7 @@ Status PipelineTask::execute(bool* eos) {
             switch (_exec_state) {
             case State::EOS:
                 *eos = true;
+                [[fallthrough]];
             case State::PENDING: {
                 LOG(INFO) << "Query: " << print_id(query_id) << " has pending block, size: "
                           << PrettyPrinter::print_bytes(_block->allocated_bytes());
@@ -458,7 +455,7 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
 
-        if (_block->rows() != 0 || *eos) {
+        if (!_block->empty() || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();

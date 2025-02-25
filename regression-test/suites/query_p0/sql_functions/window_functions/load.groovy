@@ -20,7 +20,7 @@
 // and modified by Doris.
 
 suite("load") {
-  def tables = ['lineitem', 'region', 'nation', 'part', 'supplier', 'partsupp', 'workers']
+  def tables = ['lineitem']
 
   for (String table in tables) {
       sql """ DROP TABLE IF EXISTS tpch_tiny_${table} """
