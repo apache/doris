@@ -679,9 +679,10 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
-            logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
+            long stmtId = Config.prepared_stmt_start_id > 0
+                    ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
+            logicalPlan = new PrepareCommand(String.valueOf(stmtId),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
-
         }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
