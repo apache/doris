@@ -296,7 +296,7 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
 }
 
 template <typename T>
-ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
+ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, size_t result_size_hint) const {
     if (offsets.size() == 0) {
         return ColumnStr<T>::create();
     }

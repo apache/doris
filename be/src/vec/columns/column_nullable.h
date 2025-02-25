@@ -267,7 +267,7 @@ public:
     }
 
     void pop_back(size_t n) override;
-    ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const Filter& filt, size_t result_size_hint) const override;
 
     size_t filter(const Filter& filter) override;
 

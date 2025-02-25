@@ -144,7 +144,7 @@ public:
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
-    ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    ColumnPtr filter(const Filter& filt, size_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;

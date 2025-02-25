@@ -1738,7 +1738,7 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
     return column;
 }
 
-ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
+ColumnPtr ColumnObject::filter(const Filter& filter, size_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
@@ -1752,7 +1752,8 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     }
     auto new_column = ColumnObject::create(true, false);
     for (auto& entry : subcolumns) {
-        auto subcolumn = entry->data.get_finalized_column().filter(filter, -1);
+        auto subcolumn = entry->data.get_finalized_column().filter(
+                filter, entry->data.get_finalized_column().size());
         new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
                                    entry->data.get_least_common_type());
     }

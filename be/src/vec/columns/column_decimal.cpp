@@ -21,6 +21,7 @@
 #include "vec/columns/column_decimal.h"
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 
 #include <limits>
 
@@ -324,14 +325,15 @@ void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_
 }
 
 template <typename T>
-ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
+ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, size_t result_size_hint) const {
     size_t size = data.size();
     column_match_filter_size(size, filt.size());
 
     auto res = this->create(0, scale);
     Container& res_data = res->get_data();
 
-    if (result_size_hint) res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
+    DCHECK_GE(result_size_hint, 0);
+    res_data.reserve(result_size_hint);
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
@@ -361,8 +363,9 @@ ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_s
     }
 
     while (filt_pos < filt_end) {
-        if (*filt_pos) res_data.push_back(*data_pos);
-
+        if (*filt_pos) {
+            res_data.push_back(*data_pos);
+        }
         ++filt_pos;
         ++data_pos;
     }
