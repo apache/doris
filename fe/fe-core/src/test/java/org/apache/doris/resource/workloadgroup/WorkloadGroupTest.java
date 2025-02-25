@@ -38,7 +38,7 @@ public class WorkloadGroupTest {
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
-        Assert.assertEquals(5, group1.getProperties().size());
+        Assert.assertEquals(7, group1.getProperties().size());
         Assert.assertTrue(group1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
         Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
     }
