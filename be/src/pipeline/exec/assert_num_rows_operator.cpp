@@ -42,6 +42,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                     bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();
     bool assert_res = false;
@@ -109,13 +110,17 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                 return it->second;
             }
         };
-        LOG(INFO) << "Expected " << to_string_lambda(_assertion) << " " << _desired_num_rows
-                  << " to be returned by expression " << _subquery_string;
-        return Status::Cancelled("Expected {} {} to be returned by expression {}",
-                                 to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
+        LOG(WARNING) << "Expected " << to_string_lambda(_assertion) << " " << _desired_num_rows
+                     << " to be returned by expression " << _subquery_string
+                     << ", actual returned: " << num_rows_returned << ", node id: " << _node_id
+                     << ", child id: " << _child->node_id();
+        return Status::Cancelled(
+                "AssertOperator(node id: {}) Expected {} {} to be returned by expression {}(actual "
+                "rows: {}) ",
+                _node_id, to_string_lambda(_assertion), _desired_num_rows, num_rows_returned,
+                _subquery_string);
     }
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     return Status::OK();
 }
 

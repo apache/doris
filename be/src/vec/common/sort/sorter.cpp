@@ -223,6 +223,38 @@ bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) 
     return true;
 }
 
+size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    size_t size_to_reserve = 0;
+    const auto rows = _state->unsorted_block()->rows();
+    if (rows != 0) {
+        const auto bytes = _state->unsorted_block()->bytes();
+        const auto allocated_bytes = _state->unsorted_block()->allocated_bytes();
+        const auto bytes_per_row = bytes / rows;
+        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
+        auto new_block_bytes = estimated_size_of_next_block + bytes;
+        auto new_rows = rows + state->batch_size();
+        // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
+        if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
+            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+        }
+        auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
+        if (sort) {
+            // new column is created when doing sort, reserve average size of one column
+            // for estimation
+            size_to_reserve += new_block_bytes / _state->unsorted_block()->columns();
+
+            // helping data structures used during sorting
+            size_to_reserve += new_rows * sizeof(IColumn::Permutation::value_type);
+
+            auto sort_columns_count = _vsort_exec_exprs.ordering_expr_ctxs().size();
+            if (1 != sort_columns_count) {
+                size_to_reserve += new_rows * sizeof(EqualRangeIterator);
+            }
+        }
+    }
+    return size_to_reserve;
+}
+
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
 

@@ -69,8 +69,8 @@ void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     auto size = holder._pblock->column_values().size();
     _total_queue_buffer_size += size;
     _total_queue_blocks_count++;
-    if (_total_queue_buffer_size >= config::exchg_node_buffer_size_bytes ||
-        _total_queue_blocks_count >= config::num_broadcast_buffer) {
+    if (_total_queue_buffer_size >= _total_queue_buffer_size_limit ||
+        _total_queue_blocks_count >= _total_queue_blocks_count_limit) {
         _broadcast_dependency->block();
     }
 }
@@ -90,13 +90,14 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 
 namespace pipeline {
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                       RuntimeState* state,
+                                       PlanNodeId node_id, RuntimeState* state,
                                        const std::vector<InstanceLoId>& sender_ins_ids)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_failed(false),
           _query_id(std::move(query_id)),
           _dest_node_id(dest_node_id),
+          _node_id(node_id),
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()) {
@@ -435,6 +436,8 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_failed = true;
+    LOG(INFO) << "send rpc failed, instance id: " << id << ", _dest_node_id: " << _dest_node_id
+              << ", node id: " << _node_id << ", err: " << err;
     _context->cancel(Status::Cancelled(err));
 }
 

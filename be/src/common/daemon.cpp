@@ -322,9 +322,8 @@ void Daemon::memory_maintenance_thread() {
         doris::ExecEnv::GetInstance()->workload_group_mgr()->do_sweep();
         doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
 
-        // step 7. Analyze blocking queries.
-        // TODO sort the operators that can spill, wake up the pipeline task spill
-        // or continue execution according to certain rules or cancel query.
+        // step 7: handle paused queries(caused by memory insufficient)
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->handle_paused_queries();
 
         // step 8. Flush memtable
         doris::GlobalMemoryArbitrator::notify_memtable_memory_refresh();
@@ -547,7 +546,9 @@ void Daemon::cache_adjust_capacity_thread() {
             doris::GlobalMemoryArbitrator::cache_adjust_capacity_cv.wait_for(
                     l, std::chrono::milliseconds(100));
         }
-        double adjust_weighted = GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted;
+        double adjust_weighted = std::min<double>(
+                GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted,
+                GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted);
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
@@ -567,6 +568,7 @@ void Daemon::cache_adjust_capacity_thread() {
         LOG(INFO) << fmt::format(
                 "[MemoryGC] refresh cache capacity end, free memory {}, details: {}",
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), ss.str());
+        GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted = adjust_weighted;
     } while (true);
 }
 

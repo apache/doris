@@ -34,6 +34,7 @@
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"
+#include "vec/common/custom_allocator.h"
 
 namespace google::protobuf {
 template <typename Element>
@@ -121,7 +122,7 @@ public:
 
 protected:
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
-                             std::unordered_map<int64_t, std::vector<uint32_t>>& tablet_to_rowidxs,
+                             std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
                              PTabletWriterAddBlockResult* response);
 
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
@@ -136,7 +137,7 @@ protected:
                            int64_t tablet_id, Status error) const;
     void _build_tablet_to_rowidxs(
             const PTabletWriterAddBlockRequest& request,
-            std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>*
+            std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>*
                     tablet_to_rowidxs);
     virtual void _init_profile(RuntimeProfile* profile);
 

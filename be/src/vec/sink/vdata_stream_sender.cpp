@@ -103,9 +103,7 @@ Status Channel::open(RuntimeState* state) {
         RETURN_IF_ERROR(_find_local_recvr(state));
     }
     _be_number = state->be_number();
-
     _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
-
     _serializer.set_is_local(_is_local);
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
@@ -131,6 +129,28 @@ Status Channel::_find_local_recvr(RuntimeState* state) {
     }
     return Status::OK();
 }
+Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offset,
+                         const uint32_t size, bool eos) {
+    if (_fragment_instance_id.lo == -1) {
+        return Status::OK();
+    }
+
+    bool serialized = false;
+    if (_pblock == nullptr) {
+        _pblock = std::make_unique<PBlock>();
+    }
+    int64_t old_channel_mem_usage = mem_usage();
+    Defer update_mem([&]() {
+        COUNTER_UPDATE(_parent->memory_used_counter(), mem_usage() - old_channel_mem_usage);
+    });
+    RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
+                                                      data, offset, size));
+    if (serialized) {
+        RETURN_IF_ERROR(_send_current_block(eos));
+    }
+
+    return Status::OK();
+}
 
 std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
     if (!_local_recvr) {
@@ -140,9 +160,7 @@ std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
 }
 
 int64_t Channel::mem_usage() const {
-    auto* mutable_block = _serializer.get_block();
-    int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
-    return mem_usage;
+    return _serializer.mem_usage();
 }
 
 Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
@@ -286,9 +304,10 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
         }
     }
 
-    if (_mutable_block->rows() >= _batch_size || eos) {
+    if (_mutable_block->rows() >= _batch_size || eos ||
+        (_mutable_block->rows() > 0 && _mutable_block->allocated_bytes() > _buffer_mem_limit)) {
         if (!_is_local) {
-            RETURN_IF_ERROR(serialize_block(dest, num_receivers));
+            RETURN_IF_ERROR(_serialize_block(dest, num_receivers));
         }
         *serialized = true;
     } else {
@@ -297,12 +316,16 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(PBlock* dest, size_t num_receivers) {
+Status BlockSerializer::_serialize_block(PBlock* dest, size_t num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
-        block.clear_column_data();
-        _mutable_block->set_mutable_columns(block.mutate_columns());
+        if (_parent->state()->low_memory_mode()) {
+            reset_block();
+        } else {
+            block.clear_column_data();
+            _mutable_block->set_mutable_columns(block.mutate_columns());
+        }
     }
 
     return Status::OK();

@@ -88,6 +88,8 @@ public:
         return {ExchangeType::PASSTHROUGH};
     }
 
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
 private:
     friend class PartitionSortSinkLocalState;
     ObjectPool* _pool = nullptr;

@@ -23,9 +23,9 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
-    auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
+    const auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
     std::string id_name = " (dst id : ";
-    for (auto& sink : sinks) {
+    for (const auto& sink : sinks) {
         id_name += std::to_string(sink.dest_node_id) + ",";
     }
     id_name += ")";
@@ -34,19 +34,40 @@ std::string MultiCastDataStreamSinkLocalState::name_suffix() {
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {
     std::shared_ptr<BasicSharedState> ss =
-            std::make_shared<MultiCastSharedState>(_pool, _cast_sender_count);
+            std::make_shared<MultiCastSharedState>(_pool, _cast_sender_count, _node_id);
+
     ss->id = operator_id();
-    for (auto& dest : dests_id()) {
+    for (const auto& dest : dests_id()) {
         ss->related_op_ids.insert(dest);
     }
     return ss;
+}
+
+std::vector<Dependency*> MultiCastDataStreamSinkLocalState::dependencies() const {
+    auto dependencies = Base::dependencies();
+    dependencies.emplace_back(_shared_state->multi_cast_data_streamer->get_spill_dependency());
+    return dependencies;
+}
+
+Status MultiCastDataStreamSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    _shared_state->multi_cast_data_streamer->set_sink_profile(profile());
+    _shared_state->setup_shared_profile(profile());
+    _shared_state->multi_cast_data_streamer->set_write_dependency(_dependency);
+    return Status::OK();
+}
+
+std::string MultiCastDataStreamSinkLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, {}", Base::debug_string(indentation_level),
+                   _shared_state->multi_cast_data_streamer->debug_string());
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                               bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0 || eos) {
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         // push block to multi cast data streamer , it will not return the EOF status.

@@ -497,8 +497,12 @@ Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextS
     return Status::OK();
 }
 
-Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
+Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, vectorized::Block* input_block,
                                           vectorized::Block* output_block) {
+    if (low_memory_mode()) {
+        auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+        p.set_low_memory_mode(state);
+    }
     RETURN_IF_ERROR(_pre_agg_with_serialized_key(input_block, output_block));
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
@@ -626,8 +630,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     // to avoid wasting memory.
     // But for fixed hash map, it never need to expand
     bool ret_flag = false;
-    const auto spill_streaming_agg_mem_limit =
-            _parent->cast<StreamingAggOperatorX>()._spill_streaming_agg_mem_limit;
+    const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
     RETURN_IF_ERROR(std::visit(
@@ -1147,7 +1150,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         _aggregate_evaluators.push_back(evaluator);
     }
 
-    if (state->enable_agg_spill()) {
+    if (state->enable_spill()) {
         // If spill enabled, the streaming agg should not occupy too much memory.
         _spill_streaming_agg_mem_limit =
                 state->query_options().__isset.spill_streaming_agg_mem_limit
@@ -1261,14 +1264,14 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
 
 Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     if (!local_state._pre_aggregated_block->empty()) {
         local_state._pre_aggregated_block->swap(*block);
     } else {
         RETURN_IF_ERROR(local_state._executor->get_result(&local_state, state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                               block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.reached_limit(block, eos);
 
@@ -1278,9 +1281,12 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
 Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
                                    bool eos) const {
     auto& local_state = get_local_state(state);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state.do_pre_agg(in_block, local_state._pre_aggregated_block.get()));
+        RETURN_IF_ERROR(
+                local_state.do_pre_agg(state, in_block, local_state._pre_aggregated_block.get()));
     }
     in_block->clear_column_data(_child->row_desc().num_materialized_slots());
     return Status::OK();

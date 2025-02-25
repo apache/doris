@@ -43,6 +43,9 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+SpillStreamManager::~SpillStreamManager() {
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+}
 SpillStreamManager::SpillStreamManager(
         std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
                 spill_store_map)
@@ -84,7 +87,25 @@ Status SpillStreamManager::init() {
             "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
             &_spill_gc_thread));
     LOG(INFO) << "spill gc thread started";
+
+    _init_metrics();
+
     return Status::OK();
+}
+
+void SpillStreamManager::_init_metrics() {
+    _entity = DorisMetrics::instance()->metric_registry()->register_entity("spill",
+                                                                           {{"name", "spill"}});
+
+    _spill_write_bytes_metric = std::make_unique<doris::MetricPrototype>(
+            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_write_bytes");
+    _spill_write_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
+            _spill_write_bytes_metric.get()));
+
+    _spill_read_bytes_metric = std::make_unique<doris::MetricPrototype>(
+            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_read_bytes");
+    _spill_read_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
+            _spill_read_bytes_metric.get()));
 }
 
 // clean up stale spilled files
@@ -108,45 +129,23 @@ Status SpillStreamManager::_init_spill_store_map() {
 
 std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
-    std::vector<SpillDataDir*> stores;
+    std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
-            stores.push_back(store.get());
+            stores_with_usage.emplace_back(store.get(), store->_get_disk_usage(0));
         }
     }
-    if (stores.empty()) {
-        return stores;
+    if (stores_with_usage.empty()) {
+        return {};
     }
 
-    std::sort(stores.begin(), stores.end(), [](SpillDataDir* a, SpillDataDir* b) {
-        return a->_get_disk_usage(0) < b->_get_disk_usage(0);
-    });
+    std::sort(stores_with_usage.begin(), stores_with_usage.end(),
+              [](auto&& a, auto&& b) { return a.second < b.second; });
 
-    size_t seventy_percent_index = stores.size();
-    size_t eighty_five_percent_index = stores.size();
-    for (size_t index = 0; index < stores.size(); index++) {
-        // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->_get_disk_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
-            seventy_percent_index = index;
-        }
-        if (stores[index]->_get_disk_usage(0) > 0.85 &&
-            eighty_five_percent_index == stores.size()) {
-            eighty_five_percent_index = index;
-            break;
-        }
+    std::vector<SpillDataDir*> stores;
+    for (const auto& [store, _] : stores_with_usage) {
+        stores.emplace_back(store);
     }
-
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
-    if (seventy_percent_index != stores.size()) {
-        std::shuffle(stores.begin() + seventy_percent_index,
-                     stores.begin() + eighty_five_percent_index, g);
-    }
-    if (eighty_five_percent_index != stores.size()) {
-        std::shuffle(stores.begin() + eighty_five_percent_index, stores.end(), g);
-    }
-
     return stores;
 }
 
@@ -169,6 +168,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
     SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {
         std::string spill_root_dir = dir->get_spill_data_path();
+        // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id
         spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);

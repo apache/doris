@@ -84,14 +84,23 @@ class BroadcastPBlockHolderMemLimiter
 public:
     BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency)
+            : _total_queue_buffer_size_limit(config::exchg_node_buffer_size_bytes),
+              _total_queue_blocks_count_limit(config::num_broadcast_buffer) {
         _broadcast_dependency = broadcast_dependency;
+    }
+
+    void set_low_memory_mode() {
+        _total_queue_buffer_size_limit = 1024 * 1024;
+        _total_queue_blocks_count_limit = 8;
     }
 
     void acquire(BroadcastPBlockHolder& holder);
     void release(const BroadcastPBlockHolder& holder);
 
 private:
+    std::atomic_int64_t _total_queue_buffer_size_limit {0};
+    std::atomic_int64_t _total_queue_blocks_count_limit {0};
     std::atomic_int64_t _total_queue_buffer_size {0};
     std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
@@ -214,13 +223,13 @@ void transmit_blockv2(PBackendService_Stub& stub,
 #endif
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
-                       const std::vector<InstanceLoId>& sender_ins_ids);
-
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, PlanNodeId node_id,
+                       RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
 #ifdef BE_TEST
     ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
             : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
 #endif
+
     ~ExchangeSinkBuffer() override = default;
 
     void construct_request(TUniqueId);
@@ -239,6 +248,7 @@ public:
         _parents[sender_ins_id] = local_state;
     }
 
+    void set_low_memory_mode() { _queue_capacity = 8; }
     std::string debug_each_instance_queue_size();
 #ifdef BE_TEST
 public:
@@ -252,7 +262,7 @@ private:
     // store data in non-broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
-    size_t _queue_capacity;
+    std::atomic<size_t> _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
@@ -285,6 +295,8 @@ private:
     std::atomic<bool> _is_failed;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
+
+    PlanNodeId _node_id;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;

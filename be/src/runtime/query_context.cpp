@@ -23,16 +23,21 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <exception>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 #include "common/logging.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/heap_profiler.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -111,7 +116,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
         : _timeout_second(-1),
-          _query_id(query_id),
+          _query_id(std::move(query_id)),
           _exec_env(exec_env),
           _is_nereids(is_nereids),
           _query_options(query_options),
@@ -121,6 +126,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
+
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
 
@@ -146,27 +152,32 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
 void QueryContext::_init_query_mem_tracker() {
     bool has_query_mem_limit = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
-    int64_t _bytes_limit = has_query_mem_limit ? _query_options.mem_limit : -1;
-    if (_bytes_limit > MemInfo::mem_limit()) {
-        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(_bytes_limit, TUnit::BYTES)
+    int64_t bytes_limit = has_query_mem_limit ? _query_options.mem_limit : -1;
+    if (bytes_limit > MemInfo::mem_limit() || bytes_limit == -1) {
+        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
                     << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-                    << ". Using process memory limit instead";
-        _bytes_limit = MemInfo::mem_limit();
+                    << " OR is -1. Using process memory limit instead.";
+        bytes_limit = MemInfo::mem_limit();
+    }
+    // If the query is a pure load task(streamload, routine load, group commit), then it should not use
+    // memlimit per query to limit their memory usage.
+    if (is_pure_load_task()) {
+        bytes_limit = MemInfo::mem_limit();
     }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
     if (_query_options.query_type == TQueryType::SELECT) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
-                _bytes_limit);
+                bytes_limit);
     } else if (_query_options.query_type == TQueryType::LOAD) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
-                _bytes_limit);
+                bytes_limit);
     } else if (_query_options.query_type == TQueryType::EXTERNAL) { // spark/flink/etc..
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("External#Id={}", print_id(_query_id)),
-                _bytes_limit);
+                bytes_limit);
     } else {
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
@@ -174,6 +185,12 @@ void QueryContext::_init_query_mem_tracker() {
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
+
+    query_mem_tracker->set_enable_reserve_memory(_query_options.__isset.enable_reserve_memory &&
+                                                 _query_options.enable_reserve_memory);
+    _user_set_mem_limit = bytes_limit;
+    _adjusted_mem_limit = bytes_limit;
+
     _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
 }
 
@@ -273,9 +290,60 @@ void QueryContext::set_execution_dependency_ready() {
     _execution_dependency->set_ready();
 }
 
+void QueryContext::set_memory_sufficient(bool sufficient) {
+    if (sufficient) {
+        {
+            std::lock_guard l(_paused_mutex);
+            _paused_reason = Status::OK();
+            _paused_timer.stop();
+            _paused_period_secs += _paused_timer.elapsed_time() / (1000L * 1000L * 1000L);
+        }
+    } else {
+        _paused_timer.start();
+        ++_paused_count;
+    }
+
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+        fragment_ctx->set_memory_sufficient(sufficient);
+    }
+}
+
 void QueryContext::cancel(Status new_status, int fragment_id) {
     if (!_exec_status.update(new_status)) {
         return;
+    }
+    if ((new_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
+         new_status.is<ErrorCode::MEM_ALLOC_FAILED>()) &&
+        _query_options.__isset.dump_heap_profile_when_mem_limit_exceeded &&
+        _query_options.dump_heap_profile_when_mem_limit_exceeded) {
+        // if query is cancelled because of query mem limit exceeded, dump heap profile
+        // at the time of cancellation can get the most accurate memory usage for problem analysis
+        auto wg = workload_group();
+        auto log_str = fmt::format(
+                "Query {} canceled because of memory limit exceeded, dumping memory "
+                "detail profiles. wg: {}. {}",
+                print_id(_query_id), wg ? wg->debug_string() : "null",
+                doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str());
+        LOG_LONG_STRING(INFO, log_str);
+        std::string dot = HeapProfiler::instance()->dump_heap_profile_to_dot();
+        if (!dot.empty()) {
+            dot += "\n-------------------------------------------------------\n";
+            dot += "Copy the text after `digraph` in the above output to "
+                   "http://www.webgraphviz.com to generate a dot graph.\n"
+                   "after start heap profiler, if there is no operation, will print `No nodes "
+                   "to "
+                   "print`."
+                   "If there are many errors: `addr2line: Dwarf Error`,"
+                   "or other FAQ, reference doc: "
+                   "https://doris.apache.org/community/developer-guide/debug-tool/#4-qa\n";
+            auto log_str =
+                    fmt::format("Query {}, dump heap profile to dot: {}", print_id(_query_id), dot);
+            LOG_LONG_STRING(INFO, log_str);
+        }
     }
 
     set_ready_to_execute(new_status);
@@ -406,11 +474,139 @@ void QueryContext::_report_query_profile() {
     ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
 }
 
+void QueryContext::get_revocable_info(size_t* revocable_size, size_t* memory_usage,
+                                      bool* has_running_task) const {
+    *revocable_size = 0;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+
+        *revocable_size += fragment_ctx->get_revocable_size(has_running_task);
+
+        // Should wait for all tasks are not running before revoking memory.
+        if (*has_running_task) {
+            break;
+        }
+    }
+
+    *memory_usage = query_mem_tracker()->consumption();
+}
+
+size_t QueryContext::get_revocable_size() const {
+    size_t revocable_size = 0;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+
+        bool has_running_task = false;
+        revocable_size += fragment_ctx->get_revocable_size(&has_running_task);
+
+        // Should wait for all tasks are not running before revoking memory.
+        if (has_running_task) {
+            return 0;
+        }
+    }
+    return revocable_size;
+}
+
+Status QueryContext::revoke_memory() {
+    std::vector<std::pair<size_t, pipeline::PipelineTask*>> tasks;
+    std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> fragments;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+
+        auto tasks_of_fragment = fragment_ctx->get_revocable_tasks();
+        for (auto* task : tasks_of_fragment) {
+            tasks.emplace_back(task->get_revocable_size(), task);
+        }
+        fragments.emplace_back(std::move(fragment_ctx));
+    }
+
+    std::sort(tasks.begin(), tasks.end(), [](auto&& l, auto&& r) { return l.first > r.first; });
+
+    // Do not use memlimit, use current memory usage.
+    // For example, if current limit is 1.6G, but current used is 1G, if reserve failed
+    // should free 200MB memory, not 300MB
+    const auto target_revoking_size = (int64_t)(query_mem_tracker()->consumption() * 0.2);
+    size_t revoked_size = 0;
+    size_t total_revokable_size = 0;
+
+    std::vector<pipeline::PipelineTask*> chosen_tasks;
+    for (auto&& [revocable_size, task] : tasks) {
+        // Only revoke the largest task to ensure memory is used as much as possible
+        // break;
+        if (revoked_size < target_revoking_size) {
+            chosen_tasks.emplace_back(task);
+            revoked_size += revocable_size;
+        }
+        total_revokable_size += revocable_size;
+    }
+
+    std::weak_ptr<QueryContext> this_ctx = shared_from_this();
+    auto spill_context = std::make_shared<pipeline::SpillContext>(
+            chosen_tasks.size(), _query_id, [this_ctx](pipeline::SpillContext* context) {
+                auto query_context = this_ctx.lock();
+                if (!query_context) {
+                    return;
+                }
+
+                LOG(INFO) << query_context->debug_string() << ", context: " << ((void*)context)
+                          << " all spill tasks done, resume it.";
+                query_context->set_memory_sufficient(true);
+            });
+
+    LOG(INFO) << fmt::format(
+            "{}, spill context: {}, revokable mem: {}/{}, tasks count: {}/{}", this->debug_string(),
+            ((void*)spill_context.get()), PrettyPrinter::print_bytes(revoked_size),
+            PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(), tasks.size());
+
+    for (auto* task : chosen_tasks) {
+        RETURN_IF_ERROR(task->revoke_memory(spill_context));
+    }
+    return Status::OK();
+}
+
+void QueryContext::decrease_revoking_tasks_count() {
+    _revoking_tasks_count.fetch_sub(1);
+}
+
+std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
+    std::vector<pipeline::PipelineTask*> tasks;
+    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
+        auto fragment_ctx = fragment_wptr.lock();
+        if (!fragment_ctx) {
+            continue;
+        }
+        auto tasks_of_fragment = fragment_ctx->get_revocable_tasks();
+        tasks.insert(tasks.end(), tasks_of_fragment.cbegin(), tasks_of_fragment.cend());
+    }
+    return tasks;
+}
+
+std::string QueryContext::debug_string() {
+    std::lock_guard l(_paused_mutex);
+    return fmt::format(
+            "QueryId={}, Memory [Used={}, Limit={}, Peak={}], Spill[RunningSpillTaskCnt={}, "
+            "TotalPausedPeriodSecs={}, LatestPausedReason={}]",
+            print_id(_query_id),
+            PrettyPrinter::print(query_mem_tracker()->consumption(), TUnit::BYTES),
+            PrettyPrinter::print(query_mem_tracker()->limit(), TUnit::BYTES),
+            PrettyPrinter::print(query_mem_tracker()->peak_consumption(), TUnit::BYTES),
+            _revoking_tasks_count, _paused_period_secs, _paused_reason.to_string());
+}
+
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
 QueryContext::_collect_realtime_query_profile() const {
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> res;
 
-    for (auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
+    for (const auto& [fragment_id, fragment_ctx_wptr] : _fragment_id_to_pipeline_ctx) {
         if (auto fragment_ctx = fragment_ctx_wptr.lock()) {
             if (fragment_ctx == nullptr) {
                 std::string msg =

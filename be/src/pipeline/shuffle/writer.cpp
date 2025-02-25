@@ -43,10 +43,6 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
         return Status::OK();
     }
     auto rows = block->rows();
-    int64_t old_channel_mem_usage = 0;
-    for (const auto& channel : local_state->channels) {
-        old_channel_mem_usage += channel->mem_usage();
-    }
     {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
         const auto& channel_filed = local_state->partitioner()->get_channel_ids();
@@ -60,12 +56,6 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
                                               channel_filed.get<int64_t>(), rows, block, eos));
         }
     }
-    int64_t new_channel_mem_usage = 0;
-    for (const auto& channel : local_state->channels) {
-        new_channel_mem_usage += channel->mem_usage();
-    }
-    COUNTER_UPDATE(local_state->memory_used_counter(),
-                   new_channel_mem_usage - old_channel_mem_usage);
     return Status::OK();
 }
 
@@ -90,14 +80,6 @@ Status Writer::_channel_add_rows(RuntimeState* state,
             partition_rows_histogram[channel_ids[i] + 1]--;
         }
     }
-#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
-    do {                                                 \
-        if (status.is<ErrorCode::END_OF_FILE>()) {       \
-            _handle_eof_channel(state, channel, status); \
-        } else {                                         \
-            RETURN_IF_ERROR(status);                     \
-        }                                                \
-    } while (0)
     Status status = Status::OK();
     for (size_t i = 0; i < partition_count; ++i) {
         uint32_t start = partition_rows_histogram[i + 1];

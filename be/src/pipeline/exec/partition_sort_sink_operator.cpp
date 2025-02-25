@@ -187,6 +187,19 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
     return Status::OK();
 }
 
+size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    auto rows = state->batch_size();
+    size_t reserve_mem_size = std::visit(
+            vectorized::Overload {[&](std::monostate&) -> size_t { return 0; },
+                                  [&](auto& agg_method) -> size_t {
+                                      return agg_method.hash_table->estimate_memory(rows);
+                                  }},
+            local_state._partitioned_data->method_variant);
+    reserve_mem_size += rows * sizeof(size_t); // hash values
+    return reserve_mem_size;
+}
+
 Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
         const vectorized::ColumnRawPtrs& key_columns, vectorized::Block* input_block,
         PartitionSortSinkLocalState& local_state, bool eos) {

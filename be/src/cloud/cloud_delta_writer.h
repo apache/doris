@@ -33,7 +33,7 @@ public:
                      const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) override;
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
 
     Status close() override;
 

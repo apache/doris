@@ -23,7 +23,7 @@ namespace doris {
 
 void WorkloadActionCancelQuery::exec(WorkloadAction::RuntimeContext* action_runtime_ctx) {
     std::stringstream msg;
-    msg << "query " << print_id(action_runtime_ctx->resource_ctx->task_controller()->task_id())
+    msg << "Query " << print_id(action_runtime_ctx->resource_ctx->task_controller()->task_id())
         << " cancelled by workload policy: " << action_runtime_ctx->policy_name
         << ", id:" << action_runtime_ctx->policy_id << ", " << action_runtime_ctx->cond_eval_msg;
     std::string msg_str = msg.str();

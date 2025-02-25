@@ -42,38 +42,28 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status initiate_merge_spill_partition_agg_data(RuntimeState* state);
+    Status recover_blocks_from_disk(RuntimeState* state, bool& has_data);
     Status setup_in_memory_agg_op(RuntimeState* state);
 
+    template <bool spilled>
     void update_profile(RuntimeProfile* child_profile);
 
 protected:
-    void _init_counters();
-
     friend class PartitionedAggSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 
     bool _opened = false;
-    Status _status;
     std::unique_ptr<std::promise<Status>> _spill_merge_promise;
     std::future<Status> _spill_merge_future;
     bool _current_partition_eos = true;
-    bool _is_merging = false;
+    bool _need_to_merge_data_for_current_partition = true;
+
+    std::shared_ptr<Dependency> _spill_dependency;
+    std::vector<vectorized::Block> _blocks;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
-    RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
 };
+
 class AggSourceOperatorX;
 class PartitionedAggSourceOperatorX : public OperatorX<PartitionedAggLocalState> {
 public:

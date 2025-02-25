@@ -19,6 +19,7 @@ package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.thrift.TWgSlotMemoryPolicy;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -86,5 +87,24 @@ public class WorkloadGroupTest {
         group1.getProcNodeData(result, null);
         List<List<String>> rows = result.getRows();
         Assert.assertEquals(1, rows.size());
+    }
+
+    @Test
+    public void testPolicyToString() {
+        TWgSlotMemoryPolicy p1 = WorkloadGroup.findSlotPolicyValueByString("fixed");
+        Assert.assertEquals(p1, TWgSlotMemoryPolicy.FIXED);
+        TWgSlotMemoryPolicy p2 = WorkloadGroup.findSlotPolicyValueByString("dynamic");
+        Assert.assertEquals(p2, TWgSlotMemoryPolicy.DYNAMIC);
+        TWgSlotMemoryPolicy p3 = WorkloadGroup.findSlotPolicyValueByString("none");
+        Assert.assertEquals(p3, TWgSlotMemoryPolicy.NONE);
+        TWgSlotMemoryPolicy p4 = WorkloadGroup.findSlotPolicyValueByString("none");
+        Assert.assertEquals(p4, TWgSlotMemoryPolicy.NONE);
+        boolean hasException = false;
+        try {
+            WorkloadGroup.findSlotPolicyValueByString("disableDa");
+        } catch (RuntimeException e) {
+            hasException = true;
+        }
+        Assert.assertEquals(hasException, true);
     }
 }

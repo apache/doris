@@ -68,8 +68,19 @@ std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
 
 void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
     DCHECK(block->rows() == 0);
-    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
-    _free_blocks[child_idx].emplace_back(std::move(block));
+
+    if (!_is_low_memory_mode) {
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
+        _free_blocks[child_idx].emplace_back(std::move(block));
+    }
+}
+
+void DataQueue::clear_free_blocks() {
+    for (size_t child_idx = 0; child_idx < _free_blocks.size(); ++child_idx) {
+        std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
+        std::deque<std::unique_ptr<vectorized::Block>> tmp_queue;
+        _free_blocks[child_idx].swap(tmp_queue);
+    }
 }
 
 //check which queue have data, and save the idx in _flag_queue_idx,

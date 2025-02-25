@@ -74,7 +74,7 @@ size_t ColumnDecimal<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows,
                                      size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
@@ -83,7 +83,7 @@ void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_ro
 }
 
 template <typename T>
-void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnDecimal<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                                    const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
@@ -111,7 +111,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
 }
 
 template <typename T>
-void ColumnDecimal<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnDecimal<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
         keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
         keys[i].size -= sizeof(T);
@@ -119,8 +119,7 @@ void ColumnDecimal<T>::deserialize_vec(std::vector<StringRef>& keys, const size_
 }
 
 template <typename T>
-void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                     const size_t num_rows,
+void ColumnDecimal<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                      const uint8_t* null_map) {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {

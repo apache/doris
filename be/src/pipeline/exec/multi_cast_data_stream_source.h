@@ -37,11 +37,12 @@ namespace pipeline {
 class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
-class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState>,
-                                                  public RuntimeFilterConsumer {
+class MultiCastDataStreamSourceLocalState final
+        : public PipelineXSpillLocalState<MultiCastSharedState>,
+          public RuntimeFilterConsumer {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
-    using Base = PipelineXLocalState<MultiCastSharedState>;
+    using Base = PipelineXSpillLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamerSourceOperatorX;
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
@@ -61,6 +62,8 @@ public:
         }
         return res;
     }
+
+    std::vector<Dependency*> dependencies() const override;
 
 private:
     friend class MultiCastDataStreamerSourceOperatorX;

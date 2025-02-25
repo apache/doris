@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -30,9 +30,11 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
+#include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "task_queue.h"
 #include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class ExecEnv;
@@ -44,10 +46,7 @@ namespace doris::pipeline {
 class TaskScheduler {
 public:
     TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : _task_queue(core_num),
-              _shutdown(false),
-              _name(std::move(name)),
-              _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+            : _task_queue(core_num), _name(std::move(name)), _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
 
     ~TaskScheduler();
 
@@ -61,9 +60,10 @@ public:
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
+
     MultiCoreTaskQueue _task_queue;
-    std::vector<bool> _markers;
-    bool _shutdown;
+    bool _need_to_stop = false;
+    bool _shutdown = false;
     std::string _name;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
 

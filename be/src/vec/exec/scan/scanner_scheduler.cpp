@@ -31,9 +31,11 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/tablet.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
@@ -175,6 +177,32 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
     return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
+void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
+                                   const Status& st, size_t reserve_size) {
+    ctx->clear_free_blocks();
+    auto* pipeline_task = state->get_task();
+    auto* local_state = ctx->local_state();
+
+    pipeline_task->inc_memory_reserve_failed_times();
+    auto debug_msg = fmt::format(
+            "Query: {} , scanner try to reserve: {}, operator name {}, "
+            "operator "
+            "id: {}, "
+            "task id: "
+            "{}, revocable mem size: {}, failed: {}",
+            print_id(state->query_id()), PrettyPrinter::print_bytes(reserve_size),
+            local_state->get_name(), local_state->parent()->node_id(), state->task_id(),
+            PrettyPrinter::print_bytes(pipeline_task->sink()->revocable_mem_size(state)),
+            st.to_string());
+    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+    if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
+        debug_msg += fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
+    }
+    VLOG_DEBUG << debug_msg;
+
+    state->get_query_ctx()->set_low_memory_mode();
+}
+
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
     auto task_lock = ctx->task_exec_ctx();
@@ -212,6 +240,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     bool eos = false;
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
+            // scanner->open may alloc plenty amount of memory(read blocks of data),
+            // so better to also check low memory and clear free blocks here.
+            if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
+
             if (!scanner->is_init()) {
                 status = scanner->init();
                 if (!status.ok()) {
@@ -234,8 +266,23 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            size_t raw_bytes_read = 0; bool first_read = true; int64_t limit = scanner->limit();
-            while (!eos && raw_bytes_read < raw_bytes_threshold) {
+            if (ctx->low_memory_mode()) {
+                ctx->clear_free_blocks();
+                if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
+                    raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+                }
+            }
+
+            size_t raw_bytes_read = 0;
+            bool first_read = true; int64_t limit = scanner->limit();
+            // If the first block is full, then it is true. Or the first block + second block > batch_size
+            bool has_first_full_block = false;
+
+            // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
+            while (!eos && raw_bytes_read < raw_bytes_threshold &&
+                   !(ctx->low_memory_mode() && has_first_full_block) &&
+                   !(has_first_full_block &&
+                     doris::thread_context()->thread_mem_tracker()->limit_exceeded())) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;
@@ -244,7 +291,21 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     config::doris_scanner_max_run_time_ms * 1e6) {
                     break;
                 }
-                BlockUPtr free_block = ctx->get_free_block(first_read);
+                DEFER_RELEASE_RESERVED();
+                BlockUPtr free_block;
+                if (first_read) {
+                    free_block = ctx->get_free_block(first_read);
+                } else {
+                    if (state->get_query_ctx()->enable_reserve_memory()) {
+                        size_t block_avg_bytes = scanner->get_block_avg_bytes();
+                        auto st = thread_context()->try_reserve_memory(block_avg_bytes);
+                        if (!st.ok()) {
+                            handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
+                            break;
+                        }
+                    }
+                    free_block = ctx->get_free_block(first_read);
+                }
                 if (free_block == nullptr) {
                     break;
                 }
@@ -279,9 +340,13 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
                                          block_size);
                 } else {
+                    if (!scan_task->cached_blocks.empty()) {
+                        has_first_full_block = true;
+                    }
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
+
                 if (limit > 0 && limit < ctx->batch_size()) {
                     // If this scanner has limit, and less than batch size,
                     // return immediately and no need to wait raw_bytes_threshold.
@@ -292,6 +357,20 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     // If limit is larger than batch size, this rule is skipped,
                     // to avoid user specify a large limit and causing too much small blocks.
                     break;
+                }
+
+                if (scan_task->cached_blocks.back().first->rows() > 0) {
+                    auto block_avg_bytes = (scan_task->cached_blocks.back().first->bytes() +
+                                            scan_task->cached_blocks.back().first->rows() - 1) /
+                                           scan_task->cached_blocks.back().first->rows() *
+                                           ctx->batch_size();
+                    scanner->update_block_avg_bytes(block_avg_bytes);
+                }
+                if (ctx->low_memory_mode()) {
+                    ctx->clear_free_blocks();
+                    if (raw_bytes_threshold > ctx->low_memory_mode_scan_bytes_per_scanner()) {
+                        raw_bytes_threshold = ctx->low_memory_mode_scan_bytes_per_scanner();
+                    }
                 }
             } // end for while
 

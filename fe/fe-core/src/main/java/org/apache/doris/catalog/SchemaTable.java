@@ -451,6 +451,7 @@ public class SchemaTable extends Table {
                     new SchemaTable(SystemIdGenerator.getNextId(), "backend_active_tasks", TableType.SCHEMA,
                             builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("FE_HOST", ScalarType.createVarchar(256))
+                                    .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("QUERY_ID", ScalarType.createVarchar(256))
                                     .column("TASK_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TASK_CPU_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
@@ -461,6 +462,10 @@ public class SchemaTable extends Table {
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("QUERY_TYPE",  ScalarType.createVarchar(256))
+                                    .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
             .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
                     builder().column("QUERY_ID", ScalarType.createVarchar(256))
@@ -556,6 +561,7 @@ public class SchemaTable extends Table {
                                     .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("WRITE_BUFFER_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("file_cache_statistics",

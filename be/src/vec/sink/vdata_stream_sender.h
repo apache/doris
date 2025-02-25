@@ -82,22 +82,28 @@ public:
     Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
                                  bool eos, const uint32_t* data = nullptr,
                                  const uint32_t offset = 0, const uint32_t size = 0);
-    Status serialize_block(PBlock* dest, size_t num_receivers = 1);
     Status serialize_block(const Block* src, PBlock* dest, size_t num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
+
+    size_t mem_usage() const { return _mutable_block ? _mutable_block->allocated_bytes() : 0; }
 
     void reset_block() { _mutable_block.reset(); }
 
     void set_is_local(bool is_local) { _is_local = is_local; }
     bool is_local() const { return _is_local; }
 
+    void set_low_memory_mode(RuntimeState* state) { _buffer_mem_limit = 4 * 1024 * 1024; }
+
 private:
+    Status _serialize_block(PBlock* dest, size_t num_receivers = 1);
+
     pipeline::ExchangeSinkLocalState* _parent;
     std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _is_local;
     const int _batch_size;
+    std::atomic<size_t> _buffer_mem_limit = UINT64_MAX;
 };
 
 class Channel {
@@ -153,23 +159,7 @@ public:
                                               bool eos = false);
 
     Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
-                    bool eos) {
-        if (_fragment_instance_id.lo == -1) {
-            return Status::OK();
-        }
-
-        bool serialized = false;
-        if (_pblock == nullptr) {
-            _pblock = std::make_unique<PBlock>();
-        }
-        RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
-                                                          data, offset, size));
-        if (serialized) {
-            RETURN_IF_ERROR(_send_current_block(eos));
-        }
-
-        return Status::OK();
-    }
+                    bool eos);
 
     void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 
@@ -188,7 +178,9 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
 
-protected:
+    void set_low_memory_mode(RuntimeState* state) { _serializer.set_low_memory_mode(state); }
+
+private:
     Status _send_local_block(bool eos);
     Status _send_current_block(bool eos);
 
@@ -213,7 +205,6 @@ protected:
 
     TNetworkAddress _brpc_dest_addr;
 
-    PBlock _pb_block;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;

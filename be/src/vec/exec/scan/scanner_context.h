@@ -129,7 +129,10 @@ public:
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
+    void clear_free_blocks();
     inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
+
+    int64_t block_memory_usage() { return _block_memory_usage; }
 
     // Caller should make sure the pipeline task is still running when calling this function
     void update_peak_running_scanner(int num);
@@ -161,6 +164,19 @@ public:
     void stop_scanners(RuntimeState* state);
 
     int batch_size() const { return _batch_size; }
+
+    // During low memory mode, there will be at most 4 scanners running and every scanner will
+    // cache at most 1MB data. So that every instance will keep 8MB buffer.
+    bool low_memory_mode() const;
+
+    // TODO(yiguolei) add this as session variable
+    int32_t low_memory_mode_scan_bytes_per_scanner() const {
+        return 1 * 1024 * 1024; // 1MB
+    }
+
+    int32_t low_memory_mode_scanners() const { return 4; }
+
+    pipeline::ScanLocalStateBase* local_state() const { return _local_state; }
 
     // the unique id of this context
     std::string ctx_id;
@@ -210,7 +226,7 @@ protected:
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
     std::stack<std::weak_ptr<ScannerDelegate>> _pending_scanners;
     // Scanner that is submitted to the scheduler.
-    int32_t _num_scheduled_scanners = 0;
+    std::atomic_int _num_scheduled_scanners = 0;
     // Scanner that is eos or error.
     int32_t _num_finished_scanners = 0;
     // weak pointer for _scanners, used in stop function

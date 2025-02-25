@@ -104,7 +104,7 @@ std::string CacheSourceLocalState::debug_string(int indentation_level) const {
     if (_shared_state) {
         fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
                        _shared_state->data_queue.is_all_finish(),
-                       _shared_state->data_queue.remaining_has_data());
+                       _shared_state->data_queue.has_more_data());
     }
     return fmt::to_string(debug_string_buffer);
 }
