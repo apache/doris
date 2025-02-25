@@ -165,4 +165,27 @@ public class MetricsTest {
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_database_num\""));
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_table_num\""));
     }
+
+    @Test
+    public void testMTMVMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_failed_num counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_success_num counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_pending_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_skip_num counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_running_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_num gauge"));
+        Assert.assertTrue(
+                metricResult.contains("# TYPE doris_fe_async_materialized_view_task_duration_latency_ms summary"));
+    }
 }
