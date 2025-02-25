@@ -2,15 +2,15 @@
 -- !1 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[t1.app_name]
 ------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.maxId)) otherCondition=() build RFs:RF0 maxId->[id]
---------PhysicalProject
+--------PhysicalProject[t1.app_name, t1.id]
 ----------PhysicalOlapScan[t1] apply RFs: RF0
---------PhysicalProject
+--------PhysicalProject[t2.maxId]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[t1.app_name, t1.id]
 ------------------filter((t1.id < 100))
 --------------------PhysicalOlapScan[t1]
 

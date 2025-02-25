@@ -7,12 +7,12 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject
+--------------PhysicalProject[orders.o_orderpriority]
 ----------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF0 o_orderkey->[l_orderkey]
-------------------PhysicalProject
+------------------PhysicalProject[lineitem.l_orderkey]
 --------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate))
 ----------------------PhysicalOlapScan[lineitem] apply RFs: RF0
-------------------PhysicalProject
+------------------PhysicalProject[orders.o_orderkey, orders.o_orderpriority]
 --------------------filter((orders.o_orderdate < '1993-10-01') and (orders.o_orderdate >= '1993-07-01'))
 ----------------------PhysicalOlapScan[orders]
 

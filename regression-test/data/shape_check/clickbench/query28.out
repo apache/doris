@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject
+----------------PhysicalProject[hits.CounterID, length(URL) AS `length(URL)`]
 ------------------filter(( not (URL = '')))
 --------------------PhysicalOlapScan[hits]
 

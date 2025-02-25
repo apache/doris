@@ -4,7 +4,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[1 AS `1`]
 ----------filter(( not (AdvEngineID = 0)))
 ------------PhysicalOlapScan[hits]
 

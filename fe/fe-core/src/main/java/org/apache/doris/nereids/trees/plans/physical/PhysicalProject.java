@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical project plan.
@@ -98,6 +99,17 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "stats", statistics, "projects", projects, "multi_proj", cse.toString()
         );
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(getClass().getSimpleName());
+        // the internal project list's order may be unstable, especial for join tables,
+        // so sort the projects to make it stable
+        builder.append(projects.stream().map(Expression::shapeInfo).sorted()
+                .collect(Collectors.joining(", ", "[", "]")));
+        return builder.toString();
     }
 
     @Override

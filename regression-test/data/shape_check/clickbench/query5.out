@@ -6,6 +6,6 @@ PhysicalResultSink
 ------hashAgg[DISTINCT_LOCAL]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalProject
+------------PhysicalProject[hits.UserID]
 --------------PhysicalOlapScan[hits]
 

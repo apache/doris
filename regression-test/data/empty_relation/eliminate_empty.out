@@ -11,7 +11,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[n_nationkey AS `n_nationkey`]
 --------PhysicalOlapScan[nation]
 
 -- !union_empty_data --
@@ -37,9 +37,9 @@ PhysicalResultSink
 -- !explain_except_data_empty --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[n_nationkey AS `n_nationkey`]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[nation.n_nationkey]
 ----------PhysicalOlapScan[nation]
 
 -- !explain_except_data_empty_data --
@@ -47,10 +47,10 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
+--------PhysicalProject[nation.n_nationkey]
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
+--------PhysicalProject[nation.n_nationkey]
 ----------filter(( not (n_nationkey = 1)))
 ------------PhysicalOlapScan[nation]
 
@@ -78,7 +78,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashAgg[LOCAL]
-------PhysicalProject
+------PhysicalProject[n_nationkey AS `n_nationkey`]
 --------PhysicalOlapScan[nation]
 
 -- !null_union_empty_data --
@@ -104,9 +104,9 @@ PhysicalResultSink
 -- !null_explain_except_data_empty --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[n_nationkey AS `n_nationkey`]
 ------hashAgg[LOCAL]
---------PhysicalProject
+--------PhysicalProject[nation.n_nationkey]
 ----------PhysicalOlapScan[nation]
 
 -- !null_explain_except_data_empty_data --
@@ -114,10 +114,10 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
+--------PhysicalProject[nation.n_nationkey]
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
+--------PhysicalProject[nation.n_nationkey]
 ----------filter(( not (n_nationkey = 1)))
 ------------PhysicalOlapScan[nation]
 

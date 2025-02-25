@@ -2,7 +2,7 @@
 -- !ckbench_shape_20 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
+----PhysicalProject[hits.UserID]
 ------filter((hits.UserID = 435090932899640449))
 --------PhysicalOlapScan[hits]
 
