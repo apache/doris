@@ -121,8 +121,6 @@ public:
 
     [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
 
-    void set_memory_sufficient(bool sufficient);
-
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
@@ -138,6 +136,11 @@ public:
     }
 
     void clear_finished_tasks() {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                _tasks[j][i]->set_wake_up_early();
+            }
+        }
         for (size_t j = 0; j < _tasks.size(); j++) {
             for (size_t i = 0; i < _tasks[j].size(); i++) {
                 _tasks[j][i]->stop_if_finished();
