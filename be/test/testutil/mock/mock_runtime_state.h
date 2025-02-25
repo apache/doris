@@ -42,7 +42,7 @@ public:
     int batsh_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
-    std::unique_ptr<MockQueryContext> _query_ctx_uptr = std::make_unique<MockQueryContext>();
+    std::shared_ptr<MockQueryContext> _query_ctx_uptr = std::make_shared<MockQueryContext>();
 };
 
 } // namespace doris
