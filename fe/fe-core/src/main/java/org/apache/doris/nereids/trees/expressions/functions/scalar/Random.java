@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -113,7 +114,14 @@ public class Random extends ScalarFunction
      */
     @Override
     public Random withChildren(List<Expression> children) {
-        ExprId newExprId = children().equals(children) ? exprId : StatementScopeIdGenerator.newExprId();
+        ExprId newExprId = exprId;
+        List<Expression> myChildren = this.children();
+        if (myChildren.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && children.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && !children.equals(myChildren)) {
+            newExprId = StatementScopeIdGenerator.newExprId();
+        }
+
         if (children.isEmpty()) {
             return new Random(newExprId);
         } else if (children.size() == 1) {
