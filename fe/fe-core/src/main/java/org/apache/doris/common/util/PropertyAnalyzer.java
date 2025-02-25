@@ -243,6 +243,7 @@ public class PropertyAnalyzer {
         String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
+        boolean isBeingSynced = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -268,6 +269,8 @@ public class PropertyAnalyzer {
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 hasStoragePolicy = true;
                 newStoragePolicy = value;
+            } else if (key.equalsIgnoreCase(PROPERTIES_IS_BEING_SYNCED)) {
+                isBeingSynced = Boolean.parseBoolean(value);
             }
         } // end for properties
 
@@ -294,6 +297,12 @@ public class PropertyAnalyzer {
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        }
+
+        // when isBeingSynced property is set to true, the storage policy will be ignored
+        if (isBeingSynced) {
+            hasStoragePolicy = false;
+            newStoragePolicy = "";
         }
 
         if (hasStoragePolicy && !"".equals(newStoragePolicy)) {
