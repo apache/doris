@@ -861,7 +861,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
     if (params.local_params[0].__isset.runtime_filter_params &&
-        params.local_params[0].runtime_filter_params.rid_to_runtime_filter.size() > 0) {
+        !params.local_params[0].runtime_filter_params.rid_to_runtime_filter.empty()) {
         auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
                 RuntimeFilterParamsContext::create(context->get_runtime_state()));
         RETURN_IF_ERROR(handler->init(params.query_id, params.local_params[0].runtime_filter_params,
@@ -1299,13 +1299,11 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
                 runtime_filter_mgr->get_consume_filters(request->filter_id());
 
-        // 2. create the filter wrapper to replace or ignore the target filters
+        // 2. create the filter wrapper to replace or ignore/disable the target filters
         if (!filters.empty()) {
             RETURN_IF_ERROR(filters[0]->assign(*request, attach_data));
             std::ranges::for_each(filters, [&](auto& filter) { filter->signal(filters[0].get()); });
         }
-    } else {
-        // all instance finished
     }
     return Status::OK();
 }
