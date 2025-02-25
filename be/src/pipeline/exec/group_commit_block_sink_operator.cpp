@@ -355,7 +355,9 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 local_state._has_filtered_rows = true;
                 state->update_num_rows_load_filtered(1);
                 state->update_num_rows_load_total(-1);
-                RETURN_IF_ERROR(state->append_error_msg_to_file(
+                // meiyi: we should ignore this error in group commit,
+                // as errors should no longer occur after the first 20,000 rows.
+                static_cast<void>(state->append_error_msg_to_file(
                         []() -> std::string { return ""; },
                         [&]() -> std::string {
                             fmt::memory_buffer buf;
