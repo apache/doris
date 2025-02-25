@@ -192,8 +192,30 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
-        // don't generate uniform slot
-        // TODO: this need be supported later
+        if (groupingSets.isEmpty()) {
+            return;
+        }
+        Set<Expression> common = new HashSet<>(groupingSets.get(0));
+        for (List<Expression> groupingSet : groupingSets) {
+            common.retainAll(groupingSet);
+            if (common.isEmpty()) {
+                break;
+            }
+        }
+        DataTrait childFd = child().getLogicalProperties().getTrait();
+        for (Slot output : getOutput()) {
+            if (common.contains(output)) {
+                if (childFd.isUniformAndNotNull(output)) {
+                    builder.addUniformSlot(output, childFd.getUniformValue(output).get());
+                } else if (childFd.isUniform(output)) {
+                    builder.addUniformSlot(output);
+                }
+            } else {
+                if (childFd.isUniform(output)) {
+                    builder.addUniformSlot(output);
+                }
+            }
+        }
     }
 
     @Override
