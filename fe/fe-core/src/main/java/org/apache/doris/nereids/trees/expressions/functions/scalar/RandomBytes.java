@@ -113,9 +113,4 @@ public class RandomBytes extends ScalarFunction
         // direct return exprId to speed up
         return exprId.asInt();
     }
-
-    @Override
-    public int fastChildrenHashCode() {
-        return exprId.asInt();
-    }
 }
