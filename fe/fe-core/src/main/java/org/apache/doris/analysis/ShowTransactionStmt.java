@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TransProcDir;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -77,9 +78,9 @@ public class ShowTransactionStmt extends ShowStmt implements NotFallbackInParser
         super.analyze(analyzer);
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,Strings.isNullOrEmpty(dbName)?analyzer.getDefaultDb():dbName,PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ADMIN.getPrivs().toString());
+                PrivPredicate.LOAD.getPrivs().toString());
         }
 
         if (Strings.isNullOrEmpty(dbName)) {
