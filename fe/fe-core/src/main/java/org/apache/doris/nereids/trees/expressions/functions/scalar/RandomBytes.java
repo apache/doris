@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -64,7 +65,13 @@ public class RandomBytes extends ScalarFunction
     @Override
     public RandomBytes withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        ExprId newExprId = children().equals(children) ? exprId : StatementScopeIdGenerator.newExprId();
+        ExprId newExprId = exprId;
+        List<Expression> myChildren = this.children();
+        if (children.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && myChildren.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && !children.equals(myChildren)) {
+            newExprId = StatementScopeIdGenerator.newExprId();
+        }
         return new RandomBytes(newExprId, children.get(0));
     }
 
