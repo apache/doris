@@ -23,7 +23,7 @@
 #include "vec/common/allocator_fwd.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 constexpr int64_t kDefaultBufferAlignment = 64;
 static constexpr int64_t kDebugXorSuffix = -0x181fe80e0b464188LL;
 #ifndef NDEBUG
@@ -195,5 +195,6 @@ protected:
     ArrowMemoryPoolStats _stats;
     Allocator _allocator;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
