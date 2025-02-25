@@ -505,6 +505,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
     _is_auto_increment = column.is_auto_increment();
+    if (column.has_is_on_update_current_timestamp()) {
+        _is_on_update_current_timestamp = column.is_on_update_current_timestamp();
+    }
 
     _has_default_value = column.has_default_value();
     if (_has_default_value) {
@@ -601,6 +604,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
     column->set_is_nullable(_is_nullable);
+    column->set_is_auto_increment(_is_auto_increment);
+    column->set_is_on_update_current_timestamp(_is_on_update_current_timestamp);
     if (_has_default_value) {
         column->set_default_value(_default_value);
     }

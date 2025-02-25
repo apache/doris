@@ -213,8 +213,7 @@ public:
 
     static Status generate_new_block_for_flexible_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
-            std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
-            const FixedReadPlan& read_plan_update,
+            const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
 

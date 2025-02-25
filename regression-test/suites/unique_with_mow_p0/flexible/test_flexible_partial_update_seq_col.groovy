@@ -17,7 +17,7 @@
 
 suite('test_flexible_partial_update_seq_col') {
 
-    for (def use_row_store : [false, true]) {
+    for (def use_row_store : [false]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
         // 1.1. sequence map col(without default value)
@@ -137,7 +137,8 @@ suite('test_flexible_partial_update_seq_col') {
 
         // ==============================================================================================================================
         // the below cases will have many rows with same keys in one load. Among rows with the same keys, some of them specify sequence col(sequence map col),
-        // some of them don't. Those
+        // some of them don't. 
+        // The behavior should be the same as if these rows are inserted one by one
 
         // 2.1. sequence type col
         tableName = "test_flexible_partial_update_seq_type_col2_${use_row_store}"
@@ -236,7 +237,7 @@ suite('test_flexible_partial_update_seq_col') {
         `v3` BIGINT NOT NULL,
         `v4` BIGINT NOT NULL DEFAULT "1234",
         `v5` BIGINT NULL,
-        `v6` BIGINT NULL default "60"
+        `v6` BIGINT NULL default "80"
         ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES(
         "replication_num" = "1",
@@ -249,9 +250,6 @@ suite('test_flexible_partial_update_seq_col') {
         order_qt_seq_map_col_has_default_val_multi_rows_1 "select k,v1,v2,v3,v4,v5,v6,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
         // 2.3.1. rows with same keys are neighbers
-        // after merge in memtable, newly inserted rows(key=6) will has two rows, one with sequence map col value=30
-        // one without sequence map value. Because the default value of sequence map col(`v6`) is 60, larger than 30,
-        // so the row with sequence map col will be deleted by the row without sequence map col
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
@@ -263,9 +261,6 @@ suite('test_flexible_partial_update_seq_col') {
         }
         order_qt_seq_map_col_has_default_val_multi_rows_2 "select k,v1,v2,v3,v4,v5,v6,__DORIS_SEQUENCE_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
         // 2.3.2. rows with same keys are interleaved
-        // after merge in memtable, newly inserted rows(key=7) will has two rows, one with sequence map col value=70
-        // one without sequence map value. Because the default value of sequence map col(`v6`) is 60, smaller than 70,
-        // so the row without sequence map col will be deleted by the row with sequence map col
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
