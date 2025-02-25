@@ -351,18 +351,18 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
 
         DataTypeSerDe::FormatOptions opt;
         auto tmp_str = ColumnString::create();
-        tmp_str->clear();
-        tmp_str->reserve(size);
         VectorBufferWriter tmp_buf(*tmp_str.get());
 
         for (size_t i = 0; i < size; i++) {
+            tmp_str->clear();
+            tmp_str->reserve(1);
             if (Status st = serde->serialize_one_cell_to_json(*column_data, i, tmp_buf, opt); !st) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                        "Failed to serialize data for " + column_data->get_name() +
                                                " error: " + st.to_string());
             }
             tmp_buf.commit();
-            write_string_binary(tmp_str->get_data_at(i), buf);
+            write_string_binary(tmp_str->get_data_at(0), buf);
         }
 
         write_var_int(max_size, buf);
