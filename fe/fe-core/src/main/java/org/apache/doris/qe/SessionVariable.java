@@ -1217,7 +1217,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
     private boolean enableSyncRuntimeFilterSize = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = false)
     private boolean enableParallelResultSink = false;
 
     @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
@@ -2382,7 +2382,6 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
-        this.enableParallelResultSink = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
