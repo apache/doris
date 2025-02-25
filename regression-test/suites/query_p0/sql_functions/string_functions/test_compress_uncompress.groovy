@@ -136,4 +136,24 @@ suite("test_compress_uncompress") {
             UNCOMPRESS(COMPRESS('12345')) AS decompressed_data
         LIMIT 1;
     """
+
+	// Test 12: Multiple COMPRESS calls that COMPRESS the text_col field multiple times directly from the table
+    order_qt_compress_multiple_calls_from_table """
+        SELECT
+            k0,
+            COMPRESS(text_col) AS comp1,
+            binary_col AS comp2
+        FROM test_compression
+        ORDER BY k0;
+    """
+
+	// Test 13: multiple COMPRESS and UNCOMPRESS calls
+    order_qt_compress_uncompress_multiple_calls_from_table """
+        SELECT
+            k0,
+            text_col AS result1,
+            UNCOMPRESS(binary_col) AS result2
+        FROM test_compression
+        ORDER BY k0;
+    """
 }
