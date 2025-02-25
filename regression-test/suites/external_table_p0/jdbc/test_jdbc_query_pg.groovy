@@ -489,8 +489,9 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
             );
         """
         order_qt_sql38 """ SELECT count(*) FROM ${dorisExTable1} WHERE id IN (SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 111); """
-        sql """ create view if not exists aview as select k7, k8 from $jdbcPg14Table1; """
-        order_qt_sql39 """ SELECT * FROM aview a JOIN aview b on a.k8 = b.k8 order by a.k8 desc limit 5 """
+        sql """ drop view if exists aview_pg """
+        sql """ create view if not exists aview_pg as select k7, k8 from $jdbcPg14Table1; """
+        order_qt_sql39 """ SELECT * FROM aview_pg a JOIN aview_pg b on a.k8 = b.k8 order by a.k8 desc limit 5 """
         order_qt_sql42 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 8 = 0) l JOIN ${dorisExTable1} o ON l.k8 = o.id """
         order_qt_sql43 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 8 = 0) l LEFT JOIN ${dorisExTable1} o ON l.k8 = o.id order by k8 limit 5"""
         order_qt_sql44 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 8 = 0) l RIGHT JOIN ${dorisExTable1} o ON l.k8 = o.id"""
