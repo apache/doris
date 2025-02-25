@@ -75,4 +75,14 @@ suite("test_slow_close") {
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("Pipeline::make_all_runnable.sleep")
     }
+
+    sql "set ignore_runtime_filter_ids='0';"
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("PipelineTask::execute.open_sleep",[pipeline_id: 4, task_id: 7])
+        GetDebugPoint().enableDebugPointForAllBEs("PipelineTask::execute.sink_eos_sleep",[pipeline_id: 4, task_id: 15])
+        qt_sql "select count(*),sleep(2) from (select t1.k1 from t5 join [broadcast] t1 on t1.k1=t5.k1) tmp join [broadcast] t3 join t3 t3s [broadcast] on tmp.k1=t3.k1 and t3s.k1=t3.k1 where t3.k2=5;"
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("PipelineTask::execute.open_sleep")
+        GetDebugPoint().disableDebugPointForAllBEs("PipelineTask::execute.sink_eos_sleep")
+    }
 }
