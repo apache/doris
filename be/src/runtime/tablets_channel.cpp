@@ -371,8 +371,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // 5. commit all writers
 
     for (auto* writer : need_wait_writers) {
-        PSlaveTabletNodes slave_nodes;
-
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
         _commit_txn(writer, req, res);
@@ -390,6 +388,10 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
             std::set<DeltaWriter*>::iterator it;
             for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
                 bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
+                LOG(INFO) << "TabletsChannel::close: check_slave_replicas_done "
+                          << ", txn_id " << (*it)->txn_id() << ", partition_id "
+                          << (*it)->partition_id() << ", tablet_id " << (*it)->tablet_id()
+                          << ", is_done " << is_done;
                 if (is_done) {
                     need_wait_writers.erase(it++);
                 } else {
@@ -409,9 +411,15 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
 void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
                                  PTabletWriterAddBlockResult* res) {
-    Status st = writer->commit_txn(_write_single_replica
-                                           ? req.slave_tablet_nodes().at(writer->tablet_id())
-                                           : PSlaveTabletNodes {});
+    PSlaveTabletNodes slave_nodes;
+    if (_write_single_replica) {
+        auto& nodes_map = req.slave_tablet_nodes();
+        auto it = nodes_map.find(writer->tablet_id());
+        if (it != nodes_map.end()) {
+            slave_nodes = it->second;
+        }
+    }
+    Status st = writer->commit_txn(slave_nodes);
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();

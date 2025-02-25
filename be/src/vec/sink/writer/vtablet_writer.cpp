@@ -128,7 +128,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                     _has_inc_node = true;
                 }
                 LOG(INFO) << "init new node for instance " << _parent->_sender_id
-                          << ", incremantal:" << incremental;
+                          << ", node id:" << replica_node_id << ", incremantal:" << incremental;
             } else {
                 channel = it->second;
             }
@@ -1014,7 +1014,8 @@ void VNodeChannel::mark_close(bool hang_wait) {
         DCHECK(_pending_blocks.back().second->eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_blocks.size();
+                  << " mark closed, left pending batch size: " << _pending_blocks.size()
+                  << " hang_wait: " << hang_wait;
     }
 
     _eos_is_produced = true;
@@ -1136,7 +1137,8 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
     if (_write_single_replica) {
-        _slave_location->add_locations(*new_locations);
+        auto* slave_locations = _pool->add(new std::vector<TTabletLocation>(result->slave_tablets));
+        _slave_location->add_locations(*slave_locations);
     }
 
     // update new node info
@@ -1164,6 +1166,7 @@ Status VTabletWriter::_init_row_distribution() {
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
                             .schema = _schema,
                             .caller = this,
+                            .write_single_replica = _write_single_replica,
                             .create_partition_callback = &vectorized::on_partitions_created});
 
     return _row_distribution.open(_output_row_desc);
