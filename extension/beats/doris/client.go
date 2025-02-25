@@ -256,28 +256,7 @@ func (client *client) makeTableEventsMap(_ context.Context, events []publisher.E
 	}
 
 	barrier, err := getBarrierFromEvent(&events[0])
-	if err == nil { // retry
-		if client.tableSelector.Sel.IsConst() { // table is const
-			removeBarrierFromEvent(&events[0])
-			tableEventsMap[barrier.Table] = &Events{
-				Label:  barrier.Label,
-				Events: events,
-			}
-		} else { // split events by barrier
-			for start := 0; start < len(events); {
-				barrier, _ := getBarrierFromEvent(&events[start])
-				removeBarrierFromEvent(&events[start])
-				end := start + barrier.Length
-
-				tableEventsMap[barrier.Table] = &Events{
-					Label:  barrier.Label,
-					Events: events[start:end], // should not do any append to the array, because here is a slice of the original array
-				}
-
-				start = end
-			}
-		}
-	} else { // first time
+	if err != nil { // first time
 		if client.tableSelector.Sel.IsConst() { // table is const
 			table, _ := client.tableSelector.Sel.Select(&events[0].Content)
 			label := client.label(table)
@@ -308,6 +287,27 @@ func (client *client) makeTableEventsMap(_ context.Context, events []publisher.E
 				} else {
 					tableEventsMap[table].Events = append(tableEventsMap[table].Events, e)
 				}
+			}
+		}
+	} else { // retry
+		if client.tableSelector.Sel.IsConst() { // table is const
+			removeBarrierFromEvent(&events[0])
+			tableEventsMap[barrier.Table] = &Events{
+				Label:  barrier.Label,
+				Events: events,
+			}
+		} else { // split events by barrier
+			for start := 0; start < len(events); {
+				barrier, _ := getBarrierFromEvent(&events[start])
+				removeBarrierFromEvent(&events[start])
+				end := start + barrier.Length
+
+				tableEventsMap[barrier.Table] = &Events{
+					Label:  barrier.Label,
+					Events: events[start:end], // should not do any append to the array, because here is a slice of the original array
+				}
+
+				start = end
 			}
 		}
 	}
