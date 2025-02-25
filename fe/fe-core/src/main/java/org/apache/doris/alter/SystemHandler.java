@@ -231,11 +231,11 @@ public class SystemHandler extends AlterHandler {
         AlterCommand alterCommand = alterCommands.get(0);
         if (alterCommand instanceof AlterSystemCommand) {
             AlterSystemCommand alterSystemCommand = (AlterSystemCommand) alterCommand;
-            if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_BACKEND)) {
+            if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_BACKEND)) {
                 // add backend
                 AddBackendOp op = (AddBackendOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), op.getTagMap());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BACKEND)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BACKEND)) {
                 // drop backend
                 DropBackendOp op = (DropBackendOp) alterSystemCommand.getAlterSystemOp();
                 if (!op.isForce()) {
@@ -251,7 +251,7 @@ public class SystemHandler extends AlterHandler {
                     // drop by host
                     Env.getCurrentSystemInfo().dropBackends(op.getHostInfos());
                 }
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND)) {
                 // decommission
                 DecommissionBackendOp op = (DecommissionBackendOp) alterSystemCommand.getAlterSystemOp();
                 // check request
@@ -263,31 +263,31 @@ public class SystemHandler extends AlterHandler {
                 for (Backend backend : decommissionBackends) {
                     Env.getCurrentSystemInfo().decommissionBackend(backend);
                 }
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_OBSERVER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_OBSERVER)) {
                 AddObserverOp op = (AddObserverOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, op.getHost(), op.getPort());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_OBSERVER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_OBSERVER)) {
                 DropObserverOp op = (DropObserverOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, op.getHost(), op.getPort());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_FOLLOWER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_FOLLOWER)) {
                 AddFollowerOp op = (AddFollowerOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, op.getHost(), op.getPort());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_FOLLOWER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_FOLLOWER)) {
                 DropFollowerOp op = (DropFollowerOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, op.getHost(), op.getPort());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_BROKER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_BROKER)) {
                 AddBrokerOp op = (AddBrokerOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BROKER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BROKER)) {
                 DropBrokerOp op = (DropBrokerOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_ALL_BROKER)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_ALL_BROKER)) {
                 DropAllBrokerOp op = (DropAllBrokerOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_BACKEND)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_BACKEND)) {
                 ModifyBackendOp op = (ModifyBackendOp) alterSystemCommand.getAlterSystemOp();
                 Env.getCurrentSystemInfo().modifyBackends(op);
-            } else if (alterCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME)) {
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME)) {
                 ModifyFrontendOrBackendHostNameOp op =
                         (ModifyFrontendOrBackendHostNameOp) alterSystemCommand.getAlterSystemOp();
                 if (op.getModifyOpType().equals(ModifyFrontendOrBackendHostNameOp.ModifyOpType.Frontend)) {
