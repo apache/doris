@@ -6,7 +6,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject[(lo_extendedprice * lo_discount) AS `(lo_extendedprice * lo_discount)`]
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF0 d_datekey->[lo_orderdate]
-------------PhysicalProject[lineorder.lo_orderdate, lineorder.lo_extendedprice, lineorder.lo_discount]
+------------PhysicalProject[lineorder.lo_discount, lineorder.lo_extendedprice, lineorder.lo_orderdate]
 --------------filter((lineorder.lo_discount <= 3) and (lineorder.lo_discount >= 1) and (lineorder.lo_quantity < 25))
 ----------------PhysicalOlapScan[lineorder] apply RFs: RF0
 ------------PhysicalProject[dates.d_datekey]

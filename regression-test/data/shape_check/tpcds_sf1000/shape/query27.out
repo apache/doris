@@ -4,30 +4,30 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject[item.i_item_id, store.s_state, GROUPING_PREFIX_s_state AS `g_state`, agg1, agg2, agg3, agg4]
+--------PhysicalProject[GROUPING_PREFIX_s_state AS `g_state`, agg1, agg2, agg3, agg4, item.i_item_id, store.s_state]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
-------------------PhysicalProject[store.s_state, store_sales.ss_quantity, cast(ss_list_price as DECIMALV3(9, 4)) AS `cast(ss_list_price as DECIMALV3(9, 4))`, cast(ss_coupon_amt as DECIMALV3(9, 4)) AS `cast(ss_coupon_amt as DECIMALV3(9, 4))`, cast(ss_sales_price as DECIMALV3(9, 4)) AS `cast(ss_sales_price as DECIMALV3(9, 4))`, item.i_item_id]
+------------------PhysicalProject[cast(ss_coupon_amt as DECIMALV3(9, 4)) AS `cast(ss_coupon_amt as DECIMALV3(9, 4))`, cast(ss_list_price as DECIMALV3(9, 4)) AS `cast(ss_list_price as DECIMALV3(9, 4))`, cast(ss_sales_price as DECIMALV3(9, 4)) AS `cast(ss_sales_price as DECIMALV3(9, 4))`, item.i_item_id, store.s_state, store_sales.ss_quantity]
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
-----------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt, store.s_state]
+----------------------PhysicalProject[store.s_state, store_sales.ss_coupon_amt, store_sales.ss_item_sk, store_sales.ss_list_price, store_sales.ss_quantity, store_sales.ss_sales_price]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
---------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt, store.s_state]
+--------------------------PhysicalProject[store.s_state, store_sales.ss_coupon_amt, store_sales.ss_item_sk, store_sales.ss_list_price, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_sold_date_sk]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
-------------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt]
+------------------------------PhysicalProject[store_sales.ss_coupon_amt, store_sales.ss_item_sk, store_sales.ss_list_price, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_sold_date_sk, store_sales.ss_store_sk]
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[ss_cdemo_sk]
-----------------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_cdemo_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt]
+----------------------------------PhysicalProject[store_sales.ss_cdemo_sk, store_sales.ss_coupon_amt, store_sales.ss_item_sk, store_sales.ss_list_price, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_sold_date_sk, store_sales.ss_store_sk]
 ------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ----------------------------------PhysicalProject[customer_demographics.cd_demo_sk]
 ------------------------------------filter((customer_demographics.cd_education_status = 'Secondary') and (customer_demographics.cd_gender = 'M') and (customer_demographics.cd_marital_status = 'W'))
 --------------------------------------PhysicalOlapScan[customer_demographics]
-------------------------------PhysicalProject[store.s_store_sk, store.s_state]
+------------------------------PhysicalProject[store.s_state, store.s_store_sk]
 --------------------------------filter((store.s_state = 'TN'))
 ----------------------------------PhysicalOlapScan[store]
 --------------------------PhysicalProject[date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_year = 1999))
 ------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalProject[item.i_item_sk, item.i_item_id]
+----------------------PhysicalProject[item.i_item_id, item.i_item_sk]
 ------------------------PhysicalOlapScan[item]
 

@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject[hits.ClientIP, (ClientIP - 1) AS `ClientIP - 1`, (ClientIP - 2) AS `ClientIP - 2`, (ClientIP - 3) AS `ClientIP - 3`, c]
+--------PhysicalProject[(ClientIP - 1) AS `ClientIP - 1`, (ClientIP - 2) AS `ClientIP - 2`, (ClientIP - 3) AS `ClientIP - 3`, c, hits.ClientIP]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]

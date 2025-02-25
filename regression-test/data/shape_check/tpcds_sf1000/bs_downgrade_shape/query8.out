@@ -9,16 +9,16 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalProject[store.s_store_name, store_sales.ss_net_profit]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_substring(s_zip, 1, 2) = expr_substring(ca_zip, 1, 2))) otherCondition=()
-------------------PhysicalProject[substring(s_zip, 1, 2) AS `expr_substring(s_zip, 1, 2)`, store_sales.ss_net_profit, store.s_store_name]
+------------------PhysicalProject[store.s_store_name, store_sales.ss_net_profit, substring(s_zip, 1, 2) AS `expr_substring(s_zip, 1, 2)`]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
-----------------------PhysicalProject[store_sales.ss_store_sk, store_sales.ss_net_profit]
+----------------------PhysicalProject[store_sales.ss_net_profit, store_sales.ss_store_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
---------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_net_profit]
+--------------------------PhysicalProject[store_sales.ss_net_profit, store_sales.ss_sold_date_sk, store_sales.ss_store_sk]
 ----------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2
 --------------------------PhysicalProject[date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_qoy = 2) and (date_dim.d_year = 1998))
 ------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalProject[store.s_store_sk, store.s_store_name, store.s_zip]
+----------------------PhysicalProject[store.s_store_name, store.s_store_sk, store.s_zip]
 ------------------------PhysicalOlapScan[store]
 ------------------PhysicalProject[substring(ca_zip, 1, 2) AS `expr_substring(ca_zip, 1, 2)`]
 --------------------PhysicalIntersect

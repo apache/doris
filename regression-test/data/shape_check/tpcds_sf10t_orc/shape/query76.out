@@ -7,34 +7,34 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[channel, col_name, d_year, d_qoy, i_category, ext_sales_price]
+--------------PhysicalProject[channel, col_name, d_qoy, d_year, ext_sales_price, i_category]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[cs_sold_date_sk,ss_sold_date_sk,ws_sold_date_sk]
-------------------PhysicalProject[ss_sold_date_sk, channel AS `channel`, col_name AS `col_name`, i_category AS `i_category`, ext_sales_price AS `ext_sales_price`]
+------------------PhysicalProject[channel AS `channel`, col_name AS `col_name`, ext_sales_price AS `ext_sales_price`, i_category AS `i_category`, ss_sold_date_sk]
 --------------------PhysicalUnion
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject['store' AS `channel`, 'ss_customer_sk' AS `col_name`, item.i_category, ss_ext_sales_price AS `ext_sales_price`, store_sales.ss_sold_date_sk]
+------------------------PhysicalProject['ss_customer_sk' AS `col_name`, 'store' AS `channel`, item.i_category, ss_ext_sales_price AS `ext_sales_price`, store_sales.ss_sold_date_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
-----------------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_sold_date_sk, store_sales.ss_ext_sales_price]
+----------------------------PhysicalProject[store_sales.ss_ext_sales_price, store_sales.ss_item_sk, store_sales.ss_sold_date_sk]
 ------------------------------filter(ss_customer_sk IS NULL)
 --------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF3
-----------------------------PhysicalProject[item.i_item_sk, item.i_category]
+----------------------------PhysicalProject[item.i_category, item.i_item_sk]
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject['web' AS `channel`, 'ws_ship_addr_sk' AS `col_name`, item.i_category, ws_ext_sales_price AS `ext_sales_price`, web_sales.ws_sold_date_sk]
+------------------------PhysicalProject['web' AS `channel`, 'ws_ship_addr_sk' AS `col_name`, item.i_category, web_sales.ws_sold_date_sk, ws_ext_sales_price AS `ext_sales_price`]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[ws_item_sk]
-----------------------------PhysicalProject[web_sales.ws_item_sk, web_sales.ws_sold_date_sk, web_sales.ws_ext_sales_price]
+----------------------------PhysicalProject[web_sales.ws_ext_sales_price, web_sales.ws_item_sk, web_sales.ws_sold_date_sk]
 ------------------------------filter(ws_ship_addr_sk IS NULL)
 --------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF3
-----------------------------PhysicalProject[item.i_item_sk, item.i_category]
+----------------------------PhysicalProject[item.i_category, item.i_item_sk]
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject['catalog' AS `channel`, 'cs_ship_mode_sk' AS `col_name`, item.i_category, cs_ext_sales_price AS `ext_sales_price`, catalog_sales.cs_sold_date_sk]
+------------------------PhysicalProject['catalog' AS `channel`, 'cs_ship_mode_sk' AS `col_name`, catalog_sales.cs_sold_date_sk, cs_ext_sales_price AS `ext_sales_price`, item.i_category]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[cs_item_sk]
-----------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_sold_date_sk, catalog_sales.cs_ext_sales_price]
+----------------------------PhysicalProject[catalog_sales.cs_ext_sales_price, catalog_sales.cs_item_sk, catalog_sales.cs_sold_date_sk]
 ------------------------------filter(cs_ship_mode_sk IS NULL)
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
-----------------------------PhysicalProject[item.i_item_sk, item.i_category]
+----------------------------PhysicalProject[item.i_category, item.i_item_sk]
 ------------------------------PhysicalOlapScan[item]
-------------------PhysicalProject[date_dim.d_date_sk, d_year AS `d_year`, d_qoy AS `d_qoy`]
+------------------PhysicalProject[d_qoy AS `d_qoy`, d_year AS `d_year`, date_dim.d_date_sk]
 --------------------PhysicalOlapScan[date_dim]
 

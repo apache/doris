@@ -4,23 +4,23 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject[item.i_item_id, item.i_item_desc, item.i_category, item.i_class, item.i_current_price, itemrevenue, (cast((itemrevenue * 100) as DECIMALV3(38, 8)) / sum(itemrevenue) OVER(PARTITION BY i_class)) AS `revenueratio`]
+--------PhysicalProject[(cast((itemrevenue * 100) as DECIMALV3(38, 8)) / sum(itemrevenue) OVER(PARTITION BY i_class)) AS `revenueratio`, item.i_category, item.i_class, item.i_current_price, item.i_item_desc, item.i_item_id, itemrevenue]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject[item.i_item_id, item.i_item_desc, item.i_category, item.i_class, item.i_current_price, web_sales.ws_ext_sales_price]
+----------------------PhysicalProject[item.i_category, item.i_class, item.i_current_price, item.i_item_desc, item.i_item_id, web_sales.ws_ext_sales_price]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[ws_item_sk]
---------------------------PhysicalProject[web_sales.ws_item_sk, web_sales.ws_ext_sales_price]
+--------------------------PhysicalProject[web_sales.ws_ext_sales_price, web_sales.ws_item_sk]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
-------------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_ext_sales_price]
+------------------------------PhysicalProject[web_sales.ws_ext_sales_price, web_sales.ws_item_sk, web_sales.ws_sold_date_sk]
 --------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalProject[date_dim.d_date_sk]
 --------------------------------filter((date_dim.d_date <= '2001-07-15') and (date_dim.d_date >= '2001-06-15'))
 ----------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalProject[item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price, item.i_class, item.i_category]
+--------------------------PhysicalProject[item.i_category, item.i_class, item.i_current_price, item.i_item_desc, item.i_item_id, item.i_item_sk]
 ----------------------------filter(i_category IN ('Books', 'Electronics', 'Men'))
 ------------------------------PhysicalOlapScan[item]
 

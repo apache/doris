@@ -18,7 +18,7 @@ PhysicalResultSink
 -- !basic_3 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t1.c1, if((c1 > 100), 10, NULL) AS `if((c1 > 100), 10, NULL)`]
+----PhysicalProject[if((c1 > 100), 10, NULL) AS `if((c1 > 100), 10, NULL)`, t1.c1]
 ------PhysicalOlapScan[t1]
 
 -- !basic_4 --
@@ -40,7 +40,7 @@ PhysicalResultSink
 -- !basic_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t1.c1, if((c1 > 100), 10, NULL) AS `if((c1 > 100), 10, NULL)`]
+----PhysicalProject[if((c1 > 100), 10, NULL) AS `if((c1 > 100), 10, NULL)`, t1.c1]
 ------PhysicalOlapScan[t1]
 
 -- !basic_2_1 --
@@ -62,7 +62,7 @@ PhysicalResultSink
 -- !basic_2_3 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t2.c2, if((c2 > 100), 10, NULL) AS `if((c2 > 100), 10, NULL)`]
+----PhysicalProject[if((c2 > 100), 10, NULL) AS `if((c2 > 100), 10, NULL)`, t2.c2]
 ------PhysicalOlapScan[t2]
 
 -- !basic_2_4 --
@@ -84,7 +84,7 @@ PhysicalResultSink
 -- !basic_2_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t2.c2, if((c2 > 100), 10, NULL) AS `if((c2 > 100), 10, NULL)`]
+----PhysicalProject[if((c2 > 100), 10, NULL) AS `if((c2 > 100), 10, NULL)`, t2.c2]
 ------PhysicalOlapScan[t2]
 
 -- !basic_3_1 --
@@ -106,7 +106,7 @@ PhysicalResultSink
 -- !basic_3_3 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t3.c3, if((c3 > 100), 10, NULL) AS `if((c3 > 100), 10, NULL)`]
+----PhysicalProject[if((c3 > 100), 10, NULL) AS `if((c3 > 100), 10, NULL)`, t3.c3]
 ------PhysicalOlapScan[t3]
 
 -- !basic_3_4 --
@@ -128,7 +128,7 @@ PhysicalResultSink
 -- !basic_3_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t3.c3, if((c3 > 100), 10, NULL) AS `if((c3 > 100), 10, NULL)`]
+----PhysicalProject[if((c3 > 100), 10, NULL) AS `if((c3 > 100), 10, NULL)`, t3.c3]
 ------PhysicalOlapScan[t3]
 
 -- !basic_4_1 --
@@ -150,7 +150,7 @@ PhysicalResultSink
 -- !basic_4_4 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t4.c4, if((c4 > 100), 10, NULL) AS `if((c4 > 100), 10, NULL)`]
+----PhysicalProject[if((c4 > 100), 10, NULL) AS `if((c4 > 100), 10, NULL)`, t4.c4]
 ------PhysicalOlapScan[t4]
 
 -- !basic_4_4 --
@@ -172,7 +172,7 @@ PhysicalResultSink
 -- !basic_4_6 --
 PhysicalResultSink
 --hashAgg[LOCAL]
-----PhysicalProject[t4.c4, if((c4 > 100), 10, NULL) AS `if((c4 > 100), 10, NULL)`]
+----PhysicalProject[if((c4 > 100), 10, NULL) AS `if((c4 > 100), 10, NULL)`, t4.c4]
 ------PhysicalOlapScan[t4]
 
 -- !basic_1 --

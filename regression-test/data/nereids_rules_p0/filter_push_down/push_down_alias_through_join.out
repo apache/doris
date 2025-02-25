@@ -3,41 +3,41 @@
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----NestedLoopJoin[INNER_JOIN](id1 > id2)
-------PhysicalProject[t1.msg, id AS `id1`]
+------PhysicalProject[id AS `id1`, t1.msg]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[t2.msg, id AS `id2`]
+------PhysicalProject[id AS `id2`, t2.msg]
 --------PhysicalOlapScan[t2]
 
 -- !pushdown_left_outer_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----NestedLoopJoin[LEFT_OUTER_JOIN](id1 > id2)
-------PhysicalProject[t1.msg, id AS `id1`]
+------PhysicalProject[id AS `id1`, t1.msg]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[t2.msg, id AS `id2`]
+------PhysicalProject[id AS `id2`, t2.msg]
 --------PhysicalOlapScan[t2]
 
 -- !pushdown_right_outer_join --
 PhysicalResultSink
 --NestedLoopJoin[RIGHT_OUTER_JOIN](id1 > id2)
-----PhysicalProject[t1.msg, id AS `id1`]
+----PhysicalProject[id AS `id1`, t1.msg]
 ------PhysicalOlapScan[t1]
-----PhysicalProject[t2.msg, id AS `id2`]
+----PhysicalProject[id AS `id2`, t2.msg]
 ------PhysicalOlapScan[t2]
 
 -- !pushdown_full_outer_join --
 PhysicalResultSink
 --NestedLoopJoin[FULL_OUTER_JOIN](id1 > id2)
-----PhysicalProject[t1.msg, id AS `id1`]
+----PhysicalProject[id AS `id1`, t1.msg]
 ------PhysicalOlapScan[t1]
-----PhysicalProject[t2.msg, id AS `id2`]
+----PhysicalProject[id AS `id2`, t2.msg]
 ------PhysicalOlapScan[t2]
 
 -- !pushdown_left_semi_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----NestedLoopJoin[LEFT_SEMI_JOIN](id1 > t2.id)
-------PhysicalProject[t1.msg, id AS `id1`]
+------PhysicalProject[id AS `id1`, t1.msg]
 --------PhysicalOlapScan[t1]
 ------PhysicalProject[t2.id]
 --------PhysicalOlapScan[t2]
@@ -47,7 +47,7 @@ PhysicalResultSink
 --NestedLoopJoin[RIGHT_SEMI_JOIN](t1.id > id2)
 ----PhysicalProject[t1.id]
 ------PhysicalOlapScan[t1]
-----PhysicalProject[t2.msg, id AS `id2`]
+----PhysicalProject[id AS `id2`, t2.msg]
 ------PhysicalOlapScan[t2]
 
 -- !pushdown_right_anti_join --
@@ -55,14 +55,14 @@ PhysicalResultSink
 --NestedLoopJoin[RIGHT_ANTI_JOIN](t1.id > id2)
 ----PhysicalProject[t1.id]
 ------PhysicalOlapScan[t1]
-----PhysicalProject[t2.msg, id AS `id2`]
+----PhysicalProject[id AS `id2`, t2.msg]
 ------PhysicalOlapScan[t2]
 
 -- !pushdown_left_anti_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----NestedLoopJoin[LEFT_ANTI_JOIN](id1 > t2.id)
-------PhysicalProject[t1.msg, id AS `id1`]
+------PhysicalProject[id AS `id1`, t1.msg]
 --------PhysicalOlapScan[t1]
 ------PhysicalProject[t2.id]
 --------PhysicalOlapScan[t2]
@@ -71,9 +71,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----NestedLoopJoin[INNER_JOIN](id1 > t2.id)
-------PhysicalProject[t1.msg, id AS `id1`]
+------PhysicalProject[id AS `id1`, t1.msg]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[t2.id, msg AS `id2`]
+------PhysicalProject[msg AS `id2`, t2.id]
 --------PhysicalOlapScan[t2]
 
 -- !pushdown_multiple_joins --

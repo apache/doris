@@ -4,18 +4,18 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject[item.i_product_name, item.i_brand, item.i_class, item.i_category, qoh]
+--------PhysicalProject[item.i_brand, item.i_category, item.i_class, item.i_product_name, qoh]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
-------------------PhysicalProject[inventory.inv_quantity_on_hand, item.i_product_name, item.i_brand, item.i_class, item.i_category]
+------------------PhysicalProject[inventory.inv_quantity_on_hand, item.i_brand, item.i_category, item.i_class, item.i_product_name]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
-----------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_quantity_on_hand, item.i_brand, item.i_class, item.i_category, item.i_product_name]
+----------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_quantity_on_hand, item.i_brand, item.i_category, item.i_class, item.i_product_name]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
 --------------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_item_sk, inventory.inv_quantity_on_hand]
 ----------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1
---------------------------PhysicalProject[item.i_item_sk, item.i_brand, item.i_class, item.i_category, item.i_product_name]
+--------------------------PhysicalProject[item.i_brand, item.i_category, item.i_class, item.i_item_sk, item.i_product_name]
 ----------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject[date_dim.d_date_sk]
 ------------------------filter((date_dim.d_month_seq <= 1199) and (date_dim.d_month_seq >= 1188))

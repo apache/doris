@@ -15,19 +15,19 @@ PhysicalResultSink
 --------------------PhysicalProject[l3.l_orderkey, l3.l_suppkey]
 ----------------------filter((l3.l_receiptdate > l3.l_commitdate))
 ------------------------PhysicalOlapScan[lineitem] apply RFs: RF3
---------------------PhysicalProject[supplier.s_name, l1.l_orderkey, l1.l_suppkey]
+--------------------PhysicalProject[l1.l_orderkey, l1.l_suppkey, supplier.s_name]
 ----------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = l1.l_orderkey)) otherCondition=() build RFs:RF2 l_orderkey->[o_orderkey]
 ------------------------PhysicalProject[orders.o_orderkey]
 --------------------------filter((orders.o_orderstatus = 'F'))
 ----------------------------PhysicalOlapScan[orders] apply RFs: RF2
-------------------------PhysicalProject[supplier.s_name, l1.l_orderkey, l1.l_suppkey]
+------------------------PhysicalProject[l1.l_orderkey, l1.l_suppkey, supplier.s_name]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[l_suppkey]
 ----------------------------PhysicalProject[l1.l_orderkey, l1.l_suppkey]
 ------------------------------filter((l1.l_receiptdate > l1.l_commitdate))
 --------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-----------------------------PhysicalProject[supplier.s_suppkey, supplier.s_name]
+----------------------------PhysicalProject[supplier.s_name, supplier.s_suppkey]
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
---------------------------------PhysicalProject[supplier.s_suppkey, supplier.s_name, supplier.s_nationkey]
+--------------------------------PhysicalProject[supplier.s_name, supplier.s_nationkey, supplier.s_suppkey]
 ----------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
 --------------------------------PhysicalProject[nation.n_nationkey]
 ----------------------------------filter((nation.n_name = 'SAUDI ARABIA'))

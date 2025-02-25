@@ -5,11 +5,11 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
-----------PhysicalProject[if((p_type like 'PROMO%'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000) AS `if((p_type like 'PROMO%'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000)`, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`]
+----------PhysicalProject[(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`, if((p_type like 'PROMO%'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000) AS `if((p_type like 'PROMO%'), (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))), 0.0000)`]
 ------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=()
 --------------PhysicalProject[part.p_partkey, part.p_type]
 ----------------PhysicalOlapScan[part]
---------------PhysicalProject[lineitem.l_partkey, lineitem.l_extendedprice, lineitem.l_discount]
+--------------PhysicalProject[lineitem.l_discount, lineitem.l_extendedprice, lineitem.l_partkey]
 ----------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))
 ------------------PhysicalOlapScan[lineitem]
 

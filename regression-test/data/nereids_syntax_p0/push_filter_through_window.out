@@ -41,6 +41,6 @@ PhysicalResultSink
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject[push_filter_through_window_tbl.a, push_filter_through_window_tbl.b, (a + b) AS `(a + b)`]
+--------------PhysicalProject[(a + b) AS `(a + b)`, push_filter_through_window_tbl.a, push_filter_through_window_tbl.b]
 ----------------PhysicalOlapScan[push_filter_through_window_tbl]
 

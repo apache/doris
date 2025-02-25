@@ -2,7 +2,7 @@
 -- !ds_shape_9 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[if((count(*) > 1071), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket1`, if((count(*) > 39161), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket2`, if((count(*) > 29434), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket3`, if((count(*) > 6568), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket4`, if((count(*) > 21216), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket5`]
+----PhysicalProject[if((count(*) > 1071), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket1`, if((count(*) > 21216), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket5`, if((count(*) > 29434), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket3`, if((count(*) > 39161), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket2`, if((count(*) > 6568), avg(cast(ss_ext_tax as DECIMALV3(9, 4))), avg(cast(ss_net_paid_inc_tax as DECIMALV3(9, 4)))) AS `bucket4`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------NestedLoopJoin[CROSS_JOIN]
 ----------NestedLoopJoin[CROSS_JOIN]

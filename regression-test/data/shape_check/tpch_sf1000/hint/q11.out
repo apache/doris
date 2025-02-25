@@ -6,15 +6,15 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject[partsupp.ps_partkey, value]
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
-------------PhysicalProject[partsupp.ps_partkey, value, cast(value as DOUBLE) AS `cast(value as DOUBLE)`]
+------------PhysicalProject[cast(value as DOUBLE) AS `cast(value as DOUBLE)`, partsupp.ps_partkey, value]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[partsupp.ps_partkey, (ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`]
+----------------PhysicalProject[(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`, partsupp.ps_partkey]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
---------------------PhysicalProject[partsupp.ps_partkey, partsupp.ps_suppkey, partsupp.ps_availqty, partsupp.ps_supplycost]
+--------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_partkey, partsupp.ps_suppkey, partsupp.ps_supplycost]
 ----------------------PhysicalOlapScan[partsupp]
 --------------------PhysicalProject[supplier.s_suppkey]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
-------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
+------------------------PhysicalProject[supplier.s_nationkey, supplier.s_suppkey]
 --------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalProject[nation.n_nationkey]
 --------------------------filter((nation.n_name = 'GERMANY'))
@@ -25,11 +25,11 @@ PhysicalResultSink
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject[(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
-------------------------PhysicalProject[partsupp.ps_suppkey, partsupp.ps_availqty, partsupp.ps_supplycost]
+------------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_suppkey, partsupp.ps_supplycost]
 --------------------------PhysicalOlapScan[partsupp]
 ------------------------PhysicalProject[supplier.s_suppkey]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
-----------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
+----------------------------PhysicalProject[supplier.s_nationkey, supplier.s_suppkey]
 ------------------------------PhysicalOlapScan[supplier]
 ----------------------------PhysicalProject[nation.n_nationkey]
 ------------------------------filter((nation.n_name = 'GERMANY'))

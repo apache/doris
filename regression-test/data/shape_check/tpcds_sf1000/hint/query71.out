@@ -4,23 +4,23 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[i_brand_id AS `brand_id`, i_brand AS `brand`, time_dim.t_hour, time_dim.t_minute, ext_price]
+--------PhysicalProject[ext_price, i_brand AS `brand`, i_brand_id AS `brand_id`, time_dim.t_hour, time_dim.t_minute]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject[item.i_brand, item.i_brand_id, time_dim.t_hour, time_dim.t_minute, tmp.ext_price]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF2 t_time_sk->[cs_sold_time_sk,ss_sold_time_sk,ws_sold_time_sk]
---------------------PhysicalProject[tmp.ext_price, tmp.time_sk, item.i_brand_id, item.i_brand]
+--------------------PhysicalProject[item.i_brand, item.i_brand_id, tmp.ext_price, tmp.time_sk]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[cs_item_sk,ss_item_sk,ws_item_sk]
 ------------------------PhysicalProject[ext_price, sold_item_sk, time_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk,ss_sold_date_sk,ws_sold_date_sk]
-----------------------------PhysicalProject[ws_sold_date_sk, ext_price AS `ext_price`, sold_item_sk AS `sold_item_sk`, time_sk AS `time_sk`]
+----------------------------PhysicalProject[ext_price AS `ext_price`, sold_item_sk AS `sold_item_sk`, time_sk AS `time_sk`, ws_sold_date_sk]
 ------------------------------PhysicalUnion
 --------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject[ws_ext_sales_price AS `ext_price`, ws_item_sk AS `sold_item_sk`, ws_sold_time_sk AS `time_sk`, web_sales.ws_sold_date_sk]
+----------------------------------PhysicalProject[web_sales.ws_sold_date_sk, ws_ext_sales_price AS `ext_price`, ws_item_sk AS `sold_item_sk`, ws_sold_time_sk AS `time_sk`]
 ------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
 --------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject[cs_ext_sales_price AS `ext_price`, cs_item_sk AS `sold_item_sk`, cs_sold_time_sk AS `time_sk`, catalog_sales.cs_sold_date_sk]
+----------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, cs_ext_sales_price AS `ext_price`, cs_item_sk AS `sold_item_sk`, cs_sold_time_sk AS `time_sk`]
 ------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
 --------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------------------PhysicalProject[ss_ext_sales_price AS `ext_price`, ss_item_sk AS `sold_item_sk`, ss_sold_time_sk AS `time_sk`, store_sales.ss_sold_date_sk]
@@ -28,10 +28,10 @@ PhysicalResultSink
 ----------------------------PhysicalProject[date_dim.d_date_sk]
 ------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2002))
 --------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalProject[item.i_item_sk, item.i_brand_id, item.i_brand]
+------------------------PhysicalProject[item.i_brand, item.i_brand_id, item.i_item_sk]
 --------------------------filter((item.i_manager_id = 1))
 ----------------------------PhysicalOlapScan[item]
---------------------PhysicalProject[time_dim.t_time_sk, time_dim.t_hour, time_dim.t_minute]
+--------------------PhysicalProject[time_dim.t_hour, time_dim.t_minute, time_dim.t_time_sk]
 ----------------------filter(t_meal_time IN ('breakfast', 'dinner'))
 ------------------------PhysicalOlapScan[time_dim]
 

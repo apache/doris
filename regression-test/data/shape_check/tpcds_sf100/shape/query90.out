@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF4 hd_demo_sk->[ws_ship_hdemo_sk]
 ----------------------PhysicalProject[web_sales.ws_ship_hdemo_sk, web_sales.ws_web_page_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF3 t_time_sk->[ws_sold_time_sk]
---------------------------PhysicalProject[web_sales.ws_sold_time_sk, web_sales.ws_ship_hdemo_sk, web_sales.ws_web_page_sk]
+--------------------------PhysicalProject[web_sales.ws_ship_hdemo_sk, web_sales.ws_sold_time_sk, web_sales.ws_web_page_sk]
 ----------------------------PhysicalOlapScan[web_sales] apply RFs: RF3 RF4 RF5
 --------------------------PhysicalProject[time_dim.t_time_sk]
 ----------------------------filter((time_dim.t_hour <= 11) and (time_dim.t_hour >= 10))
@@ -33,7 +33,7 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[ws_ship_hdemo_sk]
 ----------------------PhysicalProject[web_sales.ws_ship_hdemo_sk, web_sales.ws_web_page_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF0 t_time_sk->[ws_sold_time_sk]
---------------------------PhysicalProject[web_sales.ws_sold_time_sk, web_sales.ws_ship_hdemo_sk, web_sales.ws_web_page_sk]
+--------------------------PhysicalProject[web_sales.ws_ship_hdemo_sk, web_sales.ws_sold_time_sk, web_sales.ws_web_page_sk]
 ----------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
 --------------------------PhysicalProject[time_dim.t_time_sk]
 ----------------------------filter((time_dim.t_hour <= 17) and (time_dim.t_hour >= 16))

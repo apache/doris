@@ -7,18 +7,18 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[customer.c_city, supplier.s_city, dates.d_year, lineorder.lo_revenue]
+--------------PhysicalProject[customer.c_city, dates.d_year, lineorder.lo_revenue, supplier.s_city]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
 ------------------PhysicalProject[customer.c_city, lineorder.lo_orderdate, lineorder.lo_revenue, supplier.s_city]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
 ----------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_orderdate, lineorder.lo_revenue, supplier.s_city]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
---------------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_suppkey, lineorder.lo_orderdate, lineorder.lo_revenue]
+--------------------------PhysicalProject[lineorder.lo_custkey, lineorder.lo_orderdate, lineorder.lo_revenue, lineorder.lo_suppkey]
 ----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
---------------------------PhysicalProject[supplier.s_suppkey, supplier.s_city]
+--------------------------PhysicalProject[supplier.s_city, supplier.s_suppkey]
 ----------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
 ------------------------------PhysicalOlapScan[supplier]
-----------------------PhysicalProject[customer.c_custkey, customer.c_city]
+----------------------PhysicalProject[customer.c_city, customer.c_custkey]
 ------------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
 --------------------------PhysicalOlapScan[customer]
 ------------------PhysicalProject[dates.d_datekey, dates.d_year]

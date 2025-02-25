@@ -2,45 +2,45 @@
 -- !ds_shape_57 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject[v1.i_category, v1.i_brand, v1.cc_name, v1.d_year, v1.sum_sales, avg_monthly_sales AS `avg_monthly_sales`, rn AS `rn`]
+----PhysicalProject[avg_monthly_sales AS `avg_monthly_sales`, rn AS `rn`, v1.cc_name, v1.d_year, v1.i_brand, v1.i_category, v1.sum_sales]
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject[v1.i_category, v1.i_brand, v1.cc_name, v1.d_year, v1.sum_sales, cast(sum_sales as DECIMALV3(38, 4)) AS `cast(sum_sales as DECIMALV3(38, 4))`, date_dim.d_moy]
+----------------PhysicalProject[cast(sum_sales as DECIMALV3(38, 4)) AS `cast(sum_sales as DECIMALV3(38, 4))`, date_dim.d_moy, v1.cc_name, v1.d_year, v1.i_brand, v1.i_category, v1.sum_sales]
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
-------------------------PhysicalProject[item.i_category, item.i_brand, call_center.cc_name, date_dim.d_year, date_dim.d_moy, catalog_sales.cs_sales_price]
+------------------------PhysicalProject[call_center.cc_name, catalog_sales.cs_sales_price, date_dim.d_moy, date_dim.d_year, item.i_brand, item.i_category]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[cs_item_sk]
-----------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, date_dim.d_year, date_dim.d_moy, call_center.cc_name]
+----------------------------PhysicalProject[call_center.cc_name, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, date_dim.d_moy, date_dim.d_year]
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((call_center.cc_call_center_sk = catalog_sales.cs_call_center_sk)) otherCondition=() build RFs:RF1 cc_call_center_sk->[cs_call_center_sk]
---------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_call_center_sk, catalog_sales.cs_sales_price, date_dim.d_year, date_dim.d_moy]
+--------------------------------PhysicalProject[catalog_sales.cs_call_center_sk, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, date_dim.d_moy, date_dim.d_year]
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
-------------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_call_center_sk, catalog_sales.cs_sales_price]
+------------------------------------PhysicalProject[catalog_sales.cs_call_center_sk, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, catalog_sales.cs_sold_date_sk]
 --------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
-------------------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_year, date_dim.d_moy]
+------------------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_moy, date_dim.d_year]
 --------------------------------------filter(OR[(date_dim.d_year = 2001),AND[(date_dim.d_year = 2000),(date_dim.d_moy = 12)],AND[(date_dim.d_year = 2002),(date_dim.d_moy = 1)]] and d_year IN (2000, 2001, 2002))
 ----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject[call_center.cc_call_center_sk, call_center.cc_name]
 ----------------------------------PhysicalOlapScan[call_center]
-----------------------------PhysicalProject[item.i_item_sk, item.i_brand, item.i_category]
+----------------------------PhysicalProject[item.i_brand, item.i_category, item.i_item_sk]
 ------------------------------PhysicalOlapScan[item]
 --PhysicalResultSink
-----PhysicalProject[i_category, i_brand, cc_name, d_year, avg_monthly_sales, sum_sales, psum, nsum]
+----PhysicalProject[avg_monthly_sales, cc_name, d_year, i_brand, i_category, nsum, psum, sum_sales]
 ------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
-------------PhysicalProject[i_category AS `i_category`, i_brand AS `i_brand`, cc_name AS `cc_name`, d_year AS `d_year`, avg_monthly_sales AS `avg_monthly_sales`, sum_sales AS `sum_sales`, sum_sales AS `psum`, sum_sales AS `nsum`, (sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2))) AS `(sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))`]
+------------PhysicalProject[(sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2))) AS `(sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))`, avg_monthly_sales AS `avg_monthly_sales`, cc_name AS `cc_name`, d_year AS `d_year`, i_brand AS `i_brand`, i_category AS `i_category`, sum_sales AS `nsum`, sum_sales AS `psum`, sum_sales AS `sum_sales`]
 --------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=() build RFs:RF7 i_category->[i_category,i_category];RF8 i_brand->[i_brand,i_brand];RF9 cc_name->[cc_name,cc_name];RF10 expr_(rn - 1)->[(rn + 1),rn]
-----------------PhysicalProject[v1_lag.sum_sales, v1.i_category, v1.i_brand, v1.cc_name, v1.d_year, v1.sum_sales, v1.avg_monthly_sales, v1.rn]
+----------------PhysicalProject[v1.avg_monthly_sales, v1.cc_name, v1.d_year, v1.i_brand, v1.i_category, v1.rn, v1.sum_sales, v1_lag.sum_sales]
 ------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=() build RFs:RF3 i_category->[i_category];RF4 i_brand->[i_brand];RF5 cc_name->[cc_name];RF6 rn->[(rn + 1)]
---------------------PhysicalProject[v1_lag.i_category, v1_lag.i_brand, v1_lag.cc_name, v1_lag.sum_sales, (rn + 1) AS `expr_(rn + 1)`]
+--------------------PhysicalProject[(rn + 1) AS `expr_(rn + 1)`, v1_lag.cc_name, v1_lag.i_brand, v1_lag.i_category, v1_lag.sum_sales]
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4 RF5 RF6 RF7 RF8 RF9 RF10
 --------------------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 2001))
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF7 RF8 RF9 RF10
-----------------PhysicalProject[v1_lead.i_category, v1_lead.i_brand, v1_lead.cc_name, v1_lead.sum_sales, (rn - 1) AS `expr_(rn - 1)`]
+----------------PhysicalProject[(rn - 1) AS `expr_(rn - 1)`, v1_lead.cc_name, v1_lead.i_brand, v1_lead.i_category, v1_lead.sum_sales]
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:

@@ -13,9 +13,9 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject[catalog_sales.cs_ext_discount_amt, item.i_item_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
---------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_ext_discount_amt, item.i_item_sk]
+--------------------------PhysicalProject[catalog_sales.cs_ext_discount_amt, catalog_sales.cs_sold_date_sk, item.i_item_sk]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[cs_item_sk]
-------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_ext_discount_amt]
+------------------------------PhysicalProject[catalog_sales.cs_ext_discount_amt, catalog_sales.cs_item_sk, catalog_sales.cs_sold_date_sk]
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ------------------------------PhysicalProject[item.i_item_sk]
 --------------------------------filter((item.i_manufact_id = 722))

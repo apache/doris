@@ -2,13 +2,13 @@
 -- !ds_shape_1 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject[sr_customer_sk AS `ctr_customer_sk`, sr_store_sk AS `ctr_store_sk`, customer_total_return.ctr_total_return]
+----PhysicalProject[customer_total_return.ctr_total_return, sr_customer_sk AS `ctr_customer_sk`, sr_store_sk AS `ctr_store_sk`]
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
-------------PhysicalProject[store_returns.sr_customer_sk, store_returns.sr_store_sk, store_returns.SR_FEE]
+------------PhysicalProject[store_returns.SR_FEE, store_returns.sr_customer_sk, store_returns.sr_store_sk]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[sr_returned_date_sk]
-----------------PhysicalProject[store_returns.sr_returned_date_sk, store_returns.sr_customer_sk, store_returns.sr_store_sk, store_returns.sr_fee]
+----------------PhysicalProject[store_returns.sr_customer_sk, store_returns.sr_fee, store_returns.sr_returned_date_sk, store_returns.sr_store_sk]
 ------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ----------------PhysicalProject[date_dim.d_date_sk]
 ------------------filter((date_dim.d_year = 2000))
@@ -19,7 +19,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject[customer.c_customer_id]
 ------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 ctr_customer_sk->[c_customer_sk]
---------------PhysicalProject[customer.c_customer_sk, customer.c_customer_id]
+--------------PhysicalProject[customer.c_customer_id, customer.c_customer_sk]
 ----------------PhysicalOlapScan[customer] apply RFs: RF3
 --------------PhysicalProject[ctr1.ctr_customer_sk]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))) build RFs:RF2 ctr_store_sk->[ctr_store_sk,s_store_sk]

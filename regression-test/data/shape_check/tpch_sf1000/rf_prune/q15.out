@@ -4,17 +4,17 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[supplier.s_suppkey, supplier.s_name, supplier.s_address, supplier.s_phone, revenue0.total_revenue]
+--------PhysicalProject[revenue0.total_revenue, supplier.s_address, supplier.s_name, supplier.s_phone, supplier.s_suppkey]
 ----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = revenue0.supplier_no)) otherCondition=() build RFs:RF0 supplier_no->[s_suppkey]
-------------PhysicalProject[supplier.s_suppkey, supplier.s_name, supplier.s_address, supplier.s_phone]
+------------PhysicalProject[supplier.s_address, supplier.s_name, supplier.s_phone, supplier.s_suppkey]
 --------------PhysicalOlapScan[supplier] apply RFs: RF0
-------------PhysicalProject[supplier_no, revenue0.total_revenue]
+------------PhysicalProject[revenue0.total_revenue, supplier_no]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((revenue0.total_revenue = max(total_revenue))) otherCondition=()
 ----------------PhysicalProject[l_suppkey AS `supplier_no`, revenue0.total_revenue]
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
-------------------------PhysicalProject[lineitem.l_suppkey, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`]
+------------------------PhysicalProject[(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`, lineitem.l_suppkey]
 --------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
 ----------------------------PhysicalOlapScan[lineitem]
 ----------------hashAgg[GLOBAL]
@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
-------------------------------PhysicalProject[lineitem.l_suppkey, (l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`]
+------------------------------PhysicalProject[(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2)))) AS `(l_extendedprice * (1.00 - cast(l_discount as DECIMALV3(16, 2))))`, lineitem.l_suppkey]
 --------------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
 ----------------------------------PhysicalOlapScan[lineitem]
 

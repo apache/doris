@@ -7,24 +7,24 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[warehouse.w_state, item.i_item_id, if((d_date >= '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00) AS `if((d_date >= '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00)`, if((d_date < '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00) AS `if((d_date < '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00)`]
+--------------PhysicalProject[if((d_date < '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00) AS `if((d_date < '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00)`, if((d_date >= '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00) AS `if((d_date >= '2001-04-02'), (cast(cs_sales_price as DECIMALV3(8, 2)) - cast(coalesce(cr_refunded_cash, 0.00) as DECIMALV3(8, 2))), 0.00)`, item.i_item_id, warehouse.w_state]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cs_sold_date_sk]
-------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash, warehouse.w_state, item.i_item_id]
+------------------PhysicalProject[catalog_returns.cr_refunded_cash, catalog_sales.cs_sales_price, catalog_sales.cs_sold_date_sk, item.i_item_id, warehouse.w_state]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[cs_item_sk]
-----------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash, warehouse.w_state]
+----------------------PhysicalProject[catalog_returns.cr_refunded_cash, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, catalog_sales.cs_sold_date_sk, warehouse.w_state]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
---------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_warehouse_sk, catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash]
+--------------------------PhysicalProject[catalog_returns.cr_refunded_cash, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, catalog_sales.cs_sold_date_sk, catalog_sales.cs_warehouse_sk]
 ----------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
-------------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_warehouse_sk, catalog_sales.cs_sales_price]
+------------------------------PhysicalProject[catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_sales_price, catalog_sales.cs_sold_date_sk, catalog_sales.cs_warehouse_sk]
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2
 ------------------------------PhysicalProject[catalog_returns.cr_item_sk, catalog_returns.cr_order_number, catalog_returns.cr_refunded_cash]
 --------------------------------PhysicalOlapScan[catalog_returns]
---------------------------PhysicalProject[warehouse.w_warehouse_sk, warehouse.w_state]
+--------------------------PhysicalProject[warehouse.w_state, warehouse.w_warehouse_sk]
 ----------------------------PhysicalOlapScan[warehouse]
-----------------------PhysicalProject[item.i_item_sk, item.i_item_id]
+----------------------PhysicalProject[item.i_item_id, item.i_item_sk]
 ------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
 --------------------------PhysicalOlapScan[item]
-------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
+------------------PhysicalProject[date_dim.d_date, date_dim.d_date_sk]
 --------------------filter((date_dim.d_date <= '2001-05-02') and (date_dim.d_date >= '2001-03-03'))
 ----------------------PhysicalOlapScan[date_dim]
 

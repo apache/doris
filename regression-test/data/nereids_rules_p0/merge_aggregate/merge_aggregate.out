@@ -103,11 +103,11 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[max(a), min(a), max(pk), min(pk)]
+--------PhysicalProject[max(a), max(pk), min(a), min(pk)]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[mal_test1.pk, mal_test1.a]
+----------------PhysicalProject[mal_test1.a, mal_test1.pk]
 ------------------PhysicalOlapScan[mal_test1]
 
 -- !outer_agg_has_distinct_same_keys_shape --
@@ -115,7 +115,7 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[max(col1), min(col2), sum(col3), sum(DISTINCT col4)]
+--------PhysicalProject[max(col1), min(col2), sum(DISTINCT col4), sum(col3)]
 ----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[mal_test1]
 
@@ -139,9 +139,9 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t.a, (pk + 1) AS `col1`]
+----------------PhysicalProject[(pk + 1) AS `col1`, t.a]
 ------------------hashAgg[LOCAL]
---------------------PhysicalProject[mal_test1.pk, mal_test1.a]
+--------------------PhysicalProject[mal_test1.a, mal_test1.pk]
 ----------------------PhysicalOlapScan[mal_test1]
 
 -- !middle_project_has_expression_cannot_merge_shape2 --
@@ -153,19 +153,19 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t.a, (max(b) + 1) AS `col1`, t.col2, t.col3, t.col4]
+----------------PhysicalProject[(max(b) + 1) AS `col1`, t.a, t.col2, t.col3, t.col4]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalOlapScan[mal_test1]
 
 -- !maxGroupKey_minGroupKey_sumGroupKey_cannot_merge_shape --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[max(a), min(a), max(pk), min(pk), sum(pk)]
+----PhysicalProject[max(a), max(pk), min(a), min(pk), sum(pk)]
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[mal_test1.pk, mal_test1.a]
+--------------PhysicalProject[mal_test1.a, mal_test1.pk]
 ----------------PhysicalOlapScan[mal_test1]
 
 -- !maxMin_cannot_merge_shape --
@@ -195,7 +195,7 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[max(col1), min(col2), sum(col3), sum(DISTINCT col4)]
+--------PhysicalProject[max(col1), min(col2), sum(DISTINCT col4), sum(col3)]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
@@ -227,9 +227,9 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t.a, pk AS `col1`, (pk + a) AS `(pk + a)`]
+----------------PhysicalProject[(pk + a) AS `(pk + a)`, pk AS `col1`, t.a]
 ------------------hashAgg[LOCAL]
---------------------PhysicalProject[mal_test1.pk, mal_test1.a]
+--------------------PhysicalProject[mal_test1.a, mal_test1.pk]
 ----------------------PhysicalOlapScan[mal_test1]
 
 -- !agg_with_expr_cannot_merge_shape2 --
@@ -241,9 +241,9 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t.a, pk AS `col1`, (pk + 1) AS `(pk + 1)`]
+----------------PhysicalProject[(pk + 1) AS `(pk + 1)`, pk AS `col1`, t.a]
 ------------------hashAgg[LOCAL]
---------------------PhysicalProject[mal_test1.pk, mal_test1.a]
+--------------------PhysicalProject[mal_test1.a, mal_test1.pk]
 ----------------------PhysicalOlapScan[mal_test1]
 
 -- !test_has_project_distinct_cant_transform --
@@ -258,7 +258,7 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[mal_test_merge_agg.k4, if(k3 IS NULL, 1, 0) AS `if(k3 IS NULL, 1, 0)`]
+----------------PhysicalProject[if(k3 IS NULL, 1, 0) AS `if(k3 IS NULL, 1, 0)`, mal_test_merge_agg.k4]
 ------------------PhysicalOlapScan[mal_test_merge_agg]
 
 -- !test_distinct_expr_transform --
@@ -284,7 +284,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
-------------PhysicalProject[mal_test_merge_agg.k4, if(k3 IS NULL, 1, 0) AS `if(k3 IS NULL, 1, 0)`]
+------------PhysicalProject[if(k3 IS NULL, 1, 0) AS `if(k3 IS NULL, 1, 0)`, mal_test_merge_agg.k4]
 --------------PhysicalOlapScan[mal_test_merge_agg]
 
 -- !test_sum_empty_table --

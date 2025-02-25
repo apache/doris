@@ -7,13 +7,13 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[dt.d_year, item.i_category_id, item.i_category, store_sales.ss_ext_sales_price]
+--------------PhysicalProject[dt.d_year, item.i_category, item.i_category_id, store_sales.ss_ext_sales_price]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
-------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_ext_sales_price, item.i_category_id, item.i_category]
+------------------PhysicalProject[item.i_category, item.i_category_id, store_sales.ss_ext_sales_price, store_sales.ss_sold_date_sk]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
-----------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_ext_sales_price]
+----------------------PhysicalProject[store_sales.ss_ext_sales_price, store_sales.ss_item_sk, store_sales.ss_sold_date_sk]
 ------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-----------------------PhysicalProject[item.i_item_sk, item.i_category_id, item.i_category]
+----------------------PhysicalProject[item.i_category, item.i_category_id, item.i_item_sk]
 ------------------------filter((item.i_manager_id = 1))
 --------------------------PhysicalOlapScan[item]
 ------------------PhysicalProject[dt.d_date_sk, dt.d_year]

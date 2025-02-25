@@ -2,15 +2,15 @@
 -- !ds_shape_81 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject[cr_returning_customer_sk AS `ctr_customer_sk`, ca_state AS `ctr_state`, customer_total_return.ctr_total_return]
+----PhysicalProject[ca_state AS `ctr_state`, cr_returning_customer_sk AS `ctr_customer_sk`, customer_total_return.ctr_total_return]
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
-------------PhysicalProject[catalog_returns.cr_returning_customer_sk, customer_address.ca_state, catalog_returns.cr_return_amt_inc_tax]
+------------PhysicalProject[catalog_returns.cr_return_amt_inc_tax, catalog_returns.cr_returning_customer_sk, customer_address.ca_state]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cr_returned_date_sk]
-----------------PhysicalProject[catalog_returns.cr_returned_date_sk, catalog_returns.cr_returning_customer_sk, catalog_returns.cr_return_amt_inc_tax, customer_address.ca_state]
+----------------PhysicalProject[catalog_returns.cr_return_amt_inc_tax, catalog_returns.cr_returned_date_sk, catalog_returns.cr_returning_customer_sk, customer_address.ca_state]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_returning_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[cr_returning_addr_sk]
---------------------PhysicalProject[catalog_returns.cr_returned_date_sk, catalog_returns.cr_returning_customer_sk, catalog_returns.cr_returning_addr_sk, catalog_returns.cr_return_amt_inc_tax]
+--------------------PhysicalProject[catalog_returns.cr_return_amt_inc_tax, catalog_returns.cr_returned_date_sk, catalog_returns.cr_returning_addr_sk, catalog_returns.cr_returning_customer_sk]
 ----------------------PhysicalOlapScan[catalog_returns] apply RFs: RF0 RF1
 --------------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_state]
 ----------------------PhysicalOlapScan[customer_address]
@@ -21,16 +21,16 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
-----------PhysicalProject[customer.c_customer_id, customer.c_salutation, customer.c_first_name, customer.c_last_name, customer_address.ca_street_number, customer_address.ca_street_name, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_city, customer_address.ca_county, customer_address.ca_state, customer_address.ca_zip, customer_address.ca_country, customer_address.ca_gmt_offset, customer_address.ca_location_type, ctr1.ctr_total_return]
+----------PhysicalProject[ctr1.ctr_total_return, customer.c_customer_id, customer.c_first_name, customer.c_last_name, customer.c_salutation, customer_address.ca_city, customer_address.ca_country, customer_address.ca_county, customer_address.ca_gmt_offset, customer_address.ca_location_type, customer_address.ca_state, customer_address.ca_street_name, customer_address.ca_street_number, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_zip]
 ------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))) build RFs:RF4 ctr_state->[ctr_state]
---------------PhysicalProject[ctr1.ctr_state, ctr1.ctr_total_return, customer.c_customer_id, customer.c_salutation, customer.c_first_name, customer.c_last_name, customer_address.ca_street_number, customer_address.ca_street_name, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_city, customer_address.ca_county, customer_address.ca_state, customer_address.ca_zip, customer_address.ca_country, customer_address.ca_gmt_offset, customer_address.ca_location_type]
+--------------PhysicalProject[ctr1.ctr_state, ctr1.ctr_total_return, customer.c_customer_id, customer.c_first_name, customer.c_last_name, customer.c_salutation, customer_address.ca_city, customer_address.ca_country, customer_address.ca_county, customer_address.ca_gmt_offset, customer_address.ca_location_type, customer_address.ca_state, customer_address.ca_street_name, customer_address.ca_street_number, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_zip]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
-------------------PhysicalProject[ctr1.ctr_state, ctr1.ctr_total_return, customer.c_customer_id, customer.c_current_addr_sk, customer.c_salutation, customer.c_first_name, customer.c_last_name]
+------------------PhysicalProject[ctr1.ctr_state, ctr1.ctr_total_return, customer.c_current_addr_sk, customer.c_customer_id, customer.c_first_name, customer.c_last_name, customer.c_salutation]
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF2 c_customer_sk->[ctr_customer_sk]
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2 RF4
-----------------------PhysicalProject[customer.c_customer_sk, customer.c_customer_id, customer.c_current_addr_sk, customer.c_salutation, customer.c_first_name, customer.c_last_name]
+----------------------PhysicalProject[customer.c_current_addr_sk, customer.c_customer_id, customer.c_customer_sk, customer.c_first_name, customer.c_last_name, customer.c_salutation]
 ------------------------PhysicalOlapScan[customer] apply RFs: RF3
-------------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_street_number, customer_address.ca_street_name, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_city, customer_address.ca_county, customer_address.ca_state, customer_address.ca_zip, customer_address.ca_country, customer_address.ca_gmt_offset, customer_address.ca_location_type]
+------------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_city, customer_address.ca_country, customer_address.ca_county, customer_address.ca_gmt_offset, customer_address.ca_location_type, customer_address.ca_state, customer_address.ca_street_name, customer_address.ca_street_number, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_zip]
 --------------------filter((customer_address.ca_state = 'CA'))
 ----------------------PhysicalOlapScan[customer_address]
 --------------hashAgg[GLOBAL]

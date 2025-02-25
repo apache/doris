@@ -4,35 +4,35 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject[substring(r_reason_desc, 1, 20) AS `substr(r_reason_desc,1,20)`, avg(ws_quantity), avg(wr_refunded_cash), avg(wr_fee)]
+--------PhysicalProject[avg(wr_fee), avg(wr_refunded_cash), avg(ws_quantity), substring(r_reason_desc, 1, 20) AS `substr(r_reason_desc,1,20)`]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[reason.r_reason_desc, web_sales.ws_quantity, cast(wr_fee as DECIMALV3(9, 4)) AS `cast(wr_fee as DECIMALV3(9, 4))`, cast(wr_refunded_cash as DECIMALV3(9, 4)) AS `cast(wr_refunded_cash as DECIMALV3(9, 4))`]
+----------------PhysicalProject[cast(wr_fee as DECIMALV3(9, 4)) AS `cast(wr_fee as DECIMALV3(9, 4))`, cast(wr_refunded_cash as DECIMALV3(9, 4)) AS `cast(wr_refunded_cash as DECIMALV3(9, 4))`, reason.r_reason_desc, web_sales.ws_quantity]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=()
---------------------PhysicalProject[web_sales.ws_quantity, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash]
+--------------------PhysicalProject[web_returns.wr_fee, web_returns.wr_reason_sk, web_returns.wr_refunded_cash, web_sales.ws_quantity]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ws_sold_date_sk]
-------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash]
+------------------------PhysicalProject[web_returns.wr_fee, web_returns.wr_reason_sk, web_returns.wr_refunded_cash, web_sales.ws_quantity, web_sales.ws_sold_date_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=(OR[AND[ca_state IN ('DE', 'FL', 'TX'),(web_sales.ws_net_profit >= 100.00),(web_sales.ws_net_profit <= 200.00)],AND[ca_state IN ('ID', 'IN', 'ND'),(web_sales.ws_net_profit >= 150.00)],AND[ca_state IN ('IL', 'MT', 'OH'),(web_sales.ws_net_profit <= 250.00)]]) build RFs:RF7 ca_address_sk->[wr_refunded_addr_sk]
-----------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_sales.ws_net_profit, web_returns.wr_refunded_addr_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash]
+----------------------------PhysicalProject[web_returns.wr_fee, web_returns.wr_reason_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_refunded_cash, web_sales.ws_net_profit, web_sales.ws_quantity, web_sales.ws_sold_date_sk]
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF4 cd_demo_sk->[wr_returning_cdemo_sk];RF5 cd_marital_status->[cd_marital_status];RF6 cd_education_status->[cd_education_status]
---------------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_sales.ws_net_profit, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash, cd1.cd_marital_status, cd1.cd_education_status]
+--------------------------------PhysicalProject[cd1.cd_education_status, cd1.cd_marital_status, web_returns.wr_fee, web_returns.wr_reason_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_refunded_cash, web_returns.wr_returning_cdemo_sk, web_sales.ws_net_profit, web_sales.ws_quantity, web_sales.ws_sold_date_sk]
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00)],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary'),(web_sales.ws_sales_price <= 100.00)],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00)]]) build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
-------------------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_net_profit, web_returns.wr_refunded_cdemo_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash]
+------------------------------------PhysicalProject[web_returns.wr_fee, web_returns.wr_reason_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_refunded_cash, web_returns.wr_refunded_cdemo_sk, web_returns.wr_returning_cdemo_sk, web_sales.ws_net_profit, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_sold_date_sk]
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=()
-----------------------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_web_page_sk, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_net_profit, web_returns.wr_refunded_cdemo_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash]
+----------------------------------------PhysicalProject[web_returns.wr_fee, web_returns.wr_reason_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_refunded_cash, web_returns.wr_refunded_cdemo_sk, web_returns.wr_returning_cdemo_sk, web_sales.ws_net_profit, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_sold_date_sk, web_sales.ws_web_page_sk]
 ------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 ws_item_sk->[wr_item_sk];RF1 ws_order_number->[wr_order_number]
---------------------------------------------PhysicalProject[web_returns.wr_item_sk, web_returns.wr_order_number, web_returns.wr_refunded_cdemo_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash]
+--------------------------------------------PhysicalProject[web_returns.wr_fee, web_returns.wr_item_sk, web_returns.wr_order_number, web_returns.wr_reason_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_refunded_cash, web_returns.wr_refunded_cdemo_sk, web_returns.wr_returning_cdemo_sk]
 ----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1 RF3 RF4 RF7
---------------------------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_order_number, web_sales.ws_web_page_sk, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_net_profit]
+--------------------------------------------PhysicalProject[web_sales.ws_item_sk, web_sales.ws_net_profit, web_sales.ws_order_number, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_sold_date_sk, web_sales.ws_web_page_sk]
 ----------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
 ------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8
 ----------------------------------------PhysicalProject[web_page.wp_web_page_sk]
 ------------------------------------------PhysicalOlapScan[web_page]
-------------------------------------PhysicalProject[cd1.cd_demo_sk, cd1.cd_marital_status, cd1.cd_education_status]
+------------------------------------PhysicalProject[cd1.cd_demo_sk, cd1.cd_education_status, cd1.cd_marital_status]
 --------------------------------------filter(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary')],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
 ----------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6
---------------------------------PhysicalProject[cd2.cd_demo_sk, cd2.cd_marital_status, cd2.cd_education_status]
+--------------------------------PhysicalProject[cd2.cd_demo_sk, cd2.cd_education_status, cd2.cd_marital_status]
 ----------------------------------filter(cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
 ------------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_state]
@@ -41,6 +41,6 @@ PhysicalResultSink
 ------------------------PhysicalProject[date_dim.d_date_sk]
 --------------------------filter((date_dim.d_year = 2000))
 ----------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalProject[reason.r_reason_sk, reason.r_reason_desc]
+--------------------PhysicalProject[reason.r_reason_desc, reason.r_reason_sk]
 ----------------------PhysicalOlapScan[reason]
 

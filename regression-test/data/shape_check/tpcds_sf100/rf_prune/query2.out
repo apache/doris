@@ -5,33 +5,33 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------PhysicalProject[date_dim.d_week_seq, if((d_day_name = 'Thursday'), sales_price, NULL) AS `if((d_day_name = 'Thursday'), sales_price, NULL)`, if((d_day_name = 'Wednesday'), sales_price, NULL) AS `if((d_day_name = 'Wednesday'), sales_price, NULL)`, if((d_day_name = 'Monday'), sales_price, NULL) AS `if((d_day_name = 'Monday'), sales_price, NULL)`, if((d_day_name = 'Friday'), sales_price, NULL) AS `if((d_day_name = 'Friday'), sales_price, NULL)`, if((d_day_name = 'Sunday'), sales_price, NULL) AS `if((d_day_name = 'Sunday'), sales_price, NULL)`, if((d_day_name = 'Saturday'), sales_price, NULL) AS `if((d_day_name = 'Saturday'), sales_price, NULL)`, if((d_day_name = 'Tuesday'), sales_price, NULL) AS `if((d_day_name = 'Tuesday'), sales_price, NULL)`]
+----------PhysicalProject[date_dim.d_week_seq, if((d_day_name = 'Friday'), sales_price, NULL) AS `if((d_day_name = 'Friday'), sales_price, NULL)`, if((d_day_name = 'Monday'), sales_price, NULL) AS `if((d_day_name = 'Monday'), sales_price, NULL)`, if((d_day_name = 'Saturday'), sales_price, NULL) AS `if((d_day_name = 'Saturday'), sales_price, NULL)`, if((d_day_name = 'Sunday'), sales_price, NULL) AS `if((d_day_name = 'Sunday'), sales_price, NULL)`, if((d_day_name = 'Thursday'), sales_price, NULL) AS `if((d_day_name = 'Thursday'), sales_price, NULL)`, if((d_day_name = 'Tuesday'), sales_price, NULL) AS `if((d_day_name = 'Tuesday'), sales_price, NULL)`, if((d_day_name = 'Wednesday'), sales_price, NULL) AS `if((d_day_name = 'Wednesday'), sales_price, NULL)`]
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=()
 --------------PhysicalUnion
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject[ws_sold_date_sk AS `sold_date_sk`, ws_ext_sales_price AS `sales_price`]
+------------------PhysicalProject[ws_ext_sales_price AS `sales_price`, ws_sold_date_sk AS `sold_date_sk`]
 --------------------PhysicalOlapScan[web_sales]
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject[cs_sold_date_sk AS `sold_date_sk`, cs_ext_sales_price AS `sales_price`]
+------------------PhysicalProject[cs_ext_sales_price AS `sales_price`, cs_sold_date_sk AS `sold_date_sk`]
 --------------------PhysicalOlapScan[catalog_sales]
---------------PhysicalProject[date_dim.d_date_sk, date_dim.d_week_seq, date_dim.d_day_name]
+--------------PhysicalProject[date_dim.d_date_sk, date_dim.d_day_name, date_dim.d_week_seq]
 ----------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
-----------PhysicalProject[y.d_week_seq1, round((cast(sun_sales1 as DECIMALV3(38, 8)) / sun_sales2), 2) AS `round(sun_sales1/sun_sales2,2)`, round((cast(mon_sales1 as DECIMALV3(38, 8)) / mon_sales2), 2) AS `round(mon_sales1/mon_sales2,2)`, round((cast(tue_sales1 as DECIMALV3(38, 8)) / tue_sales2), 2) AS `round(tue_sales1/tue_sales2,2)`, round((cast(wed_sales1 as DECIMALV3(38, 8)) / wed_sales2), 2) AS `round(wed_sales1/wed_sales2,2)`, round((cast(thu_sales1 as DECIMALV3(38, 8)) / thu_sales2), 2) AS `round(thu_sales1/thu_sales2,2)`, round((cast(fri_sales1 as DECIMALV3(38, 8)) / fri_sales2), 2) AS `round(fri_sales1/fri_sales2,2)`, round((cast(sat_sales1 as DECIMALV3(38, 8)) / sat_sales2), 2) AS `round(sat_sales1/sat_sales2,2)`]
+----------PhysicalProject[round((cast(fri_sales1 as DECIMALV3(38, 8)) / fri_sales2), 2) AS `round(fri_sales1/fri_sales2,2)`, round((cast(mon_sales1 as DECIMALV3(38, 8)) / mon_sales2), 2) AS `round(mon_sales1/mon_sales2,2)`, round((cast(sat_sales1 as DECIMALV3(38, 8)) / sat_sales2), 2) AS `round(sat_sales1/sat_sales2,2)`, round((cast(sun_sales1 as DECIMALV3(38, 8)) / sun_sales2), 2) AS `round(sun_sales1/sun_sales2,2)`, round((cast(thu_sales1 as DECIMALV3(38, 8)) / thu_sales2), 2) AS `round(thu_sales1/thu_sales2,2)`, round((cast(tue_sales1 as DECIMALV3(38, 8)) / tue_sales2), 2) AS `round(tue_sales1/tue_sales2,2)`, round((cast(wed_sales1 as DECIMALV3(38, 8)) / wed_sales2), 2) AS `round(wed_sales1/wed_sales2,2)`, y.d_week_seq1]
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))) otherCondition=()
---------------PhysicalProject[d_week_seq1, sun_sales1, mon_sales1, tue_sales1, cast(d_week_seq1 as BIGINT) AS `expr_cast(d_week_seq1 as BIGINT)`, wed_sales1, thu_sales1, fri_sales1, sat_sales1]
+--------------PhysicalProject[cast(d_week_seq1 as BIGINT) AS `expr_cast(d_week_seq1 as BIGINT)`, d_week_seq1, fri_sales1, mon_sales1, sat_sales1, sun_sales1, thu_sales1, tue_sales1, wed_sales1]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
-------------------PhysicalProject[d_week_seq AS `d_week_seq1`, sun_sales AS `sun_sales1`, mon_sales AS `mon_sales1`, tue_sales AS `tue_sales1`, wed_sales AS `wed_sales1`, thu_sales AS `thu_sales1`, fri_sales AS `fri_sales1`, sat_sales AS `sat_sales1`]
+------------------PhysicalProject[d_week_seq AS `d_week_seq1`, fri_sales AS `fri_sales1`, mon_sales AS `mon_sales1`, sat_sales AS `sat_sales1`, sun_sales AS `sun_sales1`, thu_sales AS `thu_sales1`, tue_sales AS `tue_sales1`, wed_sales AS `wed_sales1`]
 --------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
 ------------------PhysicalProject[date_dim.d_week_seq]
 --------------------filter((date_dim.d_year = 1998))
 ----------------------PhysicalOlapScan[date_dim]
---------------PhysicalProject[sun_sales2, mon_sales2, tue_sales2, wed_sales2, thu_sales2, fri_sales2, sat_sales2, (d_week_seq2 - 53) AS `expr_(d_week_seq2 - 53)`]
+--------------PhysicalProject[(d_week_seq2 - 53) AS `expr_(d_week_seq2 - 53)`, fri_sales2, mon_sales2, sat_sales2, sun_sales2, thu_sales2, tue_sales2, wed_sales2]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
-------------------PhysicalProject[d_week_seq AS `d_week_seq2`, sun_sales AS `sun_sales2`, mon_sales AS `mon_sales2`, tue_sales AS `tue_sales2`, wed_sales AS `wed_sales2`, thu_sales AS `thu_sales2`, fri_sales AS `fri_sales2`, sat_sales AS `sat_sales2`]
+------------------PhysicalProject[d_week_seq AS `d_week_seq2`, fri_sales AS `fri_sales2`, mon_sales AS `mon_sales2`, sat_sales AS `sat_sales2`, sun_sales AS `sun_sales2`, thu_sales AS `thu_sales2`, tue_sales AS `tue_sales2`, wed_sales AS `wed_sales2`]
 --------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF1
 ------------------PhysicalProject[date_dim.d_week_seq]
 --------------------filter((date_dim.d_year = 1999))

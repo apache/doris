@@ -7,11 +7,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------hashAgg[LOCAL]
 ----------PhysicalProject[customer_address.ca_county, date_dim.d_qoy, date_dim.d_year, store_sales.ss_ext_sales_price]
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]
---------------PhysicalProject[store_sales.ss_addr_sk, store_sales.ss_ext_sales_price, date_dim.d_year, date_dim.d_qoy]
+--------------PhysicalProject[date_dim.d_qoy, date_dim.d_year, store_sales.ss_addr_sk, store_sales.ss_ext_sales_price]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_addr_sk, store_sales.ss_ext_sales_price]
+------------------PhysicalProject[store_sales.ss_addr_sk, store_sales.ss_ext_sales_price, store_sales.ss_sold_date_sk]
 --------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_year, date_dim.d_qoy]
+------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_qoy, date_dim.d_year]
 --------------------filter((ss.d_year = 2000) and d_qoy IN (1, 2, 3))
 ----------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_county]
@@ -23,11 +23,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[LOCAL]
 ------------PhysicalProject[customer_address.ca_county, date_dim.d_qoy, date_dim.d_year, web_sales.ws_ext_sales_price]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ws_bill_addr_sk]
-----------------PhysicalProject[web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price, date_dim.d_year, date_dim.d_qoy]
+----------------PhysicalProject[date_dim.d_qoy, date_dim.d_year, web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ws_sold_date_sk]
---------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price]
+--------------------PhysicalProject[web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price, web_sales.ws_sold_date_sk]
 ----------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
---------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_year, date_dim.d_qoy]
+--------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_qoy, date_dim.d_year]
 ----------------------filter((ws.d_year = 2000) and d_qoy IN (1, 2, 3))
 ------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject[customer_address.ca_address_sk, customer_address.ca_county]
@@ -36,7 +36,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalQuickSort[MERGE_SORT]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalProject[ss1.ca_county, ss1.d_year, (cast(web_sales as DECIMALV3(38, 8)) / web_sales) AS `web_q1_q2_increase`, (cast(store_sales as DECIMALV3(38, 8)) / store_sales) AS `store_q1_q2_increase`, (cast(web_sales as DECIMALV3(38, 8)) / web_sales) AS `web_q2_q3_increase`, (cast(store_sales as DECIMALV3(38, 8)) / store_sales) AS `store_q2_q3_increase`]
+------------PhysicalProject[(cast(store_sales as DECIMALV3(38, 8)) / store_sales) AS `store_q1_q2_increase`, (cast(store_sales as DECIMALV3(38, 8)) / store_sales) AS `store_q2_q3_increase`, (cast(web_sales as DECIMALV3(38, 8)) / web_sales) AS `web_q1_q2_increase`, (cast(web_sales as DECIMALV3(38, 8)) / web_sales) AS `web_q2_q3_increase`, ss1.ca_county, ss1.d_year]
 --------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((ws1.ca_county = ws3.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL))) build RFs:RF8 ca_county->[ca_county]
 ----------------PhysicalProject[ws3.ca_county, ws3.web_sales]
 ------------------filter((ws3.d_qoy = 3) and (ws3.d_year = 2000))

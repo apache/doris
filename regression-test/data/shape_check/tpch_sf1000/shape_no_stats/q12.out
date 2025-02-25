@@ -7,7 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[lineitem.l_shipmode, if(AND[( not (o_orderpriority = '1-URGENT')),( not (o_orderpriority = '2-HIGH'))], 1, 0) AS `if(AND[( not (o_orderpriority = '1-URGENT')),( not (o_orderpriority = '2-HIGH'))], 1, 0)`, if(OR[(o_orderpriority = '1-URGENT'),(o_orderpriority = '2-HIGH')], 1, 0) AS `if(OR[(o_orderpriority = '1-URGENT'),(o_orderpriority = '2-HIGH')], 1, 0)`]
+--------------PhysicalProject[if(AND[( not (o_orderpriority = '1-URGENT')),( not (o_orderpriority = '2-HIGH'))], 1, 0) AS `if(AND[( not (o_orderpriority = '1-URGENT')),( not (o_orderpriority = '2-HIGH'))], 1, 0)`, if(OR[(o_orderpriority = '1-URGENT'),(o_orderpriority = '2-HIGH')], 1, 0) AS `if(OR[(o_orderpriority = '1-URGENT'),(o_orderpriority = '2-HIGH')], 1, 0)`, lineitem.l_shipmode]
 ----------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
 ------------------PhysicalProject[orders.o_orderkey, orders.o_orderpriority]
 --------------------PhysicalOlapScan[orders] apply RFs: RF0

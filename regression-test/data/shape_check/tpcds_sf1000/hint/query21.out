@@ -8,20 +8,20 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[warehouse.w_warehouse_name, item.i_item_id, if((d_date >= '1999-06-22'), inv_quantity_on_hand, 0) AS `if((d_date >= '1999-06-22'), inv_quantity_on_hand, 0)`, if((d_date < '1999-06-22'), inv_quantity_on_hand, 0) AS `if((d_date < '1999-06-22'), inv_quantity_on_hand, 0)`]
+----------------PhysicalProject[if((d_date < '1999-06-22'), inv_quantity_on_hand, 0) AS `if((d_date < '1999-06-22'), inv_quantity_on_hand, 0)`, if((d_date >= '1999-06-22'), inv_quantity_on_hand, 0) AS `if((d_date >= '1999-06-22'), inv_quantity_on_hand, 0)`, item.i_item_id, warehouse.w_warehouse_name]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF2 w_warehouse_sk->[inv_warehouse_sk]
---------------------PhysicalProject[inventory.inv_warehouse_sk, inventory.inv_quantity_on_hand, item.i_item_id, date_dim.d_date]
+--------------------PhysicalProject[date_dim.d_date, inventory.inv_quantity_on_hand, inventory.inv_warehouse_sk, item.i_item_id]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
-------------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_warehouse_sk, inventory.inv_quantity_on_hand, item.i_item_id]
+------------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_quantity_on_hand, inventory.inv_warehouse_sk, item.i_item_id]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = inventory.inv_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[inv_item_sk]
 ----------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
-----------------------------PhysicalProject[item.i_item_sk, item.i_item_id]
+----------------------------PhysicalProject[item.i_item_id, item.i_item_sk]
 ------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
 --------------------------------PhysicalOlapScan[item]
-------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
+------------------------PhysicalProject[date_dim.d_date, date_dim.d_date_sk]
 --------------------------filter((date_dim.d_date <= '1999-07-22') and (date_dim.d_date >= '1999-05-23'))
 ----------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalProject[warehouse.w_warehouse_sk, warehouse.w_warehouse_name]
+--------------------PhysicalProject[warehouse.w_warehouse_name, warehouse.w_warehouse_sk]
 ----------------------PhysicalOlapScan[warehouse]
 
 Hint log:

@@ -2,21 +2,21 @@
 -- !ds_shape_39 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject[inv.w_warehouse_sk, inv.i_item_sk, inv.d_moy, inv.mean, if((mean = 0.0), NULL, (stdev / mean)) AS `cov`]
+----PhysicalProject[if((mean = 0.0), NULL, (stdev / mean)) AS `cov`, inv.d_moy, inv.i_item_sk, inv.mean, inv.w_warehouse_sk]
 ------filter((if((mean = 0.0), 0.0, (stdev / mean)) > 1.0))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[warehouse.w_warehouse_name, warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy, inventory.inv_quantity_on_hand]
+--------------PhysicalProject[date_dim.d_moy, inventory.inv_quantity_on_hand, item.i_item_sk, warehouse.w_warehouse_name, warehouse.w_warehouse_sk]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[inv_date_sk]
-------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_quantity_on_hand, item.i_item_sk, warehouse.w_warehouse_sk, warehouse.w_warehouse_name]
+------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_quantity_on_hand, item.i_item_sk, warehouse.w_warehouse_name, warehouse.w_warehouse_sk]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
-----------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_warehouse_sk, inventory.inv_quantity_on_hand, item.i_item_sk]
+----------------------PhysicalProject[inventory.inv_date_sk, inventory.inv_quantity_on_hand, inventory.inv_warehouse_sk, item.i_item_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=()
 --------------------------PhysicalOlapScan[inventory] apply RFs: RF2
 --------------------------PhysicalProject[item.i_item_sk]
 ----------------------------PhysicalOlapScan[item]
-----------------------PhysicalProject[warehouse.w_warehouse_sk, warehouse.w_warehouse_name]
+----------------------PhysicalProject[warehouse.w_warehouse_name, warehouse.w_warehouse_sk]
 ------------------------PhysicalOlapScan[warehouse]
 ------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_moy]
 --------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))

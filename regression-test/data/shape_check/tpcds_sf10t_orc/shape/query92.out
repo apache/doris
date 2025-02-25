@@ -10,11 +10,11 @@ PhysicalResultSink
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject[web_sales.ws_ext_discount_amt, item.i_item_sk]
+--------------------PhysicalProject[item.i_item_sk, web_sales.ws_ext_discount_amt]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
-------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_ext_discount_amt, item.i_item_sk]
+------------------------PhysicalProject[item.i_item_sk, web_sales.ws_ext_discount_amt, web_sales.ws_sold_date_sk]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ws_item_sk]
-----------------------------PhysicalProject[web_sales.ws_item_sk, web_sales.ws_sold_date_sk, web_sales.ws_ext_discount_amt]
+----------------------------PhysicalProject[web_sales.ws_ext_discount_amt, web_sales.ws_item_sk, web_sales.ws_sold_date_sk]
 ------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ----------------------------PhysicalProject[item.i_item_sk]
 ------------------------------filter((item.i_manufact_id = 356))

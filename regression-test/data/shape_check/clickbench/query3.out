@@ -4,6 +4,6 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
---------PhysicalProject[hits.ResolutionWidth, hits.AdvEngineID]
+--------PhysicalProject[hits.AdvEngineID, hits.ResolutionWidth]
 ----------PhysicalOlapScan[hits]
 

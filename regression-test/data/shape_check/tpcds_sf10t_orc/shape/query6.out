@@ -11,25 +11,25 @@ PhysicalResultSink
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject[a.ca_state]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4)))))) build RFs:RF5 i_category->[i_category]
-----------------------PhysicalProject[a.ca_state, i.i_current_price, i.i_category]
+----------------------PhysicalProject[a.ca_state, i.i_category, i.i_current_price]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_month_seq = date_dim.d_month_seq)) otherCondition=() build RFs:RF4 d_month_seq->[d_month_seq]
---------------------------PhysicalProject[a.ca_state, d.d_month_seq, i.i_current_price, i.i_category]
+--------------------------PhysicalProject[a.ca_state, d.d_month_seq, i.i_category, i.i_current_price]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((s.ss_item_sk = i.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->[ss_item_sk]
-------------------------------PhysicalProject[a.ca_state, s.ss_item_sk, d.d_month_seq]
+------------------------------PhysicalProject[a.ca_state, d.d_month_seq, s.ss_item_sk]
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((s.ss_sold_date_sk = d.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 ----------------------------------PhysicalProject[a.ca_state, s.ss_item_sk, s.ss_sold_date_sk]
 ------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[ss_customer_sk]
---------------------------------------PhysicalProject[s.ss_item_sk, s.ss_sold_date_sk, s.ss_customer_sk]
+--------------------------------------PhysicalProject[s.ss_customer_sk, s.ss_item_sk, s.ss_sold_date_sk]
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
 --------------------------------------PhysicalProject[a.ca_state, c.c_customer_sk]
 ----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
-------------------------------------------PhysicalProject[c.c_customer_sk, c.c_current_addr_sk]
+------------------------------------------PhysicalProject[c.c_current_addr_sk, c.c_customer_sk]
 --------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ------------------------------------------PhysicalProject[a.ca_address_sk, a.ca_state]
 --------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------PhysicalProject[d.d_date_sk, d.d_month_seq]
 ------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
-------------------------------PhysicalProject[i.i_item_sk, i.i_current_price, i.i_category]
+------------------------------PhysicalProject[i.i_category, i.i_current_price, i.i_item_sk]
 --------------------------------PhysicalOlapScan[item] apply RFs: RF5
 --------------------------PhysicalAssertNumRows
 ----------------------------PhysicalDistribute[DistributionSpecGather]
@@ -42,6 +42,6 @@ PhysicalResultSink
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
-----------------------------PhysicalProject[j.i_category, cast(i_current_price as DECIMALV3(9, 4)) AS `cast(i_current_price as DECIMALV3(9, 4))`]
+----------------------------PhysicalProject[cast(i_current_price as DECIMALV3(9, 4)) AS `cast(i_current_price as DECIMALV3(9, 4))`, j.i_category]
 ------------------------------PhysicalOlapScan[item]
 

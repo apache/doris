@@ -206,7 +206,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t2.d_date = expr_cast(c1 as DATEV2))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[127 AS `c1`, '2000-01-27' AS `expr_cast(c1 as DATEV2)`]
+----------PhysicalProject['2000-01-27' AS `expr_cast(c1 as DATEV2)`, 127 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[t2.d_date]
 --------filter((t2.d_date = '2000-01-27'))
@@ -218,7 +218,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t2.d_datetime = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[127 AS `c1`, '2000-01-27 00:00:00' AS `expr_cast(c1 as DATETIMEV2(0))`]
+----------PhysicalProject['2000-01-27 00:00:00' AS `expr_cast(c1 as DATETIMEV2(0))`, 127 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[t2.d_datetime]
 --------filter((t2.d_datetime = '2000-01-27 00:00:00'))
@@ -582,7 +582,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_bool as DOUBLE) AS `expr_cast(d_bool as DOUBLE)`]
 --------filter((cast(d_bool as DOUBLE) = 2.14748364799E11))
@@ -594,7 +594,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_float as DOUBLE) AS `expr_cast(d_float as DOUBLE)`]
 --------filter((cast(d_float as DOUBLE) = 2.14748364799E11))
@@ -606,7 +606,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[t2.d_double]
 --------filter((t2.d_double = 2.14748364799E11))
@@ -618,7 +618,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_decimal as DOUBLE) AS `expr_cast(d_decimal as DOUBLE)`]
 --------filter((cast(d_decimal as DOUBLE) = 2.14748364799E11))
@@ -638,7 +638,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_char as DOUBLE) AS `expr_cast(d_char as DOUBLE)`]
 --------filter((cast(d_char as DOUBLE) = 2.14748364799E11))
@@ -650,7 +650,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_varchar as DOUBLE) AS `expr_cast(d_varchar as DOUBLE)`]
 --------filter((cast(d_varchar as DOUBLE) = 2.14748364799E11))
@@ -662,7 +662,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[214748364799 AS `c1`, 2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[2.14748364799E11 AS `expr_cast(c1 as DOUBLE)`, 214748364799 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_string as DOUBLE) AS `expr_cast(d_string as DOUBLE)`]
 --------filter((cast(d_string as DOUBLE) = 2.14748364799E11))
@@ -702,7 +702,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_bool as DOUBLE) AS `expr_cast(d_bool as DOUBLE)`]
 --------filter((cast(d_bool as DOUBLE) = 9.223372036854776E20))
@@ -714,7 +714,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_float as DOUBLE) AS `expr_cast(d_float as DOUBLE)`]
 --------filter((cast(d_float as DOUBLE) = 9.223372036854776E20))
@@ -726,7 +726,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[t2.d_double]
 --------filter((t2.d_double = 9.223372036854776E20))
@@ -742,7 +742,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_date as DOUBLE) AS `expr_cast(d_date as DOUBLE)`]
 --------filter((cast(d_date as DOUBLE) = 9.223372036854776E20))
@@ -754,7 +754,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_datetime as DOUBLE) AS `expr_cast(d_datetime as DOUBLE)`]
 --------filter((cast(d_datetime as DOUBLE) = 9.223372036854776E20))
@@ -766,7 +766,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_char as DOUBLE) AS `expr_cast(d_char as DOUBLE)`]
 --------filter((cast(d_char as DOUBLE) = 9.223372036854776E20))
@@ -778,7 +778,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_varchar as DOUBLE) AS `expr_cast(d_varchar as DOUBLE)`]
 --------filter((cast(d_varchar as DOUBLE) = 9.223372036854776E20))
@@ -790,7 +790,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[922337203685477580722 AS `c1`, 9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[9.223372036854776E20 AS `expr_cast(c1 as DOUBLE)`, 922337203685477580722 AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_string as DOUBLE) AS `expr_cast(d_string as DOUBLE)`]
 --------filter((cast(d_string as DOUBLE) = 9.223372036854776E20))
@@ -802,7 +802,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_tinyint as DOUBLE) AS `expr_cast(d_tinyint as DOUBLE)`]
 --------filter((t2.d_tinyint = 1))
@@ -814,7 +814,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_smallint as DOUBLE) AS `expr_cast(d_smallint as DOUBLE)`]
 --------filter((t2.d_smallint = 1))
@@ -826,7 +826,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_int as DOUBLE) AS `expr_cast(d_int as DOUBLE)`]
 --------filter((t2.d_int = 1))
@@ -838,7 +838,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_bigint as DOUBLE) AS `expr_cast(d_bigint as DOUBLE)`]
 --------filter((t2.d_bigint = 1))
@@ -850,7 +850,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_largeint as DOUBLE) AS `expr_cast(d_largeint as DOUBLE)`]
 --------filter((cast(d_largeint as DOUBLE) = 1.0))
@@ -874,7 +874,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_float as DOUBLE) AS `expr_cast(d_float as DOUBLE)`]
 --------filter((cast(d_float as DOUBLE) = 1.0))
@@ -886,7 +886,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[t2.d_double]
 --------filter((t2.d_double = 1.0))
@@ -898,7 +898,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_decimal as DOUBLE) AS `expr_cast(d_decimal as DOUBLE)`]
 --------filter((cast(d_decimal as DOUBLE) = 1.0))
@@ -910,7 +910,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_date as DOUBLE) AS `expr_cast(d_date as DOUBLE)`]
 --------filter((cast(d_date as DOUBLE) = 1.0))
@@ -922,7 +922,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_datetime as DOUBLE) AS `expr_cast(d_datetime as DOUBLE)`]
 --------filter((cast(d_datetime as DOUBLE) = 1.0))
@@ -934,7 +934,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_char as DOUBLE) AS `expr_cast(d_char as DOUBLE)`]
 --------filter((cast(d_char as DOUBLE) = 1.0))
@@ -946,7 +946,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_varchar as DOUBLE) AS `expr_cast(d_varchar as DOUBLE)`]
 --------filter((cast(d_varchar as DOUBLE) = 1.0))
@@ -958,7 +958,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject[TRUE AS `c1`, 1.0 AS `expr_cast(c1 as DOUBLE)`]
+----------PhysicalProject[1.0 AS `expr_cast(c1 as DOUBLE)`, TRUE AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_string as DOUBLE) AS `expr_cast(d_string as DOUBLE)`]
 --------filter((cast(d_string as DOUBLE) = 1.0))
@@ -1414,7 +1414,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DATETIMEV2(0)) = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject['2024-07-01' AS `c1`, '2024-07-01 00:00:00' AS `expr_cast(c1 as DATETIMEV2(0))`]
+----------PhysicalProject['2024-07-01 00:00:00' AS `expr_cast(c1 as DATETIMEV2(0))`, '2024-07-01' AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_date as DATETIMEV2(0)) AS `expr_cast(d_date as DATETIMEV2(0))`]
 --------filter((t2.d_date = '2024-07-01'))
@@ -1426,7 +1426,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DATETIMEV2(6)) = expr_cast(c1 as DATETIMEV2(6)))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject['2024-07-01' AS `c1`, '2024-07-01 00:00:00.000000' AS `expr_cast(c1 as DATETIMEV2(6))`]
+----------PhysicalProject['2024-07-01 00:00:00.000000' AS `expr_cast(c1 as DATETIMEV2(6))`, '2024-07-01' AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_datetime as DATETIMEV2(6)) AS `expr_cast(d_datetime as DATETIMEV2(6))`]
 --------filter((t2.d_datetime = '2024-07-01 00:00:00'))
@@ -1525,7 +1525,7 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DATETIMEV2(0)) = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
-----------PhysicalProject['2024-08-02 00:00:00.000000' AS `c1`, '2024-08-02 00:00:00' AS `expr_cast(c1 as DATETIMEV2(0))`]
+----------PhysicalProject['2024-08-02 00:00:00' AS `expr_cast(c1 as DATETIMEV2(0))`, '2024-08-02 00:00:00.000000' AS `c1`]
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject[cast(d_date as DATETIMEV2(0)) AS `expr_cast(d_date as DATETIMEV2(0))`]
 --------filter((t2.d_date = '2024-08-02'))

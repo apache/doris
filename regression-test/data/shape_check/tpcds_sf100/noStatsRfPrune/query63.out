@@ -4,22 +4,22 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject[tmp1.i_manager_id, tmp1.sum_sales, avg_monthly_sales]
+--------PhysicalProject[avg_monthly_sales, tmp1.i_manager_id, tmp1.sum_sales]
 ----------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000))
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject[item.i_manager_id, sum_sales, cast(sum_sales as DECIMALV3(38, 4)) AS `cast(sum_sales as DECIMALV3(38, 4))`]
+------------------PhysicalProject[cast(sum_sales as DECIMALV3(38, 4)) AS `cast(sum_sales as DECIMALV3(38, 4))`, item.i_manager_id, sum_sales]
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
---------------------------PhysicalProject[item.i_manager_id, date_dim.d_moy, store_sales.ss_sales_price]
+--------------------------PhysicalProject[date_dim.d_moy, item.i_manager_id, store_sales.ss_sales_price]
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=()
-------------------------------PhysicalProject[item.i_manager_id, store_sales.ss_store_sk, store_sales.ss_sales_price, date_dim.d_moy]
+------------------------------PhysicalProject[date_dim.d_moy, item.i_manager_id, store_sales.ss_sales_price, store_sales.ss_store_sk]
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
-----------------------------------PhysicalProject[item.i_manager_id, store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price]
+----------------------------------PhysicalProject[item.i_manager_id, store_sales.ss_sales_price, store_sales.ss_sold_date_sk, store_sales.ss_store_sk]
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
---------------------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_sales_price]
+--------------------------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_sales_price, store_sales.ss_sold_date_sk, store_sales.ss_store_sk]
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 --------------------------------------PhysicalProject[item.i_item_sk, item.i_manager_id]
 ----------------------------------------filter(OR[AND[i_category IN ('Books', 'Children', 'Electronics'),i_class IN ('personal', 'portable', 'reference', 'self-help'),i_brand IN ('exportiunivamalg #9', 'scholaramalgamalg #14', 'scholaramalgamalg #7', 'scholaramalgamalg #9')],AND[i_category IN ('Men', 'Music', 'Women'),i_class IN ('accessories', 'classical', 'fragrances', 'pants'),i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'importoamalg #1')]] and i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'exportiunivamalg #9', 'importoamalg #1', 'scholaramalgamalg #14', 'scholaramalgamalg #7', 'scholaramalgamalg #9') and i_category IN ('Books', 'Children', 'Electronics', 'Men', 'Music', 'Women') and i_class IN ('accessories', 'classical', 'fragrances', 'pants', 'personal', 'portable', 'reference', 'self-help'))

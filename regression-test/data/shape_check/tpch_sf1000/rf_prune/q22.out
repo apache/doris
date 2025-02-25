@@ -7,11 +7,11 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[substring(c_phone, 1, 2) AS `cntrycode`, custsale.c_acctbal]
+--------------PhysicalProject[custsale.c_acctbal, substring(c_phone, 1, 2) AS `cntrycode`]
 ----------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(cast(c_acctbal as DECIMALV3(17, 4))))
-------------------PhysicalProject[customer.c_phone, customer.c_acctbal, cast(c_acctbal as DECIMALV3(38, 4)) AS `cast(c_acctbal as DECIMALV3(38, 4))`]
+------------------PhysicalProject[cast(c_acctbal as DECIMALV3(38, 4)) AS `cast(c_acctbal as DECIMALV3(38, 4))`, customer.c_acctbal, customer.c_phone]
 --------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=()
-----------------------PhysicalProject[customer.c_custkey, customer.c_phone, customer.c_acctbal]
+----------------------PhysicalProject[customer.c_acctbal, customer.c_custkey, customer.c_phone]
 ------------------------filter(substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
 --------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalProject[orders.o_custkey]

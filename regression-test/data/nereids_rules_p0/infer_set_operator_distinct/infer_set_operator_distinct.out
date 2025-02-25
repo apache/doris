@@ -51,7 +51,7 @@ PhysicalResultSink
 -- !except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[id AS `id`, score AS `score`, name AS `name`]
+----PhysicalProject[id AS `id`, name AS `name`, score AS `score`]
 ------hashAgg[LOCAL]
 --------filter((t1.id > 100))
 ----------PhysicalOlapScan[t1]
@@ -109,7 +109,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalProject[t2.id]
@@ -170,7 +170,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalProject[t2.id]
@@ -186,7 +186,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalProject[t2.id]
@@ -202,7 +202,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalProject[t2.id]
 --------------------PhysicalOlapScan[t2]
@@ -217,7 +217,7 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------PhysicalProject[t1.id, t1.score, t1.name]
+------------PhysicalProject[t1.id, t1.name, t1.score]
 --------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------PhysicalOlapScan[t1]
 ----------------PhysicalProject[t2.id]
@@ -403,7 +403,7 @@ SyntaxError:
 -- !with_hint_except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[id AS `id`, score AS `score`, name AS `name`]
+----PhysicalProject[id AS `id`, name AS `name`, score AS `score`]
 ------hashAgg[LOCAL]
 --------filter((t1.id > 100))
 ----------PhysicalOlapScan[t1]
@@ -489,7 +489,7 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t1.id, t1.score, t1.name]
+----------------PhysicalProject[t1.id, t1.name, t1.score]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------------PhysicalOlapScan[t1]
 --------------------PhysicalProject[t2.id]
@@ -581,7 +581,7 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t1.id, t1.score, t1.name]
+----------------PhysicalProject[t1.id, t1.name, t1.score]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------------PhysicalOlapScan[t1]
 --------------------PhysicalProject[t2.id]
@@ -604,7 +604,7 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[t1.id, t1.score, t1.name]
+----------------PhysicalProject[t1.id, t1.name, t1.score]
 ------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------------PhysicalOlapScan[t1]
 --------------------PhysicalProject[t2.id]
@@ -628,7 +628,7 @@ PhysicalResultSink
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
-------------------PhysicalProject[t1.id, t1.score, t1.name]
+------------------PhysicalProject[t1.id, t1.name, t1.score]
 --------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------------PhysicalProject[t2.id]
 ------------------------PhysicalOlapScan[t2]
@@ -652,7 +652,7 @@ PhysicalResultSink
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
-------------------PhysicalProject[t1.id, t1.score, t1.name]
+------------------PhysicalProject[t1.id, t1.name, t1.score]
 --------------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------------PhysicalOlapScan[t1]
 ----------------------PhysicalProject[t2.id]
@@ -880,7 +880,7 @@ SyntaxError:
 -- !with_hint_no_except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[id AS `id`, score AS `score`, name AS `name`]
+----PhysicalProject[id AS `id`, name AS `name`, score AS `score`]
 ------hashAgg[LOCAL]
 --------filter((t1.id > 100))
 ----------PhysicalOlapScan[t1]
@@ -958,7 +958,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalProject[t2.id]
@@ -1039,7 +1039,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalProject[t2.id]
@@ -1060,7 +1060,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalProject[t2.id]
@@ -1081,7 +1081,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject[t1.id, t1.score, t1.name]
+--------------PhysicalProject[t1.id, t1.name, t1.score]
 ----------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalProject[t2.id]
 --------------------PhysicalOlapScan[t2]
@@ -1101,7 +1101,7 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------PhysicalProject[t1.id, t1.score, t1.name]
+------------PhysicalProject[t1.id, t1.name, t1.score]
 --------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------PhysicalOlapScan[t1]
 ----------------PhysicalProject[t2.id]

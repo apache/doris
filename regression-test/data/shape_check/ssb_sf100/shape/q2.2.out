@@ -7,18 +7,18 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[dates.d_year, part.p_brand, lineorder.lo_revenue]
+--------------PhysicalProject[dates.d_year, lineorder.lo_revenue, part.p_brand]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
 ------------------PhysicalProject[lineorder.lo_orderdate, lineorder.lo_revenue, part.p_brand]
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF1 p_partkey->[lo_partkey]
-----------------------PhysicalProject[lineorder.lo_partkey, lineorder.lo_orderdate, lineorder.lo_revenue]
+----------------------PhysicalProject[lineorder.lo_orderdate, lineorder.lo_partkey, lineorder.lo_revenue]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
---------------------------PhysicalProject[lineorder.lo_partkey, lineorder.lo_suppkey, lineorder.lo_orderdate, lineorder.lo_revenue]
+--------------------------PhysicalProject[lineorder.lo_orderdate, lineorder.lo_partkey, lineorder.lo_revenue, lineorder.lo_suppkey]
 ----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
 --------------------------PhysicalProject[supplier.s_suppkey]
 ----------------------------filter((supplier.s_region = 'ASIA'))
 ------------------------------PhysicalOlapScan[supplier]
-----------------------PhysicalProject[part.p_partkey, part.p_brand]
+----------------------PhysicalProject[part.p_brand, part.p_partkey]
 ------------------------filter((part.p_brand <= 'MFGR#2228') and (part.p_brand >= 'MFGR#2221'))
 --------------------------PhysicalOlapScan[part]
 ------------------PhysicalProject[dates.d_datekey, dates.d_year]

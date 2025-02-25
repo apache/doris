@@ -7,7 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[hits.WindowClientWidth, hits.WindowClientHeight]
+--------------PhysicalProject[hits.WindowClientHeight, hits.WindowClientWidth]
 ----------------filter((hits.CounterID = 62) and (hits.DontCountHits = 0) and (hits.EventDate <= '2013-07-31') and (hits.EventDate >= '2013-07-01') and (hits.IsRefresh = 0) and (hits.URLHash = 2868770270353813622))
 ------------------PhysicalOlapScan[hits]
 

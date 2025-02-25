@@ -9,9 +9,9 @@ PhysicalResultSink
 ------------filter((cast(l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(cast(l_quantity as DECIMALV3(17, 4))) OVER(PARTITION BY p_partkey))))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalProject[lineitem.l_quantity, lineitem.l_extendedprice, part.p_partkey]
+------------------PhysicalProject[lineitem.l_extendedprice, lineitem.l_quantity, part.p_partkey]
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
-----------------------PhysicalProject[lineitem.l_partkey, lineitem.l_quantity, lineitem.l_extendedprice]
+----------------------PhysicalProject[lineitem.l_extendedprice, lineitem.l_partkey, lineitem.l_quantity]
 ------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 ----------------------PhysicalProject[part.p_partkey]
 ------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))

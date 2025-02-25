@@ -8,11 +8,11 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((i2.i_item_sk = descending.item_sk)) otherCondition=() build RFs:RF1 item_sk->[i_item_sk]
 ------------PhysicalProject[i2.i_item_sk, i_product_name AS `worst_performing`]
 --------------PhysicalOlapScan[item] apply RFs: RF1
-------------PhysicalProject[rnk, descending.item_sk, best_performing]
+------------PhysicalProject[best_performing, descending.item_sk, rnk]
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((i1.i_item_sk = asceding.item_sk)) otherCondition=() build RFs:RF0 item_sk->[i_item_sk]
 ----------------PhysicalProject[i1.i_item_sk, i_product_name AS `best_performing`]
 ------------------PhysicalOlapScan[item] apply RFs: RF0
-----------------PhysicalProject[asceding.item_sk, rnk, descending.item_sk]
+----------------PhysicalProject[asceding.item_sk, descending.item_sk, rnk]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
 --------------------PhysicalProject[asceding.item_sk, rnk]
 ----------------------filter((rnk < 11))
@@ -21,13 +21,13 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------PhysicalPartitionTopN
-----------------------------------PhysicalProject[item_sk, V1.rank_col]
+----------------------------------PhysicalProject[V1.rank_col, item_sk]
 ------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
---------------------------------------PhysicalProject[rank_col, ss_item_sk AS `item_sk`, cast(rank_col as DOUBLE) AS `cast(rank_col as DOUBLE)`]
+--------------------------------------PhysicalProject[cast(rank_col as DOUBLE) AS `cast(rank_col as DOUBLE)`, rank_col, ss_item_sk AS `item_sk`]
 ----------------------------------------hashAgg[GLOBAL]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject[ss1.ss_item_sk, cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`]
+----------------------------------------------PhysicalProject[cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`, ss1.ss_item_sk]
 ------------------------------------------------filter((ss1.ss_store_sk = 146))
 --------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalProject[cast((0.9 * rank_col) as DOUBLE) AS `cast((0.9 * rank_col) as DOUBLE)`]
@@ -37,7 +37,7 @@ PhysicalResultSink
 ----------------------------------------------hashAgg[GLOBAL]
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------hashAgg[LOCAL]
-----------------------------------------------------PhysicalProject[store_sales.ss_store_sk, cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`]
+----------------------------------------------------PhysicalProject[cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`, store_sales.ss_store_sk]
 ------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
 --------------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalProject[descending.item_sk, rnk]
@@ -47,13 +47,13 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------PhysicalPartitionTopN
-----------------------------------PhysicalProject[item_sk, V2.rank_col]
+----------------------------------PhysicalProject[V2.rank_col, item_sk]
 ------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
---------------------------------------PhysicalProject[rank_col, ss_item_sk AS `item_sk`, cast(rank_col as DOUBLE) AS `cast(rank_col as DOUBLE)`]
+--------------------------------------PhysicalProject[cast(rank_col as DOUBLE) AS `cast(rank_col as DOUBLE)`, rank_col, ss_item_sk AS `item_sk`]
 ----------------------------------------hashAgg[GLOBAL]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject[ss1.ss_item_sk, cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`]
+----------------------------------------------PhysicalProject[cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`, ss1.ss_item_sk]
 ------------------------------------------------filter((ss1.ss_store_sk = 146))
 --------------------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalProject[cast((0.9 * rank_col) as DOUBLE) AS `cast((0.9 * rank_col) as DOUBLE)`]
@@ -63,7 +63,7 @@ PhysicalResultSink
 ----------------------------------------------hashAgg[GLOBAL]
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------hashAgg[LOCAL]
-----------------------------------------------------PhysicalProject[store_sales.ss_store_sk, cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`]
+----------------------------------------------------PhysicalProject[cast(ss_net_profit as DECIMALV3(9, 4)) AS `cast(ss_net_profit as DECIMALV3(9, 4))`, store_sales.ss_store_sk]
 ------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
 --------------------------------------------------------PhysicalOlapScan[store_sales]
 

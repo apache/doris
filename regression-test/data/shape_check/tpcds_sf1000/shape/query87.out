@@ -11,11 +11,11 @@ PhysicalResultSink
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject[store_sales.ss_customer_sk, date_dim.d_date]
+----------------------PhysicalProject[date_dim.d_date, store_sales.ss_customer_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
---------------------------PhysicalProject[store_sales.ss_sold_date_sk, store_sales.ss_customer_sk]
+--------------------------PhysicalProject[store_sales.ss_customer_sk, store_sales.ss_sold_date_sk]
 ----------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
---------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
+--------------------------PhysicalProject[date_dim.d_date, date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_month_seq <= 1213) and (date_dim.d_month_seq >= 1202))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalOlapScan[customer]
@@ -26,9 +26,9 @@ PhysicalResultSink
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject[catalog_sales.cs_bill_customer_sk, date_dim.d_date]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cs_sold_date_sk]
---------------------------PhysicalProject[catalog_sales.cs_sold_date_sk, catalog_sales.cs_bill_customer_sk]
+--------------------------PhysicalProject[catalog_sales.cs_bill_customer_sk, catalog_sales.cs_sold_date_sk]
 ----------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
---------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
+--------------------------PhysicalProject[date_dim.d_date, date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_month_seq <= 1213) and (date_dim.d_month_seq >= 1202))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalOlapScan[customer]
@@ -37,11 +37,11 @@ PhysicalResultSink
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject[web_sales.ws_bill_customer_sk, date_dim.d_date]
+----------------------PhysicalProject[date_dim.d_date, web_sales.ws_bill_customer_sk]
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[ws_sold_date_sk]
---------------------------PhysicalProject[web_sales.ws_sold_date_sk, web_sales.ws_bill_customer_sk]
+--------------------------PhysicalProject[web_sales.ws_bill_customer_sk, web_sales.ws_sold_date_sk]
 ----------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
---------------------------PhysicalProject[date_dim.d_date_sk, date_dim.d_date]
+--------------------------PhysicalProject[date_dim.d_date, date_dim.d_date_sk]
 ----------------------------filter((date_dim.d_month_seq <= 1213) and (date_dim.d_month_seq >= 1202))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalOlapScan[customer]

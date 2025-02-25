@@ -12,7 +12,7 @@ PhysicalResultSink
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[ss_hdemo_sk]
 --------------------PhysicalProject[store_sales.ss_hdemo_sk, store_sales.ss_store_sk]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF0 t_time_sk->[ss_sold_time_sk]
-------------------------PhysicalProject[store_sales.ss_sold_time_sk, store_sales.ss_hdemo_sk, store_sales.ss_store_sk]
+------------------------PhysicalProject[store_sales.ss_hdemo_sk, store_sales.ss_sold_time_sk, store_sales.ss_store_sk]
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------PhysicalProject[time_dim.t_time_sk]
 --------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))

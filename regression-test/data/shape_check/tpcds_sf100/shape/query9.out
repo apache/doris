@@ -2,7 +2,7 @@
 -- !ds_shape_9 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject[if((count(*) > 2972190), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket1`, if((count(*) > 4505785), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket2`, if((count(*) > 1575726), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket3`, if((count(*) > 3188917), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket4`, if((count(*) > 3525216), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket5`]
+----PhysicalProject[if((count(*) > 1575726), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket3`, if((count(*) > 2972190), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket1`, if((count(*) > 3188917), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket4`, if((count(*) > 3525216), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket5`, if((count(*) > 4505785), avg(cast(ss_ext_sales_price as DECIMALV3(9, 4))), avg(cast(ss_net_profit as DECIMALV3(9, 4)))) AS `bucket2`]
 ------NestedLoopJoin[CROSS_JOIN]
 --------NestedLoopJoin[CROSS_JOIN]
 ----------NestedLoopJoin[CROSS_JOIN]

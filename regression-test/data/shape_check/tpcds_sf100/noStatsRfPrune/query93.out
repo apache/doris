@@ -7,13 +7,13 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[t.ss_customer_sk, if(( not sr_return_quantity IS NULL), (cast((ss_quantity - sr_return_quantity) as DECIMALV3(20, 0)) * ss_sales_price), cast((cast(ss_quantity as DECIMALV3(10, 0)) * ss_sales_price) as DECIMALV3(27, 2))) AS `act_sales`]
+--------------PhysicalProject[if(( not sr_return_quantity IS NULL), (cast((ss_quantity - sr_return_quantity) as DECIMALV3(20, 0)) * ss_sales_price), cast((cast(ss_quantity as DECIMALV3(10, 0)) * ss_sales_price) as DECIMALV3(27, 2))) AS `act_sales`, t.ss_customer_sk]
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_reason_sk = reason.r_reason_sk)) otherCondition=() build RFs:RF2 r_reason_sk->[sr_reason_sk]
-------------------PhysicalProject[store_sales.ss_customer_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_returns.sr_reason_sk, store_returns.sr_return_quantity]
+------------------PhysicalProject[store_returns.sr_reason_sk, store_returns.sr_return_quantity, store_sales.ss_customer_sk, store_sales.ss_quantity, store_sales.ss_sales_price]
 --------------------hashJoin[INNER_JOIN colocated] hashCondition=((store_returns.sr_item_sk = store_sales.ss_item_sk) and (store_returns.sr_ticket_number = store_sales.ss_ticket_number)) otherCondition=() build RFs:RF0 sr_item_sk->[ss_item_sk];RF1 sr_ticket_number->[ss_ticket_number]
-----------------------PhysicalProject[store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_customer_sk, store_sales.ss_quantity, store_sales.ss_sales_price]
+----------------------PhysicalProject[store_sales.ss_customer_sk, store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_ticket_number]
 ------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-----------------------PhysicalProject[store_returns.sr_item_sk, store_returns.sr_ticket_number, store_returns.sr_reason_sk, store_returns.sr_return_quantity]
+----------------------PhysicalProject[store_returns.sr_item_sk, store_returns.sr_reason_sk, store_returns.sr_return_quantity, store_returns.sr_ticket_number]
 ------------------------PhysicalOlapScan[store_returns] apply RFs: RF2
 ------------------PhysicalProject[reason.r_reason_sk]
 --------------------filter((reason.r_reason_desc = 'duplicate purchase'))

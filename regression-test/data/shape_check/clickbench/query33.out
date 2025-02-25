@@ -7,6 +7,6 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[hits.WatchID, hits.ClientIP, hits.ResolutionWidth, hits.IsRefresh]
+--------------PhysicalProject[hits.ClientIP, hits.IsRefresh, hits.ResolutionWidth, hits.WatchID]
 ----------------PhysicalOlapScan[hits]
 

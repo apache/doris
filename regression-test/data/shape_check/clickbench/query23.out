@@ -7,7 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------PhysicalProject[hits.SearchPhrase, hits.UserID, hits.Title, hits.URL]
+--------------PhysicalProject[hits.SearchPhrase, hits.Title, hits.URL, hits.UserID]
 ----------------filter(( not (SearchPhrase = '')) and ( not (URL like '%.google.%')) and (Title like '%Google%'))
 ------------------PhysicalOlapScan[hits]
 

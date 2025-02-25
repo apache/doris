@@ -5,6 +5,6 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[LOCAL]
-----------PhysicalProject[hits.UserID, hits.SearchPhrase]
+----------PhysicalProject[hits.SearchPhrase, hits.UserID]
 ------------PhysicalOlapScan[hits]
 

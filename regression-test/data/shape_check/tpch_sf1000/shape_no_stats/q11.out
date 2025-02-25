@@ -6,15 +6,15 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject[partsupp.ps_partkey, value]
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
-------------PhysicalProject[partsupp.ps_partkey, value, cast(value as DOUBLE) AS `cast(value as DOUBLE)`]
+------------PhysicalProject[cast(value as DOUBLE) AS `cast(value as DOUBLE)`, partsupp.ps_partkey, value]
 --------------hashAgg[LOCAL]
-----------------PhysicalProject[partsupp.ps_partkey, (ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`]
+----------------PhysicalProject[(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0))) AS `(ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))`, partsupp.ps_partkey]
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[s_nationkey]
---------------------PhysicalProject[partsupp.ps_partkey, partsupp.ps_availqty, partsupp.ps_supplycost, supplier.s_nationkey]
+--------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_partkey, partsupp.ps_supplycost, supplier.s_nationkey]
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[ps_suppkey]
-------------------------PhysicalProject[partsupp.ps_partkey, partsupp.ps_suppkey, partsupp.ps_availqty, partsupp.ps_supplycost]
+------------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_partkey, partsupp.ps_suppkey, partsupp.ps_supplycost]
 --------------------------PhysicalOlapScan[partsupp] apply RFs: RF2
-------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
+------------------------PhysicalProject[supplier.s_nationkey, supplier.s_suppkey]
 --------------------------PhysicalOlapScan[supplier] apply RFs: RF3
 --------------------PhysicalProject[nation.n_nationkey]
 ----------------------filter((nation.n_name = 'GERMANY'))
@@ -27,9 +27,9 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[s_nationkey]
 ------------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_supplycost, supplier.s_nationkey]
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[ps_suppkey]
-----------------------------PhysicalProject[partsupp.ps_suppkey, partsupp.ps_availqty, partsupp.ps_supplycost]
+----------------------------PhysicalProject[partsupp.ps_availqty, partsupp.ps_suppkey, partsupp.ps_supplycost]
 ------------------------------PhysicalOlapScan[partsupp] apply RFs: RF0
-----------------------------PhysicalProject[supplier.s_suppkey, supplier.s_nationkey]
+----------------------------PhysicalProject[supplier.s_nationkey, supplier.s_suppkey]
 ------------------------------PhysicalOlapScan[supplier] apply RFs: RF1
 ------------------------PhysicalProject[nation.n_nationkey]
 --------------------------filter((nation.n_name = 'GERMANY'))

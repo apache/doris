@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
-----------PhysicalProject[hits.SearchPhrase, hits.EventTime]
+----------PhysicalProject[hits.EventTime, hits.SearchPhrase]
 ------------filter(( not (SearchPhrase = '')))
 --------------PhysicalOlapScan[hits]
 

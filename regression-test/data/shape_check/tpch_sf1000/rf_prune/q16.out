@@ -8,11 +8,11 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
-----------------PhysicalProject[part.p_brand, part.p_type, part.p_size, partsupp.ps_suppkey]
+----------------PhysicalProject[part.p_brand, part.p_size, part.p_type, partsupp.ps_suppkey]
 ------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
 --------------------PhysicalProject[partsupp.ps_partkey, partsupp.ps_suppkey]
 ----------------------PhysicalOlapScan[partsupp] apply RFs: RF0
---------------------PhysicalProject[part.p_partkey, part.p_brand, part.p_type, part.p_size]
+--------------------PhysicalProject[part.p_brand, part.p_partkey, part.p_size, part.p_type]
 ----------------------filter(( not (p_brand = 'Brand#45')) and ( not (p_type like 'MEDIUM POLISHED%')) and p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
 ------------------------PhysicalOlapScan[part]
 ----------------PhysicalProject[supplier.s_suppkey]
