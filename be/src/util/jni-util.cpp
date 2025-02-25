@@ -92,6 +92,10 @@ const std::string GetDorisJNIClasspathOption() {
     }
 }
 
+const std::string GetKerb5ConfPath() {
+    return "-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path;
+}
+
 [[maybe_unused]] void SetEnvIfNecessary() {
     std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
@@ -127,6 +131,7 @@ const std::string GetDorisJNIClasspathOption() {
                                                std::istream_iterator<std::string>());
             options.push_back(GetDorisJNIClasspathOption());
         }
+        options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
